@@ -9,18 +9,21 @@ shadow-clerk
 ## Instructions
 
 プロジェクトディレクトリはこの SKILL.md があるリポジトリのルートである。
-データディレクトリは `~/.claude/skills/shadow-clerk/data` である。以下のファイルはすべてデータディレクトリに保存される:
+データディレクトリは `~/.claude/skills/shadow-clerk/data` である。以下のファイルが保存される:
 - transcript ファイル（デフォルト `transcript-YYYYMMDD.txt`、セッション用 `transcript-YYYYMMDDHHMM.txt`）
+- summary ファイル（`summary-YYYYMMDD.md`、セッション用 `summary-YYYYMMDDHHMM.md`）
+- 翻訳ファイル（`transcript-YYYYMMDD-ja.txt` 等）
+- `config.yaml`（設定ファイル）
+- `words.txt`
 - `.clerk_session`、`.clerk_command`
 - `.transcript_offset`、`.translate_offset`
-- summary ファイル（`summary-YYYYMMDD.md`、セッション用 `summary-YYYYMMDDHHMM.md`）
-- `words.txt`
-- `config.yaml`（設定ファイル）
-- 翻訳ファイル（`transcript-YYYYMMDD-ja.txt` 等）
+
+`config.yaml` の `output_directory` が設定されている場合、transcript/summary/翻訳ファイルはそのディレクトリに保存される。メタデータ（`.clerk_session` 等）と `config.yaml` は常にデータディレクトリに保存される。
 
 ### clerk-data コマンド
 
-データディレクトリへのアクセスは `~/.claude/skills/shadow-clerk/clerk-data` ラッパースクリプト経由で行う:
+データディレクトリへのアクセスは `~/.claude/skills/shadow-clerk/clerk-data` ラッパースクリプト経由で行う。
+clerk-data は `config.yaml` の `output_directory` を自動で参照し、`transcript-*`/`summary-*` ファイルは `output_directory`（未設定ならデータディレクトリ）から解決する。そのためファイル名だけ指定すれば透過的にアクセスできる:
 - `clerk-data read <file>` — ファイルを読む
 - `clerk-data write <file> <text>` — ファイルに書き込む
 - `clerk-data append <file> <text>` — ファイルに追記する
