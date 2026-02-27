@@ -29,6 +29,7 @@ shadow-clerk
 - `clerk-data exists <file>` — ファイルの存在確認
 - `clerk-data ls` — データディレクトリの一覧
 - `clerk-data command <cmd>` — recorder.py にコマンドを送信（.clerk_command に書き込み）
+- `clerk-data recorder-status` — recorder.py の動作状態を表示（`running` または `stopped`）
 
 以降の説明で `clerk-data` と記載した場合はフルパス `~/.claude/skills/shadow-clerk/clerk-data` を指す。
 
@@ -72,13 +73,13 @@ shadow-clerk
 - recorder.py が現セッションを終了し、デフォルトの transcript ファイルに戻す
 
 `start [opts]`:
-1. `pgrep -f recorder.py` で既に動作中か確認。動作中なら「recorder は既に起動しています」と表示して終了
+1. `clerk-data recorder-status` で既に動作中か確認。`running` なら「recorder は既に起動しています」と表示して終了
 2. プロジェクトディレクトリ（SKILL.md があるリポジトリのルート）で `uv run python recorder.py` をバックグラウンド実行（Bash の `run_in_background` を使用）
 3. 引数があれば recorder.py にそのまま渡す（例: `start --language ja --model tiny`）
 4. 「recorder を起動しました」と表示
 
 `stop`:
-1. `pgrep -f recorder.py` で動作中か確認。動作していなければ「recorder は動作していません」と表示して終了
+1. `clerk-data recorder-status` で動作中か確認。`stopped` なら「recorder は動作していません」と表示して終了
 2. `pkill -f recorder.py` で SIGTERM を送信（recorder.py は SIGTERM をハンドルして graceful shutdown する）
 3. 「recorder を停止しました」と表示
 
@@ -87,7 +88,7 @@ shadow-clerk
 2. `clerk-data exists <transcript>`、`clerk-data lines <transcript>`、`clerk-data size <transcript>` で transcript の状態を表示
 3. `clerk-data read .transcript_offset` で現在のオフセット値を表示
 4. transcript のファイル名から summary のファイル名を導出し、`clerk-data exists <summary>`、`clerk-data mtime <summary>` で summary の状態を表示
-5. recorder.py プロセスが動作中か確認して表示（`pgrep -f recorder.py`）
+5. `clerk-data recorder-status` で recorder.py プロセスが動作中か確認して表示
 
 `translate <lang>`:
 リアルタイム翻訳モード。transcript の新しい行を検出し、翻訳してファイル保存+stdout表示をループする。
@@ -143,9 +144,8 @@ shadow-clerk — Web会議 議事録アシスタント
 プロジェクトの `.claude/settings.local.json` を編集し、shadow-clerk が使用する Bash コマンドの permission を追加する。
 以下のエントリを `permissions.allow` 配列に追加する（既に存在するものはスキップ）。
 パスは `clerk-data path` コマンドでフルパスを取得して使う:
-- `Bash(<clerk-data のフルパス> *)` — データディレクトリ操作全般
+- `Bash(<clerk-data のフルパス> *)` — データディレクトリ操作全般（recorder-status 含む）
 - `Bash(sleep *)` — translate ループの待機用
-- `Bash(pgrep -f recorder.py)` — status / start / stop 用
 - `Bash(pkill -f recorder.py)` — stop 用
 - `Bash(uv run python recorder.py*)` — start 用（プロジェクトディレクトリで実行）
 追加完了後、追加したエントリの一覧を表示する。

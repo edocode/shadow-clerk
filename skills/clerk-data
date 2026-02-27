@@ -38,6 +38,14 @@ case "$1" in
     shift
     echo "$*" > "$DATA_DIR/.clerk_command"
     ;;
+  recorder-status)
+    # recorder-status — recorder.py の動作状態を表示
+    if pgrep -f recorder.py > /dev/null 2>&1; then
+      echo "running"
+    else
+      echo "stopped"
+    fi
+    ;;
   path)
     # path — clerk-data 自身のフルパスを出力（setup 用）
     echo "$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
@@ -58,6 +66,7 @@ case "$1" in
     echo "  exists <file>          ファイルの存在確認"
     echo "  ls                     データディレクトリの一覧"
     echo "  command <cmd>          recorder.py にコマンドを送信"
+    echo "  recorder-status        recorder.py の動作状態 (running/stopped)"
     echo ""
     echo "Data directory: $DATA_DIR"
     exit 1

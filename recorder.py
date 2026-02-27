@@ -47,7 +47,7 @@ SESSION_FILE = os.path.join(DATA_DIR, ".clerk_session")
 WORDS_FILE = os.path.join(DATA_DIR, "words.txt")
 
 # 音声コマンド検出パターン
-VOICE_CMD_PREFIX = re.compile(r"(?i)^[\s]*(?:clerk|クラ[ーァ]ク)[,、\s]")
+VOICE_CMD_PREFIX = re.compile(r"(?i)^[\s]*(?:clerk|クラ[ーァ]ク)[,、\s]*")
 VOICE_COMMANDS = [
     (re.compile(r"(言語設定なし|unset\s*language)", re.IGNORECASE), "unset_language"),
     (re.compile(r"(言語.*(日本語|ja)|language.*ja)", re.IGNORECASE), "set_language ja"),
