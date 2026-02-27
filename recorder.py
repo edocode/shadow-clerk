@@ -45,6 +45,31 @@ os.makedirs(DATA_DIR, exist_ok=True)
 # 設定ファイル
 CONFIG_FILE = os.path.join(DATA_DIR, "config.yaml")
 
+DEFAULT_CONFIG = {
+    "translate_language": "ja",
+    "auto_translate": False,
+    "auto_summary": False,
+    "default_language": None,
+    "default_model": "small",
+    "output_directory": None,
+}
+
+
+def load_config() -> dict:
+    """config.yaml を読み込む。ファイルがなければデフォルト値を返す。"""
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                user_config = yaml.safe_load(f)
+            if isinstance(user_config, dict):
+                merged = dict(DEFAULT_CONFIG)
+                merged.update(user_config)
+                return merged
+        except Exception as e:
+            logger.warning("config.yaml の読み込みに失敗: %s", e)
+    return dict(DEFAULT_CONFIG)
+
+
 # コマンド・セッションファイル
 COMMAND_FILE = os.path.join(DATA_DIR, ".clerk_command")
 SESSION_FILE = os.path.join(DATA_DIR, ".clerk_session")
@@ -511,6 +536,15 @@ class Recorder:
             language=args.language,
         )
 
+        # output_directory: config で指定されていればそちらを使う
+        config = load_config()
+        output_dir_config = config.get("output_directory")
+        if output_dir_config:
+            self._output_dir = os.path.expanduser(output_dir_config)
+            os.makedirs(self._output_dir, exist_ok=True)
+        else:
+            self._output_dir = DATA_DIR
+
         # --output が指定されていれば固定、なければ日付ベースのデフォルト
         self._explicit_output = args.output is not None
         self.output_path = args.output if self._explicit_output else self._get_default_output()
@@ -518,11 +552,10 @@ class Recorder:
         self.use_mic = True
         self.word_replacer = WordReplacer()
 
-    @staticmethod
-    def _get_default_output() -> str:
+    def _get_default_output(self) -> str:
         """現在日付ベースのデフォルト transcript パスを返す"""
         filename = datetime.datetime.now().strftime("transcript-%Y%m%d.txt")
-        return os.path.join(DATA_DIR, filename)
+        return os.path.join(self._output_dir, filename)
 
     def _setup_signal_handlers(self):
         def handler(signum, frame):
@@ -663,7 +696,7 @@ class Recorder:
             parts = cmd.split(None, 1)
             now = datetime.datetime.now()
             filename = now.strftime("transcript-%Y%m%d%H%M.txt")
-            self.output_path = os.path.join(DATA_DIR, filename)
+            self.output_path = os.path.join(self._output_dir, filename)
             marker = f"--- 会議開始 {now.strftime('%Y-%m-%d %H:%M')} ---\n"
             with open(self.output_path, "a", encoding="utf-8") as f:
                 f.write(marker)

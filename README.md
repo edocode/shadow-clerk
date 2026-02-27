@@ -86,6 +86,7 @@ auto_translate: false         # start meeting 時に自動翻訳を開始
 auto_summary: false           # end meeting 時に自動 summary 生成
 default_language: null        # recorder.py のデフォルト言語 (null=自動検出)
 default_model: small          # recorder.py のデフォルト Whisper モデル
+output_directory: null        # transcript 出力先ディレクトリ (null=データディレクトリ)
 ```
 
 Claude Code から設定を操作:

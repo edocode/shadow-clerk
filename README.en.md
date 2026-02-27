@@ -86,6 +86,7 @@ auto_translate: false         # Auto-start translation on start meeting
 auto_summary: false           # Auto-generate summary on end meeting
 default_language: null        # Default language for recorder.py (null=auto-detect)
 default_model: small          # Default Whisper model for recorder.py
+output_directory: null        # Transcript output directory (null=data directory)
 ```
 
 Manage configuration from Claude Code:

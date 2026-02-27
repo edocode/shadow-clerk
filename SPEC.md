@@ -82,9 +82,10 @@ auto_translate: false         # start meeting 時に自動翻訳を開始
 auto_summary: false           # end meeting 時に自動 summary 生成
 default_language: null        # recorder.py のデフォルト言語 (null=自動検出)
 default_model: small          # recorder.py のデフォルト Whisper モデル
+output_directory: null        # transcript 出力先ディレクトリ (null=データディレクトリ)
 ```
 
-- recorder.py 起動時に config.yaml を読み込み、CLI 引数が未指定の場合のみ `default_model` と `default_language` を適用する
+- recorder.py 起動時に config.yaml を読み込み、CLI 引数が未指定の場合のみ `default_model`、`default_language`、`output_directory` を適用する
 - `start meeting` 実行時に `auto_translate: true` なら翻訳を自動開始する
 - `end meeting` 実行時に `auto_translate` の翻訳を停止し、`auto_summary: true` なら議事録を自動生成する
 
