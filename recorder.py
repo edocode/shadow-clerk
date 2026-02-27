@@ -52,6 +52,10 @@ DEFAULT_CONFIG = {
     "default_language": None,
     "default_model": "small",
     "output_directory": None,
+    "llm_provider": "claude",
+    "api_endpoint": None,
+    "api_model": None,
+    "api_key_env": "SHADOW_CLERK_API_KEY",
 }
 
 
@@ -84,29 +88,6 @@ VOICE_COMMANDS = [
     (re.compile(r"(会議開始|start\s*meeting)", re.IGNORECASE), "start_meeting"),
     (re.compile(r"(会議終了|end\s*meeting)", re.IGNORECASE), "end_meeting"),
 ]
-
-
-DEFAULT_CONFIG = {
-    "translate_language": "ja",
-    "auto_translate": False,
-    "auto_summary": False,
-    "default_language": None,
-    "default_model": "small",
-}
-
-
-def load_config() -> dict:
-    """config.yaml を読み込む。ファイルがなければデフォルト値を返す。"""
-    try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            config = yaml.safe_load(f)
-        if not isinstance(config, dict):
-            return dict(DEFAULT_CONFIG)
-        merged = dict(DEFAULT_CONFIG)
-        merged.update({k: v for k, v in config.items() if k in DEFAULT_CONFIG})
-        return merged
-    except FileNotFoundError:
-        return dict(DEFAULT_CONFIG)
 
 
 class WordReplacer:

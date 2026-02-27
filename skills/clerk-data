@@ -83,7 +83,11 @@ auto_translate: false
 auto_summary: false
 default_language: null
 default_model: small
-output_directory: null"
+output_directory: null
+llm_provider: claude
+api_endpoint: null
+api_model: null
+api_key_env: SHADOW_CLERK_API_KEY"
       echo "$DEFAULT_CONFIG" > "$CONFIG_FILE"
       cat "$CONFIG_FILE"
     fi

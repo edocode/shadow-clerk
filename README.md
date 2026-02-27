@@ -101,6 +101,10 @@ auto_summary: false           # end meeting 時に自動 summary 生成
 default_language: null        # recorder.py のデフォルト言語 (null=自動検出)
 default_model: small          # recorder.py のデフォルト Whisper モデル
 output_directory: null        # transcript 出力先ディレクトリ (null=データディレクトリ)
+llm_provider: claude          # 翻訳・Summary の LLM ("claude" or "api")
+api_endpoint: null            # OpenAI Compatible API の base URL
+api_model: null               # API モデル名 (gpt-4o, etc.)
+api_key_env: SHADOW_CLERK_API_KEY  # API キーを格納する環境変数名
 ```
 
 Claude Code から設定を操作:
@@ -115,12 +119,32 @@ Claude Code から設定を操作:
 `auto_translate: true` にすると、`/shadow-clerk start meeting` 時に自動で翻訳が開始される。
 `auto_summary: true` にすると、`/shadow-clerk end meeting` 時に自動で議事録が生成される。
 
+### 外部 API モード
+
+`llm_provider: api` に設定すると、翻訳と議事録生成を OpenAI Compatible API 経由で実行できる。Claude Code 以外の LLM（OpenAI、Ollama 等）で処理したい場合に使う。
+
+```
+# OpenAI の場合
+/shadow-clerk config set llm_provider api
+/shadow-clerk config set api_endpoint https://api.openai.com/v1
+/shadow-clerk config set api_model gpt-4o
+# API キーは ~/.claude/skills/shadow-clerk/data/.env に記載:
+#   SHADOW_CLERK_API_KEY=sk-...
+
+# Ollama（ローカル）の場合
+/shadow-clerk config set llm_provider api
+/shadow-clerk config set api_endpoint http://localhost:11434/v1
+/shadow-clerk config set api_model llama3
+/shadow-clerk config set api_key_env null
+```
+
 ## ファイル構成
 
 ```
 shadow-clerk/                          # リポジトリ
   pyproject.toml                       # プロジェクト定義・依存関係
   recorder.py                          # 録音・VAD・文字起こし
+  llm_client.py                        # 外部 API 翻訳・Summary 生成
   skills/
     SKILL.md                           # Claude Code Skill 定義
     clerk-data                         # データディレクトリ操作ラッパー

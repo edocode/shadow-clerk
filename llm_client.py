@@ -1,0 +1,452 @@
+#!/usr/bin/env python3
+"""shadow-clerk LLM client: OpenAI Compatible API による翻訳・Summary 生成"""
+
+import argparse
+import logging
+import os
+import re
+import sys
+
+import yaml
+from openai import OpenAI
+
+logger = logging.getLogger("llm-client")
+
+# --- データディレクトリ ---
+DATA_DIR = os.path.expanduser("~/.claude/skills/shadow-clerk/data")
+CONFIG_FILE = os.path.join(DATA_DIR, "config.yaml")
+ENV_FILE = os.path.join(DATA_DIR, ".env")
+
+
+def load_dotenv():
+    """データディレクトリの .env ファイルから環境変数を読み込む。
+
+    既に設定済みの環境変数は上書きしない。
+    """
+    if not os.path.exists(ENV_FILE):
+        logger.debug(".env ファイルなし: %s", ENV_FILE)
+        return
+    logger.debug(".env 読み込み: %s", ENV_FILE)
+    try:
+        with open(ENV_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip()
+                # クォート除去
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                    value = value[1:-1]
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except Exception as e:
+        print(f".env の読み込みに失敗: {e}", file=sys.stderr)
+
+
+DEFAULT_CONFIG = {
+    "translate_language": "ja",
+    "auto_translate": False,
+    "auto_summary": False,
+    "default_language": None,
+    "default_model": "small",
+    "output_directory": None,
+    "llm_provider": "claude",
+    "api_endpoint": None,
+    "api_model": None,
+    "api_key_env": "SHADOW_CLERK_API_KEY",
+}
+
+
+def load_config() -> dict:
+    """config.yaml を読み込む。ファイルがなければデフォルト値を返す。"""
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                user_config = yaml.safe_load(f)
+            if isinstance(user_config, dict):
+                merged = dict(DEFAULT_CONFIG)
+                merged.update(user_config)
+                return merged
+        except Exception as e:
+            print(f"config.yaml の読み込みに失敗: {e}", file=sys.stderr)
+    return dict(DEFAULT_CONFIG)
+
+
+def resolve_path(filename: str, config: dict) -> str:
+    """ファイル名からフルパスを解決する。
+
+    transcript-*/summary-* → output_directory（設定時）またはデータディレクトリ
+    それ以外 → データディレクトリ
+    """
+    output_dir = DATA_DIR
+    out_config = config.get("output_directory")
+    if out_config:
+        output_dir = os.path.expanduser(out_config)
+
+    if filename.startswith("transcript-") or filename.startswith("summary-"):
+        return os.path.join(output_dir, filename)
+    return os.path.join(DATA_DIR, filename)
+
+
+def get_api_client(config: dict) -> tuple[OpenAI, str]:
+    """config から OpenAI クライアントとモデル名を生成する。"""
+    endpoint = config.get("api_endpoint")
+    model = config.get("api_model")
+
+    if not endpoint:
+        print("エラー: api_endpoint が設定されていません。", file=sys.stderr)
+        print("  config set api_endpoint <URL> で設定してください。", file=sys.stderr)
+        sys.exit(1)
+
+    if not model:
+        print("エラー: api_model が設定されていません。", file=sys.stderr)
+        print("  config set api_model <model> で設定してください。", file=sys.stderr)
+        sys.exit(1)
+
+    # API キー取得
+    api_key_env = config.get("api_key_env")
+    if api_key_env:
+        api_key = os.environ.get(api_key_env)
+        if not api_key:
+            print(
+                f"エラー: API キーが見つかりません。",
+                file=sys.stderr,
+            )
+            print(
+                f"  {DATA_DIR}/.env に {api_key_env}=<your-api-key> を記載してください。",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    else:
+        # api_key_env: null の場合（ローカル API 用）ダミーキーを使用
+        api_key = "dummy"
+
+    logger.debug("API client: endpoint=%s, model=%s, key=%s...)",
+                 endpoint, model, api_key[:8] if len(api_key) > 8 else "***")
+    client = OpenAI(base_url=endpoint, api_key=api_key)
+    return client, model
+
+
+# --- translate サブコマンド ---
+
+MARKER_RE = re.compile(r"^---\s+.+\s+---$")
+TIMESTAMP_RE = re.compile(
+    r"^(\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]\s*\[[^\]]+\])\s*(.*)$"
+)
+
+
+def translate(args: argparse.Namespace):
+    """transcript を翻訳して stdout に出力する。"""
+    config = load_config()
+    client, model = get_api_client(config)
+    lang = args.lang
+
+    # --file 指定時はファイルから読む（--offset 対応）、なければ stdin
+    if args.file:
+        file_path = args.file
+        file_path = os.path.expanduser(file_path)
+        if not os.path.isabs(file_path):
+            file_path = resolve_path(file_path, config)
+        offset = int(args.offset) if args.offset else 0
+        logger.debug("translate: file=%s, offset=%d", file_path, offset)
+        logger.debug("translate: file exists=%s", os.path.exists(file_path))
+        if os.path.exists(file_path):
+            logger.debug("translate: file size=%d", os.path.getsize(file_path))
+        try:
+            file_size = os.path.getsize(file_path)
+            if offset > file_size:
+                logger.warning("translate: offset(%d) > file size(%d), reading from beginning",
+                               offset, file_size)
+                offset = 0
+            # バイトオフセットなので rb で開いてデコード
+            with open(file_path, "rb") as f:
+                if offset:
+                    f.seek(offset)
+                raw = f.read()
+            lines = raw.decode("utf-8", errors="replace")
+        except FileNotFoundError:
+            print(f"エラー: ファイルが見つかりません: {file_path}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        logger.debug("translate: reading from stdin")
+        lines = sys.stdin.read()
+
+    logger.debug("translate: input %d bytes, %d lines",
+                 len(lines), len(lines.splitlines()))
+    if not lines.strip():
+        logger.debug("translate: input is empty, returning")
+        return
+
+    # 行をパースして翻訳対象を特定
+    input_lines = lines.splitlines()
+    translatable = []
+    line_map = []  # (index, prefix, text) or (index, None, original_line)
+
+    for i, line in enumerate(input_lines):
+        stripped = line.strip()
+        if not stripped:
+            line_map.append((i, None, ""))
+            continue
+        if MARKER_RE.match(stripped):
+            line_map.append((i, None, stripped))
+            continue
+        m = TIMESTAMP_RE.match(stripped)
+        if m:
+            prefix, text = m.group(1), m.group(2)
+            translatable.append((i, text))
+            line_map.append((i, prefix, text))
+        else:
+            translatable.append((i, stripped))
+            line_map.append((i, "", stripped))
+
+    logger.debug("translate: %d translatable lines, %d total lines",
+                 len(translatable), len(line_map))
+    if not translatable:
+        # 翻訳対象なし、そのまま出力
+        logger.debug("translate: no translatable lines, passing through")
+        print(lines, end="")
+        return
+
+    # バッチで翻訳（全テキストをまとめて送信）
+    numbered_lines = "\n".join(
+        f"{idx}: {text}" for idx, (_, text) in enumerate(translatable)
+    )
+    logger.debug("translate: API request:\n%s", numbered_lines)
+
+    system_prompt = f"""あなたは翻訳アシスタントです。以下のルールに従ってテキストを{lang}に翻訳してください:
+
+1. 各行は「番号: テキスト」形式で与えられます。同じ「番号: 翻訳結果」形式で返してください。
+2. 音声認識の書き起こしテキストです。明らかな誤認識は文脈から推測して補正してから翻訳してください。
+3. 翻訳先言語（{lang}）と同じ言語で書かれている行はそのまま出力してください。
+4. 番号とコロンの後の翻訳テキストのみを出力してください。余計な説明は不要です。"""
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": numbered_lines},
+        ],
+        temperature=0.3,
+    )
+
+    raw_content = response.choices[0].message.content
+    logger.debug("translate: API response (raw): %r", raw_content)
+    translated_text = raw_content.strip() if raw_content else ""
+
+    if not translated_text:
+        logger.warning("translate: API returned empty response")
+
+    # 翻訳結果をパース
+    translated_map = {}
+    for tline in translated_text.splitlines():
+        tline = tline.strip()
+        if not tline:
+            continue
+        m = re.match(r"^(\d+):\s*(.*)$", tline)
+        if m:
+            translated_map[int(m.group(1))] = m.group(2)
+        else:
+            logger.debug("translate: unparsed response line: %r", tline)
+
+    logger.debug("translate: parsed %d/%d translations",
+                 len(translated_map), len(translatable))
+
+    # 出力を組み立て
+    translate_idx = 0
+    for i, prefix, text in line_map:
+        if prefix is None:
+            # マーカー行 or 空行
+            print(text)
+        else:
+            # 翻訳対象行
+            translated = translated_map.get(translate_idx, text)
+            if prefix:
+                print(f"{prefix} {translated}")
+            else:
+                print(translated)
+            translate_idx += 1
+
+
+# --- summarize サブコマンド ---
+
+SUMMARY_FORMAT = """# 議事録
+
+- **日時**: YYYY-MM-DD HH:MM〜HH:MM（transcript のタイムスタンプから推定）
+- **参加者**: （判別できれば記載、不明なら省略）
+
+## 要約
+（会議全体の要約を3〜5文で）
+
+## 主な議題と決定事項
+- **議題1**: 内容の要約
+  - 決定事項: ...
+- **議題2**: ...
+
+## アクションアイテム
+- [ ] 担当者: タスク内容（期限があれば記載）
+
+## 詳細メモ
+（重要な発言や補足情報）"""
+
+
+def summarize(args: argparse.Namespace):
+    """transcript から議事録を生成する。"""
+    config = load_config()
+    client, model = get_api_client(config)
+
+    # transcript ファイルを読む
+    transcript_path = os.path.expanduser(args.file)
+    if not os.path.isabs(transcript_path):
+        transcript_path = resolve_path(transcript_path, config)
+
+    try:
+        with open(transcript_path, "r", encoding="utf-8") as f:
+            transcript = f.read()
+    except FileNotFoundError:
+        print(f"エラー: transcript ファイルが見つかりません: {transcript_path}", file=sys.stderr)
+        sys.exit(1)
+
+    if not transcript.strip():
+        print("エラー: transcript が空です。", file=sys.stderr)
+        sys.exit(1)
+
+    if args.mode == "full":
+        _summarize_full(client, model, transcript)
+    elif args.mode == "update":
+        existing_summary = ""
+        if args.existing:
+            existing_path = os.path.expanduser(args.existing)
+            if not os.path.isabs(existing_path):
+                existing_path = resolve_path(existing_path, config)
+            try:
+                with open(existing_path, "r", encoding="utf-8") as f:
+                    existing_summary = f.read()
+            except FileNotFoundError:
+                pass
+        _summarize_update(client, model, transcript, existing_summary)
+
+
+def _summarize_full(client: OpenAI, model: str, transcript: str):
+    """transcript 全文から議事録を生成する。"""
+    system_prompt = f"""あなたは議事録作成アシスタントです。以下の transcript（音声書き起こし）から議事録を作成してください。
+
+フォーマット:
+{SUMMARY_FORMAT}
+
+注意事項:
+- 日本語で作成してください
+- transcript の各行は [YYYY-MM-DD HH:MM:SS] [スピーカー] テキスト 形式です
+- 文字起こしの誤認識と思われる箇所は文脈から推測して補正してください
+- マークダウン形式で出力してください"""
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": transcript},
+        ],
+        temperature=0.3,
+    )
+
+    print(response.choices[0].message.content)
+
+
+def _summarize_update(
+    client: OpenAI, model: str, transcript: str, existing_summary: str
+):
+    """既存の summary を踏まえて差分 transcript から議事録を更新する。"""
+    system_prompt = f"""あなたは議事録作成アシスタントです。既存の議事録と新しい transcript（音声書き起こしの差分）が与えられます。
+既存の議事録を新しい transcript の内容で更新してください。
+
+フォーマット:
+{SUMMARY_FORMAT}
+
+注意事項:
+- 日本語で作成してください
+- 既存の議事録の内容は維持しつつ、新しい情報を追加・統合してください
+- transcript の各行は [YYYY-MM-DD HH:MM:SS] [スピーカー] テキスト 形式です
+- 文字起こしの誤認識と思われる箇所は文脈から推測して補正してください
+- 更新後の議事録全体をマークダウン形式で出力してください"""
+
+    user_content = f"""## 既存の議事録
+{existing_summary if existing_summary else "(なし — 新規作成してください)"}
+
+## 新しい transcript（差分）
+{transcript}"""
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        temperature=0.3,
+    )
+
+    print(response.choices[0].message.content)
+
+
+# --- CLI ---
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="shadow-clerk LLM client: OpenAI Compatible API による翻訳・Summary 生成",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # translate
+    translate_parser = subparsers.add_parser(
+        "translate", help="transcript を翻訳して stdout に出力"
+    )
+    translate_parser.add_argument("lang", help="翻訳先言語コード (ja, en, etc.)")
+    translate_parser.add_argument(
+        "--file", default=None, help="transcript ファイルパス（省略時は stdin）"
+    )
+    translate_parser.add_argument(
+        "--offset", default=None, help="ファイル読み込み開始バイトオフセット"
+    )
+
+    # summarize
+    summarize_parser = subparsers.add_parser(
+        "summarize", help="transcript から議事録を生成"
+    )
+    summarize_parser.add_argument(
+        "--mode",
+        required=True,
+        choices=["full", "update"],
+        help="生成モード: full=全文から生成, update=差分更新",
+    )
+    summarize_parser.add_argument(
+        "--file", required=True, help="transcript ファイルパス"
+    )
+    summarize_parser.add_argument(
+        "--existing", default=None, help="既存の summary ファイルパス (update モード用)"
+    )
+
+    parser.add_argument(
+        "--verbose", "-v", action="store_true", help="デバッグログを stderr に出力"
+    )
+
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.WARNING,
+        format="[%(name)s] %(levelname)s: %(message)s",
+        stream=sys.stderr,
+    )
+
+    load_dotenv()
+
+    if args.command == "translate":
+        translate(args)
+    elif args.command == "summarize":
+        summarize(args)
+
+
+if __name__ == "__main__":
+    main()

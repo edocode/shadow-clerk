@@ -101,6 +101,10 @@ auto_summary: false           # Auto-generate summary on end meeting
 default_language: null        # Default language for recorder.py (null=auto-detect)
 default_model: small          # Default Whisper model for recorder.py
 output_directory: null        # Transcript output directory (null=data directory)
+llm_provider: claude          # LLM for translation & summary ("claude" or "api")
+api_endpoint: null            # OpenAI Compatible API base URL
+api_model: null               # API model name (gpt-4o, etc.)
+api_key_env: SHADOW_CLERK_API_KEY  # Environment variable name for API key
 ```
 
 Manage configuration from Claude Code:
@@ -115,12 +119,32 @@ Manage configuration from Claude Code:
 With `auto_translate: true`, translation starts automatically on `/shadow-clerk start meeting`.
 With `auto_summary: true`, meeting minutes are generated automatically on `/shadow-clerk end meeting`.
 
+### External API mode
+
+Set `llm_provider: api` to run translation and summary generation via an OpenAI Compatible API. Use this when you want to process with LLMs other than Claude Code (OpenAI, Ollama, etc.).
+
+```
+# OpenAI
+/shadow-clerk config set llm_provider api
+/shadow-clerk config set api_endpoint https://api.openai.com/v1
+/shadow-clerk config set api_model gpt-4o
+# Put API key in ~/.claude/skills/shadow-clerk/data/.env:
+#   SHADOW_CLERK_API_KEY=sk-...
+
+# Ollama (local)
+/shadow-clerk config set llm_provider api
+/shadow-clerk config set api_endpoint http://localhost:11434/v1
+/shadow-clerk config set api_model llama3
+/shadow-clerk config set api_key_env null
+```
+
 ## File structure
 
 ```
 shadow-clerk/                          # Repository
   pyproject.toml                       # Project definition & dependencies
   recorder.py                          # Recording, VAD & transcription
+  llm_client.py                        # External API translation & summary
   skills/
     SKILL.md                           # Claude Code Skill definition
     clerk-data                         # Data directory wrapper script

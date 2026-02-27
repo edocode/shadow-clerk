@@ -49,16 +49,23 @@ clerk-data は `config.yaml` の `output_directory` を自動で参照し、`tra
 5. transcript のファイル名から summary のファイル名を導出する（`transcript-` → `summary-`、`.txt` → `.md`）
    - 例: `transcript-20260227.txt` → `summary-20260227.md`
    - 例: `transcript-202602271430.txt` → `summary-202602271430.md`
-6. 差分テキストを使い、既存の summary ファイルがあればその内容も踏まえて議事録を更新する
-7. summary ファイルを上書き保存する
-8. `clerk-data write .transcript_offset <size>` に現在の transcript ファイルのファイルサイズ(バイト数)を書き込む
+6. `clerk-data read-config` で config を読み、`llm_provider` を確認する
+7. 議事録を生成する:
+   - **`llm_provider: claude`（デフォルト）の場合** — 差分テキストを使い、既存の summary ファイルがあればその内容も踏まえて議事録を更新する（Claude 自身がインラインで生成）
+   - **`llm_provider: api` の場合** — `uv run python llm_client.py summarize --mode update --file <transcript> --existing <summary>` を実行して議事録を取得する（プロジェクトディレクトリで実行）。既存 summary がなければ `--existing` は省略する
+8. summary ファイルを上書き保存する
+9. `clerk-data write .transcript_offset <size>` に現在の transcript ファイルのファイルサイズ(バイト数)を書き込む
 
 `full`:
 1. `clerk-data read .clerk_session` でセッションファイルを確認。あればその中のファイル名を transcript ファイルとして使う。なければ `clerk-data ls` の結果から今日の日付の `transcript-YYYYMMDD.txt` を使う
 2. transcript ファイルを全文読み込む
 3. transcript のファイル名から summary のファイル名を導出する（`transcript-` → `summary-`、`.txt` → `.md`）
-4. 全内容から議事録を生成し summary ファイルに上書き保存する
-5. `clerk-data write .transcript_offset <size>` に現在の transcript ファイルのファイルサイズを書き込む
+4. `clerk-data read-config` で config を読み、`llm_provider` を確認する
+5. 議事録を生成する:
+   - **`llm_provider: claude`（デフォルト）の場合** — 全内容から議事録を生成する（Claude 自身がインラインで生成）
+   - **`llm_provider: api` の場合** — `uv run python llm_client.py summarize --mode full --file <transcript>` を実行して議事録を取得する（プロジェクトディレクトリで実行）
+6. summary ファイルに上書き保存する
+7. `clerk-data write .transcript_offset <size>` に現在の transcript ファイルのファイルサイズを書き込む
 
 `set language <lang>`:
 - `<lang>` が `ja` または `en` の場合: `clerk-data command set_language <lang>` を実行
@@ -90,6 +97,7 @@ clerk-data は `config.yaml` の `output_directory` を自動で参照し、`tra
 `start meeting`:
 - `clerk-data command start_meeting` を実行
 - recorder.py が新しいセッション用 transcript ファイルを作成する
+- `clerk-data write .translate_offset 0` で翻訳オフセットをリセットする（新しいファイルなので 0 から）
 - `clerk-data read-config` で config を読む
 - `auto_translate: true` なら `translate <translate_language>` 相当の翻訳ループを開始する（バックグラウンドで `translate <translate_language>` サブコマンドと同じ処理を実行）
 - `auto_summary: true` の場合はその旨を記憶しておく（end meeting 時に使う）
@@ -97,6 +105,7 @@ clerk-data は `config.yaml` の `output_directory` を自動で参照し、`tra
 `end meeting`:
 - `clerk-data command end_meeting` を実行
 - recorder.py が現セッションを終了し、デフォルトの transcript ファイルに戻す
+- 戻り先の日付ベース transcript（`transcript-YYYYMMDD.txt`）の現在のファイルサイズを取得し、`clerk-data write .translate_offset <size>` で記録する（既存部分を再翻訳しないため）
 - `clerk-data read-config` で config を読む
 - `auto_translate: true` で翻訳が動いていれば `translate stop` 相当の処理で停止する
 - `auto_summary: true` なら `update` サブコマンド相当の議事録生成を自動実行する
@@ -124,23 +133,26 @@ clerk-data は `config.yaml` の `output_directory` を自動で参照し、`tra
 
 1. `clerk-data read .clerk_session` でセッションファイルを確認。あればその中のファイル名を transcript として使う。なければ今日の日付の `transcript-YYYYMMDD.txt` を使う
 2. `clerk-data read .translate_offset` から前回の翻訳済みバイトオフセットを読む（なければ 0）
-3. ループ開始:
+3. `clerk-data read-config` で config を読み、`llm_provider` を確認する
+4. ループ開始:
    a. `clerk-data read-from <transcript> <offset>` で transcript ファイルをオフセット位置から読む
    b. 新しい行があれば:
-      - 各行のテキスト部分に音声認識由来の明らかな typo・誤認識があれば、文脈から推測して修正してから翻訳する
-      - 各行を `<lang>` に翻訳する（Claude 自身が翻訳を行う）
-      - `--- 会議開始 ---` や `--- 会議終了 ---` 等のマーカー行は翻訳せずそのまま出力する
-      - 翻訳先言語と同じ言語で書かれている行はそのまま出力する（翻訳不要）
-      - タイムスタンプ `[YYYY-MM-DD HH:MM:SS]` とスピーカーラベル `[自分]` `[相手]` 等はそのまま保持し、テキスト部分のみ翻訳する
-        - 例（ja の場合）: `[2026-02-27 14:30:00] [自分] Hello, let's discuss the project timeline.` → `[2026-02-27 14:30:00] [自分] こんにちは、プロジェクトのタイムラインについて話しましょう。`
+      - **`llm_provider: claude`（デフォルト）の場合** — 以下を Claude 自身がインラインで実行する:
+        - 各行のテキスト部分に音声認識由来の明らかな typo・誤認識があれば、文脈から推測して修正してから翻訳する
+        - 各行を `<lang>` に翻訳する（Claude 自身が翻訳を行う）
+        - `--- 会議開始 ---` や `--- 会議終了 ---` 等のマーカー行は翻訳せずそのまま出力する
+        - 翻訳先言語と同じ言語で書かれている行はそのまま出力する（翻訳不要）
+        - タイムスタンプ `[YYYY-MM-DD HH:MM:SS]` とスピーカーラベル `[自分]` `[相手]` 等はそのまま保持し、テキスト部分のみ翻訳する
+          - 例（ja の場合）: `[2026-02-27 14:30:00] [自分] Hello, let's discuss the project timeline.` → `[2026-02-27 14:30:00] [自分] こんにちは、プロジェクトのタイムラインについて話しましょう。`
+      - **`llm_provider: api` の場合** — `uv run python llm_client.py translate <lang> --file <transcript> --offset <offset> --verbose` を実行して翻訳結果を得る（プロジェクトディレクトリで実行）。stdout が翻訳結果、stderr にデバッグログが出る
       - 翻訳結果を `<transcriptのベース名>-<lang>.txt` に追記する
         - 例: `transcript-20260227.txt` → `transcript-20260227-ja.txt`
         - 例: `transcript-202602271430.txt` → `transcript-202602271430-ja.txt`
       - 翻訳結果を stdout にも表示する（print）
       - `clerk-data write .translate_offset <offset>` にバイトオフセットを更新して書き込む
    c. 新しい行がなければ 5 秒待機する（`sleep 5`）
-   d. 3a に戻る
-4. ユーザーが中断（Ctrl+C）するまで継続
+   d. 4a に戻る
+5. ユーザーが中断（Ctrl+C）するまで継続
 
 `translate stop`:
 - 翻訳ループを中断する（手動で Ctrl+C しなくても停止できる用）
@@ -158,6 +170,7 @@ shadow-clerk — Web会議 議事録アシスタント
   set model <size>       Whisper モデルを切り替え (tiny / base / small / medium / large-v3)
   config show            設定を表示
   config set <key> <val> 設定を変更
+                         例: config set llm_provider api  外部 API で翻訳・Summary を実行
   config init            デフォルト設定ファイルを生成
   start meeting          新しい会議セッションを開始（auto_translate/auto_summary 連動）
   end meeting            会議セッションを終了（auto_translate 停止、auto_summary 実行）
@@ -181,6 +194,7 @@ shadow-clerk — Web会議 議事録アシスタント
 - `Bash(sleep *)` — translate ループの待機用
 - `Bash(pkill -f recorder.py)` — stop 用
 - `Bash(uv run python recorder.py*)` — start 用（プロジェクトディレクトリで実行）
+- `Bash(uv run python llm_client.py*)` — 外部 API 経由の翻訳・Summary 生成用（プロジェクトディレクトリで実行）
 追加完了後、追加したエントリの一覧を表示する。
 
 ### 議事録フォーマット (summary-YYYYMMDD.md)
