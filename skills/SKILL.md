@@ -71,6 +71,17 @@ shadow-clerk
 - `clerk-data command end_meeting` を実行
 - recorder.py が現セッションを終了し、デフォルトの transcript ファイルに戻す
 
+`start [opts]`:
+1. `pgrep -f recorder.py` で既に動作中か確認。動作中なら「recorder は既に起動しています」と表示して終了
+2. プロジェクトディレクトリ（SKILL.md があるリポジトリのルート）で `uv run python recorder.py` をバックグラウンド実行（Bash の `run_in_background` を使用）
+3. 引数があれば recorder.py にそのまま渡す（例: `start --language ja --model tiny`）
+4. 「recorder を起動しました」と表示
+
+`stop`:
+1. `pgrep -f recorder.py` で動作中か確認。動作していなければ「recorder は動作していません」と表示して終了
+2. `pkill -f recorder.py` で SIGTERM を送信（recorder.py は SIGTERM をハンドルして graceful shutdown する）
+3. 「recorder を停止しました」と表示
+
 `status`:
 1. `clerk-data read .clerk_session` でセッションファイルを確認。あればその中のファイル名を transcript ファイルとして使う。なければ今日の日付の `transcript-YYYYMMDD.txt` を使う
 2. `clerk-data exists <transcript>`、`clerk-data lines <transcript>`、`clerk-data size <transcript>` で transcript の状態を表示
@@ -117,6 +128,8 @@ shadow-clerk — Web会議 議事録アシスタント
   set model <size>       Whisper モデルを切り替え (tiny / base / small / medium / large-v3)
   start meeting          新しい会議セッションを開始
   end meeting            会議セッションを終了
+  start [opts]           recorder.py をバックグラウンドで起動
+  stop                   recorder.py を停止
   status                 録音・文字起こしの状態を表示
   translate <lang>       リアルタイム翻訳モードを開始
   translate stop         翻訳モードを停止
@@ -132,7 +145,9 @@ shadow-clerk — Web会議 議事録アシスタント
 パスは `clerk-data path` コマンドでフルパスを取得して使う:
 - `Bash(<clerk-data のフルパス> *)` — データディレクトリ操作全般
 - `Bash(sleep *)` — translate ループの待機用
-- `Bash(pgrep -f recorder.py)` — status 用
+- `Bash(pgrep -f recorder.py)` — status / start / stop 用
+- `Bash(pkill -f recorder.py)` — stop 用
+- `Bash(uv run python recorder.py*)` — start 用（プロジェクトディレクトリで実行）
 追加完了後、追加したエントリの一覧を表示する。
 
 ### 議事録フォーマット (summary-YYYYMMDD.md)

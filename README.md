@@ -62,9 +62,12 @@ uv run python recorder.py \
 
 ### 議事録生成 (Claude Code Skill)
 
-recorder.py で録音中、別ターミナルの Claude Code から:
+Claude Code から recorder.py の起動・停止・議事録生成を行える:
 
 ```
+/shadow-clerk start                    # recorder.py をバックグラウンドで起動
+/shadow-clerk start --language ja      # オプション付きで起動
+/shadow-clerk stop                     # recorder.py を停止
 /shadow-clerk          # 差分テキストから議事録を更新
 /shadow-clerk full     # 全文から議事録を再生成
 /shadow-clerk status   # 現在の状態を確認
