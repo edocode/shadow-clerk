@@ -2,36 +2,61 @@
 # shadow-clerk データディレクトリ操作ラッパー
 DATA_DIR="$HOME/.claude/skills/shadow-clerk/data"
 
+# config.yaml から output_directory を読む（transcript-*/summary-* 用）
+OUTPUT_DIR="$DATA_DIR"
+CONFIG_FILE="$DATA_DIR/config.yaml"
+if [ -f "$CONFIG_FILE" ]; then
+  _out=$(grep '^output_directory:' "$CONFIG_FILE" 2>/dev/null | sed 's/^output_directory:[[:space:]]*//')
+  if [ -n "$_out" ] && [ "$_out" != "null" ]; then
+    OUTPUT_DIR="${_out/#\~/$HOME}"
+    mkdir -p "$OUTPUT_DIR"
+  fi
+fi
+
+# ファイル名に応じてディレクトリを解決する
+# transcript-*/summary-* → OUTPUT_DIR、それ以外 → DATA_DIR
+resolve_path() {
+  case "$1" in
+    transcript-*|summary-*) echo "$OUTPUT_DIR/$1" ;;
+    *)                      echo "$DATA_DIR/$1" ;;
+  esac
+}
+
 case "$1" in
   read)
-    cat "$DATA_DIR/$2" 2>/dev/null
+    cat "$(resolve_path "$2")" 2>/dev/null
     ;;
   read-from)
     # read-from <filename> <byte_offset> — オフセット位置から読む
-    dd if="$DATA_DIR/$2" bs=1 skip="$3" 2>/dev/null
+    dd if="$(resolve_path "$2")" bs=1 skip="$3" 2>/dev/null
     ;;
   write)
     # write <filename> <content>
-    echo "$3" > "$DATA_DIR/$2"
+    echo "$3" > "$(resolve_path "$2")"
     ;;
   append)
     # append <filename> <content>
-    echo "$3" >> "$DATA_DIR/$2"
+    echo "$3" >> "$(resolve_path "$2")"
     ;;
   lines)
-    wc -l < "$DATA_DIR/$2" 2>/dev/null
+    wc -l < "$(resolve_path "$2")" 2>/dev/null
     ;;
   size)
-    stat -c %s "$DATA_DIR/$2" 2>/dev/null
+    stat -c %s "$(resolve_path "$2")" 2>/dev/null
     ;;
   mtime)
-    stat -c %y "$DATA_DIR/$2" 2>/dev/null
+    stat -c %y "$(resolve_path "$2")" 2>/dev/null
     ;;
   exists)
-    [ -f "$DATA_DIR/$2" ] && echo "yes" || echo "no"
+    [ -f "$(resolve_path "$2")" ] && echo "yes" || echo "no"
     ;;
   ls)
     ls -la "$DATA_DIR/" 2>/dev/null
+    if [ "$OUTPUT_DIR" != "$DATA_DIR" ]; then
+      echo ""
+      echo "Output directory ($OUTPUT_DIR):"
+      ls -la "$OUTPUT_DIR/" 2>/dev/null
+    fi
     ;;
   command)
     # command <cmd> — .clerk_command に書き込み
