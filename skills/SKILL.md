@@ -15,6 +15,7 @@ shadow-clerk
 - `.transcript_offset`、`.translate_offset`
 - summary ファイル（`summary-YYYYMMDD.md`、セッション用 `summary-YYYYMMDDHHMM.md`）
 - `words.txt`
+- `config.yaml`（設定ファイル）
 - 翻訳ファイル（`transcript-YYYYMMDD-ja.txt` 等）
 
 ### clerk-data コマンド
@@ -30,6 +31,8 @@ shadow-clerk
 - `clerk-data ls` — データディレクトリの一覧
 - `clerk-data command <cmd>` — recorder.py にコマンドを送信（.clerk_command に書き込み）
 - `clerk-data recorder-status` — recorder.py の動作状態を表示（`running` または `stopped`）
+- `clerk-data read-config` — config.yaml を読んで stdout に出力（なければデフォルト YAML を生成して出力）
+- `clerk-data write-config` — stdin から config.yaml を書き込み
 
 以降の説明で `clerk-data` と記載した場合はフルパス `~/.claude/skills/shadow-clerk/clerk-data` を指す。
 
@@ -64,13 +67,36 @@ shadow-clerk
 - `<size>` は `tiny`, `base`, `small`, `medium`, `large-v3` のいずれか
 - recorder.py の Whisper モデルをリアルタイムに切り替える（再ロード中の約10〜30秒は文字起こしが一時停止する）
 
+`config show`:
+- `clerk-data read-config` で現在の設定を読み、内容を表示する
+
+`config set <key> <value>`:
+- `clerk-data read-config` で現在の設定を YAML として読む
+- 指定された `<key>` の値を `<value>` に更新した YAML を生成する
+  - `true` / `false` はブール値として扱う
+  - `null` は null 値として扱う
+  - それ以外は文字列として扱う
+- `echo "<更新後のYAML>" | clerk-data write-config` で書き戻す
+- 変更後の設定を表示する
+
+`config init`:
+- デフォルト設定ファイルを生成する
+- 既に config.yaml が存在する場合は上書きしてよいか確認する
+- `clerk-data read-config` を実行すれば、ファイルがなければデフォルトが自動生成される
+
 `start meeting`:
 - `clerk-data command start_meeting` を実行
 - recorder.py が新しいセッション用 transcript ファイルを作成する
+- `clerk-data read-config` で config を読む
+- `auto_translate: true` なら `translate <translate_language>` 相当の翻訳ループを開始する（バックグラウンドで `translate <translate_language>` サブコマンドと同じ処理を実行）
+- `auto_summary: true` の場合はその旨を記憶しておく（end meeting 時に使う）
 
 `end meeting`:
 - `clerk-data command end_meeting` を実行
 - recorder.py が現セッションを終了し、デフォルトの transcript ファイルに戻す
+- `clerk-data read-config` で config を読む
+- `auto_translate: true` で翻訳が動いていれば `translate stop` 相当の処理で停止する
+- `auto_summary: true` なら `update` サブコマンド相当の議事録生成を自動実行する
 
 `start [opts]`:
 1. `clerk-data recorder-status` で既に動作中か確認。`running` なら「recorder は既に起動しています」と表示して終了
@@ -127,8 +153,11 @@ shadow-clerk — Web会議 議事録アシスタント
   full                   transcript 全文から議事録を再生成
   set language <lang>    文字起こし言語を切り替え (ja / en / auto)
   set model <size>       Whisper モデルを切り替え (tiny / base / small / medium / large-v3)
-  start meeting          新しい会議セッションを開始
-  end meeting            会議セッションを終了
+  config show            設定を表示
+  config set <key> <val> 設定を変更
+  config init            デフォルト設定ファイルを生成
+  start meeting          新しい会議セッションを開始（auto_translate/auto_summary 連動）
+  end meeting            会議セッションを終了（auto_translate 停止、auto_summary 実行）
   start [opts]           recorder.py をバックグラウンドで起動
   stop                   recorder.py を停止
   status                 録音・文字起こしの状態を表示
@@ -145,6 +174,7 @@ shadow-clerk — Web会議 議事録アシスタント
 以下のエントリを `permissions.allow` 配列に追加する（既に存在するものはスキップ）。
 パスは `clerk-data path` コマンドでフルパスを取得して使う:
 - `Bash(<clerk-data のフルパス> *)` — データディレクトリ操作全般（recorder-status 含む）
+- `Bash(~/.claude/skills/shadow-clerk/clerk-data *)` — 同上（`~` パス用）
 - `Bash(sleep *)` — translate ループの待機用
 - `Bash(pkill -f recorder.py)` — stop 用
 - `Bash(uv run python recorder.py*)` — start 用（プロジェクトディレクトリで実行）

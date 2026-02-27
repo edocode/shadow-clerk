@@ -75,6 +75,31 @@ You can start/stop recorder.py and generate meeting minutes from Claude Code:
 
 Generated meeting minutes are saved to `~/.claude/skills/shadow-clerk/data/summary-YYYYMMDD.md`.
 
+### Configuration file
+
+Customize defaults and auto-features in `~/.claude/skills/shadow-clerk/data/config.yaml`:
+
+```yaml
+# shadow-clerk config
+translate_language: ja        # Translation target language (ja/en/etc)
+auto_translate: false         # Auto-start translation on start meeting
+auto_summary: false           # Auto-generate summary on end meeting
+default_language: null        # Default language for recorder.py (null=auto-detect)
+default_model: small          # Default Whisper model for recorder.py
+```
+
+Manage configuration from Claude Code:
+
+```
+/shadow-clerk config show                     # Show current config
+/shadow-clerk config set default_model tiny   # Change a setting
+/shadow-clerk config set auto_translate true  # Enable auto-translation
+/shadow-clerk config init                     # Generate default config file
+```
+
+With `auto_translate: true`, translation starts automatically on `/shadow-clerk start meeting`.
+With `auto_summary: true`, meeting minutes are generated automatically on `/shadow-clerk end meeting`.
+
 ## File structure
 
 ```
@@ -95,6 +120,7 @@ shadow-clerk/                          # Repository
     transcript-YYYYMMDD-<lang>.txt     # Translation output
     summary-YYYYMMDD.md                # Meeting minutes (corresponds to transcript)
     words.txt                          # Word replacement list (TSV)
+    config.yaml                        # Configuration file
     .clerk_session                     # Active session info
     .transcript_offset                 # Minutes generation offset
     .translate_offset                  # Translation offset

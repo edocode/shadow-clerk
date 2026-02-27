@@ -46,6 +46,26 @@ case "$1" in
       echo "stopped"
     fi
     ;;
+  read-config)
+    # read-config — config.yaml を読んで stdout に出力（なければデフォルト YAML を生成して出力）
+    CONFIG_FILE="$DATA_DIR/config.yaml"
+    if [ -f "$CONFIG_FILE" ]; then
+      cat "$CONFIG_FILE"
+    else
+      DEFAULT_CONFIG="# shadow-clerk 設定
+translate_language: ja
+auto_translate: false
+auto_summary: false
+default_language: null
+default_model: small"
+      echo "$DEFAULT_CONFIG" > "$CONFIG_FILE"
+      cat "$CONFIG_FILE"
+    fi
+    ;;
+  write-config)
+    # write-config — stdin から config.yaml を書き込み
+    cat > "$DATA_DIR/config.yaml"
+    ;;
   path)
     # path — clerk-data 自身のフルパスを出力（setup 用）
     echo "$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
@@ -67,6 +87,8 @@ case "$1" in
     echo "  ls                     データディレクトリの一覧"
     echo "  command <cmd>          recorder.py にコマンドを送信"
     echo "  recorder-status        recorder.py の動作状態 (running/stopped)"
+    echo "  read-config            config.yaml を読む（なければデフォルト生成）"
+    echo "  write-config           stdin から config.yaml を書き込む"
     echo ""
     echo "Data directory: $DATA_DIR"
     exit 1

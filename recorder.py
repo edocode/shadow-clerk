@@ -20,6 +20,7 @@ import wave
 import numpy as np
 import sounddevice as sd
 import webrtcvad
+import yaml
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -41,6 +42,9 @@ MAX_SEGMENT_DURATION = 30.0  # 最大セグメント長(秒)
 DATA_DIR = os.path.expanduser("~/.claude/skills/shadow-clerk/data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
+# 設定ファイル
+CONFIG_FILE = os.path.join(DATA_DIR, "config.yaml")
+
 # コマンド・セッションファイル
 COMMAND_FILE = os.path.join(DATA_DIR, ".clerk_command")
 SESSION_FILE = os.path.join(DATA_DIR, ".clerk_session")
@@ -55,6 +59,29 @@ VOICE_COMMANDS = [
     (re.compile(r"(会議開始|start\s*meeting)", re.IGNORECASE), "start_meeting"),
     (re.compile(r"(会議終了|end\s*meeting)", re.IGNORECASE), "end_meeting"),
 ]
+
+
+DEFAULT_CONFIG = {
+    "translate_language": "ja",
+    "auto_translate": False,
+    "auto_summary": False,
+    "default_language": None,
+    "default_model": "small",
+}
+
+
+def load_config() -> dict:
+    """config.yaml を読み込む。ファイルがなければデフォルト値を返す。"""
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+        if not isinstance(config, dict):
+            return dict(DEFAULT_CONFIG)
+        merged = dict(DEFAULT_CONFIG)
+        merged.update({k: v for k, v in config.items() if k in DEFAULT_CONFIG})
+        return merged
+    except FileNotFoundError:
+        return dict(DEFAULT_CONFIG)
 
 
 class WordReplacer:
@@ -845,6 +872,13 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # config.yaml の値を CLI 未指定の場合のみ適用
+    config = load_config()
+    if args.model == "small" and config.get("default_model"):
+        args.model = config["default_model"]
+    if args.language is None and config.get("default_language"):
+        args.language = config["default_language"]
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,

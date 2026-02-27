@@ -75,6 +75,31 @@ Claude Code から recorder.py の起動・停止・議事録生成を行える:
 
 生成された議事録は `~/.claude/skills/shadow-clerk/data/summary-YYYYMMDD.md` に保存される。
 
+### 設定ファイル
+
+`~/.claude/skills/shadow-clerk/data/config.yaml` でデフォルト値や自動機能を設定できる:
+
+```yaml
+# shadow-clerk 設定
+translate_language: ja        # 翻訳先言語 (ja/en/etc)
+auto_translate: false         # start meeting 時に自動翻訳を開始
+auto_summary: false           # end meeting 時に自動 summary 生成
+default_language: null        # recorder.py のデフォルト言語 (null=自動検出)
+default_model: small          # recorder.py のデフォルト Whisper モデル
+```
+
+Claude Code から設定を操作:
+
+```
+/shadow-clerk config show                     # 現在の設定を表示
+/shadow-clerk config set default_model tiny   # 設定値を変更
+/shadow-clerk config set auto_translate true  # 自動翻訳を有効化
+/shadow-clerk config init                     # デフォルト設定ファイルを生成
+```
+
+`auto_translate: true` にすると、`/shadow-clerk start meeting` 時に自動で翻訳が開始される。
+`auto_summary: true` にすると、`/shadow-clerk end meeting` 時に自動で議事録が生成される。
+
 ## ファイル構成
 
 ```
@@ -94,6 +119,7 @@ shadow-clerk/                          # リポジトリ
     transcript-YYYYMMDD-<lang>.txt     # 翻訳結果
     summary-YYYYMMDD.md                # 議事録（transcript に対応）
     words.txt                          # 単語置換リスト (TSV)
+    config.yaml                        # 設定ファイル
     .clerk_session                     # アクティブセッション情報
     .transcript_offset                 # 議事録用オフセット
     .translate_offset                  # 翻訳用オフセット
