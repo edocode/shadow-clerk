@@ -47,6 +47,20 @@ uv run python recorder.py \
 
 Press `Ctrl+C` to stop recording.
 
+### Voice commands
+
+During recording, say "clerk" (or "クラーク") followed by a command for hands-free control:
+
+| Voice command | Action |
+|---|---|
+| "clerk, start meeting" | Start a new meeting session |
+| "clerk, end meeting" | End the meeting session |
+| "clerk, language ja" | Switch transcription language to Japanese |
+| "clerk, language en" | Switch transcription language to English |
+| "clerk, unset language" | Reset to auto-detect |
+
+The separator (comma, space) between the prefix and command is optional.
+
 ### CLI options
 
 | Option | Description | Default |
