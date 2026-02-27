@@ -1,6 +1,6 @@
 # shadow-clerk: Web会議 議事録アシスタント
 
-recorder.py で録音・文字起こしした transcript.txt を読み、議事録(summary.md)を生成・更新する。
+recorder.py で録音・文字起こしした transcript を読み、議事録(summary)を生成・更新する。
 
 ## Skill invocation name
 
@@ -10,11 +10,12 @@ shadow-clerk
 
 プロジェクトディレクトリはこの SKILL.md があるリポジトリのルートである。
 データディレクトリは `~/.claude/skills/shadow-clerk/data` である。以下のファイルはすべてデータディレクトリに保存される:
-- transcript ファイル（`transcript.txt`、セッション用 `transcript-YYYYMMDDHHMM.txt`）
+- transcript ファイル（デフォルト `transcript-YYYYMMDD.txt`、セッション用 `transcript-YYYYMMDDHHMM.txt`）
 - `.clerk_session`、`.clerk_command`
 - `.transcript_offset`、`.translate_offset`
-- `summary.md`、`words.txt`
-- 翻訳ファイル（`transcript-ja.txt` 等）
+- summary ファイル（`summary-YYYYMMDD.md`、セッション用 `summary-YYYYMMDDHHMM.md`）
+- `words.txt`
+- 翻訳ファイル（`transcript-YYYYMMDD-ja.txt` 等）
 
 ### clerk-data コマンド
 
@@ -34,19 +35,23 @@ shadow-clerk
 ### サブコマンド
 
 引数なし、または `update`:
-1. `clerk-data read .clerk_session` でセッションファイルを確認。あればその中のファイル名を transcript ファイルとして使う。なければ `transcript.txt` を使う
+1. `clerk-data read .clerk_session` でセッションファイルを確認。あればその中のファイル名を transcript ファイルとして使う。なければ `clerk-data ls` の結果から今日の日付の `transcript-YYYYMMDD.txt` を使う
 2. `clerk-data read .transcript_offset` でバイトオフセットを読む（なければ 0）
 3. transcript ファイルをオフセット位置から末尾まで読む
 4. 差分テキストがなければ「新しい発言はありません」と報告して終了
-5. 差分テキストを使い、既存の `summary.md` があればその内容も踏まえて議事録を更新する
-6. `summary.md` を上書き保存する
-7. `clerk-data write .transcript_offset <size>` に現在の transcript ファイルのファイルサイズ(バイト数)を書き込む
+5. transcript のファイル名から summary のファイル名を導出する（`transcript-` → `summary-`、`.txt` → `.md`）
+   - 例: `transcript-20260227.txt` → `summary-20260227.md`
+   - 例: `transcript-202602271430.txt` → `summary-202602271430.md`
+6. 差分テキストを使い、既存の summary ファイルがあればその内容も踏まえて議事録を更新する
+7. summary ファイルを上書き保存する
+8. `clerk-data write .transcript_offset <size>` に現在の transcript ファイルのファイルサイズ(バイト数)を書き込む
 
 `full`:
-1. `clerk-data read .clerk_session` でセッションファイルを確認。あればその中のファイル名を transcript ファイルとして使う。なければ `transcript.txt` を使う
+1. `clerk-data read .clerk_session` でセッションファイルを確認。あればその中のファイル名を transcript ファイルとして使う。なければ `clerk-data ls` の結果から今日の日付の `transcript-YYYYMMDD.txt` を使う
 2. transcript ファイルを全文読み込む
-3. 全内容から議事録を生成し `summary.md` に上書き保存する
-4. `clerk-data write .transcript_offset <size>` に現在の transcript ファイルのファイルサイズを書き込む
+3. transcript のファイル名から summary のファイル名を導出する（`transcript-` → `summary-`、`.txt` → `.md`）
+4. 全内容から議事録を生成し summary ファイルに上書き保存する
+5. `clerk-data write .transcript_offset <size>` に現在の transcript ファイルのファイルサイズを書き込む
 
 `set language <lang>`:
 - `<lang>` が `ja` または `en` の場合: `clerk-data command set_language <lang>` を実行
@@ -67,15 +72,16 @@ shadow-clerk
 - recorder.py が現セッションを終了し、デフォルトの transcript ファイルに戻す
 
 `status`:
-1. `clerk-data exists transcript.txt`、`clerk-data lines transcript.txt`、`clerk-data size transcript.txt` で transcript の状態を表示
-2. `clerk-data read .transcript_offset` で現在のオフセット値を表示
-3. `clerk-data exists summary.md`、`clerk-data mtime summary.md` で summary の状態を表示
-4. recorder.py プロセスが動作中か確認して表示（`pgrep -f recorder.py`）
+1. `clerk-data read .clerk_session` でセッションファイルを確認。あればその中のファイル名を transcript ファイルとして使う。なければ今日の日付の `transcript-YYYYMMDD.txt` を使う
+2. `clerk-data exists <transcript>`、`clerk-data lines <transcript>`、`clerk-data size <transcript>` で transcript の状態を表示
+3. `clerk-data read .transcript_offset` で現在のオフセット値を表示
+4. transcript のファイル名から summary のファイル名を導出し、`clerk-data exists <summary>`、`clerk-data mtime <summary>` で summary の状態を表示
+5. recorder.py プロセスが動作中か確認して表示（`pgrep -f recorder.py`）
 
 `translate <lang>`:
 リアルタイム翻訳モード。transcript の新しい行を検出し、翻訳してファイル保存+stdout表示をループする。
 
-1. `clerk-data read .clerk_session` でセッションファイルを確認。あればその中のファイル名を transcript として使う。なければ `transcript.txt` を使う
+1. `clerk-data read .clerk_session` でセッションファイルを確認。あればその中のファイル名を transcript として使う。なければ今日の日付の `transcript-YYYYMMDD.txt` を使う
 2. `clerk-data read .translate_offset` から前回の翻訳済みバイトオフセットを読む（なければ 0）
 3. ループ開始:
    a. `clerk-data read-from <transcript> <offset>` で transcript ファイルをオフセット位置から読む
@@ -87,7 +93,7 @@ shadow-clerk
       - タイムスタンプ `[YYYY-MM-DD HH:MM:SS]` とスピーカーラベル `[自分]` `[相手]` 等はそのまま保持し、テキスト部分のみ翻訳する
         - 例（ja の場合）: `[2026-02-27 14:30:00] [自分] Hello, let's discuss the project timeline.` → `[2026-02-27 14:30:00] [自分] こんにちは、プロジェクトのタイムラインについて話しましょう。`
       - 翻訳結果を `<transcriptのベース名>-<lang>.txt` に追記する
-        - 例: `transcript.txt` → `transcript-ja.txt`
+        - 例: `transcript-20260227.txt` → `transcript-20260227-ja.txt`
         - 例: `transcript-202602271430.txt` → `transcript-202602271430-ja.txt`
       - 翻訳結果を stdout にも表示する（print）
       - `clerk-data write .translate_offset <offset>` にバイトオフセットを更新して書き込む
@@ -105,7 +111,7 @@ shadow-clerk
 shadow-clerk — Web会議 議事録アシスタント
 
 サブコマンド:
-  (引数なし) / update    transcript の差分から議事録(summary.md)を更新
+  (引数なし) / update    transcript の差分から議事録(summary)を更新
   full                   transcript 全文から議事録を再生成
   set language <lang>    文字起こし言語を切り替え (ja / en / auto)
   set model <size>       Whisper モデルを切り替え (tiny / base / small / medium / large-v3)
@@ -129,12 +135,12 @@ shadow-clerk — Web会議 議事録アシスタント
 - `Bash(pgrep -f recorder.py)` — status 用
 追加完了後、追加したエントリの一覧を表示する。
 
-### 議事録フォーマット (summary.md)
+### 議事録フォーマット (summary-YYYYMMDD.md)
 
 ```markdown
 # 議事録
 
-- **日時**: YYYY-MM-DD HH:MM〜HH:MM（transcript.txt のタイムスタンプから推定）
+- **日時**: YYYY-MM-DD HH:MM〜HH:MM（transcript のタイムスタンプから推定）
 - **参加者**: （判別できれば記載、不明なら省略）
 
 ## 要約
@@ -158,8 +164,13 @@ shadow-clerk — Web会議 議事録アシスタント
 - ファイルが変更された場合は自動で再読み込みされる
 - `#` で始まる行はコメントとして無視される
 
+### summary ファイル名の導出ルール
+transcript のファイル名から `transcript-` を `summary-` に、`.txt` を `.md` に置換する:
+- `transcript-20260227.txt` → `summary-20260227.md`
+- `transcript-202602271430.txt` → `summary-202602271430.md`
+
 ### 注意事項
-- transcript.txt の各行は `[YYYY-MM-DD HH:MM:SS] テキスト` 形式
+- transcript の各行は `[YYYY-MM-DD HH:MM:SS] テキスト` 形式
 - 日本語と英語が混在する場合がある。議事録は日本語で作成する
 - 文字起こしの誤認識と思われる箇所は文脈から推測して補正する
 - `.transcript_offset` はプレーンテキストで数値のみ記載する

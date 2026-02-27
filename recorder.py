@@ -484,11 +484,18 @@ class Recorder:
             language=args.language,
         )
 
-        self.output_path = args.output
-        self._default_output_path = args.output
+        # --output が指定されていれば固定、なければ日付ベースのデフォルト
+        self._explicit_output = args.output is not None
+        self.output_path = args.output if self._explicit_output else self._get_default_output()
         self.use_monitor = True
         self.use_mic = True
         self.word_replacer = WordReplacer()
+
+    @staticmethod
+    def _get_default_output() -> str:
+        """現在日付ベースのデフォルト transcript パスを返す"""
+        filename = datetime.datetime.now().strftime("transcript-%Y%m%d.txt")
+        return os.path.join(DATA_DIR, filename)
 
     def _setup_signal_handlers(self):
         def handler(signum, frame):
@@ -644,7 +651,11 @@ class Recorder:
                 f.write(marker)
             logger.info("会議終了: %s", self.output_path)
             print(f"会議終了: {self.output_path}")
-            self.output_path = self._default_output_path
+            # 明示的 output 指定の場合はその値に戻す、そうでなければ現在日付のデフォルト
+            if self._explicit_output:
+                self.output_path = self.args.output
+            else:
+                self.output_path = self._get_default_output()
             try:
                 os.remove(SESSION_FILE)
             except FileNotFoundError:
@@ -703,6 +714,13 @@ class Recorder:
                         logger.info("音声コマンド検出: %s → %s", text.strip(), voice_cmd)
                         self._execute_command(voice_cmd)
                         continue
+
+                # 日付変更チェック（セッション中でなく、明示的 output 指定でない場合のみ）
+                if not self._explicit_output and not os.path.exists(SESSION_FILE):
+                    new_path = self._get_default_output()
+                    if new_path != self.output_path:
+                        logger.info("日付変更検出、出力先切り替え: %s", new_path)
+                        self.output_path = new_path
 
                 text = self.word_replacer.apply(text)
                 line = f"[{timestamp}] [{speaker}] {text}\n"
@@ -784,8 +802,8 @@ def main():
     )
     parser.add_argument(
         "--output", "-o",
-        default=os.path.join(DATA_DIR, "transcript.txt"),
-        help=f"文字起こし出力ファイル (default: {DATA_DIR}/transcript.txt)",
+        default=None,
+        help=f"文字起こし出力ファイル (default: {DATA_DIR}/transcript-YYYYMMDD.txt)",
     )
     parser.add_argument(
         "--model", "-m",

@@ -51,7 +51,7 @@ uv run python recorder.py \
 
 | オプション | 説明 | デフォルト |
 |---|---|---|
-| `--output`, `-o` | 出力ファイルパス | `~/.claude/skills/shadow-clerk/data/transcript.txt` |
+| `--output`, `-o` | 出力ファイルパス | `~/.claude/skills/shadow-clerk/data/transcript-YYYYMMDD.txt` |
 | `--model`, `-m` | Whisper モデルサイズ (`tiny`, `base`, `small`, `medium`, `large-v3`) | `small` |
 | `--language`, `-l` | 言語コード (`ja`, `en` 等)。省略で自動検出 | 自動 |
 | `--mic` | マイクデバイス番号 | 自動検出 |
@@ -70,7 +70,7 @@ recorder.py で録音中、別ターミナルの Claude Code から:
 /shadow-clerk status   # 現在の状態を確認
 ```
 
-生成された議事録は `~/.claude/skills/shadow-clerk/data/summary.md` に保存される。
+生成された議事録は `~/.claude/skills/shadow-clerk/data/summary-YYYYMMDD.md` に保存される。
 
 ## ファイル構成
 
@@ -86,10 +86,10 @@ shadow-clerk/                          # リポジトリ
 
 ~/.claude/skills/shadow-clerk/         # シンボリックリンク先
   data/                                # ランタイムデータ (実行時生成)
-    transcript.txt                     # 文字起こし結果
+    transcript-YYYYMMDD.txt            # 文字起こし結果（日付ベース）
     transcript-YYYYMMDDHHMM.txt        # 会議セッション用
-    transcript-<lang>.txt              # 翻訳結果
-    summary.md                         # 議事録
+    transcript-YYYYMMDD-<lang>.txt     # 翻訳結果
+    summary-YYYYMMDD.md                # 議事録（transcript に対応）
     words.txt                          # 単語置換リスト (TSV)
     .clerk_session                     # アクティブセッション情報
     .transcript_offset                 # 議事録用オフセット
