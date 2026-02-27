@@ -41,7 +41,7 @@ uv run python recorder.py --list-devices
 uv run python recorder.py \
   --language ja \
   --model small \
-  --output transcript.txt \
+  --output ~/my-transcript.txt \
   --verbose
 ```
 
@@ -51,7 +51,7 @@ uv run python recorder.py \
 
 | オプション | 説明 | デフォルト |
 |---|---|---|
-| `--output`, `-o` | 出力ファイルパス | `transcript.txt` |
+| `--output`, `-o` | 出力ファイルパス | `~/.claude/skills/shadow-clerk/data/transcript.txt` |
 | `--model`, `-m` | Whisper モデルサイズ (`tiny`, `base`, `small`, `medium`, `large-v3`) | `small` |
 | `--language`, `-l` | 言語コード (`ja`, `en` 等)。省略で自動検出 | 自動 |
 | `--mic` | マイクデバイス番号 | 自動検出 |
@@ -70,20 +70,30 @@ recorder.py で録音中、別ターミナルの Claude Code から:
 /shadow-clerk status   # 現在の状態を確認
 ```
 
-生成された議事録は `summary.md` に保存される。
+生成された議事録は `~/.claude/skills/shadow-clerk/data/summary.md` に保存される。
 
 ## ファイル構成
 
 ```
-shadow-clerk/
-  pyproject.toml          # プロジェクト定義・依存関係
-  recorder.py             # 録音・VAD・文字起こし
+shadow-clerk/                          # リポジトリ
+  pyproject.toml                       # プロジェクト定義・依存関係
+  recorder.py                          # 録音・VAD・文字起こし
   skills/
-    SKILL.md              # Claude Code Skill 定義
-  README.md               # このファイル
-  transcript.txt          # (実行時生成) 文字起こし結果
-  summary.md              # (Skill実行時生成) 議事録
-  .transcript_offset      # (実行時生成) 差分読み込み用オフセット
+    SKILL.md                           # Claude Code Skill 定義
+    clerk-data                         # データディレクトリ操作ラッパー
+  SPEC.md                              # 設計仕様
+  README.md                            # このファイル
+
+~/.claude/skills/shadow-clerk/         # シンボリックリンク先
+  data/                                # ランタイムデータ (実行時生成)
+    transcript.txt                     # 文字起こし結果
+    transcript-YYYYMMDDHHMM.txt        # 会議セッション用
+    transcript-<lang>.txt              # 翻訳結果
+    summary.md                         # 議事録
+    words.txt                          # 単語置換リスト (TSV)
+    .clerk_session                     # アクティブセッション情報
+    .transcript_offset                 # 議事録用オフセット
+    .translate_offset                  # 翻訳用オフセット
 ```
 
 ## トラブルシューティング
