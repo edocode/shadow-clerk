@@ -1,93 +1,129 @@
-# shadow-clerk
+# Shadow-clerk
 
+Web会議の音声をリアルタイムで録音・文字起こしし、Claude Code の Skill で議事録を生成するツール。
 
+Ubuntu + PipeWire / PulseAudio 環境で動作する。
 
-## Getting started
+## セットアップ
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+### 1. システムパッケージ
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-* [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://gitlab.edocode.co.jp/common/shadow-clerk.git
-git branch -M main
-git push -uf origin main
+```bash
+sudo apt install libportaudio2 portaudio19-dev
 ```
 
-## Integrate with your tools
+### 2. Python 環境構築
 
-* [Set up project integrations](https://gitlab.edocode.co.jp/common/shadow-clerk/-/settings/integrations)
+```bash
+cd shadow-clerk
+uv venv
+uv pip install -e .
+```
 
-## Collaborate with your team
+### 3. Skill のシンボリックリンク（初回のみ）
 
-* [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+```bash
+ln -s "$(pwd)/skills" ~/.claude/skills/shadow-clerk
+```
 
-## Test and Deploy
+## 使い方
 
-Use the built-in continuous integration in GitLab.
+### 録音・文字起こし
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+```bash
+# 基本（マイク + システム音声を録音、自動文字起こし）
+uv run python recorder.py
 
-***
+# デバイス一覧を確認
+uv run python recorder.py --list-devices
 
-# Editing this README
+# オプション指定
+uv run python recorder.py \
+  --language ja \
+  --model small \
+  --output transcript.txt \
+  --verbose
+```
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+録音中は `Ctrl+C` で停止する。
 
-## Suggestions for a good README
+### CLI オプション
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+| オプション | 説明 | デフォルト |
+|---|---|---|
+| `--output`, `-o` | 出力ファイルパス | `transcript.txt` |
+| `--model`, `-m` | Whisper モデルサイズ (`tiny`, `base`, `small`, `medium`, `large-v3`) | `small` |
+| `--language`, `-l` | 言語コード (`ja`, `en` 等)。省略で自動検出 | 自動 |
+| `--mic` | マイクデバイス番号 | 自動検出 |
+| `--monitor` | モニターデバイス番号 (sounddevice) | 自動検出 |
+| `--backend` | 音声バックエンド (`auto`, `pipewire`, `pulseaudio`, `sounddevice`) | `auto` |
+| `--list-devices` | デバイス一覧を表示して終了 | - |
+| `--verbose`, `-v` | 詳細ログ出力 | - |
 
-## Name
-Choose a self-explaining name for your project.
+### 議事録生成 (Claude Code Skill)
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+recorder.py で録音中、別ターミナルの Claude Code から:
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+```
+/shadow-clerk          # 差分テキストから議事録を更新
+/shadow-clerk full     # 全文から議事録を再生成
+/shadow-clerk status   # 現在の状態を確認
+```
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+生成された議事録は `summary.md` に保存される。
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+## ファイル構成
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+```
+shadow-clerk/
+  pyproject.toml          # プロジェクト定義・依存関係
+  recorder.py             # 録音・VAD・文字起こし
+  skills/
+    SKILL.md              # Claude Code Skill 定義
+  README.md               # このファイル
+  transcript.txt          # (実行時生成) 文字起こし結果
+  summary.md              # (Skill実行時生成) 議事録
+  .transcript_offset      # (実行時生成) 差分読み込み用オフセット
+```
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+## トラブルシューティング
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+### デバイスが見つからない
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+```bash
+# デバイス一覧を確認
+uv run python recorder.py --list-devices
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+# PipeWire が動作しているか確認
+pw-cli info
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+# PulseAudio ソース一覧
+pactl list short sources
+```
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+### モニターソース（システム音声）が検出されない
 
-## License
-For open source projects, say how it is licensed.
+PipeWire 環境では `pw-record --list-targets` で monitor デバイスを確認する。
+PulseAudio 環境では `pactl list short sources` で `.monitor` を含むソースを確認する。
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+手動でデバイス番号を指定することもできる:
+
+```bash
+uv run python recorder.py --monitor 5
+```
+
+### PortAudio エラー
+
+`libportaudio2` がインストールされているか確認:
+
+```bash
+dpkg -l | grep portaudio
+```
+
+### 文字起こしが遅い
+
+`--model tiny` で軽量モデルを使う:
+
+```bash
+uv run python recorder.py --model tiny
+```
