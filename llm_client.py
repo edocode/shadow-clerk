@@ -11,6 +11,8 @@ import sys
 import yaml
 from openai import OpenAI
 
+from i18n import t
+
 logger = logging.getLogger("llm-client")
 
 # --- データディレクトリ ---
@@ -46,7 +48,7 @@ def load_dotenv():
                 if key and key not in os.environ:
                     os.environ[key] = value
     except Exception as e:
-        print(f".env の読み込みに失敗: {e}", file=sys.stderr)
+        print(t("err.dotenv_load_fail", error=e), file=sys.stderr)
 
 
 DEFAULT_CONFIG = {
@@ -63,6 +65,7 @@ DEFAULT_CONFIG = {
     "custom_commands": [],
     "initial_prompt": None,
     "voice_command_key": "f23",
+    "ui_language": "ja",
 }
 
 
@@ -77,7 +80,7 @@ def load_config() -> dict:
                 merged.update(user_config)
                 return merged
         except Exception as e:
-            print(f"config.yaml の読み込みに失敗: {e}", file=sys.stderr)
+            print(t("err.config_load_fail", error=e), file=sys.stderr)
     return dict(DEFAULT_CONFIG)
 
 
@@ -103,13 +106,13 @@ def get_api_client(config: dict) -> tuple[OpenAI, str]:
     model = config.get("api_model")
 
     if not endpoint:
-        print("エラー: api_endpoint が設定されていません。", file=sys.stderr)
-        print("  config set api_endpoint <URL> で設定してください。", file=sys.stderr)
+        print(t("err.api_endpoint_missing"), file=sys.stderr)
+        print(t("err.api_endpoint_hint"), file=sys.stderr)
         sys.exit(1)
 
     if not model:
-        print("エラー: api_model が設定されていません。", file=sys.stderr)
-        print("  config set api_model <model> で設定してください。", file=sys.stderr)
+        print(t("err.api_model_missing"), file=sys.stderr)
+        print(t("err.api_model_hint"), file=sys.stderr)
         sys.exit(1)
 
     # API キー取得
@@ -117,14 +120,8 @@ def get_api_client(config: dict) -> tuple[OpenAI, str]:
     if api_key_env:
         api_key = os.environ.get(api_key_env)
         if not api_key:
-            print(
-                f"エラー: API キーが見つかりません。",
-                file=sys.stderr,
-            )
-            print(
-                f"  {DATA_DIR}/.env に {api_key_env}=<your-api-key> を記載してください。",
-                file=sys.stderr,
-            )
+            print(t("err.api_key_missing"), file=sys.stderr)
+            print(t("err.api_key_hint", dir=DATA_DIR, env_var=api_key_env), file=sys.stderr)
             sys.exit(1)
     else:
         # api_key_env: null の場合（ローカル API 用）ダミーキーを使用
@@ -231,7 +228,7 @@ def translate(args: argparse.Namespace):
                 raw = f.read()
             lines = raw.decode("utf-8", errors="replace")
         except FileNotFoundError:
-            print(f"エラー: ファイルが見つかりません: {file_path}", file=sys.stderr)
+            print(t("err.file_not_found", path=file_path), file=sys.stderr)
             sys.exit(1)
     else:
         logger.debug("translate: reading from stdin")
@@ -279,12 +276,7 @@ def translate(args: argparse.Namespace):
     )
     logger.debug("translate: API request:\n%s", numbered_lines)
 
-    system_prompt = f"""あなたは翻訳アシスタントです。以下のルールに従ってテキストを{lang}に翻訳してください:
-
-1. 各行は「番号: テキスト」形式で与えられます。同じ「番号: 翻訳結果」形式で返してください。
-2. 音声認識の書き起こしテキストです。明らかな誤認識は文脈から推測して補正してから翻訳してください。
-3. 翻訳先言語（{lang}）と同じ言語で書かれている行は翻訳不要ですが、音声認識の誤認識・typo があれば修正して出力してください。
-4. 番号とコロンの後の翻訳テキストのみを出力してください。余計な説明は不要です。"""
+    system_prompt = t("llm.translate_system", lang=lang)
 
     glossary_section = load_glossary(lang)
     if glossary_section:
@@ -339,24 +331,8 @@ def translate(args: argparse.Namespace):
 
 # --- summarize サブコマンド ---
 
-SUMMARY_FORMAT = """# 議事録
-
-- **日時**: YYYY-MM-DD HH:MM〜HH:MM（transcript のタイムスタンプから推定）
-- **参加者**: （判別できれば記載、不明なら省略）
-
-## 要約
-（会議全体の要約を3〜5文で）
-
-## 主な議題と決定事項
-- **議題1**: 内容の要約
-  - 決定事項: ...
-- **議題2**: ...
-
-## アクションアイテム
-- [ ] 担当者: タスク内容（期限があれば記載）
-
-## 詳細メモ
-（重要な発言や補足情報）"""
+def _get_summary_format():
+    return t("llm.summary_format")
 
 
 def summarize(args: argparse.Namespace):
@@ -373,11 +349,11 @@ def summarize(args: argparse.Namespace):
         with open(transcript_path, "r", encoding="utf-8") as f:
             transcript = f.read()
     except FileNotFoundError:
-        print(f"エラー: transcript ファイルが見つかりません: {transcript_path}", file=sys.stderr)
+        print(t("err.transcript_not_found", path=transcript_path), file=sys.stderr)
         sys.exit(1)
 
     if not transcript.strip():
-        print("エラー: transcript が空です。", file=sys.stderr)
+        print(t("err.transcript_empty"), file=sys.stderr)
         sys.exit(1)
 
     if args.mode == "full":
@@ -408,16 +384,7 @@ def summarize(args: argparse.Namespace):
 
 def _summarize_full(client: OpenAI, model: str, transcript: str):
     """transcript 全文から議事録を生成する。"""
-    system_prompt = f"""あなたは議事録作成アシスタントです。以下の transcript（音声書き起こし）から議事録を作成してください。
-
-フォーマット:
-{SUMMARY_FORMAT}
-
-注意事項:
-- 日本語で作成してください
-- transcript の各行は [YYYY-MM-DD HH:MM:SS] [スピーカー] テキスト 形式です
-- 文字起こしの誤認識と思われる箇所は文脈から推測して補正してください
-- マークダウン形式で出力してください"""
+    system_prompt = t("llm.summary_full_system", summary_format=_get_summary_format())
 
     response = client.chat.completions.create(
         model=model,
@@ -435,24 +402,10 @@ def _summarize_update(
     client: OpenAI, model: str, transcript: str, existing_summary: str
 ):
     """既存の summary を踏まえて差分 transcript から議事録を更新する。"""
-    system_prompt = f"""あなたは議事録作成アシスタントです。既存の議事録と新しい transcript（音声書き起こしの差分）が与えられます。
-既存の議事録を新しい transcript の内容で更新してください。
+    system_prompt = t("llm.summary_update_system", summary_format=_get_summary_format())
 
-フォーマット:
-{SUMMARY_FORMAT}
-
-注意事項:
-- 日本語で作成してください
-- 既存の議事録の内容は維持しつつ、新しい情報を追加・統合してください
-- transcript の各行は [YYYY-MM-DD HH:MM:SS] [スピーカー] テキスト 形式です
-- 文字起こしの誤認識と思われる箇所は文脈から推測して補正してください
-- 更新後の議事録全体をマークダウン形式で出力してください"""
-
-    user_content = f"""## 既存の議事録
-{existing_summary if existing_summary else "(なし — 新規作成してください)"}
-
-## 新しい transcript（差分）
-{transcript}"""
+    existing = existing_summary if existing_summary else t("llm.summary_update_none")
+    user_content = t("llm.summary_update_user", existing=existing, transcript=transcript)
 
     response = client.chat.completions.create(
         model=model,
@@ -477,7 +430,7 @@ def query(args: argparse.Namespace):
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": "あなたは親切なアシスタントです。簡潔に回答してください。"},
+            {"role": "system", "content": t("llm.query_system")},
             {"role": "user", "content": args.prompt},
         ],
         temperature=0.7,
@@ -515,18 +468,7 @@ def match_command(args: argparse.Namespace):
         f"- {c['command']}: {c['description']}" for c in commands
     )
 
-    system_prompt = """あなたは音声コマンド認識アシスタントです。
-ユーザーの音声認識テキストを受け取り、最も近いコマンドを推測してください。
-
-利用可能なコマンド一覧:
-""" + commands_desc + """
-
-以下のルールに従ってください:
-1. 音声認識テキストがどのコマンドに最も近いかを判断してください。
-2. 音声認識の誤認識を考慮し、意味的に最も近いコマンドを選んでください。
-3. 結果を以下の JSON 形式で返してください（JSON のみ、余計なテキストは不要）:
-   {"command": "マッチしたコマンド名", "confidence": 0-100の整数}
-4. confidence は一致の確信度です。完全一致なら100、やや曖昧なら60-80、関係なさそうなら0-30としてください。"""
+    system_prompt = t("llm.match_command_system", commands=commands_desc)
 
     response = client.chat.completions.create(
         model=model,
@@ -625,6 +567,9 @@ def main():
         format="[%(name)s] %(levelname)s: %(message)s",
         stream=sys.stderr,
     )
+
+    import i18n as _i18n
+    _i18n.init()
 
     load_dotenv()
 

@@ -1,0 +1,427 @@
+"""Minimal i18n for shadow-clerk (ja/en)."""
+
+import os
+
+import yaml
+
+_current_lang = "ja"
+
+DATA_DIR = os.path.expanduser("~/.claude/skills/shadow-clerk/data")
+CONFIG_FILE = os.path.join(DATA_DIR, "config.yaml")
+
+
+def init(lang=None):
+    """config.yaml から ui_language を読み、設定する。lang 引数で上書き可能。"""
+    global _current_lang
+    if lang:
+        _current_lang = lang
+        return
+    try:
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f)
+            if isinstance(cfg, dict) and cfg.get("ui_language"):
+                _current_lang = cfg["ui_language"]
+    except Exception:
+        pass
+
+
+def get_lang() -> str:
+    return _current_lang
+
+
+def t(key: str, **kwargs) -> str:
+    """翻訳文字列を返す。フォールバック: current_lang → en → ja → key"""
+    s = STRINGS.get(_current_lang, {}).get(key)
+    if s is None:
+        s = STRINGS.get("en", {}).get(key)
+    if s is None:
+        s = STRINGS.get("ja", {}).get(key)
+    if s is None:
+        return key
+    if kwargs:
+        return s.format(**kwargs)
+    return s
+
+
+def t_all() -> dict:
+    """現在言語の全文字列 dict を返す（dashboard JS 注入用）"""
+    merged = {}
+    merged.update(STRINGS.get("ja", {}))
+    merged.update(STRINGS.get("en", {}))
+    merged.update(STRINGS.get(_current_lang, {}))
+    return merged
+
+
+STRINGS = {
+    "ja": {
+        # --- rec.* : recorder.py ターミナル出力 ---
+        "rec.recording": "録音中... (Ctrl+C で停止)",
+        "rec.output": "出力先: {path}",
+        "rec.backend": "バックエンド: {name}",
+        "rec.pipewire_devices": "\n=== PipeWire デバイス ===",
+        "rec.pulseaudio_sources": "\n=== PulseAudio ソース ===",
+        "rec.sounddevice_devices": "=== sounddevice デバイス ===",
+        "rec.no_devices": "  (デバイスが見つかりません)",
+        "rec.no_sources": "  (ソースが見つかりません)",
+        "rec.pw_unavailable": "  (pw-record が利用できません)",
+        "rec.pa_unavailable": "  (pactl が利用できません)",
+        "rec.auto_detect_sd": "\n[自動検出] sounddevice monitor: device #{device}",
+        "rec.auto_detect_backend": "[自動検出] {backend} monitor: {source}",
+        "rec.meeting_start": "会議開始: {path}",
+        "rec.meeting_end": "会議終了: {path}",
+        "rec.model_changing": "モデル変更中: {model} ...",
+        "rec.model_changed": "モデル変更完了: {model}",
+        "rec.translate_start": "翻訳開始",
+        "rec.translate_stop": "翻訳停止",
+        "rec.custom_exec": "カスタムコマンド実行: {action}",
+        "rec.voice_cmd_llm": "  音声コマンド (LLM): {text} → {command} (confidence={confidence})",
+        "rec.voice_cmd_fail": "  コマンドを聞き取れませんでした: {text} (confidence={confidence})",
+        "rec.auto_summary_start": "  自動要約生成中: {src} → {dst}",
+        "rec.auto_summary_done": "  自動要約完了: {name}",
+        "rec.auto_summary_fail": "  自動要約失敗: {error}",
+        "rec.auto_summary_timeout": "  自動要約タイムアウト",
+        "rec.ptt_on": "[PTT] コマンドモード ON ({key} pressed)",
+        "rec.ptt_off": "[PTT] コマンドモード OFF ({key} released)",
+
+        # --- dash.* : ダッシュボード UI ---
+        "dash.meeting_start": "会議開始",
+        "dash.meeting_end": "会議終了",
+        "dash.translate_start": "翻訳開始",
+        "dash.translate_stop": "翻訳停止",
+        "dash.summary": "要約",
+        "dash.view_summary": "要約閲覧",
+        "dash.custom_cmd_placeholder": "カスタムコマンド",
+        "dash.send": "送信",
+        "dash.glossary": "用語集",
+        "dash.settings": "設定",
+        "dash.settings_title": "設定",
+        "dash.glossary_title": "用語集 (glossary.txt)",
+        "dash.summary_title": "要約",
+        "dash.saved": "保存しました",
+        "dash.cancel": "キャンセル",
+        "dash.save": "保存",
+        "dash.close": "閉じる",
+        "dash.add_row": "+ 行追加",
+        "dash.summary_started": "要約生成を開始しました。完了後に通知されます。",
+        "dash.summary_prefix": "要約: ",
+        "dash.no_summary": "(要約がありません)",
+        "dash.alert_cmd_fail": "コマンドを聞き取れませんでした: {text}",
+        "dash.alert_summary_done": "議事録を生成しました: {name}",
+        "dash.transcript_not_found": "transcript が見つかりません",
+        "dash.summary_generation_started": "要約生成を開始しました",
+
+        # --- cfg.* : 設定モーダルフィールド ---
+        "cfg.translate_language": "翻訳先言語",
+        "cfg.auto_translate": "自動翻訳",
+        "cfg.auto_summary": "自動Summary",
+        "cfg.default_language": "デフォルト言語",
+        "cfg.default_model": "Whisperモデル",
+        "cfg.output_directory": "出力ディレクトリ",
+        "cfg.output_directory_ph": "null=データディレクトリ",
+        "cfg.llm_provider": "LLMプロバイダ",
+        "cfg.api_endpoint": "APIエンドポイント",
+        "cfg.api_model": "APIモデル",
+        "cfg.api_key_env": "APIキー環境変数",
+        "cfg.initial_prompt": "初期プロンプト",
+        "cfg.initial_prompt_ph": "Whisperヒント語彙",
+        "cfg.voice_command_key": "PTTキー",
+        "cfg.whisper_beam_size": "Beam Size",
+        "cfg.whisper_compute_type": "計算精度",
+        "cfg.whisper_device": "デバイス",
+        "cfg.interim_transcription": "中間文字起こし",
+        "cfg.interim_model": "中間モデル",
+        "cfg.custom_commands": "カスタムコマンド",
+        "cfg.ui_language": "UI言語",
+
+        # --- llm.* : LLM プロンプト ---
+        "llm.translate_system": (
+            "あなたは翻訳アシスタントです。以下のルールに従ってテキストを{lang}に翻訳してください:\n"
+            "\n"
+            "1. 各行は「番号: テキスト」形式で与えられます。同じ「番号: 翻訳結果」形式で返してください。\n"
+            "2. 音声認識の書き起こしテキストです。明らかな誤認識は文脈から推測して補正してから翻訳してください。\n"
+            "3. 翻訳先言語（{lang}）と同じ言語で書かれている行は翻訳不要ですが、音声認識の誤認識・typo があれば修正して出力してください。\n"
+            "4. 番号とコロンの後の翻訳テキストのみを出力してください。余計な説明は不要です。"
+        ),
+        "llm.summary_full_system": (
+            "あなたは議事録作成アシスタントです。以下の transcript（音声書き起こし）から議事録を作成してください。\n"
+            "\n"
+            "フォーマット:\n"
+            "{summary_format}\n"
+            "\n"
+            "注意事項:\n"
+            "- 日本語で作成してください\n"
+            "- transcript の各行は [YYYY-MM-DD HH:MM:SS] [スピーカー] テキスト 形式です\n"
+            "- 文字起こしの誤認識と思われる箇所は文脈から推測して補正してください\n"
+            "- マークダウン形式で出力してください"
+        ),
+        "llm.summary_update_system": (
+            "あなたは議事録作成アシスタントです。既存の議事録と新しい transcript（音声書き起こしの差分）が与えられます。\n"
+            "既存の議事録を新しい transcript の内容で更新してください。\n"
+            "\n"
+            "フォーマット:\n"
+            "{summary_format}\n"
+            "\n"
+            "注意事項:\n"
+            "- 日本語で作成してください\n"
+            "- 既存の議事録の内容は維持しつつ、新しい情報を追加・統合してください\n"
+            "- transcript の各行は [YYYY-MM-DD HH:MM:SS] [スピーカー] テキスト 形式です\n"
+            "- 文字起こしの誤認識と思われる箇所は文脈から推測して補正してください\n"
+            "- 更新後の議事録全体をマークダウン形式で出力してください"
+        ),
+        "llm.summary_update_user": (
+            "## 既存の議事録\n"
+            "{existing}\n"
+            "\n"
+            "## 新しい transcript（差分）\n"
+            "{transcript}"
+        ),
+        "llm.summary_update_none": "(なし — 新規作成してください)",
+        "llm.summary_format": (
+            "# 議事録\n"
+            "\n"
+            "- **日時**: YYYY-MM-DD HH:MM〜HH:MM（transcript のタイムスタンプから推定）\n"
+            "- **参加者**: （判別できれば記載、不明なら省略）\n"
+            "\n"
+            "## 要約\n"
+            "（会議全体の要約を3〜5文で）\n"
+            "\n"
+            "## 主な議題と決定事項\n"
+            "- **議題1**: 内容の要約\n"
+            "  - 決定事項: ...\n"
+            "- **議題2**: ...\n"
+            "\n"
+            "## アクションアイテム\n"
+            "- [ ] 担当者: タスク内容（期限があれば記載）\n"
+            "\n"
+            "## 詳細メモ\n"
+            "（重要な発言や補足情報）"
+        ),
+        "llm.query_system": "あなたは親切なアシスタントです。簡潔に回答してください。",
+        "llm.match_command_system": (
+            "あなたは音声コマンド認識アシスタントです。\n"
+            "ユーザーの音声認識テキストを受け取り、最も近いコマンドを推測してください。\n"
+            "\n"
+            "利用可能なコマンド一覧:\n"
+            "{commands}\n"
+            "\n"
+            "以下のルールに従ってください:\n"
+            '1. 音声認識テキストがどのコマンドに最も近いかを判断してください。\n'
+            "2. 音声認識の誤認識を考慮し、意味的に最も近いコマンドを選んでください。\n"
+            '3. 結果を以下の JSON 形式で返してください（JSON のみ、余計なテキストは不要）:\n'
+            '   {{"command": "マッチしたコマンド名", "confidence": 0-100の整数}}\n'
+            "4. confidence は一致の確信度です。完全一致なら100、やや曖昧なら60-80、関係なさそうなら0-30としてください。"
+        ),
+
+        # --- vcmd.* : 音声コマンド説明 ---
+        "vcmd.start_meeting": "会議を開始する (start meeting)",
+        "vcmd.end_meeting": "会議を終了する (end meeting)",
+        "vcmd.translate_start": "翻訳を開始する (start translation)",
+        "vcmd.translate_stop": "翻訳を停止する (stop translation)",
+        "vcmd.set_language_ja": "言語を日本語に設定する (set language Japanese)",
+        "vcmd.set_language_en": "言語を英語に設定する (set language English)",
+        "vcmd.unset_language": "言語設定を自動検出にする (unset language)",
+
+        # --- speaker.* : スピーカーラベル表示用 ---
+        "speaker.mic": "自分",
+        "speaker.monitor": "相手",
+
+        # --- err.* : エラーメッセージ ---
+        "err.dotenv_load_fail": ".env の読み込みに失敗: {error}",
+        "err.config_load_fail": "config.yaml の読み込みに失敗: {error}",
+        "err.api_endpoint_missing": "エラー: api_endpoint が設定されていません。",
+        "err.api_endpoint_hint": "  config set api_endpoint <URL> で設定してください。",
+        "err.api_model_missing": "エラー: api_model が設定されていません。",
+        "err.api_model_hint": "  config set api_model <model> で設定してください。",
+        "err.api_key_missing": "エラー: API キーが見つかりません。",
+        "err.api_key_hint": "  {dir}/.env に {env_var}=<your-api-key> を記載してください。",
+        "err.file_not_found": "エラー: ファイルが見つかりません: {path}",
+        "err.transcript_not_found": "エラー: transcript ファイルが見つかりません: {path}",
+        "err.transcript_empty": "エラー: transcript が空です。",
+    },
+    "en": {
+        # --- rec.* ---
+        "rec.recording": "Recording... (Ctrl+C to stop)",
+        "rec.output": "Output: {path}",
+        "rec.backend": "Backend: {name}",
+        "rec.pipewire_devices": "\n=== PipeWire Devices ===",
+        "rec.pulseaudio_sources": "\n=== PulseAudio Sources ===",
+        "rec.sounddevice_devices": "=== sounddevice Devices ===",
+        "rec.no_devices": "  (No devices found)",
+        "rec.no_sources": "  (No sources found)",
+        "rec.pw_unavailable": "  (pw-record is not available)",
+        "rec.pa_unavailable": "  (pactl is not available)",
+        "rec.auto_detect_sd": "\n[Auto-detect] sounddevice monitor: device #{device}",
+        "rec.auto_detect_backend": "[Auto-detect] {backend} monitor: {source}",
+        "rec.meeting_start": "Meeting started: {path}",
+        "rec.meeting_end": "Meeting ended: {path}",
+        "rec.model_changing": "Changing model: {model} ...",
+        "rec.model_changed": "Model changed: {model}",
+        "rec.translate_start": "Translation started",
+        "rec.translate_stop": "Translation stopped",
+        "rec.custom_exec": "Custom command: {action}",
+        "rec.voice_cmd_llm": "  Voice command (LLM): {text} -> {command} (confidence={confidence})",
+        "rec.voice_cmd_fail": "  Could not recognize command: {text} (confidence={confidence})",
+        "rec.auto_summary_start": "  Generating summary: {src} -> {dst}",
+        "rec.auto_summary_done": "  Summary complete: {name}",
+        "rec.auto_summary_fail": "  Summary failed: {error}",
+        "rec.auto_summary_timeout": "  Summary timed out",
+        "rec.ptt_on": "[PTT] Command mode ON ({key} pressed)",
+        "rec.ptt_off": "[PTT] Command mode OFF ({key} released)",
+
+        # --- dash.* ---
+        "dash.meeting_start": "Start Meeting",
+        "dash.meeting_end": "End Meeting",
+        "dash.translate_start": "Start Translation",
+        "dash.translate_stop": "Stop Translation",
+        "dash.summary": "Summary",
+        "dash.view_summary": "View Summary",
+        "dash.custom_cmd_placeholder": "Custom command",
+        "dash.send": "Send",
+        "dash.glossary": "Glossary",
+        "dash.settings": "Settings",
+        "dash.settings_title": "Settings",
+        "dash.glossary_title": "Glossary (glossary.txt)",
+        "dash.summary_title": "Summary",
+        "dash.saved": "Saved",
+        "dash.cancel": "Cancel",
+        "dash.save": "Save",
+        "dash.close": "Close",
+        "dash.add_row": "+ Add Row",
+        "dash.summary_started": "Summary generation started. You will be notified when complete.",
+        "dash.summary_prefix": "Summary: ",
+        "dash.no_summary": "(No summary available)",
+        "dash.alert_cmd_fail": "Could not recognize command: {text}",
+        "dash.alert_summary_done": "Summary generated: {name}",
+        "dash.transcript_not_found": "Transcript not found",
+        "dash.summary_generation_started": "Summary generation started",
+
+        # --- cfg.* ---
+        "cfg.translate_language": "Translation Language",
+        "cfg.auto_translate": "Auto Translate",
+        "cfg.auto_summary": "Auto Summary",
+        "cfg.default_language": "Default Language",
+        "cfg.default_model": "Whisper Model",
+        "cfg.output_directory": "Output Directory",
+        "cfg.output_directory_ph": "null=data directory",
+        "cfg.llm_provider": "LLM Provider",
+        "cfg.api_endpoint": "API Endpoint",
+        "cfg.api_model": "API Model",
+        "cfg.api_key_env": "API Key Env Var",
+        "cfg.initial_prompt": "Initial Prompt",
+        "cfg.initial_prompt_ph": "Whisper hint words",
+        "cfg.voice_command_key": "PTT Key",
+        "cfg.whisper_beam_size": "Beam Size",
+        "cfg.whisper_compute_type": "Compute Type",
+        "cfg.whisper_device": "Device",
+        "cfg.interim_transcription": "Interim Transcription",
+        "cfg.interim_model": "Interim Model",
+        "cfg.custom_commands": "Custom Commands",
+        "cfg.ui_language": "UI Language",
+
+        # --- llm.* ---
+        "llm.translate_system": (
+            "You are a translation assistant. Follow these rules to translate text into {lang}:\n"
+            "\n"
+            "1. Each line is given in 'number: text' format. Return results in the same 'number: translated text' format.\n"
+            "2. This is speech recognition transcript text. Correct obvious misrecognitions from context before translating.\n"
+            "3. Lines already in the target language ({lang}) do not need translation, but fix any speech recognition errors or typos.\n"
+            "4. Output only the number and translated text after the colon. No extra explanations."
+        ),
+        "llm.summary_full_system": (
+            "You are a meeting minutes assistant. Create meeting minutes from the following transcript (speech-to-text).\n"
+            "\n"
+            "Format:\n"
+            "{summary_format}\n"
+            "\n"
+            "Notes:\n"
+            "- Write in English\n"
+            "- Each transcript line is in [YYYY-MM-DD HH:MM:SS] [Speaker] Text format\n"
+            "- Correct obvious speech recognition errors from context\n"
+            "- Output in markdown format"
+        ),
+        "llm.summary_update_system": (
+            "You are a meeting minutes assistant. You are given existing meeting minutes and new transcript (speech-to-text diff).\n"
+            "Update the existing minutes with the new transcript content.\n"
+            "\n"
+            "Format:\n"
+            "{summary_format}\n"
+            "\n"
+            "Notes:\n"
+            "- Write in English\n"
+            "- Maintain existing minutes content while adding/integrating new information\n"
+            "- Each transcript line is in [YYYY-MM-DD HH:MM:SS] [Speaker] Text format\n"
+            "- Correct obvious speech recognition errors from context\n"
+            "- Output the complete updated minutes in markdown format"
+        ),
+        "llm.summary_update_user": (
+            "## Existing Meeting Minutes\n"
+            "{existing}\n"
+            "\n"
+            "## New Transcript (diff)\n"
+            "{transcript}"
+        ),
+        "llm.summary_update_none": "(None — please create new minutes)",
+        "llm.summary_format": (
+            "# Meeting Minutes\n"
+            "\n"
+            "- **Date/Time**: YYYY-MM-DD HH:MM - HH:MM (estimated from transcript timestamps)\n"
+            "- **Participants**: (list if identifiable, omit if unknown)\n"
+            "\n"
+            "## Summary\n"
+            "(3-5 sentence summary of the meeting)\n"
+            "\n"
+            "## Key Topics and Decisions\n"
+            "- **Topic 1**: Summary of discussion\n"
+            "  - Decision: ...\n"
+            "- **Topic 2**: ...\n"
+            "\n"
+            "## Action Items\n"
+            "- [ ] Owner: Task description (deadline if applicable)\n"
+            "\n"
+            "## Detailed Notes\n"
+            "(Important statements and supplementary information)"
+        ),
+        "llm.query_system": "You are a helpful assistant. Please respond concisely.",
+        "llm.match_command_system": (
+            "You are a voice command recognition assistant.\n"
+            "Receive the user's speech recognition text and predict the closest matching command.\n"
+            "\n"
+            "Available commands:\n"
+            "{commands}\n"
+            "\n"
+            "Follow these rules:\n"
+            "1. Determine which command best matches the speech recognition text.\n"
+            "2. Consider speech recognition errors and choose the semantically closest command.\n"
+            '3. Return results in the following JSON format only (no extra text):\n'
+            '   {{"command": "matched command name", "confidence": 0-100 integer}}\n'
+            "4. confidence is the certainty of the match. Use 100 for exact match, 60-80 for somewhat ambiguous, 0-30 for unrelated."
+        ),
+
+        # --- vcmd.* ---
+        "vcmd.start_meeting": "Start meeting",
+        "vcmd.end_meeting": "End meeting",
+        "vcmd.translate_start": "Start translation",
+        "vcmd.translate_stop": "Stop translation",
+        "vcmd.set_language_ja": "Set language to Japanese",
+        "vcmd.set_language_en": "Set language to English",
+        "vcmd.unset_language": "Set language to auto-detect",
+
+        # --- speaker.* ---
+        "speaker.mic": "Me",
+        "speaker.monitor": "Others",
+
+        # --- err.* ---
+        "err.dotenv_load_fail": "Failed to load .env: {error}",
+        "err.config_load_fail": "Failed to load config.yaml: {error}",
+        "err.api_endpoint_missing": "Error: api_endpoint is not configured.",
+        "err.api_endpoint_hint": "  Set it with: config set api_endpoint <URL>",
+        "err.api_model_missing": "Error: api_model is not configured.",
+        "err.api_model_hint": "  Set it with: config set api_model <model>",
+        "err.api_key_missing": "Error: API key not found.",
+        "err.api_key_hint": "  Add {env_var}=<your-api-key> to {dir}/.env",
+        "err.file_not_found": "Error: File not found: {path}",
+        "err.transcript_not_found": "Error: Transcript file not found: {path}",
+        "err.transcript_empty": "Error: Transcript is empty.",
+    },
+}

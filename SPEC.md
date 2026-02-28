@@ -150,6 +150,7 @@ voice_command_key: menu        # Push-to-Talk キー (null=無効, ctrl_r/ctrl_l
 whisper_beam_size: 5           # Whisper beam size (1=高速, 5=高精度)
 whisper_compute_type: int8     # 計算精度 (int8/float16/float32)
 whisper_device: cpu            # デバイス (cpu/cuda)
+ui_language: ja                # UI言語 (ja/en) — ダッシュボード・ターミナル出力・LLMプロンプトの言語
 ```
 
 - recorder.py 起動時に config.yaml を読み込み、CLI 引数が未指定の場合のみ `default_model`、`default_language`、`output_directory` を適用する

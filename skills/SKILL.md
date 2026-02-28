@@ -205,6 +205,7 @@ shadow-clerk — Web会議 議事録アシスタント
   config show            設定を表示
   config set <key> <val> 設定を変更
                          例: config set llm_provider api  外部 API で翻訳・Summary を実行
+                         例: config set ui_language en    UI言語を英語に変更
   config init            デフォルト設定ファイルを生成
   start meeting          新しい会議セッションを開始（auto_translate/auto_summary 連動）
   end meeting            会議セッションを終了（auto_translate 停止、auto_summary 実行）

@@ -26,6 +26,8 @@ import sounddevice as sd
 import webrtcvad
 import yaml
 
+from i18n import t, t_all
+
 try:
     from pynput import keyboard as pynput_keyboard
     _HAS_PYNPUT = True
@@ -81,6 +83,7 @@ DEFAULT_CONFIG = {
     "whisper_device": "cpu",       # cpu/cuda
     "interim_transcription": False,
     "interim_model": "tiny",
+    "ui_language": "ja",
 }
 
 
@@ -124,15 +127,16 @@ VOICE_COMMANDS = [
     (re.compile(r"(翻訳.*(?:停止|止め)|(?:本|ほん)やく.*(?:停止|止め)|stop\s*translat)", re.IGNORECASE), "translate_stop"),
 ]
 
-BUILTIN_COMMAND_DESCS = [
-    {"command": "start_meeting", "description": "会議を開始する (start meeting)"},
-    {"command": "end_meeting", "description": "会議を終了する (end meeting)"},
-    {"command": "translate_start", "description": "翻訳を開始する (start translation)"},
-    {"command": "translate_stop", "description": "翻訳を停止する (stop translation)"},
-    {"command": "set_language ja", "description": "言語を日本語に設定する (set language Japanese)"},
-    {"command": "set_language en", "description": "言語を英語に設定する (set language English)"},
-    {"command": "unset_language", "description": "言語設定を自動検出にする (unset language)"},
-]
+def _builtin_command_descs():
+    return [
+        {"command": "start_meeting", "description": t("vcmd.start_meeting")},
+        {"command": "end_meeting", "description": t("vcmd.end_meeting")},
+        {"command": "translate_start", "description": t("vcmd.translate_start")},
+        {"command": "translate_stop", "description": t("vcmd.translate_stop")},
+        {"command": "set_language ja", "description": t("vcmd.set_language_ja")},
+        {"command": "set_language en", "description": t("vcmd.set_language_en")},
+        {"command": "unset_language", "description": t("vcmd.unset_language")},
+    ]
 
 
 class WordReplacer:
@@ -205,7 +209,7 @@ class PipeWireBackend(AudioBackend):
         return None
 
     def list_devices(self):
-        print("\n=== PipeWire デバイス ===")
+        print(t("rec.pipewire_devices"))
         try:
             result = subprocess.run(
                 ["pw-record", "--list-targets"],
@@ -214,9 +218,9 @@ class PipeWireBackend(AudioBackend):
             if result.stdout.strip():
                 print(result.stdout)
             else:
-                print("  (デバイスが見つかりません)")
+                print(t("rec.no_devices"))
         except (subprocess.TimeoutExpired, FileNotFoundError):
-            print("  (pw-record が利用できません)")
+            print(t("rec.pw_unavailable"))
 
     def start_monitor_capture(self, target: str, audio_queue: queue.Queue,
                               stop_event: threading.Event):
@@ -266,7 +270,7 @@ class PulseAudioBackend(AudioBackend):
         return None
 
     def list_devices(self):
-        print("\n=== PulseAudio ソース ===")
+        print(t("rec.pulseaudio_sources"))
         try:
             result = subprocess.run(
                 ["pactl", "list", "short", "sources"],
@@ -275,9 +279,9 @@ class PulseAudioBackend(AudioBackend):
             if result.stdout.strip():
                 print(result.stdout)
             else:
-                print("  (ソースが見つかりません)")
+                print(t("rec.no_sources"))
         except (subprocess.TimeoutExpired, FileNotFoundError):
-            print("  (pactl が利用できません)")
+            print(t("rec.pa_unavailable"))
 
     def start_monitor_capture(self, source: str, audio_queue: queue.Queue,
                               stop_event: threading.Event):
@@ -401,7 +405,7 @@ def find_monitor_device_sd() -> int | None:
 
 def list_all_devices(backend_name: str, backend: AudioBackend | None):
     """全デバイス一覧表示"""
-    print("=== sounddevice デバイス ===")
+    print(t("rec.sounddevice_devices"))
     print(sd.query_devices())
 
     if backend:
@@ -409,12 +413,12 @@ def list_all_devices(backend_name: str, backend: AudioBackend | None):
 
     monitor_sd = find_monitor_device_sd()
     if monitor_sd is not None:
-        print(f"\n[自動検出] sounddevice monitor: device #{monitor_sd}")
+        print(t("rec.auto_detect_sd", device=monitor_sd))
 
     if backend:
         monitor = backend.detect_monitor_source()
         if monitor:
-            print(f"[自動検出] {backend_name} monitor: {monitor}")
+            print(t("rec.auto_detect_backend", backend=backend_name, source=monitor))
 
 
 # --- VAD セグメンテーション ---
@@ -846,8 +850,8 @@ class Recorder:
         return None
 
     def _get_command_list(self) -> list[dict]:
-        """BUILTIN_COMMAND_DESCS + カスタムコマンドからコマンドリストを生成"""
-        commands = list(BUILTIN_COMMAND_DESCS)
+        """_builtin_command_descs() + カスタムコマンドからコマンドリストを生成"""
+        commands = list(_builtin_command_descs())
         for pattern, action in self._custom_commands:
             commands.append({
                 "command": f"custom_exec {action}",
@@ -882,14 +886,14 @@ class Recorder:
 
         if confidence >= 80 and command:
             logger.info("LLM コマンドマッチ: '%s' → %s (confidence=%d)", text, command, confidence)
-            print(f"  音声コマンド (LLM): {text.strip()} → {command} (confidence={confidence})")
+            print(t("rec.voice_cmd_llm", text=text.strip(), command=command, confidence=confidence))
             self._execute_command(command)
         else:
             logger.info("LLM コマンドマッチ低信頼度: '%s' → %s (confidence=%d)", text, command, confidence)
-            print(f"  コマンドを聞き取れませんでした: {text.strip()} (confidence={confidence})")
+            print(t("rec.voice_cmd_fail", text=text.strip(), confidence=confidence))
             if hasattr(self, "_file_watcher"):
                 self._file_watcher._broadcast("alert", json.dumps(
-                    {"message": f"コマンドを聞き取れませんでした: {text.strip()}"},
+                    {"message": t("dash.alert_cmd_fail", text=text.strip())},
                     ensure_ascii=False))
 
     def _auto_summarize(self, transcript_path: str):
@@ -907,7 +911,7 @@ class Recorder:
         ]
 
         logger.info("自動要約開始: %s → %s", basename, summary_name)
-        print(f"  自動要約生成中: {basename} → {summary_name}")
+        print(t("rec.auto_summary_start", src=basename, dst=summary_name))
 
         try:
             result = subprocess.run(
@@ -916,17 +920,17 @@ class Recorder:
             )
             if result.returncode == 0:
                 logger.info("自動要約完了: %s", summary_path)
-                print(f"  自動要約完了: {summary_name}")
+                print(t("rec.auto_summary_done", name=summary_name))
                 if hasattr(self, "_file_watcher"):
                     self._file_watcher._broadcast("alert", json.dumps(
-                        {"message": f"議事録を生成しました: {summary_name}"},
+                        {"message": t("dash.alert_summary_done", name=summary_name)},
                         ensure_ascii=False))
             else:
                 logger.warning("自動要約失敗: %s", result.stderr.strip())
-                print(f"  自動要約失敗: {result.stderr.strip()[:100]}")
+                print(t("rec.auto_summary_fail", error=result.stderr.strip()[:100]))
         except subprocess.TimeoutExpired:
             logger.warning("自動要約タイムアウト")
-            print("  自動要約タイムアウト")
+            print(t("rec.auto_summary_timeout"))
         except Exception as e:
             logger.warning("自動要約エラー: %s", e)
 
@@ -958,14 +962,14 @@ class Recorder:
             if key == target_key:
                 self._command_mode = True
                 logger.info("コマンドモード ON (%s pressed)", self._voice_command_key)
-                print(f"[PTT] コマンドモード ON ({self._voice_command_key} pressed)")
+                print(t("rec.ptt_on", key=self._voice_command_key))
 
         def on_release(key):
             if key == target_key:
                 self._command_mode = False
                 self._command_mode_release_time = time.time()
                 logger.info("コマンドモード OFF (%s released)", self._voice_command_key)
-                print(f"[PTT] コマンドモード OFF ({self._voice_command_key} released)")
+                print(t("rec.ptt_off", key=self._voice_command_key))
 
         with pynput_keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
             self.stop_event.wait()
@@ -1033,13 +1037,13 @@ class Recorder:
                                     self._command_mode = True
                                     logger.info("コマンドモード ON (%s pressed) [evdev]",
                                                 self._voice_command_key)
-                                    print(f"[PTT] コマンドモード ON ({self._voice_command_key} pressed)")
+                                    print(t("rec.ptt_on", key=self._voice_command_key))
                                 elif event.value == 0:  # key up
                                     self._command_mode = False
                                     self._command_mode_release_time = time.time()
                                     logger.info("コマンドモード OFF (%s released) [evdev]",
                                                 self._voice_command_key)
-                                    print(f"[PTT] コマンドモード OFF ({self._voice_command_key} released)")
+                                    print(t("rec.ptt_off", key=self._voice_command_key))
                     except OSError:
                         pass  # デバイス切断等
         finally:
@@ -1075,7 +1079,7 @@ class Recorder:
             with open(SESSION_FILE, "w", encoding="utf-8") as f:
                 f.write(self.output_path)
             logger.info("会議開始: %s", self.output_path)
-            print(f"会議開始: {self.output_path}")
+            print(t("rec.meeting_start", path=self.output_path))
 
         elif cmd == "end_meeting":
             marker = "--- 会議終了 ---\n"
@@ -1083,7 +1087,7 @@ class Recorder:
             with open(session_transcript, "a", encoding="utf-8") as f:
                 f.write(marker)
             logger.info("会議終了: %s", session_transcript)
-            print(f"会議終了: {session_transcript}")
+            print(t("rec.meeting_end", path=session_transcript))
             # 明示的 output 指定の場合はその値に戻す、そうでなければ現在日付のデフォルト
             if self._explicit_output:
                 self.output_path = self.args.output
@@ -1105,10 +1109,10 @@ class Recorder:
         elif cmd.startswith("set_model "):
             model_size = cmd.split(None, 1)[1].strip()
             logger.info("モデル変更中: %s ...", model_size)
-            print(f"モデル変更中: {model_size} ...")
+            print(t("rec.model_changing", model=model_size))
             self.transcriber.reload_model(model_size)
             logger.info("モデル変更完了: %s", model_size)
-            print(f"モデル変更完了: {model_size}")
+            print(t("rec.model_changed", model=model_size))
 
         elif cmd == "translate_start":
             config = load_config()
@@ -1124,7 +1128,7 @@ class Recorder:
                 with open(COMMAND_FILE, "w", encoding="utf-8") as f:
                     f.write("translate_start")
                 logger.info("翻訳開始コマンドを .clerk_command に書き込み (claude provider)")
-            print("翻訳開始")
+            print(t("rec.translate_start"))
 
         elif cmd == "translate_stop":
             if self._translate_thread and self._translate_thread.is_alive():
@@ -1136,12 +1140,12 @@ class Recorder:
                 with open(COMMAND_FILE, "w", encoding="utf-8") as f:
                     f.write("translate_stop")
                 logger.info("翻訳停止コマンドを .clerk_command に書き込み")
-            print("翻訳停止")
+            print(t("rec.translate_stop"))
 
         elif cmd.startswith("custom_exec "):
             action = cmd.split(None, 1)[1]
             logger.info("カスタムコマンド実行: %s", action)
-            print(f"カスタムコマンド実行: {action}")
+            print(t("rec.custom_exec", action=action))
             subprocess.Popen(action, shell=True)
 
         elif cmd.startswith("llm_query "):
@@ -1253,7 +1257,10 @@ class Recorder:
         logger.info("文字起こしスレッド開始")
         self.transcriber.load_model()
 
-        speaker_labels = {"mic": "自分", "monitor": "相手"}
+        # ファイル書き込み用ラベル（データフォーマット固定）
+        file_labels = {"mic": "自分", "monitor": "相手"}
+        # ターミナル表示用ラベル（i18n 対応）
+        display_labels = {"mic": t("speaker.mic"), "monitor": t("speaker.monitor")}
 
         while not self.stop_event.is_set():
             try:
@@ -1262,8 +1269,8 @@ class Recorder:
                 continue
 
             duration = len(segment) / SAMPLE_RATE
-            speaker = speaker_labels.get(source, source)
-            logger.info("文字起こし中 (%s, %.1f秒)...", speaker, duration)
+            display_speaker = display_labels.get(source, source)
+            logger.info("文字起こし中 (%s, %.1f秒)...", display_speaker, duration)
 
             text = self.transcriber.transcribe(segment)
             if text.strip():
@@ -1283,7 +1290,7 @@ class Recorder:
                             if voice_cmd:
                                 logger.info("音声コマンド検出 (PTT): %s → %s", text.strip(), voice_cmd)
                                 if voice_cmd.startswith("custom_exec "):
-                                    logger.info("[%s] [%s] %s", timestamp, speaker, text.strip())
+                                    logger.info("[%s] [%s] %s", timestamp, display_speaker, text.strip())
                                 self._execute_command(voice_cmd)
                         continue
                     else:
@@ -1292,7 +1299,7 @@ class Recorder:
                         if voice_cmd:
                             logger.info("音声コマンド検出: %s → %s", text.strip(), voice_cmd)
                             if voice_cmd.startswith("custom_exec "):
-                                logger.info("[%s] [%s] %s", timestamp, speaker, text.strip())
+                                logger.info("[%s] [%s] %s", timestamp, display_speaker, text.strip())
                             self._execute_command(voice_cmd)
                             continue
 
@@ -1304,11 +1311,13 @@ class Recorder:
                         self.output_path = new_path
 
                 text = self.word_replacer.apply(text)
-                line = f"[{timestamp}] [{speaker}] {text}\n"
+                file_speaker = file_labels.get(source, source)
+                file_line = f"[{timestamp}] [{file_speaker}] {text}\n"
                 with open(self.output_path, "a", encoding="utf-8") as f:
-                    f.write(line)
+                    f.write(file_line)
                     f.flush()
-                print(f"  {line.rstrip()}")
+                display_line = f"[{timestamp}] [{display_speaker}] {text}"
+                print(f"  {display_line}")
                 # 中間テキストをクリア
                 if hasattr(self, "_file_watcher"):
                     self._file_watcher._broadcast("interim_clear", json.dumps(
@@ -1320,21 +1329,23 @@ class Recorder:
         while not self.transcribe_queue.empty():
             try:
                 segment, timestamp, source, _ = self.transcribe_queue.get_nowait()
-                speaker = speaker_labels.get(source, source)
+                file_speaker = file_labels.get(source, source)
+                display_speaker = display_labels.get(source, source)
                 text = self.transcriber.transcribe(segment)
                 if text.strip():
                     text = self.word_replacer.apply(text)
-                    line = f"[{timestamp}] [{speaker}] {text}\n"
+                    file_line = f"[{timestamp}] [{file_speaker}] {text}\n"
                     with open(self.output_path, "a", encoding="utf-8") as f:
-                        f.write(line)
+                        f.write(file_line)
                         f.flush()
-                    print(f"  {line.rstrip()}")
+                    display_line = f"[{timestamp}] [{display_speaker}] {text}"
+                    print(f"  {display_line}")
             except queue.Empty:
                 break
 
     def _interim_transcribe_thread(self):
         """中間文字起こしスレッド（interim_transcription 有効時のみモデルをロード）"""
-        speaker_labels = {"mic": "自分", "monitor": "相手"}
+        display_labels = {"mic": t("speaker.mic"), "monitor": t("speaker.monitor")}
         interim_transcriber = None
         interim_model_name = None
         current_seq: dict[str, int] = {}  # source ごとの最新 seq
@@ -1375,7 +1386,7 @@ class Recorder:
             try:
                 text = interim_transcriber.transcribe(audio_segment)
                 if text.strip() and hasattr(self, "_file_watcher"):
-                    speaker = speaker_labels.get(source, source)
+                    speaker = display_labels.get(source, source)
                     self._file_watcher._broadcast("interim_transcript", json.dumps(
                         {"source": source, "speaker": speaker, "text": text.strip(),
                          "timestamp": timestamp}, ensure_ascii=False))
@@ -1398,8 +1409,8 @@ class Recorder:
         logger.info("出力先: %s", self.output_path)
         logger.info("モデル: %s", self.args.model)
         logger.info("言語: %s", self.args.language or "auto")
-        print(f"録音中... (Ctrl+C で停止)")
-        print(f"出力先: {self.output_path}")
+        print(t("rec.recording"))
+        print(t("rec.output", path=self.output_path))
 
         self.mic_segmenter = VADSegmenter()
         self.monitor_segmenter = VADSegmenter()
@@ -1459,8 +1470,8 @@ class Recorder:
                 name="dashboard", daemon=True))
             logger.info("ダッシュボード: http://localhost:%d", port)
 
-        for t in threads:
-            t.start()
+        for th in threads:
+            th.start()
 
         # メインスレッドで待機
         try:
@@ -1470,8 +1481,8 @@ class Recorder:
             self.stop_event.set()
 
         logger.info("スレッド終了待機中...")
-        for t in threads:
-            t.join(timeout=5.0)
+        for th in threads:
+            th.join(timeout=5.0)
 
         logger.info("Shadow-clerk recorder 終了")
 
@@ -1698,7 +1709,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _serve_html(self):
-        body = _HTML_TEMPLATE.encode("utf-8")
+        import i18n as _i18n
+        _i18n.init()  # re-read config for ui_language changes
+        html = _HTML_TEMPLATE
+        html = re.sub(r'\{\{i18n:([^}]+)\}\}', lambda m: t(m.group(1)), html)
+        html = html.replace("/*I18N_JSON*/", f"const I18N={json.dumps(t_all(), ensure_ascii=False)};")
+        body = html.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -1859,9 +1875,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         else:
             transcript_path = self.recorder.output_path
         if not os.path.exists(transcript_path):
-            self._send_json({"status": "error", "message": "transcript が見つかりません"})
+            self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
             return
-        self._send_json({"status": "ok", "message": "要約生成を開始しました"})
+        self._send_json({"status": "ok", "message": t("dash.summary_generation_started")})
         threading.Thread(
             target=self.recorder._auto_summarize,
             args=(transcript_path,),
@@ -2095,23 +2111,23 @@ main {
   </select>
   <select id="fsel" onchange="onSel()"><option value="">...</option></select>
   <div class="g">
-    <button class="pri" onclick="cmd('start_meeting')">会議開始</button>
-    <button class="dan" onclick="cmd('end_meeting')">会議終了</button>
-    <button onclick="cmd('translate_start')">翻訳開始</button>
-    <button onclick="cmd('translate_stop')">翻訳停止</button>
-    <button onclick="genSummary()">要約</button>
-    <button onclick="viewSummary()">要約閲覧</button>
+    <button class="pri" onclick="cmd('start_meeting')">{{i18n:dash.meeting_start}}</button>
+    <button class="dan" onclick="cmd('end_meeting')">{{i18n:dash.meeting_end}}</button>
+    <button onclick="cmd('translate_start')">{{i18n:dash.translate_start}}</button>
+    <button onclick="cmd('translate_stop')">{{i18n:dash.translate_stop}}</button>
+    <button onclick="genSummary()">{{i18n:dash.summary}}</button>
+    <button onclick="viewSummary()">{{i18n:dash.view_summary}}</button>
   </div>
   <div class="g">
-    <input type="text" id="custom-cmd" placeholder="カスタムコマンド" onkeydown="if(event.key==='Enter')sendC()">
-    <button onclick="sendC()">送信</button>
+    <input type="text" id="custom-cmd" placeholder="{{i18n:dash.custom_cmd_placeholder}}" onkeydown="if(event.key==='Enter')sendC()">
+    <button onclick="sendC()">{{i18n:dash.send}}</button>
   </div>
   <div class="g" style="margin-left:auto">
     <button class="toggle" onclick="togPanel('T')" id="togT">T</button>
     <button class="toggle" onclick="togPanel('R')" id="togR">R</button>
     <button class="toggle" onclick="togPanel('L')" id="togL">L</button>
-    <button onclick="openGlossary()">用語集</button>
-    <button onclick="openCfg()">設定</button>
+    <button onclick="openGlossary()">{{i18n:dash.glossary}}</button>
+    <button onclick="openCfg()">{{i18n:dash.settings}}</button>
   </div>
 </header>
 <div id="resp"><div class="rh"><span>LLM Response</span><button class="toggle" onclick="hideResp()">&times;</button></div><div class="rb" id="respBody"></div></div>
@@ -2134,46 +2150,47 @@ main {
 </div>
 <div class="modal-overlay" id="cfgModal" onclick="if(event.target===this)closeCfg()">
   <div class="modal">
-    <div class="modal-head"><span>設定</span><button onclick="closeCfg()">&times;</button></div>
+    <div class="modal-head"><span>{{i18n:dash.settings_title}}</span><button onclick="closeCfg()">&times;</button></div>
     <div class="modal-body" id="cfgBody"></div>
     <div class="modal-foot">
-      <span class="saved" id="cfgSaved">保存しました</span>
-      <button onclick="closeCfg()">キャンセル</button>
-      <button class="pri" onclick="saveCfg()">保存</button>
+      <span class="saved" id="cfgSaved">{{i18n:dash.saved}}</span>
+      <button onclick="closeCfg()">{{i18n:dash.cancel}}</button>
+      <button class="pri" onclick="saveCfg()">{{i18n:dash.save}}</button>
     </div>
   </div>
 </div>
 <div class="modal-overlay" id="glossaryModal" onclick="if(event.target===this)closeGlossary()">
   <div class="modal" style="max-width:700px;">
-    <div class="modal-head"><span>用語集 (glossary.txt)</span><button onclick="closeGlossary()">&times;</button></div>
+    <div class="modal-head"><span>{{i18n:dash.glossary_title}}</span><button onclick="closeGlossary()">&times;</button></div>
     <div class="modal-body" style="display:block;max-height:60vh;overflow-y:auto;">
       <table id="glossaryTable" style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead><tr id="glossaryHead"></tr></thead>
         <tbody id="glossaryBody"></tbody>
       </table>
       <div style="margin-top:8px;">
-        <button onclick="glossaryAddRow()" style="font-size:12px;">+ 行追加</button>
+        <button onclick="glossaryAddRow()" style="font-size:12px;">{{i18n:dash.add_row}}</button>
       </div>
     </div>
     <div class="modal-foot">
-      <span class="saved" id="glossarySaved">保存しました</span>
-      <button onclick="closeGlossary()">キャンセル</button>
-      <button class="pri" onclick="saveGlossary()">保存</button>
+      <span class="saved" id="glossarySaved">{{i18n:dash.saved}}</span>
+      <button onclick="closeGlossary()">{{i18n:dash.cancel}}</button>
+      <button class="pri" onclick="saveGlossary()">{{i18n:dash.save}}</button>
     </div>
   </div>
 </div>
 <div class="modal-overlay" id="summaryModal" onclick="if(event.target===this)closeSummary()">
   <div class="modal" style="max-width:700px;">
-    <div class="modal-head"><span id="summaryTitle">要約</span><button onclick="closeSummary()">&times;</button></div>
+    <div class="modal-head"><span id="summaryTitle">{{i18n:dash.summary_title}}</span><button onclick="closeSummary()">&times;</button></div>
     <div class="modal-body" style="display:block;max-height:60vh;overflow-y:auto;">
       <div id="summaryContent" style="white-space:pre-wrap;font-size:13px;line-height:1.6;"></div>
     </div>
     <div class="modal-foot">
-      <button onclick="closeSummary()">閉じる</button>
+      <button onclick="closeSummary()">{{i18n:dash.close}}</button>
     </div>
   </div>
 </div>
 <script>
+/*I18N_JSON*/
 let curFile='', activeFile='';
 const as={tp:true,rp:true,logc:true};
 ['tp','rp','logc'].forEach(id=>{
@@ -2185,8 +2202,9 @@ function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g
 function fmtLine(t){
   if(/^---\\s.*\\s---$/.test(t)) return '<div class="ln"><span class="mk">'+esc(t)+'</span></div>';
   const m=t.match(/^\\[(\\d{4}-\\d{2}-\\d{2}\\s\\d{2}:\\d{2}:\\d{2})\\]\\s\\[([^\\]]+)\\]\\s(.*)$/);
-  if(m){const c=m[2]==='自分'?'sp-s':'sp-o';
-    return '<div class="ln"><span class="ts">['+esc(m[1])+']</span> <span class="'+c+'">['+esc(m[2])+']</span> '+esc(m[3])+'</div>';}
+  if(m){const sp=m[2],mic=I18N['speaker.mic']||'自分';const c=(sp===mic||sp==='自分')?'sp-s':'sp-o';
+    const dl=sp===mic?mic:sp==='自分'?mic:(sp===(I18N['speaker.monitor']||'相手')||sp==='相手')?(I18N['speaker.monitor']||'相手'):sp;
+    return '<div class="ln"><span class="ts">['+esc(m[1])+']</span> <span class="'+c+'">['+esc(dl)+']</span> '+esc(m[3])+'</div>';}
   return '<div class="ln">'+esc(t)+'</div>';
 }
 function addLines(id,text,fmt){
@@ -2269,24 +2287,25 @@ function togPanel(w){
 loadFiles();loadT('');loadR('');loadLogs();setInterval(loadFiles,10000);
 const LANG_OPTS=['ja','en','zh','ko','fr','de','es','pt','ru'];
 const CFG_FIELDS=[
-  {key:'translate_language',label:'翻訳先言語',type:'select',opts:LANG_OPTS},
-  {key:'auto_translate',label:'自動翻訳',type:'bool'},
-  {key:'auto_summary',label:'自動Summary',type:'bool'},
-  {key:'default_language',label:'デフォルト言語',type:'select',opts:['auto',...LANG_OPTS]},
-  {key:'default_model',label:'Whisperモデル',type:'select',opts:['tiny','base','small','medium','large-v3']},
-  {key:'output_directory',label:'出力ディレクトリ',type:'text',ph:'null=データディレクトリ'},
-  {key:'llm_provider',label:'LLMプロバイダ',type:'select',opts:['claude','api']},
-  {key:'api_endpoint',label:'APIエンドポイント',type:'text',ph:'https://...'},
-  {key:'api_model',label:'APIモデル',type:'text',ph:'gpt-4o'},
-  {key:'api_key_env',label:'APIキー環境変数',type:'text',ph:'SHADOW_CLERK_API_KEY'},
-  {key:'initial_prompt',label:'初期プロンプト',type:'text',ph:'Whisperヒント語彙'},
-  {key:'voice_command_key',label:'PTTキー',type:'select',opts:['menu','f23','ctrl_r','ctrl_l','alt_r','alt_l','shift_r','shift_l']},
-  {key:'whisper_beam_size',label:'Beam Size',type:'select',opts:['1','2','3','5']},
-  {key:'whisper_compute_type',label:'計算精度',type:'select',opts:['int8','float16','float32']},
-  {key:'whisper_device',label:'デバイス',type:'select',opts:['cpu','cuda']},
-  {key:'interim_transcription',label:'中間文字起こし',type:'bool'},
-  {key:'interim_model',label:'中間モデル',type:'select',opts:['tiny','base','small','medium']},
-  {key:'custom_commands',label:'カスタムコマンド',type:'json'},
+  {key:'ui_language',label:I18N['cfg.ui_language'],type:'select',opts:['ja','en']},
+  {key:'translate_language',label:I18N['cfg.translate_language'],type:'select',opts:LANG_OPTS},
+  {key:'auto_translate',label:I18N['cfg.auto_translate'],type:'bool'},
+  {key:'auto_summary',label:I18N['cfg.auto_summary'],type:'bool'},
+  {key:'default_language',label:I18N['cfg.default_language'],type:'select',opts:['auto',...LANG_OPTS]},
+  {key:'default_model',label:I18N['cfg.default_model'],type:'select',opts:['tiny','base','small','medium','large-v3']},
+  {key:'output_directory',label:I18N['cfg.output_directory'],type:'text',ph:I18N['cfg.output_directory_ph']},
+  {key:'llm_provider',label:I18N['cfg.llm_provider'],type:'select',opts:['claude','api']},
+  {key:'api_endpoint',label:I18N['cfg.api_endpoint'],type:'text',ph:'https://...'},
+  {key:'api_model',label:I18N['cfg.api_model'],type:'text',ph:'gpt-4o'},
+  {key:'api_key_env',label:I18N['cfg.api_key_env'],type:'text',ph:'SHADOW_CLERK_API_KEY'},
+  {key:'initial_prompt',label:I18N['cfg.initial_prompt'],type:'text',ph:I18N['cfg.initial_prompt_ph']},
+  {key:'voice_command_key',label:I18N['cfg.voice_command_key'],type:'select',opts:['menu','f23','ctrl_r','ctrl_l','alt_r','alt_l','shift_r','shift_l']},
+  {key:'whisper_beam_size',label:I18N['cfg.whisper_beam_size'],type:'select',opts:['1','2','3','5']},
+  {key:'whisper_compute_type',label:I18N['cfg.whisper_compute_type'],type:'select',opts:['int8','float16','float32']},
+  {key:'whisper_device',label:I18N['cfg.whisper_device'],type:'select',opts:['cpu','cuda']},
+  {key:'interim_transcription',label:I18N['cfg.interim_transcription'],type:'bool'},
+  {key:'interim_model',label:I18N['cfg.interim_model'],type:'select',opts:['tiny','base','small','medium']},
+  {key:'custom_commands',label:I18N['cfg.custom_commands'],type:'json'},
 ];
 let cfgData={};
 async function openCfg(){
@@ -2326,8 +2345,10 @@ async function saveCfg(){
     else if(f.type==='select'){const sv=el.value;d[f.key]=(sv==='auto'&&f.key==='default_language')?null:sv;}
     else{const v=el.value.trim();d[f.key]=(v===''||v==='null')?null:v;}
   });
+  const langChanged=d.ui_language&&d.ui_language!==cfgData.ui_language;
   try{await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify(d)});
+    if(langChanged){location.reload();return;}
     const s=document.getElementById('cfgSaved');s.style.display='inline';
     setTimeout(()=>s.style.display='none',2000);
   }catch(e){}
@@ -2396,13 +2417,13 @@ async function genSummary(){
   const f=curFile||undefined;
   const b=f?JSON.stringify({file:f}):'{}';
   try{await fetch('/api/summary',{method:'POST',headers:{'Content-Type':'application/json'},body:b});
-    alert('要約生成を開始しました。完了後に通知されます。');}catch(e){}
+    alert(I18N['dash.summary_started']);}catch(e){}
 }
 async function viewSummary(){
   const f=curFile?'?file='+encodeURIComponent(curFile):'';
   try{const d=await(await fetch('/api/summary'+f)).json();
-    document.getElementById('summaryTitle').textContent='要約: '+(d.file||'');
-    document.getElementById('summaryContent').textContent=d.content||'(要約がありません)';
+    document.getElementById('summaryTitle').textContent=I18N['dash.summary_prefix']+(d.file||'');
+    document.getElementById('summaryContent').textContent=d.content||I18N['dash.no_summary'];
     document.getElementById('summaryModal').classList.add('open');
   }catch(e){}
 }
@@ -2493,6 +2514,10 @@ def main():
 
     args = parser.parse_args()
 
+    # i18n 初期化
+    import i18n as _i18n
+    _i18n.init()
+
     # config.yaml の値を CLI 未指定の場合のみ適用
     config = load_config()
     if args.model == "small" and config.get("default_model"):
@@ -2511,7 +2536,7 @@ def main():
 
     if args.list_devices:
         backend_name, backend = detect_backend(args.backend)
-        print(f"バックエンド: {backend_name}")
+        print(t("rec.backend", name=backend_name))
         list_all_devices(backend_name, backend)
         return
 
