@@ -79,6 +79,8 @@ DEFAULT_CONFIG = {
     "whisper_beam_size": 5,        # beam_size (1=高速, 5=高精度)
     "whisper_compute_type": "int8", # int8/float16/float32
     "whisper_device": "cpu",       # cpu/cuda
+    "interim_transcription": False,
+    "interim_model": "tiny",
 }
 
 
@@ -101,6 +103,7 @@ def load_config() -> dict:
 COMMAND_FILE = os.path.join(DATA_DIR, ".clerk_command")
 SESSION_FILE = os.path.join(DATA_DIR, ".clerk_session")
 WORDS_FILE = os.path.join(DATA_DIR, "words.txt")
+GLOSSARY_FILE = os.path.join(DATA_DIR, "glossary.txt")
 
 # 音声コマンド検出パターン
 # Whisper の誤認識揺れを許容:
@@ -119,6 +122,16 @@ VOICE_COMMANDS = [
     (re.compile(r"(会議.*終了|end\s*meeting)", re.IGNORECASE), "end_meeting"),
     (re.compile(r"(翻訳.*(?:開始|始め)|(?:本|ほん)やく.*(?:開始|始め)|start\s*translat)", re.IGNORECASE), "translate_start"),
     (re.compile(r"(翻訳.*(?:停止|止め)|(?:本|ほん)やく.*(?:停止|止め)|stop\s*translat)", re.IGNORECASE), "translate_stop"),
+]
+
+BUILTIN_COMMAND_DESCS = [
+    {"command": "start_meeting", "description": "会議を開始する (start meeting)"},
+    {"command": "end_meeting", "description": "会議を終了する (end meeting)"},
+    {"command": "translate_start", "description": "翻訳を開始する (start translation)"},
+    {"command": "translate_stop", "description": "翻訳を停止する (stop translation)"},
+    {"command": "set_language ja", "description": "言語を日本語に設定する (set language Japanese)"},
+    {"command": "set_language en", "description": "言語を英語に設定する (set language English)"},
+    {"command": "unset_language", "description": "言語設定を自動検出にする (unset language)"},
 ]
 
 
@@ -478,6 +491,14 @@ class VADSegmenter:
 
         return segment
 
+    def get_interim_segment(self) -> np.ndarray | None:
+        """発話中の蓄積音声のコピーを返す（読み取り専用、segmentation に影響しない）"""
+        if self.in_speech and self.current_segment:
+            duration = len(self.current_segment) * FRAME_DURATION_MS / 1000.0
+            if duration >= MIN_SEGMENT_DURATION:
+                return np.concatenate(self.current_segment)
+        return None
+
     def flush(self) -> np.ndarray | None:
         """残っているセグメントを強制出力"""
         if self.in_speech and self.current_segment:
@@ -517,6 +538,16 @@ class Transcriber:
         self.model = None
         self.load_model()
 
+    # Whisper がよく出力するハルシネーション（無音時の誤認識）パターン
+    HALLUCINATION_RE = re.compile(
+        r"(字幕|ご視聴|ご覧いただき|ありがとうございました|チャンネル登録"
+        r"|お疲れ様でした|よろしくお願いします"
+        r"|Thank you for watching|Thanks for watching"
+        r"|Please subscribe|See you next time"
+        r"|Subtitles by|Amara\.org)",
+        re.IGNORECASE,
+    )
+
     def transcribe(self, audio: np.ndarray) -> str:
         """音声セグメントを文字起こし"""
         if self.model is None:
@@ -535,7 +566,18 @@ class Transcriber:
 
         text_parts = []
         for seg in segments:
-            text_parts.append(seg.text.strip())
+            text = seg.text.strip()
+            if not text:
+                continue
+            # no_speech_prob が高いセグメントはスキップ
+            if seg.no_speech_prob > 0.6:
+                logger.debug("ハルシネーション除去 (no_speech=%.2f): %s", seg.no_speech_prob, text)
+                continue
+            # 既知のハルシネーションパターンをフィルタ
+            if self.HALLUCINATION_RE.search(text):
+                logger.debug("ハルシネーション除去 (パターン): %s", text)
+                continue
+            text_parts.append(text)
 
         return " ".join(text_parts)
 
@@ -551,14 +593,32 @@ class Recorder:
         self.monitor_queue: queue.Queue[np.ndarray] = queue.Queue()
         self.vad_queue: queue.Queue[np.ndarray] = queue.Queue()
         self.transcribe_queue: queue.Queue[tuple[np.ndarray, str]] = queue.Queue()
+        self.interim_queue: queue.Queue = queue.Queue(maxsize=2)
 
         self.backend_name, self.backend = detect_backend(args.backend)
 
         # config 読み込み
         config = load_config()
 
+        # カスタム音声コマンドをコンパイル
+        self._custom_commands = []
+        custom_keywords = []
+        for entry in config.get("custom_commands") or []:
+            try:
+                pat = re.compile(entry["pattern"], re.IGNORECASE)
+                self._custom_commands.append((pat, entry["action"]))
+                # pattern から語彙ヒント用キーワードを抽出（| 区切りを分割）
+                for kw in entry["pattern"].split("|"):
+                    kw = kw.strip()
+                    if kw:
+                        custom_keywords.append(kw)
+            except (KeyError, re.error) as e:
+                logger.warning("カスタムコマンド定義エラー: %s — %s", entry, e)
+
         # Whisper initial_prompt: 音声コマンドのキーワードをヒントとして与える
         default_prompt = "クラーク、会議開始、会議終了、翻訳開始、翻訳停止、言語設定"
+        if custom_keywords:
+            default_prompt += "、" + "、".join(custom_keywords)
         user_prompt = config.get("initial_prompt")
         initial_prompt = f"{default_prompt}、{user_prompt}" if user_prompt else default_prompt
 
@@ -570,15 +630,6 @@ class Recorder:
             compute_type=args.whisper_compute_type,
             device=args.whisper_device,
         )
-
-        # カスタム音声コマンドをコンパイル
-        self._custom_commands = []
-        for entry in config.get("custom_commands") or []:
-            try:
-                pat = re.compile(entry["pattern"], re.IGNORECASE)
-                self._custom_commands.append((pat, entry["action"]))
-            except (KeyError, re.error) as e:
-                logger.warning("カスタムコマンド定義エラー: %s — %s", entry, e)
 
         # api_endpoint の有無を記憶（LLM フォールバック判定用）
         self._api_configured = bool(config.get("api_endpoint"))
@@ -600,6 +651,7 @@ class Recorder:
 
         # Push-to-Talk コマンドモード
         self._command_mode = False
+        self._command_mode_release_time: float = 0.0  # キーリリース時刻
         self._voice_command_key = config.get("voice_command_key")
 
         # 翻訳ループ
@@ -695,6 +747,10 @@ class Recorder:
         """指定キューからフレームを読み VAD セグメンテーションを行うスレッド"""
         logger.info("VAD スレッド開始: %s", label)
         command_mode_latch = False  # セグメント中に一度でも command_mode なら True を維持
+        PTT_GRACE_SEC = 1.5  # キーリリース後の猶予時間
+        interim_seq = 0
+        last_interim_time = 0.0
+        interim_enabled = load_config().get("interim_transcription", False)
 
         while not self.stop_event.is_set():
             try:
@@ -709,8 +765,11 @@ class Recorder:
                 else:
                     frame = np.pad(frame, (0, FRAME_SIZE - len(frame)))
 
-            # セグメント録音中にキーが押されていたらラッチ
-            if segmenter.in_speech and self._command_mode:
+            # コマンドモード判定: キー押下中 or リリース後の猶予期間内
+            if self._command_mode or (
+                self._command_mode_release_time > 0
+                and time.time() - self._command_mode_release_time < PTT_GRACE_SEC
+            ):
                 command_mode_latch = True
 
             timestamp = time.time()
@@ -719,6 +778,23 @@ class Recorder:
                 ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 self.transcribe_queue.put((segment, ts, label, command_mode_latch))
                 command_mode_latch = False  # 次のセグメント用にリセット
+                self._command_mode_release_time = 0.0  # 猶予タイマーもクリア
+                interim_seq += 1
+                last_interim_time = 0.0
+                # final segment 確定時に config を再読み込み（ランタイム切替対応）
+                interim_enabled = load_config().get("interim_transcription", False)
+            elif interim_enabled and label == "monitor" and segmenter.in_speech:
+                now = time.time()
+                if now - last_interim_time >= 1.5:
+                    interim_audio = segmenter.get_interim_segment()
+                    if interim_audio is not None:
+                        try:
+                            self.interim_queue.put_nowait(
+                                (interim_audio, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                 label, interim_seq))
+                        except queue.Full:
+                            pass  # best effort
+                        last_interim_time = now
 
         # フラッシュ
         segment = segmenter.flush()
@@ -769,6 +845,91 @@ class Recorder:
             return f"llm_query {body}"
         return None
 
+    def _get_command_list(self) -> list[dict]:
+        """BUILTIN_COMMAND_DESCS + カスタムコマンドからコマンドリストを生成"""
+        commands = list(BUILTIN_COMMAND_DESCS)
+        for pattern, action in self._custom_commands:
+            commands.append({
+                "command": f"custom_exec {action}",
+                "description": pattern.pattern,
+            })
+        return commands
+
+    def _llm_match_and_execute(self, text: str):
+        """LLM にコマンドマッチングを依頼し、confidence が高ければ実行する"""
+        commands = self._get_command_list()
+        payload = json.dumps({"text": text, "commands": commands}, ensure_ascii=False)
+
+        try:
+            result = subprocess.run(
+                ["uv", "run", "python", "llm_client.py", "match-command"],
+                input=payload, capture_output=True, text=True, timeout=30,
+                cwd=os.path.dirname(os.path.abspath(__file__)),
+            )
+            if result.returncode != 0:
+                logger.warning("match-command 失敗: %s", result.stderr.strip())
+                return
+            response = json.loads(result.stdout.strip())
+        except subprocess.TimeoutExpired:
+            logger.warning("match-command タイムアウト")
+            return
+        except (json.JSONDecodeError, Exception) as e:
+            logger.warning("match-command レスポンスエラー: %s", e)
+            return
+
+        command = response.get("command", "")
+        confidence = response.get("confidence", 0)
+
+        if confidence >= 80 and command:
+            logger.info("LLM コマンドマッチ: '%s' → %s (confidence=%d)", text, command, confidence)
+            print(f"  音声コマンド (LLM): {text.strip()} → {command} (confidence={confidence})")
+            self._execute_command(command)
+        else:
+            logger.info("LLM コマンドマッチ低信頼度: '%s' → %s (confidence=%d)", text, command, confidence)
+            print(f"  コマンドを聞き取れませんでした: {text.strip()} (confidence={confidence})")
+            if hasattr(self, "_file_watcher"):
+                self._file_watcher._broadcast("alert", json.dumps(
+                    {"message": f"コマンドを聞き取れませんでした: {text.strip()}"},
+                    ensure_ascii=False))
+
+    def _auto_summarize(self, transcript_path: str):
+        """会議終了時に自動で議事録を生成する"""
+        basename = os.path.basename(transcript_path)
+        summary_name = basename.replace("transcript-", "summary-").replace(".txt", ".md")
+        summary_path = os.path.join(self._output_dir, summary_name)
+
+        # 既存 summary があれば --existing で渡す
+        cmd = [
+            "uv", "run", "python", "llm_client.py",
+            "summarize", "--mode", "full",
+            "--file", transcript_path,
+            "--output", summary_path,
+        ]
+
+        logger.info("自動要約開始: %s → %s", basename, summary_name)
+        print(f"  自動要約生成中: {basename} → {summary_name}")
+
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=180,
+                cwd=os.path.dirname(os.path.abspath(__file__)),
+            )
+            if result.returncode == 0:
+                logger.info("自動要約完了: %s", summary_path)
+                print(f"  自動要約完了: {summary_name}")
+                if hasattr(self, "_file_watcher"):
+                    self._file_watcher._broadcast("alert", json.dumps(
+                        {"message": f"議事録を生成しました: {summary_name}"},
+                        ensure_ascii=False))
+            else:
+                logger.warning("自動要約失敗: %s", result.stderr.strip())
+                print(f"  自動要約失敗: {result.stderr.strip()[:100]}")
+        except subprocess.TimeoutExpired:
+            logger.warning("自動要約タイムアウト")
+            print("  自動要約タイムアウト")
+        except Exception as e:
+            logger.warning("自動要約エラー: %s", e)
+
     def _resolve_pynput_key(self, key_name: str):
         """config の voice_command_key 文字列を pynput のキーオブジェクトに変換"""
         if not _HAS_PYNPUT:
@@ -802,6 +963,7 @@ class Recorder:
         def on_release(key):
             if key == target_key:
                 self._command_mode = False
+                self._command_mode_release_time = time.time()
                 logger.info("コマンドモード OFF (%s released)", self._voice_command_key)
                 print(f"[PTT] コマンドモード OFF ({self._voice_command_key} released)")
 
@@ -874,6 +1036,7 @@ class Recorder:
                                     print(f"[PTT] コマンドモード ON ({self._voice_command_key} pressed)")
                                 elif event.value == 0:  # key up
                                     self._command_mode = False
+                                    self._command_mode_release_time = time.time()
                                     logger.info("コマンドモード OFF (%s released) [evdev]",
                                                 self._voice_command_key)
                                     print(f"[PTT] コマンドモード OFF ({self._voice_command_key} released)")
@@ -916,10 +1079,11 @@ class Recorder:
 
         elif cmd == "end_meeting":
             marker = "--- 会議終了 ---\n"
-            with open(self.output_path, "a", encoding="utf-8") as f:
+            session_transcript = self.output_path
+            with open(session_transcript, "a", encoding="utf-8") as f:
                 f.write(marker)
-            logger.info("会議終了: %s", self.output_path)
-            print(f"会議終了: {self.output_path}")
+            logger.info("会議終了: %s", session_transcript)
+            print(f"会議終了: {session_transcript}")
             # 明示的 output 指定の場合はその値に戻す、そうでなければ現在日付のデフォルト
             if self._explicit_output:
                 self.output_path = self.args.output
@@ -929,6 +1093,14 @@ class Recorder:
                 os.remove(SESSION_FILE)
             except FileNotFoundError:
                 pass
+            # auto_summary: 会議終了時に自動で議事録を生成
+            config = load_config()
+            if config.get("auto_summary") and self._api_configured:
+                threading.Thread(
+                    target=self._auto_summarize,
+                    args=(session_transcript,),
+                    name="auto-summary", daemon=True,
+                ).start()
 
         elif cmd.startswith("set_model "):
             model_size = cmd.split(None, 1)[1].strip()
@@ -1098,17 +1270,29 @@ class Recorder:
                 # mic ソースからの音声コマンド検出
                 if source == "mic":
                     if command_mode:
-                        # Push-to-Talk: プレフィックスなしでコマンドマッチ
-                        voice_cmd = self._match_command_body(text)
-                        if voice_cmd:
-                            logger.info("音声コマンド検出 (PTT): %s → %s", text.strip(), voice_cmd)
-                            self._execute_command(voice_cmd)
-                            continue
+                        if self._api_configured:
+                            # LLM ベースマッチング（別スレッドで実行）
+                            threading.Thread(
+                                target=self._llm_match_and_execute,
+                                args=(text.strip(),),
+                                name="cmd-match", daemon=True,
+                            ).start()
+                        else:
+                            # API 未設定時は従来の正規表現マッチングにフォールバック
+                            voice_cmd = self._match_command_body(text)
+                            if voice_cmd:
+                                logger.info("音声コマンド検出 (PTT): %s → %s", text.strip(), voice_cmd)
+                                if voice_cmd.startswith("custom_exec "):
+                                    logger.info("[%s] [%s] %s", timestamp, speaker, text.strip())
+                                self._execute_command(voice_cmd)
+                        continue
                     else:
                         # 従来方式: プレフィックス/サフィックス検出
                         voice_cmd = self._check_voice_command(text)
                         if voice_cmd:
                             logger.info("音声コマンド検出: %s → %s", text.strip(), voice_cmd)
+                            if voice_cmd.startswith("custom_exec "):
+                                logger.info("[%s] [%s] %s", timestamp, speaker, text.strip())
                             self._execute_command(voice_cmd)
                             continue
 
@@ -1125,6 +1309,10 @@ class Recorder:
                     f.write(line)
                     f.flush()
                 print(f"  {line.rstrip()}")
+                # 中間テキストをクリア
+                if hasattr(self, "_file_watcher"):
+                    self._file_watcher._broadcast("interim_clear", json.dumps(
+                        {"source": source}, ensure_ascii=False))
             else:
                 logger.debug("空テキスト、スキップ")
 
@@ -1143,6 +1331,56 @@ class Recorder:
                     print(f"  {line.rstrip()}")
             except queue.Empty:
                 break
+
+    def _interim_transcribe_thread(self):
+        """中間文字起こしスレッド（interim_transcription 有効時のみモデルをロード）"""
+        speaker_labels = {"mic": "自分", "monitor": "相手"}
+        interim_transcriber = None
+        interim_model_name = None
+        current_seq: dict[str, int] = {}  # source ごとの最新 seq
+
+        while not self.stop_event.is_set():
+            config = load_config()
+            if not config.get("interim_transcription", False):
+                # 無効中はモデルをロードせず待機
+                self.stop_event.wait(timeout=2.0)
+                continue
+
+            # 有効化されたらモデルを遅延ロード（モデル変更時は再ロード）
+            model_name = config.get("interim_model", "tiny")
+            if interim_transcriber is None or interim_model_name != model_name:
+                logger.info("中間文字起こし: %s モデル読み込み中...", model_name)
+                interim_transcriber = Transcriber(
+                    model_size=model_name,
+                    language=self.transcriber.language,
+                    initial_prompt=self.transcriber.initial_prompt,
+                    beam_size=1,
+                    compute_type=config.get("whisper_compute_type", "int8"),
+                    device=config.get("whisper_device", "cpu"),
+                )
+                interim_transcriber.load_model()
+                interim_model_name = model_name
+                logger.info("中間文字起こし: %s モデル読み込み完了", model_name)
+
+            try:
+                audio_segment, timestamp, source, seq = self.interim_queue.get(timeout=1.0)
+            except queue.Empty:
+                continue
+
+            # stale チェック
+            if seq < current_seq.get(source, 0):
+                continue
+            current_seq[source] = seq
+
+            try:
+                text = interim_transcriber.transcribe(audio_segment)
+                if text.strip() and hasattr(self, "_file_watcher"):
+                    speaker = speaker_labels.get(source, source)
+                    self._file_watcher._broadcast("interim_transcript", json.dumps(
+                        {"source": source, "speaker": speaker, "text": text.strip(),
+                         "timestamp": timestamp}, ensure_ascii=False))
+            except Exception as e:
+                logger.debug("中間文字起こしエラー: %s", e)
 
     def run(self):
         """メイン実行"""
@@ -1180,6 +1418,7 @@ class Recorder:
                 name="vad-monitor", daemon=True,
             ),
             threading.Thread(target=self._transcribe_thread, name="transcribe", daemon=True),
+            threading.Thread(target=self._interim_transcribe_thread, name="interim-transcribe", daemon=True),
             threading.Thread(target=self._command_watch_thread, name="cmd-watch", daemon=True),
         ]
 
@@ -1430,6 +1669,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._serve_logs()
         elif path == "/api/config":
             self._serve_config()
+        elif path == "/api/glossary":
+            self._serve_glossary()
+        elif path == "/api/summary":
+            self._serve_summary()
         else:
             self.send_error(404)
 
@@ -1439,6 +1682,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._handle_command()
         elif path == "/api/config":
             self._save_config()
+        elif path == "/api/glossary":
+            self._save_glossary()
+        elif path == "/api/summary":
+            self._generate_summary()
         else:
             self.send_error(404)
 
@@ -1571,6 +1818,56 @@ class DashboardHandler(BaseHTTPRequestHandler):
         logger.info("ダッシュボードからコマンド: %s", cmd)
         self._send_json({"status": "ok", "command": cmd})
 
+    def _get_summary_path(self, transcript_path: str = None) -> str:
+        """transcript パスから summary パスを導出する"""
+        if transcript_path is None:
+            transcript_path = self.recorder.output_path
+        basename = os.path.basename(transcript_path)
+        summary_name = basename.replace("transcript-", "summary-").replace(".txt", ".md")
+        return os.path.join(self.recorder._output_dir, summary_name)
+
+    def _serve_summary(self):
+        """GET /api/summary — summary ファイルの内容を返す"""
+        params = parse_qs(urlparse(self.path).query)
+        file_param = params.get("file", [None])[0]
+        if file_param:
+            # transcript ファイル名から summary パスを導出
+            file_param = os.path.basename(file_param)
+            summary_name = file_param.replace("transcript-", "summary-").replace(".txt", ".md")
+            summary_path = os.path.join(self.recorder._output_dir, summary_name)
+        else:
+            summary_path = self._get_summary_path()
+        summary_name = os.path.basename(summary_path)
+        try:
+            with open(summary_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            self._send_json({"file": summary_name, "content": content})
+        except FileNotFoundError:
+            self._send_json({"file": summary_name, "content": ""})
+
+    def _generate_summary(self):
+        """POST /api/summary — 要約生成をトリガーする"""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length) if length else b"{}"
+            data = json.loads(body) if body else {}
+        except (json.JSONDecodeError, ValueError):
+            data = {}
+        file_param = data.get("file")
+        if file_param:
+            transcript_path = os.path.join(self.recorder._output_dir, os.path.basename(file_param))
+        else:
+            transcript_path = self.recorder.output_path
+        if not os.path.exists(transcript_path):
+            self._send_json({"status": "error", "message": "transcript が見つかりません"})
+            return
+        self._send_json({"status": "ok", "message": "要約生成を開始しました"})
+        threading.Thread(
+            target=self.recorder._auto_summarize,
+            args=(transcript_path,),
+            name="dashboard-summary", daemon=True,
+        ).start()
+
     def _serve_config(self):
         self._send_json(load_config())
 
@@ -1597,6 +1894,32 @@ class DashboardHandler(BaseHTTPRequestHandler):
             yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
         logger.info("ダッシュボードから設定変更")
         self._send_json(config)
+
+    def _serve_glossary(self):
+        content = ""
+        try:
+            with open(GLOSSARY_FILE, "r", encoding="utf-8") as f:
+                content = f.read()
+        except OSError:
+            pass
+        body = content.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _save_glossary(self):
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length).decode("utf-8")
+        except Exception:
+            self.send_error(400)
+            return
+        with open(GLOSSARY_FILE, "w", encoding="utf-8") as f:
+            f.write(body)
+        logger.info("ダッシュボードから用語集を保存")
+        self._send_json({"status": "ok"})
 
 
 _HTML_TEMPLATE = """\
@@ -1635,15 +1958,6 @@ header {
   padding: 8px 16px; display: flex; align-items: center; gap: 12px;
   flex-shrink: 0; flex-wrap: wrap;
 }
-.badge {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 12px; border-radius: 12px; font-size: 13px; font-weight: 600;
-}
-.badge.on  { background: rgba(63,185,80,.15); color: var(--green); }
-.badge.off { background: rgba(248,81,73,.15); color: var(--red); }
-.dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
-.badge.on  .dot { background: var(--green); }
-.badge.off .dot { background: var(--red); }
 select, input[type=text] {
   background: var(--btn); color: var(--text); border: 1px solid var(--border);
   border-radius: 6px; padding: 5px 8px; font-size: 13px; outline: none;
@@ -1693,6 +2007,10 @@ main {
 .ll { white-space:pre-wrap; word-break:break-word; }
 .ll.e { color:var(--red); }
 .ll.w { color:var(--yellow); }
+.interim {
+  color: var(--muted); font-style: italic; opacity: 0.7;
+  border-left: 2px solid var(--yellow); padding-left: 8px; margin-top: 4px;
+}
 #resp {
   display:none; background:var(--panel); border-bottom:1px solid var(--border);
   padding:8px 12px; font-size:13px; flex-shrink:0; max-height:120px; overflow-y:auto;
@@ -1709,7 +2027,7 @@ main {
 .toggle { font-size:12px; opacity:.7; cursor:pointer; padding:2px 6px; border:1px solid var(--border); border-radius:4px; background:transparent; color:var(--muted); }
 .toggle:hover { opacity:1; }
 .toggle.off { opacity:.4; text-decoration:line-through; }
-.panel.hidden { display:none; }
+.panel.hidden, #logp.hidden { display:none; }
 .modal-overlay {
   display:none; position:fixed; inset:0; background:rgba(0,0,0,.6);
   z-index:100; justify-content:center; align-items:center;
@@ -1738,6 +2056,22 @@ main {
   border-color:var(--accent);
 }
 .modal-body textarea { resize:vertical; min-height:60px; font-family:monospace; font-size:12px; }
+#glossaryTable th, #glossaryTable td {
+  border:1px solid var(--border); padding:4px 6px;
+}
+#glossaryTable th {
+  background:var(--bg); color:var(--muted); font-weight:600; font-size:12px;
+  text-align:left; position:sticky; top:0; padding:2px 4px;
+}
+#glossaryTable th select { width:100%; }
+#glossaryTable td { padding:0; }
+#glossaryTable td input {
+  border:none; border-radius:0; width:100%; padding:5px 6px; font-size:13px;
+  background:transparent; color:var(--text); outline:none;
+}
+#glossaryTable td input:focus { background:rgba(100,100,255,0.08); }
+#glossaryTable td.gl-del { width:30px; text-align:center; cursor:pointer; color:var(--muted); }
+#glossaryTable td.gl-del:hover { color:var(--red,#e55); }
 .modal-foot {
   padding:12px 16px; border-top:1px solid var(--border);
   display:flex; justify-content:flex-end; gap:8px;
@@ -1747,14 +2081,26 @@ main {
 </head>
 <body>
 <header>
-  <div class="badge off" id="badge"><span class="dot"></span><span id="stxt">Stopped</span></div>
+  <select id="langSel" onchange="onLangChange(this.value)">
+    <option value="auto">auto</option>
+    <option value="ja">ja</option>
+    <option value="en">en</option>
+    <option value="zh">zh</option>
+    <option value="ko">ko</option>
+    <option value="fr">fr</option>
+    <option value="de">de</option>
+    <option value="es">es</option>
+    <option value="pt">pt</option>
+    <option value="ru">ru</option>
+  </select>
   <select id="fsel" onchange="onSel()"><option value="">...</option></select>
   <div class="g">
     <button class="pri" onclick="cmd('start_meeting')">会議開始</button>
     <button class="dan" onclick="cmd('end_meeting')">会議終了</button>
     <button onclick="cmd('translate_start')">翻訳開始</button>
     <button onclick="cmd('translate_stop')">翻訳停止</button>
-    <button onclick="langDlg()">言語切替</button>
+    <button onclick="genSummary()">要約</button>
+    <button onclick="viewSummary()">要約閲覧</button>
   </div>
   <div class="g">
     <input type="text" id="custom-cmd" placeholder="カスタムコマンド" onkeydown="if(event.key==='Enter')sendC()">
@@ -1763,6 +2109,8 @@ main {
   <div class="g" style="margin-left:auto">
     <button class="toggle" onclick="togPanel('T')" id="togT">T</button>
     <button class="toggle" onclick="togPanel('R')" id="togR">R</button>
+    <button class="toggle" onclick="togPanel('L')" id="togL">L</button>
+    <button onclick="openGlossary()">用語集</button>
     <button onclick="openCfg()">設定</button>
   </div>
 </header>
@@ -1777,6 +2125,9 @@ main {
     <div class="pc" id="rp"></div>
   </div>
 </main>
+<div id="interim-area" style="display:none; border-top:1px solid var(--border); padding:4px 12px; flex-shrink:0;">
+  <div id="interim-monitor" class="interim"></div>
+</div>
 <div id="logp">
   <div class="ph">Logs</div>
   <div id="logc"></div>
@@ -1789,6 +2140,36 @@ main {
       <span class="saved" id="cfgSaved">保存しました</span>
       <button onclick="closeCfg()">キャンセル</button>
       <button class="pri" onclick="saveCfg()">保存</button>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="glossaryModal" onclick="if(event.target===this)closeGlossary()">
+  <div class="modal" style="max-width:700px;">
+    <div class="modal-head"><span>用語集 (glossary.txt)</span><button onclick="closeGlossary()">&times;</button></div>
+    <div class="modal-body" style="display:block;max-height:60vh;overflow-y:auto;">
+      <table id="glossaryTable" style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr id="glossaryHead"></tr></thead>
+        <tbody id="glossaryBody"></tbody>
+      </table>
+      <div style="margin-top:8px;">
+        <button onclick="glossaryAddRow()" style="font-size:12px;">+ 行追加</button>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span class="saved" id="glossarySaved">保存しました</span>
+      <button onclick="closeGlossary()">キャンセル</button>
+      <button class="pri" onclick="saveGlossary()">保存</button>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="summaryModal" onclick="if(event.target===this)closeSummary()">
+  <div class="modal" style="max-width:700px;">
+    <div class="modal-head"><span id="summaryTitle">要約</span><button onclick="closeSummary()">&times;</button></div>
+    <div class="modal-body" style="display:block;max-height:60vh;overflow-y:auto;">
+      <div id="summaryContent" style="white-space:pre-wrap;font-size:13px;line-height:1.6;"></div>
+    </div>
+    <div class="modal-foot">
+      <button onclick="closeSummary()">閉じる</button>
     </div>
   </div>
 </div>
@@ -1827,11 +2208,18 @@ es.addEventListener('log',e=>{
   el.insertAdjacentHTML('beforeend','<div class="ll '+c+'">'+esc(d.line)+'</div>');
   if(as.logc)el.scrollTop=el.scrollHeight;
 });
-es.addEventListener('recorder_status',e=>{
-  const d=JSON.parse(e.data),b=document.getElementById('badge'),t=document.getElementById('stxt');
-  b.className='badge '+(d.running?'on':'off');t.textContent=d.running?'Running':'Stopped';
-});
 es.addEventListener('session',()=>loadFiles());
+es.addEventListener('interim_transcript',e=>{
+  const d=JSON.parse(e.data);
+  const el=document.getElementById('interim-monitor');
+  if(el){el.innerHTML='<span class="sp-o">['+esc(d.speaker)+']</span> '+esc(d.text);}
+  document.getElementById('interim-area').style.display='block';
+});
+es.addEventListener('interim_clear',e=>{
+  const el=document.getElementById('interim-monitor');
+  if(el)el.innerHTML='';
+  document.getElementById('interim-area').style.display='none';
+});
 async function loadFiles(){
   try{const r=await fetch('/api/files'),d=await r.json(),s=document.getElementById('fsel'),p=s.value;
   s.innerHTML='';activeFile=d.active||'';
@@ -1861,25 +2249,30 @@ function onSel(){curFile=document.getElementById('fsel').value;loadT(curFile);lo
 async function cmd(c){try{await fetch('/api/command',{method:'POST',
   headers:{'Content-Type':'application/json'},body:JSON.stringify({command:c})});}catch(e){}}
 function sendC(){const i=document.getElementById('custom-cmd'),v=i.value.trim();if(v){cmd(v);i.value='';}}
-function langDlg(){const l=prompt('言語コード (ja/en/auto):');if(l===null)return;
-  cmd(l==='auto'?'unset_language':'set_language '+l);}
+function onLangChange(l){cmd(l==='auto'?'unset_language':'set_language '+l);}
+(async function initLang(){try{const d=await(await fetch('/api/status')).json();
+  const s=document.getElementById('langSel');if(s&&d.language)s.value=d.language;}catch(e){}})();
 es.addEventListener('response',e=>{
   const d=JSON.parse(e.data);if(d.content){
     document.getElementById('respBody').textContent=d.content;
     document.getElementById('resp').classList.add('show');}
 });
+es.addEventListener('alert',e=>{
+  const d=JSON.parse(e.data);if(d.message){alert(d.message);}
+});
 function hideResp(){document.getElementById('resp').classList.remove('show');}
 function togPanel(w){
-  const id=w==='T'?'pnlT':'pnlR', btn=document.getElementById('tog'+w);
+  const id=w==='T'?'pnlT':w==='R'?'pnlR':'logp', btn=document.getElementById('tog'+w);
   const p=document.getElementById(id);
   p.classList.toggle('hidden');btn.classList.toggle('off');
 }
 loadFiles();loadT('');loadR('');loadLogs();setInterval(loadFiles,10000);
+const LANG_OPTS=['ja','en','zh','ko','fr','de','es','pt','ru'];
 const CFG_FIELDS=[
-  {key:'translate_language',label:'翻訳先言語',type:'text',ph:'ja'},
+  {key:'translate_language',label:'翻訳先言語',type:'select',opts:LANG_OPTS},
   {key:'auto_translate',label:'自動翻訳',type:'bool'},
   {key:'auto_summary',label:'自動Summary',type:'bool'},
-  {key:'default_language',label:'デフォルト言語',type:'text',ph:'null=自動検出'},
+  {key:'default_language',label:'デフォルト言語',type:'select',opts:['auto',...LANG_OPTS]},
   {key:'default_model',label:'Whisperモデル',type:'select',opts:['tiny','base','small','medium','large-v3']},
   {key:'output_directory',label:'出力ディレクトリ',type:'text',ph:'null=データディレクトリ'},
   {key:'llm_provider',label:'LLMプロバイダ',type:'select',opts:['claude','api']},
@@ -1891,6 +2284,8 @@ const CFG_FIELDS=[
   {key:'whisper_beam_size',label:'Beam Size',type:'select',opts:['1','2','3','5']},
   {key:'whisper_compute_type',label:'計算精度',type:'select',opts:['int8','float16','float32']},
   {key:'whisper_device',label:'デバイス',type:'select',opts:['cpu','cuda']},
+  {key:'interim_transcription',label:'中間文字起こし',type:'bool'},
+  {key:'interim_model',label:'中間モデル',type:'select',opts:['tiny','base','small','medium']},
   {key:'custom_commands',label:'カスタムコマンド',type:'json'},
 ];
 let cfgData={};
@@ -1928,7 +2323,7 @@ async function saveCfg(){
     const el=document.getElementById('cfg_'+f.key);if(!el)return;
     if(f.type==='bool'){d[f.key]=el.value==='true';}
     else if(f.type==='json'){try{d[f.key]=JSON.parse(el.value);}catch(e){d[f.key]=cfgData[f.key];}}
-    else if(f.type==='select'){d[f.key]=el.value;}
+    else if(f.type==='select'){const sv=el.value;d[f.key]=(sv==='auto'&&f.key==='default_language')?null:sv;}
     else{const v=el.value.trim();d[f.key]=(v===''||v==='null')?null:v;}
   });
   try{await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -1937,6 +2332,81 @@ async function saveCfg(){
     setTimeout(()=>s.style.display='none',2000);
   }catch(e){}
 }
+const GL_COL_OPTS=[...LANG_OPTS,'note'];
+let glossaryCols=[];
+function glossaryAddRow(vals){
+  const tb=document.getElementById('glossaryBody');
+  const tr=document.createElement('tr');
+  glossaryCols.forEach((c,i)=>{
+    const td=document.createElement('td');
+    const inp=document.createElement('input');
+    inp.type='text'; inp.value=(vals&&vals[i])||'';
+    inp.placeholder=c;
+    td.appendChild(inp); tr.appendChild(td);
+  });
+  const del=document.createElement('td');
+  del.className='gl-del'; del.textContent='\u00d7';
+  del.onclick=()=>tr.remove();
+  tr.appendChild(del); tb.appendChild(tr);
+  return tr;
+}
+function glossaryMakeHeadSel(val){
+  const sel=document.createElement('select');
+  sel.style.cssText='background:transparent;color:var(--muted);border:none;font-weight:600;font-size:12px;cursor:pointer;padding:2px;';
+  GL_COL_OPTS.forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=o;sel.appendChild(op);});
+  sel.value=val;
+  sel.onchange=()=>{const idx=[...sel.closest('tr').children].indexOf(sel.parentElement);glossaryCols[idx]=sel.value;};
+  return sel;
+}
+async function openGlossary(){
+  let text='';
+  try{const r=await fetch('/api/glossary');text=await r.text();}catch(e){}
+  const lines=text.split('\\n').filter(l=>l.trim()&&!l.startsWith('#'));
+  glossaryCols=(lines.length>0)?lines[0].split('\\t'):['ja','en','note'];
+  const head=document.getElementById('glossaryHead');
+  head.innerHTML='';
+  glossaryCols.forEach(c=>{const th=document.createElement('th');th.appendChild(glossaryMakeHeadSel(c));head.appendChild(th);});
+  const thDel=document.createElement('th');thDel.style.width='30px';head.appendChild(thDel);
+  const tb=document.getElementById('glossaryBody');
+  tb.innerHTML='';
+  for(let i=1;i<lines.length;i++){
+    const cols=lines[i].split('\\t');
+    glossaryAddRow(cols);
+  }
+  if(lines.length<=1)glossaryAddRow();
+  document.getElementById('glossarySaved').style.display='none';
+  document.getElementById('glossaryModal').classList.add('open');
+}
+function closeGlossary(){document.getElementById('glossaryModal').classList.remove('open');}
+async function saveGlossary(){
+  glossaryCols=[...document.querySelectorAll('#glossaryHead select')].map(s=>s.value);
+  const rows=[glossaryCols.join('\\t')];
+  document.querySelectorAll('#glossaryBody tr').forEach(tr=>{
+    const vals=Array.from(tr.querySelectorAll('input')).map(i=>i.value);
+    if(vals.some(v=>v.trim()))rows.push(vals.join('\\t'));
+  });
+  const text=rows.join('\\n')+'\\n';
+  try{await fetch('/api/glossary',{method:'POST',headers:{'Content-Type':'text/plain; charset=utf-8'},
+    body:text});
+    const s=document.getElementById('glossarySaved');s.style.display='inline';
+    setTimeout(()=>s.style.display='none',2000);
+  }catch(e){}
+}
+async function genSummary(){
+  const f=curFile||undefined;
+  const b=f?JSON.stringify({file:f}):'{}';
+  try{await fetch('/api/summary',{method:'POST',headers:{'Content-Type':'application/json'},body:b});
+    alert('要約生成を開始しました。完了後に通知されます。');}catch(e){}
+}
+async function viewSummary(){
+  const f=curFile?'?file='+encodeURIComponent(curFile):'';
+  try{const d=await(await fetch('/api/summary'+f)).json();
+    document.getElementById('summaryTitle').textContent='要約: '+(d.file||'');
+    document.getElementById('summaryContent').textContent=d.content||'(要約がありません)';
+    document.getElementById('summaryModal').classList.add('open');
+  }catch(e){}
+}
+function closeSummary(){document.getElementById('summaryModal').classList.remove('open');}
 </script>
 </body>
 </html>

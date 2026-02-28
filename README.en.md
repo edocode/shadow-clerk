@@ -188,7 +188,7 @@ shadow-clerk/                          # Repository
   llm_client.py                        # External API translation & summary
   skills/
     SKILL.md                           # Claude Code Skill definition
-    clerk-data                         # Data directory wrapper script
+    clerk-util                         # Data directory wrapper script
   SPEC.md                              # Design specification
   README.md                            # Japanese README
   README.en.md                         # This file

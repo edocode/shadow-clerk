@@ -188,7 +188,7 @@ shadow-clerk/                          # リポジトリ
   llm_client.py                        # 外部 API 翻訳・Summary 生成
   skills/
     SKILL.md                           # Claude Code Skill 定義
-    clerk-data                         # データディレクトリ操作ラッパー
+    clerk-util                         # データディレクトリ操作ラッパー
   SPEC.md                              # 設計仕様
   README.md                            # このファイル
 

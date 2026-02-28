@@ -2,6 +2,7 @@
 """shadow-clerk LLM client: OpenAI Compatible API による翻訳・Summary 生成"""
 
 import argparse
+import json
 import logging
 import os
 import re
@@ -16,6 +17,7 @@ logger = logging.getLogger("llm-client")
 DATA_DIR = os.path.expanduser("~/.claude/skills/shadow-clerk/data")
 CONFIG_FILE = os.path.join(DATA_DIR, "config.yaml")
 ENV_FILE = os.path.join(DATA_DIR, ".env")
+GLOSSARY_FILE = os.path.join(DATA_DIR, "glossary.txt")
 
 
 def load_dotenv():
@@ -136,6 +138,63 @@ def get_api_client(config: dict) -> tuple[OpenAI, str]:
 
 # --- translate サブコマンド ---
 
+def load_glossary(lang: str) -> str:
+    """glossary.txt を読み込み、翻訳先言語 lang に対する用語集テキストを返す。
+
+    ファイルが存在しない/空/対象言語がヘッダーにない場合は空文字列を返す。
+    """
+    if not os.path.exists(GLOSSARY_FILE):
+        return ""
+    try:
+        with open(GLOSSARY_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except OSError:
+        return ""
+
+    # 空行・コメント行を除外
+    data_lines = [l.rstrip("\n") for l in lines if l.strip() and not l.strip().startswith("#")]
+    if not data_lines:
+        return ""
+
+    # ヘッダー解析
+    headers = data_lines[0].split("\t")
+    has_note = headers[-1].strip().lower() == "note"
+    lang_cols = [h.strip() for h in headers]
+    if has_note:
+        lang_cols = lang_cols[:-1]
+
+    # 翻訳先言語の列インデックスを特定
+    try:
+        target_idx = lang_cols.index(lang)
+    except ValueError:
+        return ""
+
+    # 他の言語列を「原文」、lang 列を「翻訳先」としてペアを作成
+    note_idx = len(headers) - 1 if has_note else None
+    pairs = []
+    for row_line in data_lines[1:]:
+        cols = row_line.split("\t")
+        target_term = cols[target_idx].strip() if target_idx < len(cols) else ""
+        if not target_term:
+            continue
+        note = cols[note_idx].strip() if note_idx is not None and note_idx < len(cols) else ""
+        for i, lc in enumerate(lang_cols):
+            if i == target_idx:
+                continue
+            source_term = cols[i].strip() if i < len(cols) else ""
+            if not source_term:
+                continue
+            entry = f"{source_term} → {target_term}"
+            if note:
+                entry += f" ({note})"
+            pairs.append(entry)
+
+    if not pairs:
+        return ""
+
+    return "5. 以下の用語集を参考にしてください:\n" + "\n".join(f"  {p}" for p in pairs)
+
+
 MARKER_RE = re.compile(r"^---\s+.+\s+---$")
 TIMESTAMP_RE = re.compile(
     r"^(\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]\s*\[[^\]]+\])\s*(.*)$"
@@ -224,8 +283,12 @@ def translate(args: argparse.Namespace):
 
 1. 各行は「番号: テキスト」形式で与えられます。同じ「番号: 翻訳結果」形式で返してください。
 2. 音声認識の書き起こしテキストです。明らかな誤認識は文脈から推測して補正してから翻訳してください。
-3. 翻訳先言語（{lang}）と同じ言語で書かれている行はそのまま出力してください。
+3. 翻訳先言語（{lang}）と同じ言語で書かれている行は翻訳不要ですが、音声認識の誤認識・typo があれば修正して出力してください。
 4. 番号とコロンの後の翻訳テキストのみを出力してください。余計な説明は不要です。"""
+
+    glossary_section = load_glossary(lang)
+    if glossary_section:
+        system_prompt += "\n" + glossary_section
 
     response = client.chat.completions.create(
         model=model,
@@ -318,7 +381,7 @@ def summarize(args: argparse.Namespace):
         sys.exit(1)
 
     if args.mode == "full":
-        _summarize_full(client, model, transcript)
+        result = _summarize_full(client, model, transcript)
     elif args.mode == "update":
         existing_summary = ""
         if args.existing:
@@ -330,7 +393,17 @@ def summarize(args: argparse.Namespace):
                     existing_summary = f.read()
             except FileNotFoundError:
                 pass
-        _summarize_update(client, model, transcript, existing_summary)
+        result = _summarize_update(client, model, transcript, existing_summary)
+
+    if result:
+        if args.output:
+            output_path = os.path.expanduser(args.output)
+            if not os.path.isabs(output_path):
+                output_path = resolve_path(output_path, config)
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(result)
+            logger.info("summary 保存: %s", output_path)
+        print(result)
 
 
 def _summarize_full(client: OpenAI, model: str, transcript: str):
@@ -355,7 +428,7 @@ def _summarize_full(client: OpenAI, model: str, transcript: str):
         temperature=0.3,
     )
 
-    print(response.choices[0].message.content)
+    return response.choices[0].message.content
 
 
 def _summarize_update(
@@ -390,7 +463,7 @@ def _summarize_update(
         temperature=0.3,
     )
 
-    print(response.choices[0].message.content)
+    return response.choices[0].message.content
 
 
 # --- query サブコマンド ---
@@ -413,6 +486,80 @@ def query(args: argparse.Namespace):
     answer = response.choices[0].message.content
     if answer:
         print(answer.strip())
+
+
+# --- match-command サブコマンド ---
+
+
+def match_command(args: argparse.Namespace):
+    """stdin から JSON を読み取り、音声テキストに最も近いコマンドを LLM で推測する。"""
+    config = load_config()
+    client, model = get_api_client(config)
+
+    raw = sys.stdin.read()
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as e:
+        print(json.dumps({"command": "", "confidence": 0}))
+        logger.error("JSON パースエラー: %s", e)
+        return
+
+    text = payload.get("text", "")
+    commands = payload.get("commands", [])
+
+    if not text or not commands:
+        print(json.dumps({"command": "", "confidence": 0}))
+        return
+
+    commands_desc = "\n".join(
+        f"- {c['command']}: {c['description']}" for c in commands
+    )
+
+    system_prompt = """あなたは音声コマンド認識アシスタントです。
+ユーザーの音声認識テキストを受け取り、最も近いコマンドを推測してください。
+
+利用可能なコマンド一覧:
+""" + commands_desc + """
+
+以下のルールに従ってください:
+1. 音声認識テキストがどのコマンドに最も近いかを判断してください。
+2. 音声認識の誤認識を考慮し、意味的に最も近いコマンドを選んでください。
+3. 結果を以下の JSON 形式で返してください（JSON のみ、余計なテキストは不要）:
+   {"command": "マッチしたコマンド名", "confidence": 0-100の整数}
+4. confidence は一致の確信度です。完全一致なら100、やや曖昧なら60-80、関係なさそうなら0-30としてください。"""
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": text},
+        ],
+        temperature=0.1,
+    )
+
+    raw_content = response.choices[0].message.content or ""
+    logger.debug("match-command: API response: %r", raw_content)
+
+    # JSON 抽出（コードブロック対応）
+    cleaned = raw_content.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        # Remove first and last ``` lines
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        cleaned = "\n".join(lines).strip()
+
+    try:
+        result = json.loads(cleaned)
+        # command と confidence を保証
+        output = {
+            "command": result.get("command", ""),
+            "confidence": int(result.get("confidence", 0)),
+        }
+    except (json.JSONDecodeError, ValueError, TypeError):
+        logger.warning("match-command: JSON パース失敗: %r", cleaned)
+        output = {"command": "", "confidence": 0}
+
+    print(json.dumps(output, ensure_ascii=False))
 
 
 # --- CLI ---
@@ -442,6 +589,11 @@ def main():
     )
     query_parser.add_argument("prompt", help="クエリ文字列")
 
+    # match-command
+    subparsers.add_parser(
+        "match-command", help="音声テキストからコマンドを推測（stdin から JSON を読み取り）"
+    )
+
     # summarize
     summarize_parser = subparsers.add_parser(
         "summarize", help="transcript から議事録を生成"
@@ -454,6 +606,9 @@ def main():
     )
     summarize_parser.add_argument(
         "--file", required=True, help="transcript ファイルパス"
+    )
+    summarize_parser.add_argument(
+        "--output", default=None, help="出力先ファイルパス（省略時は stdout のみ）"
     )
     summarize_parser.add_argument(
         "--existing", default=None, help="既存の summary ファイルパス (update モード用)"
@@ -479,6 +634,8 @@ def main():
         query(args)
     elif args.command == "summarize":
         summarize(args)
+    elif args.command == "match-command":
+        match_command(args)
 
 
 if __name__ == "__main__":
