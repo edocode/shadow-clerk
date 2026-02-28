@@ -49,6 +49,19 @@ Press `Ctrl+C` to stop recording.
 
 ### Voice commands
 
+#### Push-to-Talk (recommended)
+
+Hold down the Menu key (next to Right Alt) while speaking a command — no prefix ("clerk") needed. This avoids Whisper's unreliable recognition of the "clerk" keyword:
+
+```
+[Hold Menu key] "start translation" → Translation starts
+[Hold Menu key] "start meeting"     → Meeting session starts
+```
+
+The trigger key can be changed via `voice_command_key` in `config.yaml` (`ctrl_r`, `ctrl_l`, `alt_r`, `alt_l`, `shift_r`, `shift_l`). Set to `null` to disable.
+
+#### Prefix mode (fallback)
+
 During recording, say "clerk" (or "クラーク") followed by a command for hands-free control:
 
 | Voice command | Action |
@@ -58,8 +71,33 @@ During recording, say "clerk" (or "クラーク") followed by a command for hand
 | "clerk, language ja" | Switch transcription language to Japanese |
 | "clerk, language en" | Switch transcription language to English |
 | "clerk, unset language" | Reset to auto-detect |
+| "clerk, start translation" | Start the translation loop |
+| "clerk, stop translation" | Stop the translation loop |
 
 The separator (comma, space) between the prefix and command is optional.
+
+#### Custom voice commands
+
+You can register custom voice commands in `config.yaml` under `custom_commands`. They are evaluated after built-in commands:
+
+```yaml
+custom_commands:
+  - pattern: "youtube"
+    action: "xdg-open https://www.youtube.com"
+  - pattern: "gmail|mail"
+    action: "xdg-open https://mail.google.com"
+```
+
+- `pattern`: Regular expression (case-insensitive)
+- `action`: Shell command to execute
+
+#### LLM fallback
+
+If a voice command doesn't match any built-in or custom command and `api_endpoint` is configured, the utterance is sent to the LLM as a query. The response is printed to stdout and saved to `.clerk_response`.
+
+```
+"clerk, what is 1+1?" → LLM returns the answer
+```
 
 ### CLI options
 
@@ -105,6 +143,9 @@ llm_provider: claude          # LLM for translation & summary ("claude" or "api"
 api_endpoint: null            # OpenAI Compatible API base URL
 api_model: null               # API model name (gpt-4o, etc.)
 api_key_env: SHADOW_CLERK_API_KEY  # Environment variable name for API key
+custom_commands: []               # Custom voice commands (list of pattern + action)
+initial_prompt: null              # Whisper initial_prompt (vocabulary hints for recognition)
+voice_command_key: menu        # Push-to-Talk key (null=disabled)
 ```
 
 Manage configuration from Claude Code:

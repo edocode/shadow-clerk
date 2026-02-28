@@ -113,8 +113,18 @@ clerk-data は `config.yaml` の `output_directory` を自動で参照し、`tra
 `start [opts]`:
 1. `clerk-data recorder-status` で既に動作中か確認。`running` なら「recorder は既に起動しています」と表示して終了
 2. プロジェクトディレクトリ（SKILL.md があるリポジトリのルート）で `uv run python recorder.py` をバックグラウンド実行（Bash の `run_in_background` を使用）
-3. 引数があれば recorder.py にそのまま渡す（例: `start --language ja --model tiny`）
-4. 「recorder を起動しました」と表示
+3. 引数があれば recorder.py にそのまま渡す（例: `start --language ja --model tiny --no-dashboard`）
+   - `--no-dashboard`: ダッシュボードを無効化（デフォルトは有効）
+   - `--dashboard-port PORT`: ダッシュボードのポート番号を指定（デフォルト: 8765）
+4. 音声コマンド監視用のバックグラウンド subagent を Task ツール（`run_in_background: true`）で起動する。subagent は以下のループを実行する:
+   - 5秒ごとに `clerk-data read .clerk_command` をチェック
+   - `translate_start` を検出したら:
+     - `clerk-data write .clerk_command ""` でクリア
+     - `clerk-data read-config` で `translate_language` を取得
+     - `translate <translate_language>` サブコマンドと同じ翻訳ループを開始する
+   - `translate_stop` を検出したら翻訳ループを停止する（translate サブコマンドの停止処理と同じ）
+   - `clerk-data recorder-status` が `stopped` を返したらループを終了する
+5. 「recorder を起動しました」と表示
 
 `stop`:
 1. `clerk-data recorder-status` で動作中か確認。`stopped` なら「recorder は動作していません」と表示して終了
@@ -150,9 +160,15 @@ clerk-data は `config.yaml` の `output_directory` を自動で参照し、`tra
         - 例: `transcript-202602271430.txt` → `transcript-202602271430-ja.txt`
       - 翻訳結果を stdout にも表示する（print）
       - `clerk-data write .translate_offset <offset>` にバイトオフセットを更新して書き込む
-   c. 新しい行がなければ 5 秒待機する（`sleep 5`）
-   d. 4a に戻る
+   c. `clerk-data read .clerk_command` を確認し、内容が `translate_stop` であればループを終了する（`clerk-data write .clerk_command ""` で `.clerk_command` をクリアしてから「翻訳を停止しました」と表示して終了）
+   d. 新しい行がなければ 5 秒待機する（`sleep 5`）
+   e. 4a に戻る
 5. ユーザーが中断（Ctrl+C）するまで継続
+
+`translate start`:
+- `clerk-data read-config` で config を読み、`translate_language` を取得する
+- `translate <translate_language>` と同じ翻訳ループを開始する
+- 音声コマンド「翻訳開始」で `.clerk_command` に `translate_start` が書き込まれた場合も、このサブコマンドと同等の処理を行う
 
 `translate stop`:
 - 翻訳ループを中断する（手動で Ctrl+C しなくても停止できる用）
@@ -175,6 +191,8 @@ shadow-clerk — Web会議 議事録アシスタント
   start meeting          新しい会議セッションを開始（auto_translate/auto_summary 連動）
   end meeting            会議セッションを終了（auto_translate 停止、auto_summary 実行）
   start [opts]           recorder.py をバックグラウンドで起動
+                         --no-dashboard  ダッシュボードを無効化
+                         --dashboard-port PORT  ポート変更 (default: 8765)
   stop                   recorder.py を停止
   status                 録音・文字起こしの状態を表示
   translate <lang>       リアルタイム翻訳モードを開始
@@ -182,6 +200,15 @@ shadow-clerk — Web会議 議事録アシスタント
   setup                  必要な Bash permission を設定
   help                   このヘルプを表示
 
+音声コマンド:
+  Push-to-Talk           Menu キーを押しながら発話でコマンド実行（プレフィックス不要）
+                         voice_command_key で変更可能 (ctrl_r/ctrl_l/alt_r/alt_l/shift_r/shift_l/null)
+  プレフィックス方式     「クラーク」+ コマンドで従来通り動作（フォールバック）
+  custom_commands        config.yaml にカスタム音声コマンドを登録可能
+                         例: {pattern: "youtube", action: "xdg-open https://www.youtube.com"}
+  LLM フォールバック     組み込み・カスタムにマッチしない場合、api_endpoint 設定済みなら LLM に問い合わせ
+
+ダッシュボード: http://localhost:8765（recorder 起動時に自動で有効）
 データディレクトリ: ~/.claude/skills/shadow-clerk/data
 ```
 
@@ -195,6 +222,7 @@ shadow-clerk — Web会議 議事録アシスタント
 - `Bash(pkill -f recorder.py)` — stop 用
 - `Bash(uv run python recorder.py*)` — start 用（プロジェクトディレクトリで実行）
 - `Bash(uv run python llm_client.py*)` — 外部 API 経由の翻訳・Summary 生成用（プロジェクトディレクトリで実行）
+- `Write(path:/tmp/claude-code-tmp/shadow-clerk/*)` — subagent が翻訳結果を一時ファイルに書き出す用
 追加完了後、追加したエントリの一覧を表示する。
 
 ### 議事録フォーマット (summary-YYYYMMDD.md)

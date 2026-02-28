@@ -35,8 +35,15 @@ case "$1" in
     echo "$3" > "$(resolve_path "$2")"
     ;;
   append)
-    # append <filename> <content>
-    echo "$3" >> "$(resolve_path "$2")"
+    # append <filename> [<content>]
+    # append <filename> -f <source_file> — ファイルから読んで追記
+    if [ "$3" = "-f" ] && [ -n "$4" ]; then
+      cat "$4" >> "$(resolve_path "$2")"
+    elif [ -n "$3" ]; then
+      echo "$3" >> "$(resolve_path "$2")"
+    else
+      cat >> "$(resolve_path "$2")"
+    fi
     ;;
   lines)
     wc -l < "$(resolve_path "$2")" 2>/dev/null
@@ -87,7 +94,10 @@ output_directory: null
 llm_provider: claude
 api_endpoint: null
 api_model: null
-api_key_env: SHADOW_CLERK_API_KEY"
+api_key_env: SHADOW_CLERK_API_KEY
+custom_commands: []
+initial_prompt: null
+voice_command_key: f23"
       echo "$DEFAULT_CONFIG" > "$CONFIG_FILE"
       cat "$CONFIG_FILE"
     fi

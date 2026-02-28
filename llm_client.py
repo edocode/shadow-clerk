@@ -58,6 +58,9 @@ DEFAULT_CONFIG = {
     "api_endpoint": None,
     "api_model": None,
     "api_key_env": "SHADOW_CLERK_API_KEY",
+    "custom_commands": [],
+    "initial_prompt": None,
+    "voice_command_key": "f23",
 }
 
 
@@ -390,6 +393,28 @@ def _summarize_update(
     print(response.choices[0].message.content)
 
 
+# --- query サブコマンド ---
+
+
+def query(args: argparse.Namespace):
+    """LLM に自由形式のクエリを投げて結果を stdout に出力する。"""
+    config = load_config()
+    client, model = get_api_client(config)
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": "あなたは親切なアシスタントです。簡潔に回答してください。"},
+            {"role": "user", "content": args.prompt},
+        ],
+        temperature=0.7,
+    )
+
+    answer = response.choices[0].message.content
+    if answer:
+        print(answer.strip())
+
+
 # --- CLI ---
 
 
@@ -410,6 +435,12 @@ def main():
     translate_parser.add_argument(
         "--offset", default=None, help="ファイル読み込み開始バイトオフセット"
     )
+
+    # query
+    query_parser = subparsers.add_parser(
+        "query", help="LLM に自由形式のクエリを投げて回答を取得"
+    )
+    query_parser.add_argument("prompt", help="クエリ文字列")
 
     # summarize
     summarize_parser = subparsers.add_parser(
@@ -444,6 +475,8 @@ def main():
 
     if args.command == "translate":
         translate(args)
+    elif args.command == "query":
+        query(args)
     elif args.command == "summarize":
         summarize(args)
 

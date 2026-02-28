@@ -49,6 +49,19 @@ uv run python recorder.py \
 
 ### 音声コマンド
 
+#### Push-to-Talk（推奨）
+
+Menu キー（右 Alt の隣）を押しながらコマンドを発話すると、プレフィックス（「クラーク」）なしでコマンドとして認識される。Whisper の「クラーク」誤認識問題を回避できる:
+
+```
+[Menu キー押しながら] 「翻訳開始」 → 翻訳が開始される
+[Menu キー押しながら] 「会議開始」 → 会議セッションが開始される
+```
+
+トリガーキーは `config.yaml` の `voice_command_key` で変更できる（`ctrl_r`, `ctrl_l`, `alt_r`, `alt_l`, `shift_r`, `shift_l`）。`null` に設定すると無効化される。
+
+#### プレフィックス方式（フォールバック）
+
 録音中にマイクに向かって「クラーク」（または "clerk"）に続けてコマンドを発話すると、ハンズフリーで操作できる:
 
 | 発話例 | 動作 |
@@ -58,8 +71,33 @@ uv run python recorder.py \
 | 「クラーク、言語 日本語」 | 文字起こし言語を日本語に切り替え |
 | 「クラーク、言語 英語」 | 文字起こし言語を英語に切り替え |
 | 「クラーク、言語設定なし」 | 言語を自動検出に戻す |
+| 「クラーク、翻訳開始」 | 翻訳ループを開始 |
+| 「クラーク、翻訳停止」 | 翻訳ループを停止 |
 
 プレフィックスとコマンドの間の区切り（カンマ、読点、スペース）は省略可能。
+
+#### カスタム音声コマンド
+
+`config.yaml` の `custom_commands` に独自の音声コマンドを登録できる。組み込みコマンドにマッチしない場合に順番に評価される:
+
+```yaml
+custom_commands:
+  - pattern: "youtube|ユーチューブ"
+    action: "xdg-open https://www.youtube.com"
+  - pattern: "gmail|メール"
+    action: "xdg-open https://mail.google.com"
+```
+
+- `pattern`: 正規表現（大文字小文字を区別しない）
+- `action`: 実行するシェルコマンド
+
+#### LLM フォールバック
+
+組み込みコマンドにもカスタムコマンドにもマッチしない場合、`api_endpoint` が設定されていれば LLM にクエリとして送信される。回答は stdout に表示され、`.clerk_response` ファイルに保存される。
+
+```
+「クラーク、1+1の答えは？」 → LLM が回答を返す
+```
 
 ### CLI オプション
 
@@ -105,6 +143,9 @@ llm_provider: claude          # 翻訳・Summary の LLM ("claude" or "api")
 api_endpoint: null            # OpenAI Compatible API の base URL
 api_model: null               # API モデル名 (gpt-4o, etc.)
 api_key_env: SHADOW_CLERK_API_KEY  # API キーを格納する環境変数名
+custom_commands: []               # カスタム音声コマンド (pattern + action のリスト)
+initial_prompt: null              # Whisper の initial_prompt (音声認識のヒント語彙)
+voice_command_key: menu        # Push-to-Talk キー (null=無効)
 ```
 
 Claude Code から設定を操作:
