@@ -295,6 +295,9 @@ def cmd_run_llm(args):
 
 def cmd_claude_setup(args):
     """Claude Code skill として登録する"""
+    # 言語オプションの解析
+    lang = args[0] if args else None
+
     skill_dir = get_skill_dir()
 
     # 既存シンボリックリンクがあれば警告
@@ -313,15 +316,25 @@ def cmd_claude_setup(args):
         print("  pip install shadow-clerk でインストールしてください。", file=sys.stderr)
         sys.exit(1)
 
-    # SKILL.md をテンプレートから生成
-    template = importlib.resources.files("shadow_clerk").joinpath("data/SKILL.md.template").read_text()
+    # テンプレートファイルを選択: SKILL.<lang>.md.template があればそれを使う
+    template_name = "SKILL.md.template"
+    if lang:
+        lang_template = f"SKILL.{lang}.md.template"
+        lang_resource = importlib.resources.files("shadow_clerk").joinpath(f"data/{lang_template}")
+        if lang_resource.is_file():
+            template_name = lang_template
+        else:
+            print(f"NOTE: {lang_template} not found, using default SKILL.md.template")
+
+    template = importlib.resources.files("shadow_clerk").joinpath(f"data/{template_name}").read_text()
     skill_md = template.replace("{clerk_util_path}", clerk_util_path)
     skill_md = skill_md.replace("{data_dir}", get_data_dir())
 
     skill_md_path = os.path.join(skill_dir, "SKILL.md")
     with open(skill_md_path, "w", encoding="utf-8") as f:
         f.write(skill_md)
-    print(f"SKILL.md を生成しました: {skill_md_path}")
+    lang_label = f" ({lang})" if lang and template_name != "SKILL.md.template" else ""
+    print(f"SKILL.md を生成しました{lang_label}: {skill_md_path}")
 
     # settings.local.json に permission エントリ追加
     _register_permissions(clerk_util_path)
@@ -394,7 +407,7 @@ def cmd_help(args):
     print("  run-llm <args...>          llm_client を実行 (exec)")
     print()
     print("Setup subcommands:")
-    print("  claude-setup      Claude Code skill として登録")
+    print("  claude-setup [lang]  Claude Code skill として登録 (lang: ja, en, ...)")
     print()
     print(f"Data directory: {DATA_DIR}")
 
