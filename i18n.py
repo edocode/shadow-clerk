@@ -81,8 +81,8 @@ STRINGS = {
         "rec.auto_summary_done": "  自動要約完了: {name}",
         "rec.auto_summary_fail": "  自動要約失敗: {error}",
         "rec.auto_summary_timeout": "  自動要約タイムアウト",
-        "rec.ptt_on": "[PTT] コマンドモード ON ({key} pressed)",
-        "rec.ptt_off": "[PTT] コマンドモード OFF ({key} released)",
+        "rec.ptt_on": "[PTT] コマンドモード ON ({vkey} pressed)",
+        "rec.ptt_off": "[PTT] コマンドモード OFF ({vkey} released)",
 
         # --- dash.* : ダッシュボード UI ---
         "dash.meeting_start": "会議開始",
@@ -312,8 +312,8 @@ STRINGS = {
         "rec.auto_summary_done": "  Summary complete: {name}",
         "rec.auto_summary_fail": "  Summary failed: {error}",
         "rec.auto_summary_timeout": "  Summary timed out",
-        "rec.ptt_on": "[PTT] Command mode ON ({key} pressed)",
-        "rec.ptt_off": "[PTT] Command mode OFF ({key} released)",
+        "rec.ptt_on": "[PTT] Command mode ON ({vkey} pressed)",
+        "rec.ptt_off": "[PTT] Command mode OFF ({vkey} released)",
 
         # --- dash.* ---
         "dash.meeting_start": "Start Meeting",

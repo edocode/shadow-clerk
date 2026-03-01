@@ -975,14 +975,14 @@ class Recorder:
             if key == target_key:
                 self._command_mode = True
                 logger.info("コマンドモード ON (%s pressed)", self._voice_command_key)
-                print(t("rec.ptt_on", key=self._voice_command_key))
+                print(t("rec.ptt_on", vkey=self._voice_command_key))
 
         def on_release(key):
             if key == target_key:
                 self._command_mode = False
                 self._command_mode_release_time = time.time()
                 logger.info("コマンドモード OFF (%s released)", self._voice_command_key)
-                print(t("rec.ptt_off", key=self._voice_command_key))
+                print(t("rec.ptt_off", vkey=self._voice_command_key))
 
         with pynput_keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
             self.stop_event.wait()
@@ -1066,14 +1066,14 @@ class Recorder:
                                     self._command_mode = True
                                     logger.info("コマンドモード ON (%s pressed) [evdev]",
                                                 self._voice_command_key)
-                                    print(t("rec.ptt_on", key=self._voice_command_key))
+                                    print(t("rec.ptt_on", vkey=self._voice_command_key))
                                 elif event.value == 0:  # key up
                                     initially_held = False  # リリースされたのでフラグ解除
                                     self._command_mode = False
                                     self._command_mode_release_time = time.time()
                                     logger.info("コマンドモード OFF (%s released) [evdev]",
                                                 self._voice_command_key)
-                                    print(t("rec.ptt_off", key=self._voice_command_key))
+                                    print(t("rec.ptt_off", vkey=self._voice_command_key))
                                 # value == 2 (キーリピート) は無視
                     except OSError:
                         pass  # デバイス切断等
@@ -1202,6 +1202,15 @@ class Recorder:
         elif cmd == "unmute_monitor":
             self.mute_monitor = False
             logger.info("スピーカーミュート OFF")
+
+        elif cmd == "ptt_on":
+            self._command_mode = True
+            logger.info("PTT 強制 ON (Dashboard)")
+
+        elif cmd == "ptt_off":
+            self._command_mode = False
+            self._command_mode_release_time = time.time()
+            logger.info("PTT 強制 OFF (Dashboard)")
 
         else:
             logger.warning("不明なコマンド: %s", cmd)
@@ -1665,6 +1674,7 @@ class FileWatcher(threading.Thread):
         self._mtimes = {}
         self._log_counter = 0
         self._last_status = None
+        self._last_ptt = None
 
     def add_client(self):
         q = queue.Queue()
@@ -1774,6 +1784,12 @@ class FileWatcher(threading.Thread):
         if running != self._last_status:
             self._last_status = running
             self._broadcast("recorder_status", json.dumps({"running": running}))
+
+        # PTT status
+        ptt = self._recorder._command_mode
+        if ptt != self._last_ptt:
+            self._last_ptt = ptt
+            self._broadcast("ptt", json.dumps({"active": ptt}))
 
         # Logs
         new_lines, self._log_counter = self._log_buffer.get_new_lines(
@@ -1893,6 +1909,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "translating": translating,
             "mute_mic": self.recorder.mute_mic,
             "mute_monitor": self.recorder.mute_monitor,
+            "ptt": self.recorder._command_mode,
         })
 
     def _serve_files(self):
@@ -2271,6 +2288,7 @@ main {
   <div class="g" style="margin-left:auto">
     <button class="toggle" id="togTR" onclick="cyclePanel()">T|R</button>
     <button onclick="openGlossary()">{{i18n:dash.glossary}}</button>
+    <button class="toggle" id="btnPTT" onclick="togPTT()" style="min-width:auto;padding:2px 6px;font-size:11px">PTT</button>
     <button onclick="openCustomCmds()">{{i18n:dash.custom_commands}}</button>
     <button onclick="openCfg()" title="{{i18n:dash.settings}}">⚙</button>
     <button onclick="openHelp()" title="{{i18n:dash.help}}">❓</button>
@@ -2370,7 +2388,7 @@ main {
 <script>
 /*I18N_JSON*/
 let curFile='', activeFile='';
-let meetingActive=false, translating=false, muteMic=false, muteMonitor=false;
+let meetingActive=false, translating=false, muteMic=false, muteMonitor=false, pttActive=false;
 let panelMode=0; // 0=T|R, 1=T, 2=R
 const as={tp:true,rp:true,logc:true};
 ['tp','rp','logc'].forEach(id=>{
@@ -2434,6 +2452,18 @@ function togMute(type){
   if(type==='mic'){muteMic=!muteMic;cmd(muteMic?'mute_mic':'unmute_mic');updateMuteBtn('mic',muteMic);}
   else{muteMonitor=!muteMonitor;cmd(muteMonitor?'mute_monitor':'unmute_monitor');updateMuteBtn('monitor',muteMonitor);}
 }
+/* --- PTT toggle --- */
+function updatePTT(active){
+  pttActive=active;
+  const btn=document.getElementById('btnPTT');
+  if(active){btn.style.background='var(--red)';btn.style.color='#fff';}
+  else{btn.style.background='';btn.style.color='';}
+}
+function togPTT(){
+  pttActive=!pttActive;
+  cmd(pttActive?'ptt_on':'ptt_off');
+  updatePTT(pttActive);
+}
 /* --- Panel cycling (T|R -> T -> R) --- */
 function cyclePanel(){
   panelMode=(panelMode+1)%3;
@@ -2456,6 +2486,7 @@ async function fetchStatus(){
     updateTranslateBtn(d.translating);
     muteMic=d.mute_mic;muteMonitor=d.mute_monitor;
     updateMuteBtn('mic',muteMic);updateMuteBtn('monitor',muteMonitor);
+    if(d.ptt!==undefined)updatePTT(d.ptt);
   }catch(e){}
 }
 const es=new EventSource('/api/events');
@@ -2475,6 +2506,9 @@ es.addEventListener('log',e=>{
 es.addEventListener('session',e=>{
   try{const d=JSON.parse(e.data);updateMeetingBtn(d.content||null);}catch(ex){}
   loadFiles();
+});
+es.addEventListener('ptt',e=>{
+  try{const d=JSON.parse(e.data);updatePTT(d.active);}catch(ex){}
 });
 es.addEventListener('interim_transcript',e=>{
   const d=JSON.parse(e.data);
