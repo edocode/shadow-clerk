@@ -55,7 +55,7 @@ def t_all() -> dict:
 
 STRINGS = {
     "ja": {
-        # --- rec.* : recorder.py ターミナル出力 ---
+        # --- rec.* : clerk_daemon.py ターミナル出力 ---
         "rec.recording": "録音中... (Ctrl+C で停止)",
         "rec.output": "出力先: {path}",
         "rec.backend": "バックエンド: {name}",
@@ -89,6 +89,8 @@ STRINGS = {
         "dash.meeting_end": "会議終了",
         "dash.translate_start": "翻訳開始",
         "dash.translate_stop": "翻訳停止",
+        "dash.translate_claude_hint": "llm_provider が claude の場合、翻訳は Claude Code から実行してください（/shadow-clerk translate <lang>）",
+        "dash.realtime_translation": "リアルタイム翻訳",
         "dash.summary": "要約",
         "dash.view_summary": "要約閲覧",
         "dash.custom_cmd_placeholder": "カスタムコマンド",
@@ -110,6 +112,50 @@ STRINGS = {
         "dash.alert_summary_done": "議事録を生成しました: {name}",
         "dash.transcript_not_found": "transcript が見つかりません",
         "dash.summary_generation_started": "要約生成を開始しました",
+        "dash.detect_language": "検出言語",
+        "dash.meeting_toggle_start": "会議開始",
+        "dash.meeting_toggle_end": "会議終了",
+        "dash.mute_mic": "マイクミュート",
+        "dash.unmute_mic": "マイクミュート解除",
+        "dash.mute_monitor": "スピーカーミュート",
+        "dash.unmute_monitor": "スピーカーミュート解除",
+        "dash.custom_commands": "コマンド",
+        "dash.custom_commands_title": "カスタム音声コマンド",
+        "dash.custom_cmd_pattern": "パターン（正規表現）",
+        "dash.custom_cmd_action": "アクション（シェルコマンド）",
+        "dash.custom_cmd_hint": "PTTキーを押しながら発話した内容がパターンにマッチすると、アクションが実行されます。",
+        "dash.help": "ヘルプ",
+        "dash.help_title": "ヘルプ",
+        "dash.help_body": (
+            "【ボタン操作】\n"
+            "▶ 会議開始 / ■ 会議終了\n"
+            "  会議セッションを開始・終了します。\n"
+            "  開始すると専用の transcript ファイルが作成されます。\n\n"
+            "▶ 翻訳開始 / ■ 翻訳停止\n"
+            "  リアルタイム翻訳を開始・停止します。\n"
+            "  llm_provider が api の場合のみ動作します。\n\n"
+            "要約\n"
+            "  現在の transcript から議事録を生成します。\n\n"
+            "要約閲覧\n"
+            "  生成済みの議事録を表示します。\n\n"
+            "【パネル操作】\n"
+            "T|R ボタン: Transcript/Translation の表示を切替\n"
+            "  T|R → T のみ → R のみ → T|R（循環）\n\n"
+            "Logs ▼▲: ログパネルの表示・非表示を切替\n\n"
+            "🎤 / 🔊: マイク・スピーカーの書き起こしミュート\n"
+            "  ミュート中は音声キャプチャは継続しますが、\n"
+            "  文字起こしはスキップされます。\n\n"
+            "【音声コマンド】\n"
+            "PTT キー（デフォルト: Menu）を押しながら発話\n"
+            "  「会議開始」「会議終了」「翻訳開始」「翻訳停止」\n"
+            "  「言語 日本語」「言語 英語」\n\n"
+            "【設定】\n"
+            "⚙ ボタンで設定モーダルを開きます。\n"
+            "主な設定項目:\n"
+            "  - UI言語 / 翻訳先言語 / Whisperモデル\n"
+            "  - LLMプロバイダ / APIエンドポイント\n"
+            "  - PTTキー / 中間文字起こし\n"
+        ),
 
         # --- cfg.* : 設定モーダルフィールド ---
         "cfg.translate_language": "翻訳先言語",
@@ -274,6 +320,8 @@ STRINGS = {
         "dash.meeting_end": "End Meeting",
         "dash.translate_start": "Start Translation",
         "dash.translate_stop": "Stop Translation",
+        "dash.translate_claude_hint": "When llm_provider is claude, please run translation from Claude Code (/shadow-clerk translate <lang>)",
+        "dash.realtime_translation": "Realtime Translation",
         "dash.summary": "Summary",
         "dash.view_summary": "View Summary",
         "dash.custom_cmd_placeholder": "Custom command",
@@ -295,6 +343,50 @@ STRINGS = {
         "dash.alert_summary_done": "Summary generated: {name}",
         "dash.transcript_not_found": "Transcript not found",
         "dash.summary_generation_started": "Summary generation started",
+        "dash.detect_language": "Detection Lang",
+        "dash.meeting_toggle_start": "Start Meeting",
+        "dash.meeting_toggle_end": "End Meeting",
+        "dash.mute_mic": "Mute Mic",
+        "dash.unmute_mic": "Unmute Mic",
+        "dash.mute_monitor": "Mute Speaker",
+        "dash.unmute_monitor": "Unmute Speaker",
+        "dash.custom_commands": "Commands",
+        "dash.custom_commands_title": "Custom Voice Commands",
+        "dash.custom_cmd_pattern": "Pattern (regex)",
+        "dash.custom_cmd_action": "Action (shell command)",
+        "dash.custom_cmd_hint": "When you speak while holding the PTT key and the text matches a pattern, the action is executed.",
+        "dash.help": "Help",
+        "dash.help_title": "Help",
+        "dash.help_body": (
+            "[Button Controls]\n"
+            "▶ Start Meeting / ■ End Meeting\n"
+            "  Start/end a meeting session.\n"
+            "  A dedicated transcript file is created on start.\n\n"
+            "▶ Start Translation / ■ Stop Translation\n"
+            "  Start/stop real-time translation.\n"
+            "  Only works when llm_provider is set to api.\n\n"
+            "Summary\n"
+            "  Generate meeting minutes from current transcript.\n\n"
+            "View Summary\n"
+            "  View generated meeting minutes.\n\n"
+            "[Panel Controls]\n"
+            "T|R button: Cycle Transcript/Translation display\n"
+            "  T|R → T only → R only → T|R (cycle)\n\n"
+            "Logs ▼▲: Toggle log panel visibility\n\n"
+            "🎤 / 🔊: Mute mic/speaker transcription\n"
+            "  Audio capture continues while muted,\n"
+            "  but transcription is skipped.\n\n"
+            "[Voice Commands]\n"
+            "Hold PTT key (default: Menu) and speak:\n"
+            "  Start/End Meeting, Start/Stop Translation\n"
+            "  Set Language Japanese/English\n\n"
+            "[Settings]\n"
+            "Click ⚙ to open settings.\n"
+            "Key settings:\n"
+            "  - UI Language / Translation Language / Whisper Model\n"
+            "  - LLM Provider / API Endpoint\n"
+            "  - PTT Key / Interim Transcription\n"
+        ),
 
         # --- cfg.* ---
         "cfg.translate_language": "Translation Language",

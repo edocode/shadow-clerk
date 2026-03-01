@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shadow-clerk recorder: 音声キャプチャ・VAD・文字起こし"""
+"""Shadow-clerk daemon: 音声キャプチャ・VAD・文字起こし"""
 
 import argparse
 import collections
@@ -27,6 +27,12 @@ import webrtcvad
 import yaml
 
 from i18n import t, t_all
+
+try:
+    from llm_client import get_api_client, load_glossary, load_dotenv as llm_load_dotenv
+    _HAS_LLM_CLIENT = True
+except ImportError:
+    _HAS_LLM_CLIENT = False
 
 try:
     from pynput import keyboard as pynput_keyboard
@@ -658,9 +664,16 @@ class Recorder:
         self._command_mode_release_time: float = 0.0  # キーリリース時刻
         self._voice_command_key = config.get("voice_command_key")
 
+        # Mic/Speaker ミュートフラグ
+        self.mute_mic = False
+        self.mute_monitor = False
+
         # 翻訳ループ
         self._translate_stop_event = threading.Event()
         self._translate_thread: threading.Thread | None = None
+
+        # リアルタイム interim 翻訳キュー (maxsize=1 で最新のみ保持)
+        self._interim_translate_queue: queue.Queue = queue.Queue(maxsize=1)
 
     def _get_default_output(self) -> str:
         """現在日付ベースのデフォルト transcript パスを返す"""
@@ -1026,6 +1039,19 @@ class Recorder:
                      self._voice_command_key,
                      ", ".join(d.name for d in keyboards))
 
+        # 起動時に既に押下されているキーを検出し、初期イベントを無視するためのフラグ
+        initially_held = False
+        for dev in keyboards:
+            try:
+                if target_code in dev.active_keys():
+                    initially_held = True
+                    break
+            except OSError:
+                pass
+        if initially_held:
+            logger.info("evdev: %s は起動時に押下状態 — 初期イベントを無視",
+                        self._voice_command_key)
+
         try:
             while not self.stop_event.is_set():
                 r, _, _ = select.select(keyboards, [], [], 0.1)
@@ -1034,16 +1060,21 @@ class Recorder:
                         for event in dev.read():
                             if event.type == _ecodes.EV_KEY and event.code == target_code:
                                 if event.value == 1:  # key down
+                                    if initially_held:
+                                        # 起動前から押されていたキーの down イベント → 無視
+                                        continue
                                     self._command_mode = True
                                     logger.info("コマンドモード ON (%s pressed) [evdev]",
                                                 self._voice_command_key)
                                     print(t("rec.ptt_on", key=self._voice_command_key))
                                 elif event.value == 0:  # key up
+                                    initially_held = False  # リリースされたのでフラグ解除
                                     self._command_mode = False
                                     self._command_mode_release_time = time.time()
                                     logger.info("コマンドモード OFF (%s released) [evdev]",
                                                 self._voice_command_key)
                                     print(t("rec.ptt_off", key=self._voice_command_key))
+                                # value == 2 (キーリピート) は無視
                     except OSError:
                         pass  # デバイス切断等
         finally:
@@ -1156,6 +1187,22 @@ class Recorder:
                 name="llm-query", daemon=True,
             ).start()
 
+        elif cmd == "mute_mic":
+            self.mute_mic = True
+            logger.info("マイクミュート ON")
+
+        elif cmd == "unmute_mic":
+            self.mute_mic = False
+            logger.info("マイクミュート OFF")
+
+        elif cmd == "mute_monitor":
+            self.mute_monitor = True
+            logger.info("スピーカーミュート ON")
+
+        elif cmd == "unmute_monitor":
+            self.mute_monitor = False
+            logger.info("スピーカーミュート OFF")
+
         else:
             logger.warning("不明なコマンド: %s", cmd)
 
@@ -1266,6 +1313,14 @@ class Recorder:
             try:
                 segment, timestamp, source, command_mode = self.transcribe_queue.get(timeout=1.0)
             except queue.Empty:
+                continue
+
+            # ミュート中のソースはスキップ
+            if source == "mic" and self.mute_mic:
+                logger.debug("マイクミュート中、スキップ")
+                continue
+            if source == "monitor" and self.mute_monitor:
+                logger.debug("スピーカーミュート中、スキップ")
                 continue
 
             duration = len(segment) / SAMPLE_RATE
@@ -1390,8 +1445,83 @@ class Recorder:
                     self._file_watcher._broadcast("interim_transcript", json.dumps(
                         {"source": source, "speaker": speaker, "text": text.strip(),
                          "timestamp": timestamp}, ensure_ascii=False))
+                    # リアルタイム翻訳キューに投入（最新のみ保持）
+                    try:
+                        self._interim_translate_queue.put_nowait(
+                            (text.strip(), source, speaker, timestamp, seq))
+                    except queue.Full:
+                        pass
             except Exception as e:
                 logger.debug("中間文字起こしエラー: %s", e)
+
+    def _interim_translate_thread(self):
+        """リアルタイム interim 翻訳スレッド"""
+        current_seq: dict[str, int] = {}
+        client = None
+        model = None
+
+        while not self.stop_event.is_set():
+            if not _HAS_LLM_CLIENT:
+                self.stop_event.wait(timeout=5.0)
+                continue
+
+            config = load_config()
+            if not config.get("api_endpoint"):
+                self.stop_event.wait(timeout=2.0)
+                continue
+
+            try:
+                text, source, speaker, timestamp, seq = self._interim_translate_queue.get(timeout=1.0)
+            except queue.Empty:
+                continue
+
+            # stale チェック
+            if seq < current_seq.get(source, 0):
+                continue
+            current_seq[source] = seq
+
+            # api_model 未設定時はスキップ
+            if not config.get("api_model"):
+                continue
+
+            try:
+                # クライアント初期化（遅延）
+                if client is None:
+                    llm_load_dotenv()
+                    client, model = get_api_client(config)
+
+                lang = config.get("translate_language", "ja")
+                glossary = load_glossary(lang)
+                system_prompt = t("llm.translate_system", lang=lang)
+                if glossary:
+                    system_prompt += "\n" + glossary
+
+                resp = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": f"1: {text}"},
+                    ],
+                    max_tokens=512,
+                    temperature=0.3,
+                )
+                translated = resp.choices[0].message.content.strip()
+                # "1: " prefix を除去
+                if translated.startswith("1:"):
+                    translated = translated[2:].strip()
+
+                if translated and hasattr(self, "_file_watcher"):
+                    self._file_watcher._broadcast("interim_translation", json.dumps(
+                        {"source": source, "speaker": speaker, "text": text,
+                         "translated": translated, "timestamp": timestamp},
+                        ensure_ascii=False))
+            except SystemExit:
+                logger.debug("interim 翻訳: API 設定不足のためスキップ")
+                client = None
+            except Exception as e:
+                logger.debug("interim 翻訳エラー: %s", e)
+                # API エラー時はクライアントをリセットして再接続を試みる
+                client = None
 
     def run(self):
         """メイン実行"""
@@ -1430,6 +1560,7 @@ class Recorder:
             ),
             threading.Thread(target=self._transcribe_thread, name="transcribe", daemon=True),
             threading.Thread(target=self._interim_transcribe_thread, name="interim-transcribe", daemon=True),
+            threading.Thread(target=self._interim_translate_thread, name="interim-translate", daemon=True),
             threading.Thread(target=self._command_watch_thread, name="cmd-watch", daemon=True),
         ]
 
@@ -1750,6 +1881,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 session = f.read().strip()
         except OSError:
             pass
+        translating = (self.recorder._translate_thread is not None
+                       and self.recorder._translate_thread.is_alive())
         self._send_json({
             "running": not self.recorder.stop_event.is_set(),
             "backend": self.recorder.backend_name,
@@ -1757,6 +1890,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "language": self.recorder.transcriber.language or "auto",
             "output_path": self.recorder.output_path,
             "session": session or None,
+            "translating": translating,
+            "mute_mic": self.recorder.mute_mic,
+            "mute_monitor": self.recorder.mute_monitor,
         })
 
     def _serve_files(self):
@@ -1989,7 +2125,6 @@ button:hover { background: var(--btn-h); }
 .pri:hover { background:#2ea043; }
 .dan { background:#da3633; border-color:#f85149; color:#fff; }
 .dan:hover { background:#b62324; }
-#custom-cmd { width:180px; }
 main {
   flex:1; display:flex; gap:1px; background:var(--border); min-height:0;
 }
@@ -2043,7 +2178,9 @@ main {
 .toggle { font-size:12px; opacity:.7; cursor:pointer; padding:2px 6px; border:1px solid var(--border); border-radius:4px; background:transparent; color:var(--muted); }
 .toggle:hover { opacity:1; }
 .toggle.off { opacity:.4; text-decoration:line-through; }
-.panel.hidden, #logp.hidden { display:none; }
+.panel.hidden { display:none; }
+#logp.collapsed #logc { display:none; }
+#logp.collapsed { height:auto; }
 .modal-overlay {
   display:none; position:fixed; inset:0; background:rgba(0,0,0,.6);
   z-index:100; justify-content:center; align-items:center;
@@ -2088,6 +2225,21 @@ main {
 #glossaryTable td input:focus { background:rgba(100,100,255,0.08); }
 #glossaryTable td.gl-del { width:30px; text-align:center; cursor:pointer; color:var(--muted); }
 #glossaryTable td.gl-del:hover { color:var(--red,#e55); }
+#customCmdTable th, #customCmdTable td {
+  border:1px solid var(--border); padding:4px 6px;
+}
+#customCmdTable th {
+  background:var(--bg); color:var(--muted); font-weight:600; font-size:12px;
+  text-align:left; position:sticky; top:0; padding:4px 6px;
+}
+#customCmdTable td { padding:0; }
+#customCmdTable td input {
+  border:none; border-radius:0; width:100%; padding:5px 6px; font-size:13px;
+  background:transparent; color:var(--text); outline:none;
+}
+#customCmdTable td input:focus { background:rgba(100,100,255,0.08); }
+#customCmdTable td.gl-del { width:30px; text-align:center; cursor:pointer; color:var(--muted); }
+#customCmdTable td.gl-del:hover { color:var(--red,#e55); }
 .modal-foot {
   padding:12px 16px; border-top:1px solid var(--border);
   display:flex; justify-content:flex-end; gap:8px;
@@ -2097,7 +2249,7 @@ main {
 </head>
 <body>
 <header>
-  <select id="langSel" onchange="onLangChange(this.value)">
+  <label for="langSel" style="font-size:12px;color:#aaa;margin-right:2px">{{i18n:dash.detect_language}}</label><select id="langSel" onchange="onLangChange(this.value)">
     <option value="auto">auto</option>
     <option value="ja">ja</option>
     <option value="en">en</option>
@@ -2111,29 +2263,23 @@ main {
   </select>
   <select id="fsel" onchange="onSel()"><option value="">...</option></select>
   <div class="g">
-    <button class="pri" onclick="cmd('start_meeting')">{{i18n:dash.meeting_start}}</button>
-    <button class="dan" onclick="cmd('end_meeting')">{{i18n:dash.meeting_end}}</button>
-    <button onclick="cmd('translate_start')">{{i18n:dash.translate_start}}</button>
-    <button onclick="cmd('translate_stop')">{{i18n:dash.translate_stop}}</button>
+    <button class="pri" id="btnMeeting" onclick="togMeeting()">{{i18n:dash.meeting_toggle_start}}</button>
+    <button id="btnTranslate" onclick="togTranslate()">{{i18n:dash.translate_start}}</button>
     <button onclick="genSummary()">{{i18n:dash.summary}}</button>
     <button onclick="viewSummary()">{{i18n:dash.view_summary}}</button>
   </div>
-  <div class="g">
-    <input type="text" id="custom-cmd" placeholder="{{i18n:dash.custom_cmd_placeholder}}" onkeydown="if(event.key==='Enter')sendC()">
-    <button onclick="sendC()">{{i18n:dash.send}}</button>
-  </div>
   <div class="g" style="margin-left:auto">
-    <button class="toggle" onclick="togPanel('T')" id="togT">T</button>
-    <button class="toggle" onclick="togPanel('R')" id="togR">R</button>
-    <button class="toggle" onclick="togPanel('L')" id="togL">L</button>
+    <button class="toggle" id="togTR" onclick="cyclePanel()">T|R</button>
     <button onclick="openGlossary()">{{i18n:dash.glossary}}</button>
-    <button onclick="openCfg()">{{i18n:dash.settings}}</button>
+    <button onclick="openCustomCmds()">{{i18n:dash.custom_commands}}</button>
+    <button onclick="openCfg()" title="{{i18n:dash.settings}}">⚙</button>
+    <button onclick="openHelp()" title="{{i18n:dash.help}}">❓</button>
   </div>
 </header>
 <div id="resp"><div class="rh"><span>LLM Response</span><button class="toggle" onclick="hideResp()">&times;</button></div><div class="rb" id="respBody"></div></div>
 <main>
   <div class="panel" id="pnlT">
-    <div class="ph"><span>Transcript</span><span id="tf" style="font-weight:normal"></span></div>
+    <div class="ph"><span>Transcript</span><span style="display:flex;gap:4px;align-items:center"><button class="toggle" id="btnMuteMic" onclick="togMute('mic')" title="{{i18n:dash.mute_mic}}">🎤</button><button class="toggle" id="btnMuteMonitor" onclick="togMute('monitor')" title="{{i18n:dash.mute_monitor}}">🔊</button><span id="tf" style="font-weight:normal"></span></span></div>
     <div class="pc" id="tp"></div>
   </div>
   <div class="panel" id="pnlR">
@@ -2143,9 +2289,10 @@ main {
 </main>
 <div id="interim-area" style="display:none; border-top:1px solid var(--border); padding:4px 12px; flex-shrink:0;">
   <div id="interim-monitor" class="interim"></div>
+  <div id="itp" class="interim"></div>
 </div>
 <div id="logp">
-  <div class="ph">Logs</div>
+  <div class="ph" style="cursor:pointer" onclick="togLogs()"><span>Logs</span><span id="logArrow">▼</span></div>
   <div id="logc"></div>
 </div>
 <div class="modal-overlay" id="cfgModal" onclick="if(event.target===this)closeCfg()">
@@ -2189,9 +2336,42 @@ main {
     </div>
   </div>
 </div>
+<div class="modal-overlay" id="helpModal" onclick="if(event.target===this)closeHelp()">
+  <div class="modal" style="max-width:600px;">
+    <div class="modal-head"><span>{{i18n:dash.help_title}}</span><button onclick="closeHelp()">&times;</button></div>
+    <div class="modal-body" style="display:block;max-height:70vh;overflow-y:auto;font-size:13px;line-height:1.7;">
+      <div id="helpContent" style="white-space:pre-wrap;"></div>
+    </div>
+    <div class="modal-foot">
+      <button onclick="closeHelp()">{{i18n:dash.close}}</button>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="customCmdModal" onclick="if(event.target===this)closeCustomCmds()">
+  <div class="modal" style="max-width:700px;">
+    <div class="modal-head"><span>{{i18n:dash.custom_commands_title}}</span><button onclick="closeCustomCmds()">&times;</button></div>
+    <div class="modal-body" style="display:block;max-height:60vh;overflow-y:auto;">
+      <table id="customCmdTable" style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr><th>{{i18n:dash.custom_cmd_pattern}}</th><th>{{i18n:dash.custom_cmd_action}}</th><th style="width:30px"></th></tr></thead>
+        <tbody id="customCmdBody"></tbody>
+      </table>
+      <div style="margin-top:8px;">
+        <button onclick="customCmdAddRow()" style="font-size:12px;">{{i18n:dash.add_row}}</button>
+      </div>
+      <div style="margin-top:12px;font-size:12px;color:var(--muted);line-height:1.5;">{{i18n:dash.custom_cmd_hint}}</div>
+    </div>
+    <div class="modal-foot">
+      <span class="saved" id="customCmdSaved">{{i18n:dash.saved}}</span>
+      <button onclick="closeCustomCmds()">{{i18n:dash.cancel}}</button>
+      <button class="pri" onclick="saveCustomCmds()">{{i18n:dash.save}}</button>
+    </div>
+  </div>
+</div>
 <script>
 /*I18N_JSON*/
 let curFile='', activeFile='';
+let meetingActive=false, translating=false, muteMic=false, muteMonitor=false;
+let panelMode=0; // 0=T|R, 1=T, 2=R
 const as={tp:true,rp:true,logc:true};
 ['tp','rp','logc'].forEach(id=>{
   document.getElementById(id).addEventListener('scroll',function(){
@@ -2212,6 +2392,72 @@ function addLines(id,text,fmt){
   text.split('\\n').forEach(l=>{if(l.trim())el.insertAdjacentHTML('beforeend',fmt(l));});
   if(as[id])el.scrollTop=el.scrollHeight;
 }
+/* --- Meeting toggle --- */
+function updateMeetingBtn(session){
+  meetingActive=!!session;
+  const btn=document.getElementById('btnMeeting');
+  if(meetingActive){
+    btn.textContent='\\u25A0 '+I18N['dash.meeting_toggle_end'];
+    btn.className='dan';
+  }else{
+    btn.textContent='\\u25B6 '+I18N['dash.meeting_toggle_start'];
+    btn.className='pri';
+  }
+}
+function togMeeting(){cmd(meetingActive?'end_meeting':'start_meeting');}
+/* --- Translation toggle --- */
+function updateTranslateBtn(active){
+  translating=active;
+  const btn=document.getElementById('btnTranslate');
+  if(translating){
+    btn.textContent='\\u25A0 '+I18N['dash.translate_stop'];
+    btn.className='dan';
+  }else{
+    btn.textContent='\\u25B6 '+I18N['dash.translate_start'];
+    btn.className='pri';
+  }
+}
+async function togTranslate(){
+  if(translating){cmd('translate_stop');updateTranslateBtn(false);return;}
+  try{const d=await(await fetch('/api/config')).json();
+    if(d.llm_provider!=='api'){alert(I18N['dash.translate_claude_hint']);return;}
+  }catch(e){}
+  cmd('translate_start');updateTranslateBtn(true);
+}
+/* --- Mute toggles --- */
+function updateMuteBtn(type,muted){
+  const btn=document.getElementById(type==='mic'?'btnMuteMic':'btnMuteMonitor');
+  if(muted){btn.classList.add('off');btn.title=I18N[type==='mic'?'dash.unmute_mic':'dash.unmute_monitor'];}
+  else{btn.classList.remove('off');btn.title=I18N[type==='mic'?'dash.mute_mic':'dash.mute_monitor'];}
+}
+function togMute(type){
+  if(type==='mic'){muteMic=!muteMic;cmd(muteMic?'mute_mic':'unmute_mic');updateMuteBtn('mic',muteMic);}
+  else{muteMonitor=!muteMonitor;cmd(muteMonitor?'mute_monitor':'unmute_monitor');updateMuteBtn('monitor',muteMonitor);}
+}
+/* --- Panel cycling (T|R -> T -> R) --- */
+function cyclePanel(){
+  panelMode=(panelMode+1)%3;
+  const t=document.getElementById('pnlT'),r=document.getElementById('pnlR'),btn=document.getElementById('togTR');
+  if(panelMode===0){t.classList.remove('hidden');r.classList.remove('hidden');btn.textContent='T|R';}
+  else if(panelMode===1){t.classList.remove('hidden');r.classList.add('hidden');btn.textContent='T';}
+  else{t.classList.add('hidden');r.classList.remove('hidden');btn.textContent='R';}
+}
+/* --- Logs toggle --- */
+function togLogs(){
+  const lp=document.getElementById('logp'),arr=document.getElementById('logArrow');
+  lp.classList.toggle('collapsed');
+  arr.textContent=lp.classList.contains('collapsed')?'▲':'▼';
+}
+/* --- Status fetch --- */
+async function fetchStatus(){
+  try{const d=await(await fetch('/api/status')).json();
+    const s=document.getElementById('langSel');if(s&&d.language)s.value=d.language;
+    updateMeetingBtn(d.session);
+    updateTranslateBtn(d.translating);
+    muteMic=d.mute_mic;muteMonitor=d.mute_monitor;
+    updateMuteBtn('mic',muteMic);updateMuteBtn('monitor',muteMonitor);
+  }catch(e){}
+}
 const es=new EventSource('/api/events');
 es.addEventListener('transcript',e=>{
   const d=JSON.parse(e.data);
@@ -2226,17 +2472,28 @@ es.addEventListener('log',e=>{
   el.insertAdjacentHTML('beforeend','<div class="ll '+c+'">'+esc(d.line)+'</div>');
   if(as.logc)el.scrollTop=el.scrollHeight;
 });
-es.addEventListener('session',()=>loadFiles());
+es.addEventListener('session',e=>{
+  try{const d=JSON.parse(e.data);updateMeetingBtn(d.content||null);}catch(ex){}
+  loadFiles();
+});
 es.addEventListener('interim_transcript',e=>{
   const d=JSON.parse(e.data);
   const el=document.getElementById('interim-monitor');
   if(el){el.innerHTML='<span class="sp-o">['+esc(d.speaker)+']</span> '+esc(d.text);}
   document.getElementById('interim-area').style.display='block';
 });
+es.addEventListener('interim_translation',e=>{
+  const d=JSON.parse(e.data);
+  const el=document.getElementById('itp');
+  if(el){el.innerHTML='<span class="sp-o">['+esc(d.speaker)+']</span> '+esc(d.translated);}
+  document.getElementById('interim-area').style.display='block';
+});
 es.addEventListener('interim_clear',e=>{
   const el=document.getElementById('interim-monitor');
   if(el)el.innerHTML='';
   document.getElementById('interim-area').style.display='none';
+  const itp=document.getElementById('itp');
+  if(itp)itp.innerHTML='';
 });
 async function loadFiles(){
   try{const r=await fetch('/api/files'),d=await r.json(),s=document.getElementById('fsel'),p=s.value;
@@ -2266,10 +2523,8 @@ async function loadLogs(){
 function onSel(){curFile=document.getElementById('fsel').value;loadT(curFile);loadR(curFile);}
 async function cmd(c){try{await fetch('/api/command',{method:'POST',
   headers:{'Content-Type':'application/json'},body:JSON.stringify({command:c})});}catch(e){}}
-function sendC(){const i=document.getElementById('custom-cmd'),v=i.value.trim();if(v){cmd(v);i.value='';}}
 function onLangChange(l){cmd(l==='auto'?'unset_language':'set_language '+l);}
-(async function initLang(){try{const d=await(await fetch('/api/status')).json();
-  const s=document.getElementById('langSel');if(s&&d.language)s.value=d.language;}catch(e){}})();
+fetchStatus();
 es.addEventListener('response',e=>{
   const d=JSON.parse(e.data);if(d.content){
     document.getElementById('respBody').textContent=d.content;
@@ -2279,11 +2534,6 @@ es.addEventListener('alert',e=>{
   const d=JSON.parse(e.data);if(d.message){alert(d.message);}
 });
 function hideResp(){document.getElementById('resp').classList.remove('show');}
-function togPanel(w){
-  const id=w==='T'?'pnlT':w==='R'?'pnlR':'logp', btn=document.getElementById('tog'+w);
-  const p=document.getElementById(id);
-  p.classList.toggle('hidden');btn.classList.toggle('off');
-}
 loadFiles();loadT('');loadR('');loadLogs();setInterval(loadFiles,10000);
 const LANG_OPTS=['ja','en','zh','ko','fr','de','es','pt','ru'];
 const CFG_FIELDS=[
@@ -2305,7 +2555,6 @@ const CFG_FIELDS=[
   {key:'whisper_device',label:I18N['cfg.whisper_device'],type:'select',opts:['cpu','cuda']},
   {key:'interim_transcription',label:I18N['cfg.interim_transcription'],type:'bool'},
   {key:'interim_model',label:I18N['cfg.interim_model'],type:'select',opts:['tiny','base','small','medium']},
-  {key:'custom_commands',label:I18N['cfg.custom_commands'],type:'json'},
 ];
 let cfgData={};
 async function openCfg(){
@@ -2428,6 +2677,52 @@ async function viewSummary(){
   }catch(e){}
 }
 function closeSummary(){document.getElementById('summaryModal').classList.remove('open');}
+function customCmdAddRow(pattern,action){
+  const tb=document.getElementById('customCmdBody');
+  const tr=document.createElement('tr');
+  const td1=document.createElement('td');
+  const inp1=document.createElement('input');inp1.type='text';inp1.value=pattern||'';inp1.placeholder='regex pattern';
+  td1.appendChild(inp1);tr.appendChild(td1);
+  const td2=document.createElement('td');
+  const inp2=document.createElement('input');inp2.type='text';inp2.value=action||'';inp2.placeholder='shell command';
+  td2.appendChild(inp2);tr.appendChild(td2);
+  const del=document.createElement('td');
+  del.className='gl-del';del.textContent='\\u00d7';
+  del.onclick=()=>tr.remove();
+  tr.appendChild(del);tb.appendChild(tr);
+  return tr;
+}
+async function openCustomCmds(){
+  let cmds=[];
+  try{const d=await(await fetch('/api/config')).json();cmds=d.custom_commands||[];}catch(e){}
+  const tb=document.getElementById('customCmdBody');tb.innerHTML='';
+  cmds.forEach(c=>customCmdAddRow(c.pattern||'',c.action||''));
+  if(cmds.length===0)customCmdAddRow();
+  document.getElementById('customCmdSaved').style.display='none';
+  document.getElementById('customCmdModal').classList.add('open');
+}
+function closeCustomCmds(){document.getElementById('customCmdModal').classList.remove('open');}
+async function saveCustomCmds(){
+  const rows=[];
+  document.querySelectorAll('#customCmdBody tr').forEach(tr=>{
+    const inputs=tr.querySelectorAll('input');
+    const p=(inputs[0]||{}).value||'';
+    const a=(inputs[1]||{}).value||'';
+    if(p.trim()||a.trim())rows.push({pattern:p,action:a});
+  });
+  try{
+    const cfg=await(await fetch('/api/config')).json();
+    cfg.custom_commands=rows;
+    await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
+    const s=document.getElementById('customCmdSaved');s.style.display='inline';
+    setTimeout(()=>s.style.display='none',2000);
+  }catch(e){}
+}
+function openHelp(){
+  document.getElementById('helpContent').textContent=I18N['dash.help_body'];
+  document.getElementById('helpModal').classList.add('open');
+}
+function closeHelp(){document.getElementById('helpModal').classList.remove('open');}
 </script>
 </body>
 </html>

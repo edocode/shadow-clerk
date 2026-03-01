@@ -145,9 +145,9 @@ def cmd_command(args):
 
 
 def _is_recorder_running():
-    """recorder.py プロセスが動作中か"""
+    """clerk_daemon.py プロセスが動作中か"""
     result = subprocess.run(
-        ["pgrep", "-f", "python.*recorder\\.py"], capture_output=True, text=True
+        ["pgrep", "-f", "python.*clerk_daemon\\.py"], capture_output=True, text=True
     )
     return result.returncode == 0
 
@@ -264,34 +264,34 @@ def cmd_poll_command(args):
 
 
 def cmd_start(args):
-    """uv run python recorder.py [opts] を exec"""
+    """uv run python clerk_daemon.py [opts] を exec"""
     proj = _project_dir()
     os.chdir(proj)
-    os.execvp("uv", ["uv", "run", "python", "recorder.py"] + list(args))
+    os.execvp("uv", ["uv", "run", "python", "clerk_daemon.py"] + list(args))
 
 
 def cmd_stop(args):
-    """recorder.py プロセスに SIGTERM 送信"""
-    subprocess.run(["pkill", "-f", "python.*recorder\\.py"])
+    """clerk_daemon.py プロセスに SIGTERM 送信"""
+    subprocess.run(["pkill", "-f", "python.*clerk_daemon\\.py"])
 
 
 def cmd_restart(args):
-    """recorder.py を停止 → 待機 → 起動"""
+    """clerk_daemon.py を停止 → 待機 → 起動"""
     # 停止
     if _is_recorder_running():
-        subprocess.run(["pkill", "-f", "python.*recorder\\.py"])
+        subprocess.run(["pkill", "-f", "python.*clerk_daemon\\.py"])
         # 終了待機（最大10秒）
         for _ in range(20):
             time.sleep(0.5)
             if not _is_recorder_running():
                 break
         else:
-            print("warning: recorder.py が停止しませんでした", file=sys.stderr)
+            print("warning: clerk_daemon.py が停止しませんでした", file=sys.stderr)
             sys.exit(1)
     # 起動 (exec)
     proj = _project_dir()
     os.chdir(proj)
-    os.execvp("uv", ["uv", "run", "python", "recorder.py"] + list(args))
+    os.execvp("uv", ["uv", "run", "python", "clerk_daemon.py"] + list(args))
 
 
 def cmd_run_llm(args):
@@ -316,8 +316,8 @@ def cmd_help(args):
     print("  mtime <file>               最終更新日時を表示")
     print("  exists <file>              ファイルの存在確認")
     print("  ls                         データディレクトリの一覧")
-    print("  command <cmd>              recorder.py にコマンドを送信")
-    print("  recorder-status            recorder.py の動作状態 (running/stopped)")
+    print("  command <cmd>              clerk_daemon.py にコマンドを送信")
+    print("  recorder-status            clerk_daemon.py の動作状態 (running/stopped)")
     print("  read-config                config.yaml を読む（なければデフォルト生成）")
     print("  write-config               stdin から config.yaml を書き込む")
     print("  write-config-value <k> <v> config.yaml の指定キーを更新")
@@ -325,9 +325,9 @@ def cmd_help(args):
     print()
     print("Process subcommands:")
     print("  poll-command <interval>    .clerk_command を定期チェック")
-    print("  start [opts]      recorder.py を起動 (exec)")
-    print("  stop              recorder.py を停止 (SIGTERM)")
-    print("  restart [opts]    recorder.py を停止→待機→起動 (exec)")
+    print("  start [opts]      clerk_daemon.py を起動 (exec)")
+    print("  stop              clerk_daemon.py を停止 (SIGTERM)")
+    print("  restart [opts]    clerk_daemon.py を停止→待機→起動 (exec)")
     print("  run-llm <args...>          llm_client.py を実行 (exec)")
     print()
     print(f"Data directory: {DATA_DIR}")

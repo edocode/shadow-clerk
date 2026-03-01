@@ -32,13 +32,13 @@ ln -s "$(pwd)/skills" ~/.claude/skills/shadow-clerk
 
 ```bash
 # Basic (record mic + system audio, auto-transcribe)
-uv run python recorder.py
+uv run python clerk_daemon.py
 
 # List available devices
-uv run python recorder.py --list-devices
+uv run python clerk_daemon.py --list-devices
 
 # With options
-uv run python recorder.py \
+uv run python clerk_daemon.py \
   --language ja \
   --model small \
   --output ~/my-transcript.txt \
@@ -111,15 +111,20 @@ If a voice command doesn't match any built-in or custom command and `api_endpoin
 | `--backend` | Audio backend (`auto`, `pipewire`, `pulseaudio`, `sounddevice`) | `auto` |
 | `--list-devices` | List devices and exit | - |
 | `--verbose`, `-v` | Verbose logging | - |
+| `--dashboard` / `--no-dashboard` | Enable/disable dashboard | Enabled |
+| `--dashboard-port` | Dashboard port number | `8765` |
+| `--beam-size` | Whisper beam size (`1`=fast, `5`=accurate) | `5` |
+| `--compute-type` | Whisper compute precision (`int8`, `float16`, `float32`) | `int8` |
+| `--device` | Whisper device (`cpu`, `cuda`) | `cpu` |
 
 ### Meeting minutes (Claude Code Skill)
 
-You can start/stop recorder.py and generate meeting minutes from Claude Code:
+You can start/stop clerk_daemon.py and generate meeting minutes from Claude Code:
 
 ```
-/shadow-clerk start                    # Start recorder.py in the background
+/shadow-clerk start                    # Start clerk_daemon.py in the background
 /shadow-clerk start --language ja      # Start with options
-/shadow-clerk stop                     # Stop recorder.py
+/shadow-clerk stop                     # Stop clerk_daemon.py
 /shadow-clerk          # Update minutes from transcript diff
 /shadow-clerk full     # Regenerate minutes from full transcript
 /shadow-clerk status   # Check current status
@@ -136,8 +141,8 @@ Customize defaults and auto-features in `~/.claude/skills/shadow-clerk/data/conf
 translate_language: ja        # Translation target language (ja/en/etc)
 auto_translate: false         # Auto-start translation on start meeting
 auto_summary: false           # Auto-generate summary on end meeting
-default_language: null        # Default language for recorder.py (null=auto-detect)
-default_model: small          # Default Whisper model for recorder.py
+default_language: null        # Default language for clerk_daemon.py (null=auto-detect)
+default_model: small          # Default Whisper model for clerk_daemon.py
 output_directory: null        # Transcript output directory (null=data directory)
 llm_provider: claude          # LLM for translation & summary ("claude" or "api")
 api_endpoint: null            # OpenAI Compatible API base URL
@@ -146,6 +151,12 @@ api_key_env: SHADOW_CLERK_API_KEY  # Environment variable name for API key
 custom_commands: []               # Custom voice commands (list of pattern + action)
 initial_prompt: null              # Whisper initial_prompt (vocabulary hints for recognition)
 voice_command_key: menu        # Push-to-Talk key (null=disabled)
+whisper_beam_size: 5           # Whisper beam size (1=fast, 5=accurate)
+whisper_compute_type: int8     # Compute precision (int8/float16/float32)
+whisper_device: cpu            # Device (cpu/cuda)
+interim_transcription: false   # Interim transcription (real-time display while speaking)
+interim_model: tiny            # Model for interim transcription
+ui_language: ja                # UI language (ja/en) — dashboard, terminal output, LLM prompts
 ```
 
 Manage configuration from Claude Code:
@@ -184,8 +195,9 @@ Set `llm_provider: api` to run translation and summary generation via an OpenAI 
 ```
 shadow-clerk/                          # Repository
   pyproject.toml                       # Project definition & dependencies
-  recorder.py                          # Recording, VAD & transcription
+  clerk_daemon.py                      # Recording, VAD, transcription & dashboard
   llm_client.py                        # External API translation & summary
+  i18n.py                              # Internationalization (ja/en)
   skills/
     SKILL.md                           # Claude Code Skill definition
     clerk-util                         # Data directory wrapper script
@@ -200,6 +212,7 @@ shadow-clerk/                          # Repository
     transcript-YYYYMMDD-<lang>.txt     # Translation output
     summary-YYYYMMDD.md                # Meeting minutes (corresponds to transcript)
     words.txt                          # Word replacement list (TSV)
+    glossary.txt                       # Translation glossary (TSV)
     config.yaml                        # Configuration file
     .clerk_session                     # Active session info
     .transcript_offset                 # Minutes generation offset
@@ -212,7 +225,7 @@ shadow-clerk/                          # Repository
 
 ```bash
 # List available devices
-uv run python recorder.py --list-devices
+uv run python clerk_daemon.py --list-devices
 
 # Check if PipeWire is running
 pw-cli info
@@ -229,7 +242,7 @@ On PulseAudio, look for sources containing `.monitor` with `pactl list short sou
 You can also specify the device number manually:
 
 ```bash
-uv run python recorder.py --monitor 5
+uv run python clerk_daemon.py --monitor 5
 ```
 
 ### PortAudio error
@@ -245,5 +258,5 @@ dpkg -l | grep portaudio
 Use a lighter model with `--model tiny`:
 
 ```bash
-uv run python recorder.py --model tiny
+uv run python clerk_daemon.py --model tiny
 ```

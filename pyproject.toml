@@ -15,4 +15,4 @@ dependencies = [
 ]
 
 [project.scripts]
-shadow-clerk-record = "recorder:main"
+shadow-clerk-record = "clerk_daemon:main"
