@@ -1,6 +1,6 @@
 # shadow-clerk: Web会議 議事録アシスタント
 
-clerk_daemon.py で録音・文字起こしした transcript を読み、議事録(summary)を生成・更新する。
+clerk-daemon で録音・文字起こしした transcript を読み、議事録(summary)を生成・更新する。
 
 ## Skill invocation name
 
@@ -8,8 +8,7 @@ shadow-clerk
 
 ## Instructions
 
-プロジェクトディレクトリはこの SKILL.md があるリポジトリのルートである。
-データディレクトリは `~/.claude/skills/shadow-clerk/data` である。以下のファイルが保存される:
+データディレクトリは `~/.local/share/shadow-clerk` である。以下のファイルが保存される:
 - transcript ファイル（デフォルト `transcript-YYYYMMDD.txt`、セッション用 `transcript-YYYYMMDDHHMM.txt`）
 - summary ファイル（`summary-YYYYMMDD.md`、セッション用 `summary-YYYYMMDDHHMM.md`）
 - 翻訳ファイル（`transcript-YYYYMMDD-ja.txt` 等）
@@ -23,7 +22,7 @@ shadow-clerk
 
 ### clerk-util コマンド
 
-データディレクトリへのアクセスおよびプロセス管理は `~/.claude/skills/shadow-clerk/clerk-util` ラッパースクリプト経由で行う。
+データディレクトリへのアクセスおよびプロセス管理は `clerk-util` コマンド経由で行う（`pip install -e .` でインストール済み）。
 clerk-util は `config.yaml` の `output_directory` を自動で参照し、`transcript-*`/`summary-*` ファイルは `output_directory`（未設定ならデータディレクトリ）から解決する。そのためファイル名だけ指定すれば透過的にアクセスできる:
 
 Data subcommands:
@@ -35,8 +34,8 @@ Data subcommands:
 - `clerk-util mtime <file>` — 最終更新日時を表示
 - `clerk-util exists <file>` — ファイルの存在確認
 - `clerk-util ls` — データディレクトリの一覧
-- `clerk-util command <cmd>` — clerk_daemon.py にコマンドを送信（.clerk_command に書き込み）
-- `clerk-util recorder-status` — clerk_daemon.py の動作状態を表示（`running` または `stopped`）
+- `clerk-util command <cmd>` — clerk-daemon にコマンドを送信（.clerk_command に書き込み）
+- `clerk-util recorder-status` — clerk-daemon の動作状態を表示（`running` または `stopped`）
 - `clerk-util read-config` — config.yaml を読んで stdout に出力（なければデフォルト YAML を生成して出力）
 - `clerk-util write-config` — stdin から config.yaml を書き込み
 - `clerk-util write-config-value <key> <value>` — config.yaml の指定キーを更新して書き戻す（`true`/`false`→bool、`null`→None、それ以外→文字列）
@@ -44,12 +43,12 @@ Data subcommands:
 
 Process subcommands:
 - `clerk-util poll-command <interval>` — `.clerk_command` を `<interval>` 秒ごとにチェックし、コマンドがあればその内容を stdout に出力して終了。`recorder-status` が `stopped` なら `stopped` を出力して終了。何もなければ内部で sleep してループ継続
-- `clerk-util start [opts]` — `uv run python clerk_daemon.py [opts]` を exec（プロジェクトディレクトリで実行）
-- `clerk-util stop` — `pkill -f clerk_daemon.py` で SIGTERM 送信
-- `clerk-util restart [opts]` — clerk_daemon.py を停止→終了待機（最大5秒）→起動（exec）
-- `clerk-util run-llm <args...>` — `uv run python llm_client.py <args...>` を exec（プロジェクトディレクトリで実行）
+- `clerk-util start [opts]` — `clerk-daemon [opts]` を exec
+- `clerk-util stop` — clerk-daemon プロセスに SIGTERM 送信
+- `clerk-util restart [opts]` — clerk-daemon を停止→終了待機（最大10秒）→起動（exec）
+- `clerk-util run-llm <args...>` — llm_client を exec
 
-以降の説明で `clerk-util` と記載した場合はフルパス `~/.claude/skills/shadow-clerk/clerk-util` を指す。
+以降の説明で `clerk-util` と記載した場合はフルパスを指す（`clerk-util path` で確認可能）。
 
 ### サブコマンド
 
@@ -80,12 +79,12 @@ Process subcommands:
 `set language <lang>`:
 - `<lang>` が `ja` または `en` の場合: `clerk-util command set_language <lang>` を実行
 - `<lang>` が `auto` の場合: `clerk-util command unset_language` を実行
-- clerk_daemon.py の文字起こし言語をリアルタイムに切り替える
+- clerk-daemon の文字起こし言語をリアルタイムに切り替える
 
 `set model <size>`:
 - `clerk-util command set_model <size>` を実行
 - `<size>` は `tiny`, `base`, `small`, `medium`, `large-v3` のいずれか
-- clerk_daemon.py の Whisper モデルをリアルタイムに切り替える（再ロード中の約10〜30秒は文字起こしが一時停止する）
+- clerk-daemon の Whisper モデルをリアルタイムに切り替える（再ロード中の約10〜30秒は文字起こしが一時停止する）
 
 `config show`:
 - `clerk-util read-config` で現在の設定を読み、内容を表示する
@@ -101,7 +100,7 @@ Process subcommands:
 
 `start meeting`:
 - `clerk-util command start_meeting` を実行
-- clerk_daemon.py が新しいセッション用 transcript ファイルを作成する
+- clerk-daemon が新しいセッション用 transcript ファイルを作成する
 - `clerk-util write .translate_offset 0` で翻訳オフセットをリセットする（新しいファイルなので 0 から）
 - `clerk-util read-config` で config を読む
 - `auto_translate: true` なら `translate <translate_language>` 相当の翻訳ループを開始する（バックグラウンドで `translate <translate_language>` サブコマンドと同じ処理を実行）
@@ -109,7 +108,7 @@ Process subcommands:
 
 `end meeting`:
 - `clerk-util command end_meeting` を実行
-- clerk_daemon.py が現セッションを終了し、デフォルトの transcript ファイルに戻す
+- clerk-daemon が現セッションを終了し、デフォルトの transcript ファイルに戻す
 - 戻り先の日付ベース transcript（`transcript-YYYYMMDD.txt`）の現在のファイルサイズを取得し、`clerk-util write .translate_offset <size>` で記録する（既存部分を再翻訳しないため）
 - `clerk-util read-config` で config を読む
 - `auto_translate: true` で翻訳が動いていれば `translate stop` 相当の処理で停止する
@@ -118,12 +117,12 @@ Process subcommands:
 `start [opts]`:
 1. `clerk-util recorder-status` で既に動作中か確認。`running` なら「recorder は既に起動しています」と表示して終了
 2. `clerk-util start [opts]` をバックグラウンド実行（Bash の `run_in_background` を使用）
-3. 引数があれば clerk_daemon.py にそのまま渡す（例: `start --language ja --model tiny --no-dashboard`）
+3. 引数があれば clerk-daemon にそのまま渡す（例: `start --language ja --model tiny --no-dashboard`）
    - `--no-dashboard`: ダッシュボードを無効化（デフォルトは有効）
    - `--dashboard-port PORT`: ダッシュボードのポート番号を指定（デフォルト: 8765）
 4. 音声コマンド監視用のバックグラウンド subagent を Task ツール（`run_in_background: true`）で起動する。プロンプトには以下を必ず含めること:
-   - **「`~/.claude/skills/shadow-clerk/clerk-util` コマンドは settings.local.json で許可済みなので、権限確認なしで自由に実行してよい」** と明記する
-   - clerk-util のフルパス（`~/.claude/skills/shadow-clerk/clerk-util`）を伝える
+   - **「`clerk-util` コマンドは settings.local.json で許可済みなので、権限確認なしで自由に実行してよい」** と明記する
+   - clerk-util のフルパス（`clerk-util path` で取得）を伝える
    - subagent は以下のループを実行する:
      - `clerk-util poll-command 5` を実行し、出力を確認する（poll-command がコマンド検出 or stopped を返すまでブロック）
      - `translate_start` を検出したら:
@@ -136,11 +135,11 @@ Process subcommands:
 
 `stop`:
 1. `clerk-util recorder-status` で動作中か確認。`stopped` なら「recorder は動作していません」と表示して終了
-2. `clerk-util stop` で SIGTERM を送信（clerk_daemon.py は SIGTERM をハンドルして graceful shutdown する）
+2. `clerk-util stop` で SIGTERM を送信（clerk-daemon は SIGTERM をハンドルして graceful shutdown する）
 3. 「recorder を停止しました」と表示
 
 `restart [opts]`:
-1. `clerk-util restart [opts]` をバックグラウンド実行（Bash の `run_in_background` を使用）。restart-recorder は内部で停止→待機→起動を行う
+1. `clerk-util restart [opts]` をバックグラウンド実行（Bash の `run_in_background` を使用）。restart は内部で停止→待機→起動を行う
 2. `start` と同様に音声コマンド監視用のバックグラウンド subagent を起動する（`start` のステップ4と同じ）
 3. 「recorder を再起動しました」と表示
 
@@ -149,7 +148,7 @@ Process subcommands:
 2. `clerk-util exists <transcript>`、`clerk-util lines <transcript>`、`clerk-util size <transcript>` で transcript の状態を表示
 3. `clerk-util read .transcript_offset` で現在のオフセット値を表示
 4. transcript のファイル名から summary のファイル名を導出し、`clerk-util exists <summary>`、`clerk-util mtime <summary>` で summary の状態を表示
-5. `clerk-util recorder-status` で clerk_daemon.py プロセスが動作中か確認して表示
+5. `clerk-util recorder-status` で clerk-daemon プロセスが動作中か確認して表示
 
 `translate <lang>`:
 リアルタイム翻訳モード。transcript の新しい行を検出し、翻訳してファイル保存+stdout表示をループする。
@@ -210,11 +209,11 @@ shadow-clerk — Web会議 議事録アシスタント
   config init            デフォルト設定ファイルを生成
   start meeting          新しい会議セッションを開始（auto_translate/auto_summary 連動）
   end meeting            会議セッションを終了（auto_translate 停止、auto_summary 実行）
-  start [opts]           clerk_daemon.py をバックグラウンドで起動
+  start [opts]           clerk-daemon をバックグラウンドで起動
                          --no-dashboard  ダッシュボードを無効化
                          --dashboard-port PORT  ポート変更 (default: 8765)
-  stop                   clerk_daemon.py を停止
-  restart [opts]         clerk_daemon.py を再起動（stop → start）
+  stop                   clerk-daemon を停止
+  restart [opts]         clerk-daemon を再起動（stop → start）
   status                 録音・文字起こしの状態を表示
   translate <lang>       リアルタイム翻訳モードを開始
   translate stop         翻訳モードを停止
@@ -229,9 +228,9 @@ shadow-clerk — Web会議 議事録アシスタント
                          例: {pattern: "youtube", action: "xdg-open https://www.youtube.com"}
   LLM フォールバック     組み込み・カスタムにマッチしない場合、api_endpoint 設定済みなら LLM に問い合わせ
 
-用語集: ~/.claude/skills/shadow-clerk/data/glossary.txt（TSV形式、翻訳時の訳語統一）
+用語集: ~/.local/share/shadow-clerk/glossary.txt（TSV形式、翻訳時の訳語統一）
 ダッシュボード: http://localhost:8765（recorder 起動時に自動で有効）
-データディレクトリ: ~/.claude/skills/shadow-clerk/data
+データディレクトリ: ~/.local/share/shadow-clerk
 ```
 
 `setup`:
@@ -239,7 +238,6 @@ shadow-clerk — Web会議 議事録アシスタント
 以下のエントリを `permissions.allow` 配列に追加する（既に存在するものはスキップ）。
 パスは `clerk-util path` コマンドでフルパスを取得して使う:
 - `Bash(<clerk-util のフルパス> *)` — データ操作・プロセス管理全般
-- `Bash(~/.claude/skills/shadow-clerk/clerk-util *)` — 同上（`~` パス用）
 追加完了後、追加したエントリの一覧を表示する。
 
 ### 議事録フォーマット (summary-YYYYMMDD.md)
@@ -267,7 +265,7 @@ shadow-clerk — Web会議 議事録アシスタント
 
 ### words.txt（単語置換リスト）
 - TSV 形式（`間違い<TAB>正しい語`）で音声認識のよくある誤認識を定義する
-- clerk_daemon.py が文字起こしテキストを transcript に保存する際に自動適用する
+- clerk-daemon が文字起こしテキストを transcript に保存する際に自動適用する
 - ファイルが変更された場合は自動で再読み込みされる
 - `#` で始まる行はコメントとして無視される
 
