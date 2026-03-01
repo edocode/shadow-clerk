@@ -90,18 +90,33 @@ DEFAULT_CONFIG = {
 }
 
 
+_config_cache: dict | None = None
+_config_mtime: float = 0.0
+
+
 def load_config() -> dict:
-    """config.yaml を読み込む。ファイルがなければデフォルト値を返す。"""
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                user_config = yaml.safe_load(f)
-            if isinstance(user_config, dict):
-                merged = dict(DEFAULT_CONFIG)
-                merged.update(user_config)
-                return merged
-        except Exception as e:
-            logger.warning("config.yaml の読み込みに失敗: %s", e)
+    """config.yaml を読み込む。ファイルがなければデフォルト値を返す。
+
+    mtime ベースのキャッシュにより、ファイルが変更されていなければ再パースしない。
+    """
+    global _config_cache, _config_mtime
+    try:
+        st = os.stat(CONFIG_FILE)
+    except OSError:
+        return dict(DEFAULT_CONFIG)
+    if _config_cache is not None and st.st_mtime == _config_mtime:
+        return dict(_config_cache)
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            user_config = yaml.safe_load(f)
+        if isinstance(user_config, dict):
+            merged = dict(DEFAULT_CONFIG)
+            merged.update(user_config)
+            _config_cache = merged
+            _config_mtime = st.st_mtime
+            return dict(merged)
+    except Exception as e:
+        logger.warning("config.yaml の読み込みに失敗: %s", e)
     return dict(DEFAULT_CONFIG)
 
 
@@ -638,8 +653,7 @@ class Recorder:
             device=args.whisper_device,
         )
 
-        # api_endpoint の有無を記憶（LLM フォールバック判定用）
-        self._api_configured = bool(config.get("api_endpoint"))
+        # (api_endpoint の判定は load_config() で毎回取得する)
 
         # output_directory: config で指定されていればそちらを使う
         output_dir_config = config.get("output_directory")
@@ -668,6 +682,7 @@ class Recorder:
         # 翻訳ループ
         self._translate_stop_event = threading.Event()
         self._translate_thread: threading.Thread | None = None
+        self._translating_external = False  # Claude provider 経由の翻訳中フラグ
 
         # リアルタイム interim 翻訳キュー (maxsize=1 で最新のみ保持)
         self._interim_translate_queue: queue.Queue = queue.Queue(maxsize=1)
@@ -837,7 +852,7 @@ class Recorder:
             if pattern.search(body):
                 return f"custom_exec {action}"
         # 3. LLM フォールバック（API 設定済みの場合）
-        if self._api_configured and body:
+        if load_config().get("api_endpoint") and body:
             return f"llm_query {body}"
         return None
 
@@ -855,7 +870,7 @@ class Recorder:
             if pattern.search(body):
                 return f"custom_exec {action}"
         # 3. LLM フォールバック（API 設定済みの場合）
-        if self._api_configured and body:
+        if load_config().get("api_endpoint") and body:
             return f"llm_query {body}"
         return None
 
@@ -1126,12 +1141,18 @@ class Recorder:
                 pass
             # auto_summary: 会議終了時に自動で議事録を生成
             config = load_config()
-            if config.get("auto_summary") and self._api_configured:
-                threading.Thread(
-                    target=self._auto_summarize,
-                    args=(session_transcript,),
-                    name="auto-summary", daemon=True,
-                ).start()
+            if config.get("auto_summary"):
+                if config.get("llm_provider") == "api":
+                    threading.Thread(
+                        target=self._auto_summarize,
+                        args=(session_transcript,),
+                        name="auto-summary", daemon=True,
+                    ).start()
+                else:
+                    # Claude provider: .clerk_command に書いて Claude Code に処理させる
+                    with open(COMMAND_FILE, "w", encoding="utf-8") as f:
+                        f.write("generate_summary")
+                    logger.info("要約コマンドを .clerk_command に書き込み (claude provider)")
 
         elif cmd.startswith("set_model "):
             model_size = cmd.split(None, 1)[1].strip()
@@ -1152,6 +1173,7 @@ class Recorder:
                         target=self._translate_loop, name="translate-loop", daemon=True)
                     self._translate_thread.start()
             else:
+                self._translating_external = True
                 with open(COMMAND_FILE, "w", encoding="utf-8") as f:
                     f.write("translate_start")
                 logger.info("翻訳開始コマンドを .clerk_command に書き込み (claude provider)")
@@ -1164,6 +1186,7 @@ class Recorder:
                 self._translate_thread = None
                 logger.info("翻訳ループ停止")
             else:
+                self._translating_external = False
                 with open(COMMAND_FILE, "w", encoding="utf-8") as f:
                     f.write("translate_stop")
                 logger.info("翻訳停止コマンドを .clerk_command に書き込み")
@@ -1233,16 +1256,24 @@ class Recorder:
         except Exception as e:
             logger.error("LLM クエリ失敗: %s", e)
 
+    @staticmethod
+    def _translate_offset_file(transcript_path: str) -> str:
+        """transcript パスに対応する翻訳 offset ファイルパスを返す。
+
+        例: /path/to/transcript-20260301.txt → /path/to/transcript-20260301.txt.translate_offset
+        """
+        return transcript_path + ".translate_offset"
+
     def _translate_loop(self):
         """翻訳ループスレッド (llm_provider: api 用)"""
         config = load_config()
         lang = config.get("translate_language", "ja")
-        offset_file = os.path.join(DATA_DIR, ".translate_offset")
         logger.info("翻訳ループ開始: lang=%s", lang)
 
         while not self.stop_event.is_set() and not self._translate_stop_event.is_set():
             try:
                 transcript = self.output_path
+                offset_file = self._translate_offset_file(transcript)
                 try:
                     with open(offset_file, "r", encoding="utf-8") as f:
                         offset = int(f.read().strip())
@@ -1288,7 +1319,9 @@ class Recorder:
                 if os.path.exists(COMMAND_FILE):
                     with open(COMMAND_FILE, "r", encoding="utf-8") as f:
                         cmd = f.read().strip()
-                    if cmd in ("translate_start", "translate_stop"):
+                    # Claude provider 向けに残すコマンド
+                    _claude_commands = ("translate_start", "translate_stop", "generate_summary")
+                    if cmd in _claude_commands:
                         config = load_config()
                         if config.get("llm_provider") == "api":
                             os.remove(COMMAND_FILE)
@@ -1337,7 +1370,7 @@ class Recorder:
                 # mic ソースからの音声コマンド検出
                 if source == "mic":
                     if command_mode:
-                        if self._api_configured:
+                        if load_config().get("api_endpoint"):
                             # LLM ベースマッチング（別スレッドで実行）
                             threading.Thread(
                                 target=self._llm_match_and_execute,
@@ -1712,9 +1745,9 @@ class FileWatcher(threading.Thread):
             new_size = os.path.getsize(path)
             if new_size <= old_size:
                 return None, new_size
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
+            with open(path, "rb") as f:
                 f.seek(old_size)
-                diff = f.read()
+                diff = f.read().decode("utf-8", errors="replace")
             return diff, new_size
         except OSError:
             return None, 0
@@ -1827,6 +1860,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._serve_glossary()
         elif path == "/api/summary":
             self._serve_summary()
+        elif path == "/api/models":
+            self._serve_models()
         else:
             self.send_error(404)
 
@@ -1894,7 +1929,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except OSError:
             pass
         translating = (self.recorder._translate_thread is not None
-                       and self.recorder._translate_thread.is_alive())
+                       and self.recorder._translate_thread.is_alive()
+                       ) or self.recorder._translating_external
         self._send_json({
             "running": not self.recorder.stop_event.is_set(),
             "backend": self.recorder.backend_name,
@@ -2026,15 +2062,52 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if not os.path.exists(transcript_path):
             self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
             return
-        self._send_json({"status": "ok", "message": t("dash.summary_generation_started")})
-        threading.Thread(
-            target=self.recorder._auto_summarize,
-            args=(transcript_path,),
-            name="dashboard-summary", daemon=True,
-        ).start()
+        config = load_config()
+        if config.get("llm_provider") == "api":
+            self._send_json({"status": "ok", "message": t("dash.summary_generation_started")})
+            threading.Thread(
+                target=self.recorder._auto_summarize,
+                args=(transcript_path,),
+                name="dashboard-summary", daemon=True,
+            ).start()
+        else:
+            # Claude provider: .clerk_command に書いて Claude Code に処理させる
+            with open(COMMAND_FILE, "w", encoding="utf-8") as f:
+                f.write("generate_summary")
+            self._send_json({"status": "ok", "message": t("dash.summary_generation_started")})
 
     def _serve_config(self):
         self._send_json(load_config())
+
+    def _serve_models(self):
+        """GET /api/models — api_endpoint から利用可能なモデル一覧を取得"""
+        import urllib.request
+        import urllib.error
+        config = load_config()
+        endpoint = config.get("api_endpoint")
+        if not endpoint:
+            self._send_json({"models": [], "error": "api_endpoint not configured"})
+            return
+        # /models エンドポイントの URL を構築
+        models_url = endpoint.rstrip("/") + "/models"
+        # API キー取得
+        api_key = None
+        api_key_env = config.get("api_key_env")
+        if api_key_env:
+            if _HAS_LLM_CLIENT:
+                llm_load_dotenv()
+            api_key = os.environ.get(api_key_env)
+        try:
+            req = urllib.request.Request(models_url)
+            if api_key:
+                req.add_header("Authorization", f"Bearer {api_key}")
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            model_ids = sorted(m["id"] for m in data.get("data", []))
+            self._send_json({"models": model_ids})
+        except Exception as e:
+            logger.warning("モデル一覧取得失敗: %s", e)
+            self._send_json({"models": [], "error": str(e)})
 
     def _save_config(self):
         try:
@@ -2201,7 +2274,7 @@ main {
 .modal-overlay.open { display:flex; }
 .modal {
   background:var(--panel); border:1px solid var(--border); border-radius:12px;
-  width:520px; max-height:80vh; display:flex; flex-direction:column;
+  width:676px; max-height:80vh; display:flex; flex-direction:column;
 }
 .modal-head {
   padding:12px 16px; border-bottom:1px solid var(--border);
@@ -2433,9 +2506,6 @@ function updateTranslateBtn(active){
 }
 async function togTranslate(){
   if(translating){cmd('translate_stop');updateTranslateBtn(false);return;}
-  try{const d=await(await fetch('/api/config')).json();
-    if(d.llm_provider!=='api'){alert(I18N['dash.translate_claude_hint']);return;}
-  }catch(e){}
   cmd('translate_start');updateTranslateBtn(true);
 }
 /* --- Mute toggles --- */
@@ -2576,7 +2646,7 @@ const CFG_FIELDS=[
   {key:'output_directory',label:I18N['cfg.output_directory'],type:'text',ph:I18N['cfg.output_directory_ph']},
   {key:'llm_provider',label:I18N['cfg.llm_provider'],type:'select',opts:['claude','api']},
   {key:'api_endpoint',label:I18N['cfg.api_endpoint'],type:'text',ph:'https://...'},
-  {key:'api_model',label:I18N['cfg.api_model'],type:'text',ph:'gpt-4o'},
+  {key:'api_model',label:I18N['cfg.api_model'],type:'api_model'},
   {key:'api_key_env',label:I18N['cfg.api_key_env'],type:'text',ph:'SHADOW_CLERK_API_KEY'},
   {key:'initial_prompt',label:I18N['cfg.initial_prompt'],type:'text',ph:I18N['cfg.initial_prompt_ph']},
   {key:'voice_command_key',label:I18N['cfg.voice_command_key'],type:'select',opts:['menu','f23','ctrl_r','ctrl_l','alt_r','alt_l','shift_r','shift_l']},
@@ -2601,6 +2671,25 @@ async function openCfg(){
       el=document.createElement('select');el.id='cfg_'+f.key;
       f.opts.forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=o;el.appendChild(op);});
       if(v!==null&&v!==undefined)el.value=String(v);
+    }else if(f.type==='api_model'){
+      el=document.createElement('div');el.style.display='flex';el.style.gap='4px';el.style.alignItems='center';el.style.width='100%';
+      const sel=document.createElement('select');sel.id='cfg_'+f.key;sel.style.flex='1';sel.style.width='auto';
+      const cur=document.createElement('option');cur.value=(v===null||v===undefined)?'':String(v);
+      cur.textContent=(v===null||v===undefined)?'(not set)':String(v);sel.appendChild(cur);
+      el.appendChild(sel);
+      const btn=document.createElement('button');btn.textContent='\\u21BB';btn.title='Fetch models';
+      btn.style.cssText='padding:2px 8px;cursor:pointer;width:auto;flex-shrink:0;';
+      btn.onclick=async()=>{
+        btn.disabled=true;btn.textContent='...';
+        try{const d=await(await fetch('/api/models')).json();
+          if(d.error){alert(d.error);return;}
+          const prev=sel.value;sel.innerHTML='';
+          const empty=document.createElement('option');empty.value='';empty.textContent='(not set)';sel.appendChild(empty);
+          d.models.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;sel.appendChild(o);});
+          if(prev)sel.value=prev;
+        }catch(e){alert('Failed to fetch models');}
+        finally{btn.disabled=false;btn.textContent='\\u21BB';}
+      };el.appendChild(btn);
     }else if(f.type==='json'){
       el=document.createElement('textarea');el.id='cfg_'+f.key;
       el.value=JSON.stringify(v||[],null,2);
@@ -2613,6 +2702,17 @@ async function openCfg(){
   });
   document.getElementById('cfgSaved').style.display='none';
   document.getElementById('cfgModal').classList.add('open');
+  if(cfgData.api_endpoint){fetchApiModels();}
+}
+async function fetchApiModels(){
+  const sel=document.getElementById('cfg_api_model');if(!sel)return;
+  try{const d=await(await fetch('/api/models')).json();
+    if(d.error||!d.models.length)return;
+    const prev=sel.value;sel.innerHTML='';
+    const empty=document.createElement('option');empty.value='';empty.textContent='(not set)';sel.appendChild(empty);
+    d.models.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;sel.appendChild(o);});
+    if(prev)sel.value=prev;
+  }catch(e){}
 }
 function closeCfg(){document.getElementById('cfgModal').classList.remove('open');}
 async function saveCfg(){

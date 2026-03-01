@@ -16,7 +16,8 @@ The data directory is `/home/ktat/.local/share/shadow-clerk`. The following file
 - `words.txt`
 - `glossary.txt` (glossary)
 - `.clerk_session`, `.clerk_command`
-- `.transcript_offset`, `.translate_offset`
+- `.transcript_offset`
+- Per-file translate offset files (`<transcript>.translate_offset`, e.g., `transcript-20260301.txt.translate_offset`)
 
 If `output_directory` is set in `config.yaml`, transcript/summary/translation files are saved to that directory. Metadata files (`.clerk_session`, etc.) and `config.yaml` are always stored in the data directory.
 
@@ -42,7 +43,7 @@ Data subcommands:
 - `clerk-util path` — Print the full path of clerk-util
 
 Process subcommands:
-- `clerk-util poll-command <interval>` — Check `.clerk_command` every `<interval>` seconds. If a command is found, print it to stdout and exit. If `recorder-status` is `stopped`, print `stopped` and exit. Otherwise sleep and continue the loop
+- `clerk-util poll-command <interval> [--timeout <sec>]` — Check `.clerk_command` every `<interval>` seconds. If a command is found, print it to stdout and exit. If `recorder-status` is `stopped`, print `stopped` and exit. With `--timeout`, return empty after `<sec>` seconds if no command found. Without `--timeout`, loop indefinitely
 - `clerk-util start [opts]` — exec `clerk-daemon [opts]`
 - `clerk-util stop` — Send SIGTERM to clerk-daemon process
 - `clerk-util restart [opts]` — Stop clerk-daemon -> wait (max 10s) -> start (exec)
@@ -101,7 +102,7 @@ No arguments, or `update`:
 `start meeting`:
 - Run `clerk-util command start_meeting`
 - clerk-daemon creates a new session transcript file
-- Reset translation offset with `clerk-util write .translate_offset 0` (new file starts at 0)
+- Translation offset is automatically managed per transcript file (clerk-daemon handles it via `<transcript>.translate_offset`)
 - Read config with `clerk-util read-config`
 - If `auto_translate: true`, start translation loop equivalent to `translate <translate_language>` (run same process as `translate <translate_language>` subcommand in background)
 - If `auto_summary: true`, remember this for use at end meeting
@@ -109,7 +110,7 @@ No arguments, or `update`:
 `end meeting`:
 - Run `clerk-util command end_meeting`
 - clerk-daemon ends the current session and reverts to the default transcript file
-- Get current file size of the date-based transcript (`transcript-YYYYMMDD.txt`) and record it with `clerk-util write .translate_offset <size>` (to avoid re-translating existing content)
+- Translation offset for the date-based transcript is automatically managed per file by clerk-daemon
 - Read config with `clerk-util read-config`
 - If `auto_translate: true` and translation is running, stop it (same as `translate stop`)
 - If `auto_summary: true`, auto-run minutes generation equivalent to the `update` subcommand
@@ -130,6 +131,9 @@ No arguments, or `update`:
        - Get `translate_language` from `clerk-util read-config`
        - Start translation loop (same process as `translate <translate_language>` subcommand)
      - If `translate_stop` detected, stop translation loop (same as translate subcommand stop)
+     - If `generate_summary` detected:
+       - Clear with `clerk-util write .clerk_command ""`
+       - Run the `update` subcommand (same as no-args / `update` above) to generate/update minutes
      - If `stopped` returned, exit the loop
 5. Display "recorder started"
 
@@ -154,8 +158,8 @@ No arguments, or `update`:
 Real-time translation mode. Detects new lines in transcript, translates them, saves to file and displays on stdout in a loop.
 
 1. Check session file with `clerk-util read .clerk_session`. If present, use the filename in it as the transcript. Otherwise use today's `transcript-YYYYMMDD.txt`
-2. Read previous translation byte offset from `clerk-util read .translate_offset` (0 if absent)
-3. Get current file size with `clerk-util size <transcript>`. If offset exceeds file size (e.g., leftover offset from previous session file), reset offset to current file size with `clerk-util write .translate_offset <size>`
+2. Read previous translation byte offset from `clerk-util read <transcript>.translate_offset` (0 if absent). Each transcript file has its own offset file (e.g., `transcript-20260227.txt.translate_offset`)
+3. Get current file size with `clerk-util size <transcript>`. If offset exceeds file size, reset offset to 0 with `clerk-util write <transcript>.translate_offset 0`
 4. Read config with `clerk-util read-config` and check `llm_provider`
 5. Start loop:
    a. Read transcript from offset with `clerk-util read-from <transcript> <offset>`
@@ -175,8 +179,8 @@ Real-time translation mode. Detects new lines in transcript, translates them, sa
         - Example: `transcript-20260227.txt` -> `transcript-20260227-ja.txt`
         - Example: `transcript-202602271430.txt` -> `transcript-202602271430-ja.txt`
       - Display translation on stdout (print)
-      - Update byte offset with `clerk-util write .translate_offset <offset>`
-   c. If no new lines, wait with `clerk-util poll-command 5` (poll-command blocks until command detected or stopped)
+      - Update byte offset with `clerk-util write <transcript>.translate_offset <offset>`
+   c. If no new lines, wait with `clerk-util poll-command 3 --timeout 10` (returns after command detected, stopped, or 10s timeout)
       - If `translate_stop` returned, clear `.clerk_command` with `clerk-util write .clerk_command ""`, display "Translation stopped" and exit
       - If `stopped` returned, exit the loop
       - If other command returned, ignore and return to 5a
@@ -234,10 +238,13 @@ Data directory: /home/ktat/.local/share/shadow-clerk
 ```
 
 `setup`:
-Edit the project's `.claude/settings.local.json` to add Bash command permissions for shadow-clerk.
+Edit the project's `.claude/settings.local.json` to add permissions for shadow-clerk.
 Add the following entries to the `permissions.allow` array (skip existing ones).
 Use `clerk-util path` to get the full path:
 - `Bash(<full path of clerk-util> *)` — Data operations and process management
+- `Edit(/home/ktat/.local/share/shadow-clerk/**)` — Edit data directory files
+- `Write(/home/ktat/.local/share/shadow-clerk/**)` — Write data directory files
+- `Read(/home/ktat/.local/share/shadow-clerk/**)` — Read data directory files
 Display the list of added entries after completion.
 
 ### Minutes format (summary-YYYYMMDD.md)
@@ -294,4 +301,4 @@ Replace `transcript-` with `summary-` and `.txt` with `.md` in the transcript fi
 - Each line in the transcript follows the format `[YYYY-MM-DD HH:MM:SS] text`
 - Japanese and English may be mixed. Generate minutes in the user's preferred language
 - Correct apparent speech recognition errors based on context
-- `.transcript_offset` is plain text containing only a number
+- `.transcript_offset` and `<transcript>.translate_offset` are plain text files containing only a number

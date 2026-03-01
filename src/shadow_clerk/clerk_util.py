@@ -237,9 +237,20 @@ def cmd_poll_command(args):
     .clerk_command を interval 秒ごとにチェックし、
     コマンドがあればその内容を stdout に出力して終了。
     recorder-status が stopped なら 'stopped' を出力して終了。
+    --timeout <sec> 指定時は最大 sec 秒でタイムアウトして空文字で終了。
     """
     interval = float(args[0])
+    rest = args[1:]
+
+    # --timeout オプション解析
+    timeout = None
+    if "--timeout" in rest:
+        idx = rest.index("--timeout")
+        if idx + 1 < len(rest):
+            timeout = float(rest[idx + 1])
+
     cmd_file = os.path.join(DATA_DIR, ".clerk_command")
+    start = time.monotonic()
 
     while True:
         # コマンドファイルをチェック
@@ -256,6 +267,10 @@ def cmd_poll_command(args):
         # recorder-status をチェック
         if not _is_recorder_running():
             print("stopped")
+            return
+
+        # タイムアウトチェック
+        if timeout is not None and (time.monotonic() - start) >= timeout:
             return
 
         time.sleep(interval)
@@ -356,8 +371,12 @@ def _register_permissions(clerk_util_path):
     permissions = settings.setdefault("permissions", {})
     allow = permissions.setdefault("allow", [])
 
+    data_dir = get_data_dir()
     entries = [
         f"Bash({clerk_util_path} *)",
+        f"Edit({data_dir}/**)",
+        f"Write({data_dir}/**)",
+        f"Read({data_dir}/**)",
     ]
 
     added = []
@@ -400,7 +419,7 @@ def cmd_help(args):
     print("  path                       clerk-util 自身のフルパスを出力")
     print()
     print("Process subcommands:")
-    print("  poll-command <interval>    .clerk_command を定期チェック")
+    print("  poll-command <interval> [--timeout <sec>]  .clerk_command を定期チェック")
     print("  start [opts]      clerk-daemon を起動 (exec)")
     print("  stop              clerk-daemon を停止 (SIGTERM)")
     print("  restart [opts]    clerk-daemon を停止→待機→起動 (exec)")
