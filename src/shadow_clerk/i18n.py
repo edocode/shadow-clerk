@@ -4,10 +4,9 @@ import os
 
 import yaml
 
-_current_lang = "ja"
+from shadow_clerk import CONFIG_FILE
 
-DATA_DIR = os.path.expanduser("~/.claude/skills/shadow-clerk/data")
-CONFIG_FILE = os.path.join(DATA_DIR, "config.yaml")
+_current_lang = "ja"
 
 
 def init(lang=None):

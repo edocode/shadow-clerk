@@ -26,10 +26,11 @@ import sounddevice as sd
 import webrtcvad
 import yaml
 
-from i18n import t, t_all
+from shadow_clerk import DATA_DIR, CONFIG_FILE
+from shadow_clerk.i18n import t, t_all
 
 try:
-    from llm_client import get_api_client, load_glossary, load_dotenv as llm_load_dotenv
+    from shadow_clerk.llm_client import get_api_client, load_glossary, load_dotenv as llm_load_dotenv
     _HAS_LLM_CLIENT = True
 except ImportError:
     _HAS_LLM_CLIENT = False
@@ -63,12 +64,8 @@ SILENCE_FRAMES_THRESHOLD = 30  # 無音検出に必要な連続フレーム数 (
 MIN_SEGMENT_DURATION = 0.5  # 最小セグメント長(秒)
 MAX_SEGMENT_DURATION = 30.0  # 最大セグメント長(秒)
 
-# データディレクトリ
-DATA_DIR = os.path.expanduser("~/.claude/skills/shadow-clerk/data")
-os.makedirs(DATA_DIR, exist_ok=True)
-
-# 設定ファイル
-CONFIG_FILE = os.path.join(DATA_DIR, "config.yaml")
+# データディレクトリ（shadow_clerk パッケージから取得）
+# DATA_DIR, CONFIG_FILE は from shadow_clerk import で取得済み
 
 DEFAULT_CONFIG = {
     "translate_language": "ja",
@@ -879,9 +876,8 @@ class Recorder:
 
         try:
             result = subprocess.run(
-                ["uv", "run", "python", "llm_client.py", "match-command"],
+                [sys.executable, "-m", "shadow_clerk.llm_client", "match-command"],
                 input=payload, capture_output=True, text=True, timeout=30,
-                cwd=os.path.dirname(os.path.abspath(__file__)),
             )
             if result.returncode != 0:
                 logger.warning("match-command 失敗: %s", result.stderr.strip())
@@ -917,7 +913,7 @@ class Recorder:
 
         # 既存 summary があれば --existing で渡す
         cmd = [
-            "uv", "run", "python", "llm_client.py",
+            sys.executable, "-m", "shadow_clerk.llm_client",
             "summarize", "--mode", "full",
             "--file", transcript_path,
             "--output", summary_path,
@@ -1220,7 +1216,7 @@ class Recorder:
         response_file = os.path.join(DATA_DIR, ".clerk_response")
         try:
             result = subprocess.run(
-                ["uv", "run", "python", "llm_client.py", "query", text],
+                [sys.executable, "-m", "shadow_clerk.llm_client", "query", text],
                 capture_output=True, text=True, timeout=60,
             )
             answer = result.stdout.strip()
@@ -1260,7 +1256,7 @@ class Recorder:
 
                 if size > offset:
                     result = subprocess.run(
-                        ["uv", "run", "python", "llm_client.py", "--verbose",
+                        [sys.executable, "-m", "shadow_clerk.llm_client", "--verbose",
                          "translate", lang, "--file", transcript, "--offset", str(offset)],
                         capture_output=True, text=True, timeout=120,
                     )
@@ -1856,7 +1852,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _serve_html(self):
-        import i18n as _i18n
+        from shadow_clerk import i18n as _i18n
         _i18n.init()  # re-read config for ui_language changes
         html = _HTML_TEMPLATE
         html = re.sub(r'\{\{i18n:([^}]+)\}\}', lambda m: t(m.group(1)), html)
@@ -2843,8 +2839,11 @@ def main():
 
     args = parser.parse_args()
 
+    # データディレクトリ作成
+    os.makedirs(DATA_DIR, exist_ok=True)
+
     # i18n 初期化
-    import i18n as _i18n
+    from shadow_clerk import i18n as _i18n
     _i18n.init()
 
     # config.yaml の値を CLI 未指定の場合のみ適用

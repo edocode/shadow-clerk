@@ -11,13 +11,12 @@ import sys
 import yaml
 from openai import OpenAI
 
-from i18n import t
+from shadow_clerk import DATA_DIR, CONFIG_FILE
+from shadow_clerk.i18n import t
 
 logger = logging.getLogger("llm-client")
 
 # --- データディレクトリ ---
-DATA_DIR = os.path.expanduser("~/.claude/skills/shadow-clerk/data")
-CONFIG_FILE = os.path.join(DATA_DIR, "config.yaml")
 ENV_FILE = os.path.join(DATA_DIR, ".env")
 GLOSSARY_FILE = os.path.join(DATA_DIR, "glossary.txt")
 
@@ -568,7 +567,7 @@ def main():
         stream=sys.stderr,
     )
 
-    import i18n as _i18n
+    from shadow_clerk import i18n as _i18n
     _i18n.init()
 
     load_dotenv()

@@ -1,7 +1,8 @@
 [project]
 name = "shadow-clerk"
-version = "0.1.0"
+version = "0.2.0"
 description = "Web会議の音声をリアルタイムで録音・文字起こしするツール"
+license = {text = "MIT"}
 requires-python = ">=3.11"
 dependencies = [
     "faster-whisper>=1.0.0",
@@ -15,4 +16,15 @@ dependencies = [
 ]
 
 [project.scripts]
-shadow-clerk-record = "clerk_daemon:main"
+clerk-daemon = "shadow_clerk.clerk_daemon:main"
+clerk-util = "shadow_clerk.clerk_util:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+shadow_clerk = ["data/*.template"]

@@ -1,18 +1,24 @@
 # Shadow-clerk
 
-Web会議の音声をリアルタイムで録音・文字起こしし、Claude Code の Skill で議事録を生成するツール。
+A tool that records web meeting audio in real-time, transcribes it, and generates meeting minutes using a Claude Code Skill.
 
-Ubuntu + PipeWire / PulseAudio 環境で動作する。
+Runs on Ubuntu + PipeWire / PulseAudio environments.
 
-## セットアップ
+## Setup
 
-### 1. システムパッケージ
+### 1. System packages
 
 ```bash
 sudo apt install libportaudio2 portaudio19-dev
 ```
 
-### 2. Python 環境構築
+### 2. Install
+
+```bash
+uv tool install shadow-clerk
+```
+
+For development:
 
 ```bash
 cd shadow-clerk
@@ -20,242 +26,243 @@ uv venv
 uv pip install -e .
 ```
 
-### 3. Skill のシンボリックリンク（初回のみ）
+### 3. Register as Claude Code Skill
 
 ```bash
-ln -s "$(pwd)/skills" ~/.claude/skills/shadow-clerk
+clerk-util claude-setup
 ```
 
-## 使い方
+This generates `~/.claude/skills/shadow-clerk/SKILL.md` and adds permissions to `~/.claude/settings.local.json`.
 
-### 録音・文字起こし
+## Usage
+
+### Recording & transcription
 
 ```bash
-# 基本（マイク + システム音声を録音、自動文字起こし）
-uv run python clerk_daemon.py
+# Basic (record mic + system audio, auto-transcribe)
+clerk-daemon
 
-# デバイス一覧を確認
-uv run python clerk_daemon.py --list-devices
+# List available devices
+clerk-daemon --list-devices
 
-# オプション指定
-uv run python clerk_daemon.py \
+# With options
+clerk-daemon \
   --language ja \
   --model small \
   --output ~/my-transcript.txt \
   --verbose
 ```
 
-録音中は `Ctrl+C` で停止する。
+Press `Ctrl+C` to stop recording.
 
-### 音声コマンド
+### Voice commands
 
-#### Push-to-Talk（推奨）
+#### Push-to-Talk (recommended)
 
-Menu キー（右 Alt の隣）を押しながらコマンドを発話すると、プレフィックス（「クラーク」）なしでコマンドとして認識される。Whisper の「クラーク」誤認識問題を回避できる:
+Hold down the Menu key (next to Right Alt) while speaking a command — no prefix ("clerk") needed. This avoids Whisper's unreliable recognition of the "clerk" keyword:
 
 ```
-[Menu キー押しながら] 「翻訳開始」 → 翻訳が開始される
-[Menu キー押しながら] 「会議開始」 → 会議セッションが開始される
+[Hold Menu key] "start translation" → Translation starts
+[Hold Menu key] "start meeting"     → Meeting session starts
 ```
 
-トリガーキーは `config.yaml` の `voice_command_key` で変更できる（`ctrl_r`, `ctrl_l`, `alt_r`, `alt_l`, `shift_r`, `shift_l`）。`null` に設定すると無効化される。
+The trigger key can be changed via `voice_command_key` in `config.yaml` (`ctrl_r`, `ctrl_l`, `alt_r`, `alt_l`, `shift_r`, `shift_l`). Set to `null` to disable.
 
-#### プレフィックス方式（フォールバック）
+#### Prefix mode (fallback)
 
-録音中にマイクに向かって「クラーク」（または "clerk"）に続けてコマンドを発話すると、ハンズフリーで操作できる:
+During recording, say "clerk" followed by a command for hands-free control:
 
-| 発話例 | 動作 |
+| Voice command | Action |
 |---|---|
-| 「クラーク、会議開始」 | 新しい会議セッションを開始 |
-| 「クラーク、会議終了」 | 会議セッションを終了 |
-| 「クラーク、言語 日本語」 | 文字起こし言語を日本語に切り替え |
-| 「クラーク、言語 英語」 | 文字起こし言語を英語に切り替え |
-| 「クラーク、言語設定なし」 | 言語を自動検出に戻す |
-| 「クラーク、翻訳開始」 | 翻訳ループを開始 |
-| 「クラーク、翻訳停止」 | 翻訳ループを停止 |
+| "clerk, start meeting" | Start a new meeting session |
+| "clerk, end meeting" | End the meeting session |
+| "clerk, language ja" | Switch transcription language to Japanese |
+| "clerk, language en" | Switch transcription language to English |
+| "clerk, unset language" | Reset to auto-detect |
+| "clerk, start translation" | Start the translation loop |
+| "clerk, stop translation" | Stop the translation loop |
 
-プレフィックスとコマンドの間の区切り（カンマ、読点、スペース）は省略可能。
+The separator (comma, space) between the prefix and command is optional.
 
-#### カスタム音声コマンド
+#### Custom voice commands
 
-`config.yaml` の `custom_commands` に独自の音声コマンドを登録できる。組み込みコマンドにマッチしない場合に順番に評価される:
+You can register custom voice commands in `config.yaml` under `custom_commands`. They are evaluated after built-in commands:
 
 ```yaml
 custom_commands:
-  - pattern: "youtube|ユーチューブ"
+  - pattern: "youtube"
     action: "xdg-open https://www.youtube.com"
-  - pattern: "gmail|メール"
+  - pattern: "gmail|mail"
     action: "xdg-open https://mail.google.com"
 ```
 
-- `pattern`: 正規表現（大文字小文字を区別しない）
-- `action`: 実行するシェルコマンド
+- `pattern`: Regular expression (case-insensitive)
+- `action`: Shell command to execute
 
-#### LLM フォールバック
+#### LLM fallback
 
-組み込みコマンドにもカスタムコマンドにもマッチしない場合、`api_endpoint` が設定されていれば LLM にクエリとして送信される。回答は stdout に表示され、`.clerk_response` ファイルに保存される。
+If a voice command doesn't match any built-in or custom command and `api_endpoint` is configured, the utterance is sent to the LLM as a query. The response is printed to stdout and saved to `.clerk_response`.
 
 ```
-「クラーク、1+1の答えは？」 → LLM が回答を返す
+"clerk, what is 1+1?" → LLM returns the answer
 ```
 
-### CLI オプション
+### CLI options
 
-| オプション | 説明 | デフォルト |
+| Option | Description | Default |
 |---|---|---|
-| `--output`, `-o` | 出力ファイルパス | `~/.claude/skills/shadow-clerk/data/transcript-YYYYMMDD.txt` |
-| `--model`, `-m` | Whisper モデルサイズ (`tiny`, `base`, `small`, `medium`, `large-v3`) | `small` |
-| `--language`, `-l` | 言語コード (`ja`, `en` 等)。省略で自動検出 | 自動 |
-| `--mic` | マイクデバイス番号 | 自動検出 |
-| `--monitor` | モニターデバイス番号 (sounddevice) | 自動検出 |
-| `--backend` | 音声バックエンド (`auto`, `pipewire`, `pulseaudio`, `sounddevice`) | `auto` |
-| `--list-devices` | デバイス一覧を表示して終了 | - |
-| `--verbose`, `-v` | 詳細ログ出力 | - |
-| `--dashboard` / `--no-dashboard` | ダッシュボード有効/無効 | 有効 |
-| `--dashboard-port` | ダッシュボードポート番号 | `8765` |
-| `--beam-size` | Whisper beam size (`1`=高速, `5`=高精度) | `5` |
-| `--compute-type` | Whisper 計算精度 (`int8`, `float16`, `float32`) | `int8` |
-| `--device` | Whisper デバイス (`cpu`, `cuda`) | `cpu` |
+| `--output`, `-o` | Output file path | `~/.local/share/shadow-clerk/transcript-YYYYMMDD.txt` |
+| `--model`, `-m` | Whisper model size (`tiny`, `base`, `small`, `medium`, `large-v3`) | `small` |
+| `--language`, `-l` | Language code (`ja`, `en`, etc.). Auto-detect if omitted | Auto |
+| `--mic` | Microphone device number | Auto-detect |
+| `--monitor` | Monitor device number (sounddevice) | Auto-detect |
+| `--backend` | Audio backend (`auto`, `pipewire`, `pulseaudio`, `sounddevice`) | `auto` |
+| `--list-devices` | List devices and exit | - |
+| `--verbose`, `-v` | Verbose logging | - |
+| `--dashboard` / `--no-dashboard` | Enable/disable dashboard | Enabled |
+| `--dashboard-port` | Dashboard port number | `8765` |
+| `--beam-size` | Whisper beam size (`1`=fast, `5`=accurate) | `5` |
+| `--compute-type` | Whisper compute precision (`int8`, `float16`, `float32`) | `int8` |
+| `--device` | Whisper device (`cpu`, `cuda`) | `cpu` |
 
-### 議事録生成 (Claude Code Skill)
+### Meeting minutes (Claude Code Skill)
 
-Claude Code から clerk_daemon.py の起動・停止・議事録生成を行える:
+You can start/stop clerk-daemon and generate meeting minutes from Claude Code:
 
 ```
-/shadow-clerk start                    # clerk_daemon.py をバックグラウンドで起動
-/shadow-clerk start --language ja      # オプション付きで起動
-/shadow-clerk stop                     # clerk_daemon.py を停止
-/shadow-clerk          # 差分テキストから議事録を更新
-/shadow-clerk full     # 全文から議事録を再生成
-/shadow-clerk status   # 現在の状態を確認
+/shadow-clerk start                    # Start clerk-daemon in the background
+/shadow-clerk start --language ja      # Start with options
+/shadow-clerk stop                     # Stop clerk-daemon
+/shadow-clerk          # Update minutes from transcript diff
+/shadow-clerk full     # Regenerate minutes from full transcript
+/shadow-clerk status   # Check current status
 ```
 
-生成された議事録は `~/.claude/skills/shadow-clerk/data/summary-YYYYMMDD.md` に保存される。
+Generated meeting minutes are saved to `~/.local/share/shadow-clerk/summary-YYYYMMDD.md`.
 
-### 設定ファイル
+### Configuration file
 
-`~/.claude/skills/shadow-clerk/data/config.yaml` でデフォルト値や自動機能を設定できる:
+Customize defaults and auto-features in `~/.local/share/shadow-clerk/config.yaml`:
 
 ```yaml
-# shadow-clerk 設定
-translate_language: ja        # 翻訳先言語 (ja/en/etc)
-auto_translate: false         # start meeting 時に自動翻訳を開始
-auto_summary: false           # end meeting 時に自動 summary 生成
-default_language: null        # clerk_daemon.py のデフォルト言語 (null=自動検出)
-default_model: small          # clerk_daemon.py のデフォルト Whisper モデル
-output_directory: null        # transcript 出力先ディレクトリ (null=データディレクトリ)
-llm_provider: claude          # 翻訳・Summary の LLM ("claude" or "api")
-api_endpoint: null            # OpenAI Compatible API の base URL
-api_model: null               # API モデル名 (gpt-4o, etc.)
-api_key_env: SHADOW_CLERK_API_KEY  # API キーを格納する環境変数名
-custom_commands: []               # カスタム音声コマンド (pattern + action のリスト)
-initial_prompt: null              # Whisper の initial_prompt (音声認識のヒント語彙)
-voice_command_key: menu        # Push-to-Talk キー (null=無効)
-whisper_beam_size: 5           # Whisper beam size (1=高速, 5=高精度)
-whisper_compute_type: int8     # 計算精度 (int8/float16/float32)
-whisper_device: cpu            # デバイス (cpu/cuda)
-interim_transcription: false   # 中間文字起こし（発話中にリアルタイム表示）
-interim_model: tiny            # 中間文字起こし用モデル
-ui_language: ja                # UI言語 (ja/en) — ダッシュボード・ターミナル出力・LLMプロンプト
+# shadow-clerk config
+translate_language: ja        # Translation target language (ja/en/etc)
+auto_translate: false         # Auto-start translation on start meeting
+auto_summary: false           # Auto-generate summary on end meeting
+default_language: null        # Default language for clerk-daemon (null=auto-detect)
+default_model: small          # Default Whisper model for clerk-daemon
+output_directory: null        # Transcript output directory (null=data directory)
+llm_provider: claude          # LLM for translation & summary ("claude" or "api")
+api_endpoint: null            # OpenAI Compatible API base URL
+api_model: null               # API model name (gpt-4o, etc.)
+api_key_env: SHADOW_CLERK_API_KEY  # Environment variable name for API key
+custom_commands: []               # Custom voice commands (list of pattern + action)
+initial_prompt: null              # Whisper initial_prompt (vocabulary hints for recognition)
+voice_command_key: menu        # Push-to-Talk key (null=disabled)
+whisper_beam_size: 5           # Whisper beam size (1=fast, 5=accurate)
+whisper_compute_type: int8     # Compute precision (int8/float16/float32)
+whisper_device: cpu            # Device (cpu/cuda)
+interim_transcription: false   # Interim transcription (real-time display while speaking)
+interim_model: tiny            # Model for interim transcription
+ui_language: ja                # UI language (ja/en) — dashboard, terminal output, LLM prompts
 ```
 
-Claude Code から設定を操作:
+Manage configuration from Claude Code:
 
 ```
-/shadow-clerk config show                     # 現在の設定を表示
-/shadow-clerk config set default_model tiny   # 設定値を変更
-/shadow-clerk config set auto_translate true  # 自動翻訳を有効化
-/shadow-clerk config init                     # デフォルト設定ファイルを生成
+/shadow-clerk config show                     # Show current config
+/shadow-clerk config set default_model tiny   # Change a setting
+/shadow-clerk config set auto_translate true  # Enable auto-translation
+/shadow-clerk config init                     # Generate default config file
 ```
 
-`auto_translate: true` にすると、`/shadow-clerk start meeting` 時に自動で翻訳が開始される。
-`auto_summary: true` にすると、`/shadow-clerk end meeting` 時に自動で議事録が生成される。
+With `auto_translate: true`, translation starts automatically on `/shadow-clerk start meeting`.
+With `auto_summary: true`, meeting minutes are generated automatically on `/shadow-clerk end meeting`.
 
-### 外部 API モード
+### External API mode
 
-`llm_provider: api` に設定すると、翻訳と議事録生成を OpenAI Compatible API 経由で実行できる。Claude Code 以外の LLM（OpenAI、Ollama 等）で処理したい場合に使う。
+Set `llm_provider: api` to run translation and summary generation via an OpenAI Compatible API. Use this when you want to process with LLMs other than Claude Code (OpenAI, Ollama, etc.).
 
 ```
-# OpenAI の場合
+# OpenAI
 /shadow-clerk config set llm_provider api
 /shadow-clerk config set api_endpoint https://api.openai.com/v1
 /shadow-clerk config set api_model gpt-4o
-# API キーは ~/.claude/skills/shadow-clerk/data/.env に記載:
+# Put API key in ~/.local/share/shadow-clerk/.env:
 #   SHADOW_CLERK_API_KEY=sk-...
 
-# Ollama（ローカル）の場合
+# Ollama (local)
 /shadow-clerk config set llm_provider api
 /shadow-clerk config set api_endpoint http://localhost:11434/v1
 /shadow-clerk config set api_model llama3
 /shadow-clerk config set api_key_env null
 ```
 
-## ファイル構成
+## File structure
 
 ```
-shadow-clerk/                          # リポジトリ
-  pyproject.toml                       # プロジェクト定義・依存関係
-  clerk_daemon.py                      # 録音・VAD・文字起こし・ダッシュボード
-  llm_client.py                        # 外部 API 翻訳・Summary 生成
-  i18n.py                              # 多言語対応 (ja/en)
+shadow-clerk/                          # Repository
+  pyproject.toml                       # Project definition & dependencies
+  src/shadow_clerk/                    # Main package
+    __init__.py                        # Data directory configuration
+    clerk_daemon.py                    # Recording, VAD, transcription & dashboard
+    llm_client.py                      # External API translation & summary
+    i18n.py                            # Internationalization (ja/en)
+    clerk_util.py                      # Data directory operations & process management
+    data/
+      SKILL.md.template                # Claude Code Skill template
   skills/
-    SKILL.md                           # Claude Code Skill 定義
-    clerk-util                         # データディレクトリ操作ラッパー
-  SPEC.md                              # 設計仕様
-  README.md                            # このファイル
+    SKILL.md                           # Claude Code Skill definition (development)
+    clerk-util                         # Thin wrapper (development)
 
-~/.claude/skills/shadow-clerk/         # シンボリックリンク先
-  data/                                # ランタイムデータ (実行時生成)
-    transcript-YYYYMMDD.txt            # 文字起こし結果（日付ベース）
-    transcript-YYYYMMDDHHMM.txt        # 会議セッション用
-    transcript-YYYYMMDD-<lang>.txt     # 翻訳結果
-    summary-YYYYMMDD.md                # 議事録（transcript に対応）
-    words.txt                          # 単語置換リスト (TSV)
-    glossary.txt                       # 翻訳用語集 (TSV)
-    config.yaml                        # 設定ファイル
-    .clerk_session                     # アクティブセッション情報
-    .transcript_offset                 # 議事録用オフセット
-    .translate_offset                  # 翻訳用オフセット
+~/.local/share/shadow-clerk/           # Runtime data
+  transcript-YYYYMMDD.txt              # Transcription output (date-based)
+  transcript-YYYYMMDDHHMM.txt          # Meeting session transcript
+  transcript-YYYYMMDD-<lang>.txt       # Translation output
+  summary-YYYYMMDD.md                  # Meeting minutes (corresponds to transcript)
+  words.txt                            # Word replacement list (TSV)
+  glossary.txt                         # Translation glossary (TSV)
+  config.yaml                          # Configuration file
 ```
 
-## トラブルシューティング
+## Troubleshooting
 
-### デバイスが見つからない
+### Device not found
 
 ```bash
-# デバイス一覧を確認
-uv run python clerk_daemon.py --list-devices
+# List available devices
+clerk-daemon --list-devices
 
-# PipeWire が動作しているか確認
+# Check if PipeWire is running
 pw-cli info
 
-# PulseAudio ソース一覧
+# List PulseAudio sources
 pactl list short sources
 ```
 
-### モニターソース（システム音声）が検出されない
+### Monitor source (system audio) not detected
 
-PipeWire 環境では `pw-record --list-targets` で monitor デバイスを確認する。
-PulseAudio 環境では `pactl list short sources` で `.monitor` を含むソースを確認する。
+On PipeWire, check monitor devices with `pw-record --list-targets`.
+On PulseAudio, look for sources containing `.monitor` with `pactl list short sources`.
 
-手動でデバイス番号を指定することもできる:
+You can also specify the device number manually:
 
 ```bash
-uv run python clerk_daemon.py --monitor 5
+clerk-daemon --monitor 5
 ```
 
-### PortAudio エラー
+### PortAudio error
 
-`libportaudio2` がインストールされているか確認:
+Make sure `libportaudio2` is installed:
 
 ```bash
 dpkg -l | grep portaudio
 ```
 
-### 文字起こしが遅い
+### Slow transcription
 
-`--model tiny` で軽量モデルを使う:
+Use a lighter model with `--model tiny`:
 
 ```bash
-uv run python clerk_daemon.py --model tiny
+clerk-daemon --model tiny
 ```
