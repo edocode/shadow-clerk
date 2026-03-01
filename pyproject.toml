@@ -1,7 +1,7 @@
 [project]
 name = "shadow-clerk"
 version = "0.2.0"
-description = "Web会議の音声をリアルタイムで録音・文字起こしするツール"
+description = "Real-time audio recording and transcription tool for web meetings"
 license = {text = "MIT"}
 requires-python = ">=3.11"
 dependencies = [
