@@ -1,8 +1,26 @@
 # Shadow-clerk
 
-Web会議の音声をリアルタイムで録音・文字起こしし、Claude Code の Skill で議事録を生成するツール。
+Web会議の音声をリアルタイムで録音・文字起こしするツール。翻訳や議事録生成もできる。
 
 Ubuntu + PipeWire / PulseAudio 環境で動作する。
+
+## 機能と必要なもの
+
+| 機能 | 必要なもの | 関連設定 |
+|---|---|---|
+| 文字起こし | faster-whisper（パッケージに含む） | `default_model`, `default_language` |
+| Kotoba-Whisper (日本語高精度) | 同上（初回に自動DL） | `use_kotoba_whisper: true` |
+| 中間文字起こし | 同上 | `interim_transcription: true`, `interim_model` |
+| 翻訳 (LibreTranslate) | LibreTranslate サーバー | `translation_provider: libretranslate` |
+| 翻訳 (OpenAI 互換 API) | OpenAI 互換 API | `translation_provider: api`, `api_endpoint`, `api_model` |
+| 翻訳 (Claude) | Claude Code | `translation_provider: claude` |
+| 要約 (Claude) | Claude Code | `llm_provider: claude` |
+| 要約 (OpenAI 互換 API) | OpenAI 互換 API | `llm_provider: api`, `api_endpoint`, `api_model` |
+| 音声コマンド (PTT) | なし（組み込み） | `voice_command_key` |
+| 音声コマンド (LLM マッチング) | OpenAI 互換 API | `api_endpoint`, `api_model` |
+| 誤字訂正 (翻訳前) | transformers（初回に自動DL） | `libretranslate_spell_check: true` |
+
+**LLM なしで使える最小構成:** 文字起こし + LibreTranslate 翻訳であれば、外部 API や Claude Code は不要。すべてローカルで完結する。
 
 ## セットアップ
 
@@ -26,7 +44,51 @@ uv venv
 uv pip install -e .
 ```
 
-### 3. Claude Code Skill の登録
+これだけで文字起こし機能が使える。翻訳・要約が必要な場合は以下のオプションを追加する。
+
+### 3. (オプション) LibreTranslate のセットアップ
+
+LLM 不要のローカル翻訳。Docker またはpip でインストール:
+
+```bash
+# Docker（推奨）
+docker run -d -p 5000:5000 libretranslate/libretranslate
+
+# または pip
+pip install libretranslate
+libretranslate --host 0.0.0.0 --port 5000
+```
+
+設定:
+
+```yaml
+# config.yaml
+translation_provider: libretranslate
+libretranslate_endpoint: http://localhost:5000
+```
+
+### 4. (オプション) OpenAI 互換 API のセットアップ
+
+翻訳・要約・音声コマンドの LLM マッチングに使用:
+
+```yaml
+# config.yaml — OpenAI の場合
+llm_provider: api
+api_endpoint: https://api.openai.com/v1
+api_model: gpt-4o
+# ~/.local/share/shadow-clerk/.env に SHADOW_CLERK_API_KEY=sk-... を記載
+```
+
+```yaml
+# config.yaml — Ollama（ローカル）の場合
+llm_provider: api
+api_endpoint: http://localhost:11434/v1
+api_model: llama3
+```
+
+### 5. (オプション) Claude Code Skill の登録
+
+Claude Code から議事録生成・翻訳・操作を行う場合:
 
 ```bash
 clerk-util claude-setup
@@ -187,36 +249,6 @@ Claude Code から設定を操作:
 
 `auto_translate: true` にすると、`/shadow-clerk start meeting` 時に自動で翻訳が開始される。
 `auto_summary: true` にすると、`/shadow-clerk end meeting` 時に自動で議事録が生成される。
-
-### 外部 API モード
-
-`llm_provider: api` に設定すると、議事録生成を OpenAI Compatible API 経由で実行できる。Claude Code 以外の LLM（OpenAI、Ollama 等）で処理したい場合に使う。
-
-```
-# OpenAI の場合
-/shadow-clerk config set llm_provider api
-/shadow-clerk config set api_endpoint https://api.openai.com/v1
-/shadow-clerk config set api_model gpt-4o
-# API キーは ~/.local/share/shadow-clerk/.env に記載:
-#   SHADOW_CLERK_API_KEY=sk-...
-
-# Ollama（ローカル）の場合
-/shadow-clerk config set llm_provider api
-/shadow-clerk config set api_endpoint http://localhost:11434/v1
-/shadow-clerk config set api_model llama3
-/shadow-clerk config set api_key_env null
-```
-
-### LibreTranslate モード
-
-`translation_provider: libretranslate` に設定すると、LLM の代わりにセルフホストの [LibreTranslate](https://libretranslate.com/) インスタンスで翻訳を実行できる。
-
-```
-/shadow-clerk config set translation_provider libretranslate
-/shadow-clerk config set libretranslate_endpoint http://localhost:5000
-# オプション: 翻訳前に誤字訂正を有効化（音声認識の誤認識対策に有効）
-/shadow-clerk config set libretranslate_spell_check true
-```
 
 ### 翻訳ファイルからの要約生成
 

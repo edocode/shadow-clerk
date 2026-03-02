@@ -1,8 +1,26 @@
 # Shadow-clerk
 
-A tool that records web meeting audio in real-time, transcribes it, and generates meeting minutes using a Claude Code Skill.
+A tool that records web meeting audio in real-time and transcribes it. Also supports translation and meeting minutes generation.
 
 Runs on Ubuntu + PipeWire / PulseAudio environments.
+
+## Features and requirements
+
+| Feature | Requires | Related settings |
+|---|---|---|
+| Transcription | faster-whisper (included) | `default_model`, `default_language` |
+| Kotoba-Whisper (Japanese high-accuracy) | Same (auto-downloaded on first use) | `use_kotoba_whisper: true` |
+| Interim transcription | Same | `interim_transcription: true`, `interim_model` |
+| Translation (LibreTranslate) | LibreTranslate server | `translation_provider: libretranslate` |
+| Translation (OpenAI compatible API) | OpenAI compatible API | `translation_provider: api`, `api_endpoint`, `api_model` |
+| Translation (Claude) | Claude Code | `translation_provider: claude` |
+| Summary (Claude) | Claude Code | `llm_provider: claude` |
+| Summary (OpenAI compatible API) | OpenAI compatible API | `llm_provider: api`, `api_endpoint`, `api_model` |
+| Voice commands (PTT) | None (built-in) | `voice_command_key` |
+| Voice commands (LLM matching) | OpenAI compatible API | `api_endpoint`, `api_model` |
+| Spell check (pre-translation) | transformers (auto-downloaded on first use) | `libretranslate_spell_check: true` |
+
+**Minimal setup without LLM:** Transcription + LibreTranslate translation requires no external API or Claude Code. Everything runs locally.
 
 ## Setup
 
@@ -26,7 +44,51 @@ uv venv
 uv pip install -e .
 ```
 
-### 3. Register as Claude Code Skill
+This is all you need for transcription. Add the following options if you need translation or summarization.
+
+### 3. (Optional) LibreTranslate setup
+
+Local translation without LLM. Install via Docker or pip:
+
+```bash
+# Docker (recommended)
+docker run -d -p 5000:5000 libretranslate/libretranslate
+
+# Or pip
+pip install libretranslate
+libretranslate --host 0.0.0.0 --port 5000
+```
+
+Configuration:
+
+```yaml
+# config.yaml
+translation_provider: libretranslate
+libretranslate_endpoint: http://localhost:5000
+```
+
+### 4. (Optional) OpenAI compatible API setup
+
+Used for translation, summarization, and LLM voice command matching:
+
+```yaml
+# config.yaml — OpenAI
+llm_provider: api
+api_endpoint: https://api.openai.com/v1
+api_model: gpt-4o
+# Add SHADOW_CLERK_API_KEY=sk-... to ~/.local/share/shadow-clerk/.env
+```
+
+```yaml
+# config.yaml — Ollama (local)
+llm_provider: api
+api_endpoint: http://localhost:11434/v1
+api_model: llama3
+```
+
+### 5. (Optional) Register as Claude Code Skill
+
+For managing minutes generation, translation, and controls from Claude Code:
 
 ```bash
 clerk-util claude-setup
@@ -187,36 +249,6 @@ Manage configuration from Claude Code:
 
 With `auto_translate: true`, translation starts automatically on `/shadow-clerk start meeting`.
 With `auto_summary: true`, meeting minutes are generated automatically on `/shadow-clerk end meeting`.
-
-### External API mode
-
-Set `llm_provider: api` to run summary generation via an OpenAI Compatible API. Use this when you want to process with LLMs other than Claude Code (OpenAI, Ollama, etc.).
-
-```
-# OpenAI
-/shadow-clerk config set llm_provider api
-/shadow-clerk config set api_endpoint https://api.openai.com/v1
-/shadow-clerk config set api_model gpt-4o
-# Put API key in ~/.local/share/shadow-clerk/.env:
-#   SHADOW_CLERK_API_KEY=sk-...
-
-# Ollama (local)
-/shadow-clerk config set llm_provider api
-/shadow-clerk config set api_endpoint http://localhost:11434/v1
-/shadow-clerk config set api_model llama3
-/shadow-clerk config set api_key_env null
-```
-
-### LibreTranslate mode
-
-Set `translation_provider: libretranslate` to use a self-hosted [LibreTranslate](https://libretranslate.com/) instance for translation instead of an LLM.
-
-```
-/shadow-clerk config set translation_provider libretranslate
-/shadow-clerk config set libretranslate_endpoint http://localhost:5000
-# Optional: enable spell check before translation (useful for speech recognition errors)
-/shadow-clerk config set libretranslate_spell_check true
-```
 
 ### Summary from translation
 
