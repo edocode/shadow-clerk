@@ -61,20 +61,26 @@ No arguments, or `update`:
 5. Derive the summary filename from the transcript filename (`transcript-` -> `summary-`, `.txt` -> `.md`)
    - Example: `transcript-20260227.txt` -> `summary-20260227.md`
    - Example: `transcript-202602271430.txt` -> `summary-202602271430.md`
-6. Read config with `clerk-util read-config` and check `llm_provider`
-7. Generate minutes:
-   - **`llm_provider: claude` (default)** — Use the diff text to update the minutes, incorporating existing summary if present (Claude generates inline)
-   - **`llm_provider: api`** — Run `clerk-util run-llm summarize --mode update --file <transcript> --output <summary> --existing <summary>` to generate/save minutes. Omit `--existing` if no existing summary
+6. Read config with `clerk-util read-config` and check `llm_provider` and `summary_source`
+7. Determine the source file for summary:
+   - If `summary_source: translate`: derive translation file name from transcript (`transcript-YYYYMMDD.txt` + `translate_language` → `transcript-YYYYMMDD-<lang>.txt`). If the translation file exists, use it as the source. If not, fall back to the transcript file (log a warning)
+   - Otherwise (default `summary_source: transcript`): use the transcript file as-is
+8. Generate minutes:
+   - **`llm_provider: claude` (default)** — Use the diff text (from the determined source file) to update the minutes, incorporating existing summary if present (Claude generates inline)
+   - **`llm_provider: api`** — Run `clerk-util run-llm summarize --mode update --file <source> --output <summary> --existing <summary>` to generate/save minutes. Omit `--existing` if no existing summary
 9. Write current transcript file size (bytes) to `clerk-util write .transcript_offset <size>`
 
 `full`:
 1. Check session file with `clerk-util read .clerk_session`. If present, use the filename in it as the transcript file. Otherwise use today's `transcript-YYYYMMDD.txt` from `clerk-util ls`
 2. Read the entire transcript file
 3. Derive the summary filename from the transcript filename (`transcript-` -> `summary-`, `.txt` -> `.md`)
-4. Read config with `clerk-util read-config` and check `llm_provider`
-5. Generate minutes:
-   - **`llm_provider: claude` (default)** — Generate minutes from the full content (Claude generates inline)
-   - **`llm_provider: api`** — Run `clerk-util run-llm summarize --mode full --file <transcript> --output <summary>` to generate/save minutes
+4. Read config with `clerk-util read-config` and check `llm_provider` and `summary_source`
+5. Determine the source file for summary:
+   - If `summary_source: translate`: derive translation file name from transcript (`transcript-YYYYMMDD.txt` + `translate_language` → `transcript-YYYYMMDD-<lang>.txt`). If the translation file exists, use it as the source. If not, fall back to the transcript file (log a warning)
+   - Otherwise (default `summary_source: transcript`): use the transcript file as-is
+6. Generate minutes:
+   - **`llm_provider: claude` (default)** — Generate minutes from the full content of the determined source file (Claude generates inline)
+   - **`llm_provider: api`** — Run `clerk-util run-llm summarize --mode full --file <source> --output <summary>` to generate/save minutes
 7. Write current transcript file size to `clerk-util write .transcript_offset <size>`
 
 `set language <lang>`:
@@ -160,11 +166,11 @@ Real-time translation mode. Detects new lines in transcript, translates them, sa
 1. Check session file with `clerk-util read .clerk_session`. If present, use the filename in it as the transcript. Otherwise use today's `transcript-YYYYMMDD.txt`
 2. Read previous translation byte offset from `clerk-util read <transcript>.translate_offset` (0 if absent). Each transcript file has its own offset file (e.g., `transcript-20260227.txt.translate_offset`)
 3. Get current file size with `clerk-util size <transcript>`. If offset exceeds file size, reset offset to 0 with `clerk-util write <transcript>.translate_offset 0`
-4. Read config with `clerk-util read-config` and check `llm_provider`
+4. Read config with `clerk-util read-config` and check `translation_provider` (if not set, falls back to `llm_provider`)
 5. Start loop:
    a. Read transcript from offset with `clerk-util read-from <transcript> <offset>`
    b. If new lines exist:
-      - **`llm_provider: claude` (default)** — Claude performs inline:
+      - **`translation_provider: claude` (default)** — Claude performs inline:
         - Read glossary with `clerk-util read glossary.txt` (skip if file doesn't exist)
         - Identify the target language (`<lang>`) column from the header and note corresponding translations
         - If text contains obvious speech recognition typos/errors, correct them based on context before translating
@@ -174,7 +180,8 @@ Real-time translation mode. Detects new lines in transcript, translates them, sa
         - Lines already in the target language don't need translation, but fix speech recognition errors/typos
         - Preserve timestamps `[YYYY-MM-DD HH:MM:SS]` and speaker labels `[Self]` `[Other]` etc., translate only the text portion
           - Example (ja): `[2026-02-27 14:30:00] [Self] Hello, let's discuss the project timeline.` -> `[2026-02-27 14:30:00] [Self] こんにちは、プロジェクトのタイムラインについて話しましょう。`
-      - **`llm_provider: api`** — Run `clerk-util run-llm translate <lang> --file <transcript> --offset <offset> --verbose` to get translation. stdout is the translation, stderr has debug logs
+      - **`translation_provider: api`** — Run `clerk-util run-llm translate <lang> --file <transcript> --offset <offset> --verbose` to get translation. stdout is the translation, stderr has debug logs
+      - **`translation_provider: libretranslate`** — Run `clerk-util run-llm translate <lang> --file <transcript> --offset <offset> --verbose` to get translation. Uses LibreTranslate internally. Requires `libretranslate_endpoint` to be configured. If `libretranslate_spell_check: true`, applies spell correction (via transformers model) before translation
       - Append translation to `<transcript basename>-<lang>.txt`
         - Example: `transcript-20260227.txt` -> `transcript-20260227-ja.txt`
         - Example: `transcript-202602271430.txt` -> `transcript-202602271430-ja.txt`
@@ -208,7 +215,12 @@ Subcommands:
   set model <size>      Switch Whisper model (tiny / base / small / medium / large-v3)
   config show           Show configuration
   config set <key> <val> Change configuration
-                         e.g.: config set llm_provider api  Use external API for translation/summary
+                         e.g.: config set llm_provider api  Use external API for summary
+                         e.g.: config set translation_provider libretranslate  Use LibreTranslate for translation
+                         e.g.: config set libretranslate_endpoint http://localhost:5000  Set LibreTranslate URL
+                         e.g.: config set libretranslate_spell_check true  Enable spell correction before LibreTranslate
+                         e.g.: config set spell_check_model mbyhphat/t5-japanese-typo-correction  Set spell check model
+                         e.g.: config set summary_source translate  Generate summary from translation file
                          e.g.: config set ui_language en    Change UI language to English
   config init           Generate default config file
   start meeting         Start a new meeting session (auto_translate/auto_summary linked)

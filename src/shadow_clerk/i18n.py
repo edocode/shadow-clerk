@@ -156,6 +156,13 @@ STRINGS = {
             "  - PTTキー / 中間文字起こし\n"
         ),
 
+        # --- cfg.section.* : 設定セクション ---
+        "cfg.section.general": "基本設定",
+        "cfg.section.transcription": "文字起こし",
+        "cfg.section.translation": "翻訳",
+        "cfg.section.summary": "要約",
+        "cfg.section.api": "LLM / API",
+
         # --- cfg.* : 設定モーダルフィールド ---
         "cfg.translate_language": "翻訳先言語",
         "cfg.auto_translate": "自動翻訳",
@@ -178,6 +185,12 @@ STRINGS = {
         "cfg.interim_model": "中間モデル",
         "cfg.custom_commands": "カスタムコマンド",
         "cfg.ui_language": "UI言語",
+        "cfg.translation_provider": "翻訳プロバイダ",
+        "cfg.libretranslate_endpoint": "LibreTranslate URL",
+        "cfg.libretranslate_api_key": "LibreTranslate APIキー",
+        "cfg.libretranslate_spell_check": "誤字訂正(LibreTranslate用)",
+        "cfg.spell_check_model": "誤字訂正モデル",
+        "cfg.summary_source": "要約ソース",
 
         # --- llm.* : LLM プロンプト ---
         "llm.translate_system": (
@@ -387,6 +400,13 @@ STRINGS = {
             "  - PTT Key / Interim Transcription\n"
         ),
 
+        # --- cfg.section.* ---
+        "cfg.section.general": "General",
+        "cfg.section.transcription": "Transcription",
+        "cfg.section.translation": "Translation",
+        "cfg.section.summary": "Summary",
+        "cfg.section.api": "LLM / API",
+
         # --- cfg.* ---
         "cfg.translate_language": "Translation Language",
         "cfg.auto_translate": "Auto Translate",
@@ -409,6 +429,12 @@ STRINGS = {
         "cfg.interim_model": "Interim Model",
         "cfg.custom_commands": "Custom Commands",
         "cfg.ui_language": "UI Language",
+        "cfg.translation_provider": "Translation Provider",
+        "cfg.libretranslate_endpoint": "LibreTranslate URL",
+        "cfg.libretranslate_api_key": "LibreTranslate API Key",
+        "cfg.libretranslate_spell_check": "Spell Check (LibreTranslate)",
+        "cfg.spell_check_model": "Spell Check Model",
+        "cfg.summary_source": "Summary Source",
 
         # --- llm.* ---
         "llm.translate_system": (

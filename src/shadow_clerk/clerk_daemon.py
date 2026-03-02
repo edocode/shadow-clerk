@@ -19,6 +19,7 @@ import threading
 import time
 import wave
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+import urllib.request
 from urllib.parse import urlparse, parse_qs
 
 import numpy as np
@@ -30,7 +31,7 @@ from shadow_clerk import DATA_DIR, CONFIG_FILE
 from shadow_clerk.i18n import t, t_all
 
 try:
-    from shadow_clerk.llm_client import get_api_client, load_glossary, load_dotenv as llm_load_dotenv
+    from shadow_clerk.llm_client import get_api_client, load_glossary, load_dotenv as llm_load_dotenv, _spell_check
     _HAS_LLM_CLIENT = True
 except ImportError:
     _HAS_LLM_CLIENT = False
@@ -87,6 +88,12 @@ DEFAULT_CONFIG = {
     "interim_transcription": False,
     "interim_model": "tiny",
     "ui_language": "ja",
+    "translation_provider": None,
+    "libretranslate_endpoint": None,
+    "libretranslate_api_key": None,
+    "libretranslate_spell_check": False,
+    "spell_check_model": "mbyhphat/t5-japanese-typo-correction",
+    "summary_source": "transcript",
 }
 
 
@@ -118,6 +125,14 @@ def load_config() -> dict:
     except Exception as e:
         logger.warning("config.yaml の読み込みに失敗: %s", e)
     return dict(DEFAULT_CONFIG)
+
+
+def get_translation_provider(config: dict) -> str:
+    """翻訳プロバイダーを返す。translation_provider が未設定なら llm_provider にフォールバック。"""
+    provider = config.get("translation_provider")
+    if provider:
+        return provider
+    return config.get("llm_provider", "claude")
 
 
 # コマンド・セッションファイル
@@ -926,16 +941,30 @@ class Recorder:
         summary_name = basename.replace("transcript-", "summary-").replace(".txt", ".md")
         summary_path = os.path.join(self._output_dir, summary_name)
 
+        # summary_source に応じてソースファイルを切り替え
+        config = load_config()
+        source_path = transcript_path
+        if config.get("summary_source") == "translate":
+            lang = config.get("translate_language", "ja")
+            tr_name = basename.replace(".txt", f"-{lang}.txt")
+            tr_path = os.path.join(os.path.dirname(transcript_path), tr_name)
+            if os.path.exists(tr_path):
+                source_path = tr_path
+                logger.info("summary_source=translate: 翻訳ファイル使用: %s", tr_name)
+            else:
+                logger.warning("summary_source=translate: 翻訳ファイル未検出、transcript にフォールバック: %s", tr_name)
+
         # 既存 summary があれば --existing で渡す
         cmd = [
             sys.executable, "-m", "shadow_clerk.llm_client",
             "summarize", "--mode", "full",
-            "--file", transcript_path,
+            "--file", source_path,
             "--output", summary_path,
         ]
 
-        logger.info("自動要約開始: %s → %s", basename, summary_name)
-        print(t("rec.auto_summary_start", src=basename, dst=summary_name))
+        src_name = os.path.basename(source_path)
+        logger.info("自動要約開始: %s → %s", src_name, summary_name)
+        print(t("rec.auto_summary_start", src=src_name, dst=summary_name))
 
         try:
             result = subprocess.run(
@@ -1164,7 +1193,7 @@ class Recorder:
 
         elif cmd == "translate_start":
             config = load_config()
-            if config.get("llm_provider") == "api":
+            if get_translation_provider(config) in ("api", "libretranslate"):
                 if self._translate_thread and self._translate_thread.is_alive():
                     logger.info("翻訳ループは既に動作中")
                 else:
@@ -1319,9 +1348,18 @@ class Recorder:
                 if os.path.exists(COMMAND_FILE):
                     with open(COMMAND_FILE, "r", encoding="utf-8") as f:
                         cmd = f.read().strip()
-                    # Claude provider 向けに残すコマンド
-                    _claude_commands = ("translate_start", "translate_stop", "generate_summary")
-                    if cmd in _claude_commands:
+                    # 翻訳コマンド: translation_provider で判定
+                    _translate_commands = ("translate_start", "translate_stop")
+                    # 要約コマンド: llm_provider で判定
+                    _summary_commands = ("generate_summary",)
+                    if cmd in _translate_commands:
+                        config = load_config()
+                        if get_translation_provider(config) in ("api", "libretranslate"):
+                            os.remove(COMMAND_FILE)
+                            logger.info("コマンドファイル検出: %s", cmd)
+                            self._execute_command(cmd)
+                        # claude provider → SKILL.md 向けにファイルを残す
+                    elif cmd in _summary_commands:
                         config = load_config()
                         if config.get("llm_provider") == "api":
                             os.remove(COMMAND_FILE)
@@ -1499,13 +1537,24 @@ class Recorder:
         model = None
 
         while not self.stop_event.is_set():
-            if not _HAS_LLM_CLIENT:
-                self.stop_event.wait(timeout=5.0)
-                continue
-
             config = load_config()
-            if not config.get("api_endpoint"):
-                self.stop_event.wait(timeout=2.0)
+            translation_provider = get_translation_provider(config)
+
+            if translation_provider == "libretranslate":
+                lt_endpoint = config.get("libretranslate_endpoint")
+                if not lt_endpoint:
+                    self.stop_event.wait(timeout=2.0)
+                    continue
+            elif translation_provider == "api":
+                if not _HAS_LLM_CLIENT:
+                    self.stop_event.wait(timeout=5.0)
+                    continue
+                if not config.get("api_endpoint"):
+                    self.stop_event.wait(timeout=2.0)
+                    continue
+            else:
+                # claude provider → interim 翻訳なし
+                self.stop_event.wait(timeout=5.0)
                 continue
 
             try:
@@ -1518,48 +1567,82 @@ class Recorder:
                 continue
             current_seq[source] = seq
 
-            # api_model 未設定時はスキップ
-            if not config.get("api_model"):
-                continue
+            lang = config.get("translate_language", "ja")
 
-            try:
-                # クライアント初期化（遅延）
-                if client is None:
-                    llm_load_dotenv()
-                    client, model = get_api_client(config)
+            if translation_provider == "libretranslate":
+                try:
+                    # spell check（有効時）
+                    src_text = text
+                    if config.get("libretranslate_spell_check") and _HAS_LLM_CLIENT:
+                        spell_model = config.get("spell_check_model", "mbyhphat/t5-japanese-typo-correction")
+                        corrected = _spell_check([text], spell_model)
+                        src_text = corrected[0] if corrected else text
 
-                lang = config.get("translate_language", "ja")
-                glossary = load_glossary(lang)
-                system_prompt = t("llm.translate_system", lang=lang)
-                if glossary:
-                    system_prompt += "\n" + glossary
+                    lt_api_key = config.get("libretranslate_api_key")
+                    payload = {
+                        "q": src_text,
+                        "source": "auto",
+                        "target": lang,
+                        "format": "text",
+                    }
+                    if lt_api_key:
+                        payload["api_key"] = lt_api_key
+                    data = json.dumps(payload).encode("utf-8")
+                    url = lt_endpoint.rstrip("/") + "/translate"
+                    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+                    with urllib.request.urlopen(req, timeout=30) as resp:
+                        result = json.loads(resp.read().decode("utf-8"))
+                    translated = result.get("translatedText", "").strip()
 
-                resp = client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": f"1: {text}"},
-                    ],
-                    max_tokens=512,
-                    temperature=0.3,
-                )
-                translated = resp.choices[0].message.content.strip()
-                # "1: " prefix を除去
-                if translated.startswith("1:"):
-                    translated = translated[2:].strip()
+                    if translated and hasattr(self, "_file_watcher"):
+                        self._file_watcher._broadcast("interim_translation", json.dumps(
+                            {"source": source, "speaker": speaker, "text": text,
+                             "translated": translated, "timestamp": timestamp},
+                            ensure_ascii=False))
+                except Exception as e:
+                    logger.debug("interim LibreTranslate 翻訳エラー: %s", e)
+            else:
+                # api_model 未設定時はスキップ
+                if not config.get("api_model"):
+                    continue
 
-                if translated and hasattr(self, "_file_watcher"):
-                    self._file_watcher._broadcast("interim_translation", json.dumps(
-                        {"source": source, "speaker": speaker, "text": text,
-                         "translated": translated, "timestamp": timestamp},
-                        ensure_ascii=False))
-            except SystemExit:
-                logger.debug("interim 翻訳: API 設定不足のためスキップ")
-                client = None
-            except Exception as e:
-                logger.debug("interim 翻訳エラー: %s", e)
-                # API エラー時はクライアントをリセットして再接続を試みる
-                client = None
+                try:
+                    # クライアント初期化（遅延）
+                    if client is None:
+                        llm_load_dotenv()
+                        client, model = get_api_client(config)
+
+                    glossary = load_glossary(lang)
+                    system_prompt = t("llm.translate_system", lang=lang)
+                    if glossary:
+                        system_prompt += "\n" + glossary
+
+                    resp = client.chat.completions.create(
+                        model=model,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": f"1: {text}"},
+                        ],
+                        max_tokens=512,
+                        temperature=0.3,
+                    )
+                    translated = resp.choices[0].message.content.strip()
+                    # "1: " prefix を除去
+                    if translated.startswith("1:"):
+                        translated = translated[2:].strip()
+
+                    if translated and hasattr(self, "_file_watcher"):
+                        self._file_watcher._broadcast("interim_translation", json.dumps(
+                            {"source": source, "speaker": speaker, "text": text,
+                             "translated": translated, "timestamp": timestamp},
+                            ensure_ascii=False))
+                except SystemExit:
+                    logger.debug("interim 翻訳: API 設定不足のためスキップ")
+                    client = None
+                except Exception as e:
+                    logger.debug("interim 翻訳エラー: %s", e)
+                    # API エラー時はクライアントをリセットして再接続を試みる
+                    client = None
 
     def run(self):
         """メイン実行"""
@@ -2295,6 +2378,8 @@ main {
   border-color:var(--accent);
 }
 .modal-body textarea { resize:vertical; min-height:60px; font-family:monospace; font-size:12px; }
+.modal-body .cfg-section { grid-column:1/-1; font-weight:bold; font-size:13px; padding:8px 0 4px; border-bottom:1px solid var(--border); margin-top:4px; color:var(--text); }
+.modal-body .cfg-section:first-child { margin-top:0; }
 #glossaryTable th, #glossaryTable td {
   border:1px solid var(--border); padding:4px 6px;
 }
@@ -2637,30 +2722,44 @@ function hideResp(){document.getElementById('resp').classList.remove('show');}
 loadFiles();loadT('');loadR('');loadLogs();setInterval(loadFiles,10000);
 const LANG_OPTS=['ja','en','zh','ko','fr','de','es','pt','ru'];
 const CFG_FIELDS=[
+  {type:'section',label:I18N['cfg.section.general']},
   {key:'ui_language',label:I18N['cfg.ui_language'],type:'select',opts:['ja','en']},
-  {key:'translate_language',label:I18N['cfg.translate_language'],type:'select',opts:LANG_OPTS},
-  {key:'auto_translate',label:I18N['cfg.auto_translate'],type:'bool'},
-  {key:'auto_summary',label:I18N['cfg.auto_summary'],type:'bool'},
+  {key:'output_directory',label:I18N['cfg.output_directory'],type:'text',ph:I18N['cfg.output_directory_ph']},
+  {type:'section',label:I18N['cfg.section.transcription']},
   {key:'default_language',label:I18N['cfg.default_language'],type:'select',opts:['auto',...LANG_OPTS]},
   {key:'default_model',label:I18N['cfg.default_model'],type:'select',opts:['tiny','base','small','medium','large-v3']},
-  {key:'output_directory',label:I18N['cfg.output_directory'],type:'text',ph:I18N['cfg.output_directory_ph']},
-  {key:'llm_provider',label:I18N['cfg.llm_provider'],type:'select',opts:['claude','api']},
-  {key:'api_endpoint',label:I18N['cfg.api_endpoint'],type:'text',ph:'https://...'},
-  {key:'api_model',label:I18N['cfg.api_model'],type:'api_model'},
-  {key:'api_key_env',label:I18N['cfg.api_key_env'],type:'text',ph:'SHADOW_CLERK_API_KEY'},
   {key:'initial_prompt',label:I18N['cfg.initial_prompt'],type:'text',ph:I18N['cfg.initial_prompt_ph']},
-  {key:'voice_command_key',label:I18N['cfg.voice_command_key'],type:'select',opts:['menu','f23','ctrl_r','ctrl_l','alt_r','alt_l','shift_r','shift_l']},
   {key:'whisper_beam_size',label:I18N['cfg.whisper_beam_size'],type:'select',opts:['1','2','3','5']},
   {key:'whisper_compute_type',label:I18N['cfg.whisper_compute_type'],type:'select',opts:['int8','float16','float32']},
   {key:'whisper_device',label:I18N['cfg.whisper_device'],type:'select',opts:['cpu','cuda']},
   {key:'interim_transcription',label:I18N['cfg.interim_transcription'],type:'bool'},
   {key:'interim_model',label:I18N['cfg.interim_model'],type:'select',opts:['tiny','base','small','medium']},
+  {key:'voice_command_key',label:I18N['cfg.voice_command_key'],type:'select',opts:['menu','f23','ctrl_r','ctrl_l','alt_r','alt_l','shift_r','shift_l']},
+  {type:'section',label:I18N['cfg.section.translation']},
+  {key:'translate_language',label:I18N['cfg.translate_language'],type:'select',opts:LANG_OPTS},
+  {key:'auto_translate',label:I18N['cfg.auto_translate'],type:'bool'},
+  {key:'translation_provider',label:I18N['cfg.translation_provider'],type:'select',opts:['','claude','api','libretranslate']},
+  {key:'libretranslate_endpoint',label:I18N['cfg.libretranslate_endpoint'],type:'text',ph:'http://localhost:5000'},
+  {key:'libretranslate_api_key',label:I18N['cfg.libretranslate_api_key'],type:'text',ph:''},
+  {key:'libretranslate_spell_check',label:I18N['cfg.libretranslate_spell_check'],type:'bool'},
+  {key:'spell_check_model',label:I18N['cfg.spell_check_model'],type:'text',ph:'sonoisa/t5-base-japanese-spell-checker'},
+  {type:'section',label:I18N['cfg.section.summary']},
+  {key:'auto_summary',label:I18N['cfg.auto_summary'],type:'bool'},
+  {key:'summary_source',label:I18N['cfg.summary_source'],type:'select',opts:['transcript','translate']},
+  {type:'section',label:I18N['cfg.section.api']},
+  {key:'llm_provider',label:I18N['cfg.llm_provider'],type:'select',opts:['claude','api']},
+  {key:'api_endpoint',label:I18N['cfg.api_endpoint'],type:'text',ph:'https://...'},
+  {key:'api_model',label:I18N['cfg.api_model'],type:'api_model'},
+  {key:'api_key_env',label:I18N['cfg.api_key_env'],type:'text',ph:'SHADOW_CLERK_API_KEY'},
 ];
 let cfgData={};
 async function openCfg(){
   try{cfgData=await(await fetch('/api/config')).json();}catch(e){return;}
   const b=document.getElementById('cfgBody');b.innerHTML='';
   CFG_FIELDS.forEach(f=>{
+    if(f.type==='section'){
+      const h=document.createElement('div');h.className='cfg-section';h.textContent=f.label;b.appendChild(h);return;
+    }
     const lbl=document.createElement('label');lbl.textContent=f.label;b.appendChild(lbl);
     let el;const v=cfgData[f.key];
     if(f.type==='bool'){
@@ -2721,7 +2820,7 @@ async function saveCfg(){
     const el=document.getElementById('cfg_'+f.key);if(!el)return;
     if(f.type==='bool'){d[f.key]=el.value==='true';}
     else if(f.type==='json'){try{d[f.key]=JSON.parse(el.value);}catch(e){d[f.key]=cfgData[f.key];}}
-    else if(f.type==='select'){const sv=el.value;d[f.key]=(sv==='auto'&&f.key==='default_language')?null:sv;}
+    else if(f.type==='select'){const sv=el.value;d[f.key]=(sv===''||(sv==='auto'&&f.key==='default_language'))?null:sv;}
     else{const v=el.value.trim();d[f.key]=(v===''||v==='null')?null:v;}
   });
   const langChanged=d.ui_language&&d.ui_language!==cfgData.ui_language;
