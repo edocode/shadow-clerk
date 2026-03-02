@@ -94,6 +94,9 @@ DEFAULT_CONFIG = {
     "libretranslate_spell_check": False,
     "spell_check_model": "mbyhphat/t5-japanese-typo-correction",
     "summary_source": "transcript",
+    "use_kotoba_whisper": True,
+    "kotoba_whisper_model": "kotoba-tech/kotoba-whisper-v2.0-faster",
+    "interim_use_kotoba_whisper": False,
 }
 
 
@@ -550,7 +553,8 @@ class Transcriber:
     def __init__(self, model_size: str = "small", language: str | None = None,
                  initial_prompt: str | None = None,
                  beam_size: int = 5, compute_type: str = "int8",
-                 device: str = "cpu"):
+                 device: str = "cpu",
+                 kotoba_config_key: str = "use_kotoba_whisper"):
         self.model_size = model_size
         self.language = language
         self.initial_prompt = initial_prompt
@@ -558,22 +562,41 @@ class Transcriber:
         self.compute_type = compute_type
         self.device = device
         self.model = None
+        self._loaded_model_id: str | None = None
+        self._kotoba_config_key = kotoba_config_key
+
+    def _resolve_model_id(self) -> str:
+        config = load_config()
+        if self.language == "ja" and config.get(self._kotoba_config_key, False):
+            return config.get("kotoba_whisper_model", "kotoba-tech/kotoba-whisper-v2.0-faster")
+        return self.model_size
 
     def load_model(self):
+        model_id = self._resolve_model_id()
+        if self.model is not None and self._loaded_model_id == model_id:
+            return
         from faster_whisper import WhisperModel
         logger.info("Whisper モデル読み込み中: %s (device=%s, compute_type=%s) ...",
-                     self.model_size, self.device, self.compute_type)
-        self.model = WhisperModel(
-            self.model_size,
-            device=self.device,
-            compute_type=self.compute_type,
-        )
-        logger.info("モデル読み込み完了")
+                     model_id, self.device, self.compute_type)
+        self.model = WhisperModel(model_id, device=self.device, compute_type=self.compute_type)
+        self._loaded_model_id = model_id
+        logger.info("モデル読み込み完了: %s", model_id)
 
     def reload_model(self, model_size: str):
         self.model_size = model_size
         self.model = None
+        self._loaded_model_id = None
         self.load_model()
+
+    def ensure_model_for_language(self):
+        if self.model is None:
+            return
+        model_id = self._resolve_model_id()
+        if self._loaded_model_id != model_id:
+            logger.info("言語変更に伴いモデルを切り替え: %s -> %s", self._loaded_model_id, model_id)
+            self.model = None
+            self._loaded_model_id = None
+            self.load_model()
 
     # Whisper がよく出力するハルシネーション（無音時の誤認識）パターン
     HALLUCINATION_RE = re.compile(
@@ -889,15 +912,39 @@ class Recorder:
             return f"llm_query {body}"
         return None
 
-    def _get_command_list(self) -> list[dict]:
-        """_builtin_command_descs() + カスタムコマンドからコマンドリストを生成"""
-        commands = list(_builtin_command_descs())
+    def _get_command_list(self) -> list[str]:
+        """ビルトイン + カスタムコマンドのパターン説明リストを生成"""
+        commands = [c["description"] for c in _builtin_command_descs()]
         for pattern, action in self._custom_commands:
-            commands.append({
-                "command": f"custom_exec {action}",
-                "description": pattern.pattern,
-            })
+            commands.append(pattern.pattern)
         return commands
+
+    def _spell_and_match(self, text: str, timestamp: str = "", display_speaker: str = ""):
+        """spell-check で誤字訂正してからパターンマッチを実行する"""
+        corrected = text
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "shadow_clerk.llm_client", "spell-check"],
+                input=text, capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                corrected = result.stdout.strip()
+                if corrected != text:
+                    logger.info("spell-check 訂正: '%s' → '%s'", text, corrected)
+        except subprocess.TimeoutExpired:
+            logger.warning("spell-check タイムアウト")
+        except Exception as e:
+            logger.warning("spell-check エラー: %s", e)
+
+        voice_cmd = self._match_command_body(corrected)
+        if voice_cmd:
+            logger.info("音声コマンド検出 (PTT+spell): %s → %s", corrected, voice_cmd)
+            if voice_cmd.startswith("custom_exec "):
+                logger.info("[%s] [%s] %s", timestamp, display_speaker, text)
+            self._execute_command(voice_cmd)
+        else:
+            logger.info("音声コマンド不一致 (PTT+spell): '%s' (訂正後: '%s')", text, corrected)
+            print(t("rec.voice_cmd_fail", text=text, confidence=0))
 
     def _llm_match_and_execute(self, text: str):
         """LLM にコマンドマッチングを依頼し、confidence が高ければ実行する"""
@@ -1134,10 +1181,12 @@ class Recorder:
             lang = cmd.split(None, 1)[1].strip()
             self.transcriber.language = lang
             logger.info("言語を変更: %s", lang)
+            self.transcriber.ensure_model_for_language()
 
         elif cmd == "unset_language":
             self.transcriber.language = None
             logger.info("言語を自動検出に変更")
+            self.transcriber.ensure_model_for_language()
 
         elif cmd.startswith("start_meeting"):
             parts = cmd.split(None, 1)
@@ -1221,6 +1270,35 @@ class Recorder:
                 logger.info("翻訳停止コマンドを .clerk_command に書き込み")
             print(t("rec.translate_stop"))
 
+
+        elif cmd == "translate_regenerate":
+            # 翻訳中なら停止
+            if self._translate_thread and self._translate_thread.is_alive():
+                self._translate_stop_event.set()
+                self._translate_thread.join(timeout=10)
+                self._translate_thread = None
+
+            config = load_config()
+            lang = config.get("translate_language", "ja")
+            transcript = self.output_path
+
+            # オフセットリセット（翻訳ファイルは _translate_loop 側で上書き）
+            offset_file = self._translate_offset_file(transcript)
+            with open(offset_file, "w", encoding="utf-8") as f:
+                f.write("0")
+            logger.info("翻訳再生成: offset リセット")
+
+            # provider に応じて翻訳を再開
+            if get_translation_provider(config) in ("api", "libretranslate"):
+                self._translate_stop_event.clear()
+                self._translate_thread = threading.Thread(
+                    target=self._translate_loop, name="translate-loop", daemon=True)
+                self._translate_thread.start()
+            else:
+                self._translating_external = True
+                with open(COMMAND_FILE, "w", encoding="utf-8") as f:
+                    f.write("translate_start")
+
         elif cmd.startswith("custom_exec "):
             action = cmd.split(None, 1)[1]
             logger.info("カスタムコマンド実行: %s", action)
@@ -1261,6 +1339,18 @@ class Recorder:
             logger.info("PTT 強制 OFF (Dashboard)")
 
         else:
+            # LLM が description 側の文字列を返した場合、パターンに再マッチ
+            for pattern, mapped_cmd in VOICE_COMMANDS:
+                if pattern.search(cmd):
+                    logger.info("コマンド再マッチ(builtin): %s → %s", cmd, mapped_cmd)
+                    self._execute_command(mapped_cmd)
+                    return
+            for pattern, action in self._custom_commands:
+                if pattern.search(cmd):
+                    logger.info("コマンド再マッチ(custom): %s → %s", cmd, action)
+                    print(t("rec.custom_exec", action=action))
+                    subprocess.Popen(action, shell=True)
+                    return
             logger.warning("不明なコマンド: %s", cmd)
 
     def _llm_query(self, text: str):
@@ -1315,20 +1405,25 @@ class Recorder:
                     size = 0
 
                 if size > offset:
+                    # チャンク分割: 大量テキストを一度に投げないよう制限
+                    chunk_limit = 8000  # bytes
+                    effective_size = min(size, offset + chunk_limit)
                     result = subprocess.run(
                         [sys.executable, "-m", "shadow_clerk.llm_client", "--verbose",
-                         "translate", lang, "--file", transcript, "--offset", str(offset)],
-                        capture_output=True, text=True, timeout=120,
+                         "translate", lang, "--file", transcript, "--offset", str(offset),
+                         "--max-bytes", str(effective_size - offset)],
+                        capture_output=True, text=True, timeout=300,
                     )
                     if result.returncode == 0 and result.stdout.strip():
                         basename = os.path.basename(transcript)
                         tr_name = basename.replace(".txt", f"-{lang}.txt")
                         tr_path = os.path.join(os.path.dirname(transcript), tr_name)
-                        with open(tr_path, "a", encoding="utf-8") as f:
+                        mode = "w" if offset == 0 else "a"
+                        with open(tr_path, mode, encoding="utf-8") as f:
                             f.write(result.stdout)
                         with open(offset_file, "w", encoding="utf-8") as f:
-                            f.write(str(size))
-                        logger.info("翻訳完了: %d bytes → %s", size - offset, tr_name)
+                            f.write(str(effective_size))
+                        logger.info("翻訳完了: %d bytes → %s", effective_size - offset, tr_name)
                     elif result.returncode != 0:
                         logger.error("翻訳エラー: %s", result.stderr.strip()[:200])
             except subprocess.TimeoutExpired:
@@ -1349,9 +1444,9 @@ class Recorder:
                     with open(COMMAND_FILE, "r", encoding="utf-8") as f:
                         cmd = f.read().strip()
                     # 翻訳コマンド: translation_provider で判定
-                    _translate_commands = ("translate_start", "translate_stop")
+                    _translate_commands = ("translate_start", "translate_stop", "translate_regenerate")
                     # 要約コマンド: llm_provider で判定
-                    _summary_commands = ("generate_summary",)
+                    _summary_commands = ("generate_summary", "generate_summary_full")
                     if cmd in _translate_commands:
                         config = load_config()
                         if get_translation_provider(config) in ("api", "libretranslate"):
@@ -1391,12 +1486,10 @@ class Recorder:
             except queue.Empty:
                 continue
 
-            # ミュート中のソースはスキップ
-            if source == "mic" and self.mute_mic:
-                logger.debug("マイクミュート中、スキップ")
-                continue
-            if source == "monitor" and self.mute_monitor:
-                logger.debug("スピーカーミュート中、スキップ")
+            # ミュート中のソースはスキップ（ただしコマンドモード中は除く）
+            is_muted = (source == "mic" and self.mute_mic) or (source == "monitor" and self.mute_monitor)
+            if is_muted and not command_mode:
+                logger.debug("%s ミュート中、スキップ", source)
                 continue
 
             duration = len(segment) / SAMPLE_RATE
@@ -1408,7 +1501,8 @@ class Recorder:
                 # mic ソースからの音声コマンド検出
                 if source == "mic":
                     if command_mode:
-                        if load_config().get("api_endpoint"):
+                        config = load_config()
+                        if config.get("api_endpoint") and config.get("llm_provider") != "claude":
                             # LLM ベースマッチング（別スレッドで実行）
                             threading.Thread(
                                 target=self._llm_match_and_execute,
@@ -1416,13 +1510,12 @@ class Recorder:
                                 name="cmd-match", daemon=True,
                             ).start()
                         else:
-                            # API 未設定時は従来の正規表現マッチングにフォールバック
-                            voice_cmd = self._match_command_body(text)
-                            if voice_cmd:
-                                logger.info("音声コマンド検出 (PTT): %s → %s", text.strip(), voice_cmd)
-                                if voice_cmd.startswith("custom_exec "):
-                                    logger.info("[%s] [%s] %s", timestamp, display_speaker, text.strip())
-                                self._execute_command(voice_cmd)
+                            # spell-check → 正規表現マッチング
+                            threading.Thread(
+                                target=self._spell_and_match,
+                                args=(text.strip(), timestamp, display_speaker),
+                                name="cmd-spell-match", daemon=True,
+                            ).start()
                         continue
                     else:
                         # 従来方式: プレフィックス/サフィックス検出
@@ -1479,6 +1572,7 @@ class Recorder:
         display_labels = {"mic": t("speaker.mic"), "monitor": t("speaker.monitor")}
         interim_transcriber = None
         interim_model_name = None
+        interim_use_kotoba = None
         current_seq: dict[str, int] = {}  # source ごとの最新 seq
 
         while not self.stop_event.is_set():
@@ -1490,7 +1584,8 @@ class Recorder:
 
             # 有効化されたらモデルを遅延ロード（モデル変更時は再ロード）
             model_name = config.get("interim_model", "tiny")
-            if interim_transcriber is None or interim_model_name != model_name:
+            use_kotoba = config.get("interim_use_kotoba_whisper", False)
+            if interim_transcriber is None or interim_model_name != model_name or interim_use_kotoba != use_kotoba:
                 logger.info("中間文字起こし: %s モデル読み込み中...", model_name)
                 interim_transcriber = Transcriber(
                     model_size=model_name,
@@ -1499,10 +1594,16 @@ class Recorder:
                     beam_size=1,
                     compute_type=config.get("whisper_compute_type", "int8"),
                     device=config.get("whisper_device", "cpu"),
+                    kotoba_config_key="interim_use_kotoba_whisper",
                 )
                 interim_transcriber.load_model()
                 interim_model_name = model_name
+                interim_use_kotoba = use_kotoba
                 logger.info("中間文字起こし: %s モデル読み込み完了", model_name)
+            # 言語同期
+            if interim_transcriber.language != self.transcriber.language:
+                interim_transcriber.language = self.transcriber.language
+                interim_transcriber.ensure_model_for_language()
 
             try:
                 audio_segment, timestamp, source, seq = self.interim_queue.get(timeout=1.0)
@@ -2154,9 +2255,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 name="dashboard-summary", daemon=True,
             ).start()
         else:
-            # Claude provider: .clerk_command に書いて Claude Code に処理させる
+            # Claude provider: .clerk_command に書いて Claude Code に処理させる（全文モード）
             with open(COMMAND_FILE, "w", encoding="utf-8") as f:
-                f.write("generate_summary")
+                f.write("generate_summary_full")
             self._send_json({"status": "ok", "message": t("dash.summary_generation_started")})
 
     def _serve_config(self):
@@ -2455,7 +2556,7 @@ main {
     <div class="pc" id="tp"></div>
   </div>
   <div class="panel" id="pnlR">
-    <div class="ph"><span>Translation</span><span id="rf" style="font-weight:normal"></span></div>
+    <div class="ph"><span>Translation</span><span style="display:flex;gap:4px;align-items:center"><button class="toggle" onclick="regenTranslate()" title="{{i18n:dash.translate_regen}}">🔄</button><span id="rf" style="font-weight:normal"></span></span></div>
     <div class="pc" id="rp"></div>
   </div>
 </main>
@@ -2593,6 +2694,12 @@ async function togTranslate(){
   if(translating){cmd('translate_stop');updateTranslateBtn(false);return;}
   cmd('translate_start');updateTranslateBtn(true);
 }
+async function regenTranslate(){
+  if(!confirm(I18N['dash.translate_regen_confirm']))return;
+  cmd('translate_regenerate');
+  updateTranslateBtn(true);
+}
+
 /* --- Mute toggles --- */
 function updateMuteBtn(type,muted){
   const btn=document.getElementById(type==='mic'?'btnMuteMic':'btnMuteMonitor');
@@ -2728,12 +2835,14 @@ const CFG_FIELDS=[
   {type:'section',label:I18N['cfg.section.transcription']},
   {key:'default_language',label:I18N['cfg.default_language'],type:'select',opts:['auto',...LANG_OPTS]},
   {key:'default_model',label:I18N['cfg.default_model'],type:'select',opts:['tiny','base','small','medium','large-v3']},
+  {key:'use_kotoba_whisper',label:I18N['cfg.use_kotoba_whisper'],type:'bool'},
   {key:'initial_prompt',label:I18N['cfg.initial_prompt'],type:'text',ph:I18N['cfg.initial_prompt_ph']},
   {key:'whisper_beam_size',label:I18N['cfg.whisper_beam_size'],type:'select',opts:['1','2','3','5']},
   {key:'whisper_compute_type',label:I18N['cfg.whisper_compute_type'],type:'select',opts:['int8','float16','float32']},
   {key:'whisper_device',label:I18N['cfg.whisper_device'],type:'select',opts:['cpu','cuda']},
   {key:'interim_transcription',label:I18N['cfg.interim_transcription'],type:'bool'},
   {key:'interim_model',label:I18N['cfg.interim_model'],type:'select',opts:['tiny','base','small','medium']},
+  {key:'interim_use_kotoba_whisper',label:I18N['cfg.interim_use_kotoba_whisper'],type:'bool'},
   {key:'voice_command_key',label:I18N['cfg.voice_command_key'],type:'select',opts:['menu','f23','ctrl_r','ctrl_l','alt_r','alt_l','shift_r','shift_l']},
   {type:'section',label:I18N['cfg.section.translation']},
   {key:'translate_language',label:I18N['cfg.translate_language'],type:'select',opts:LANG_OPTS},

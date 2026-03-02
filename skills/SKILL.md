@@ -140,6 +140,9 @@ No arguments, or `update`:
      - If `generate_summary` detected:
        - Clear with `clerk-util write .clerk_command ""`
        - Run the `update` subcommand (same as no-args / `update` above) to generate/update minutes
+     - If `generate_summary_full` detected:
+       - Clear with `clerk-util write .clerk_command ""`
+       - Run the `full` subcommand to regenerate minutes from the entire transcript
      - If `stopped` returned, exit the loop
 5. Display "recorder started"
 

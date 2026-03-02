@@ -294,6 +294,18 @@ TIMESTAMP_RE = re.compile(
 )
 
 
+def _seems_target_language(text: str, lang: str) -> bool:
+    """テキストが対象言語らしいか簡易判定（未翻訳フォールバック防止用）"""
+    if not text.strip():
+        return True
+    has_cjk = any("\u3000" <= c <= "\u9fff" or "\uff00" <= c <= "\uffef" for c in text)
+    if lang in ("ja", "zh"):
+        return has_cjk
+    if lang in ("en", "de", "fr", "es", "pt", "it"):
+        return not has_cjk
+    return True
+
+
 def translate(args: argparse.Namespace):
     """transcript を翻訳して stdout に出力する。"""
     config = load_config()
@@ -318,10 +330,11 @@ def translate(args: argparse.Namespace):
                                offset, file_size)
                 offset = 0
             # バイトオフセットなので rb で開いてデコード
+            max_bytes = int(args.max_bytes) if getattr(args, "max_bytes", None) else None
             with open(file_path, "rb") as f:
                 if offset:
                     f.seek(offset)
-                raw = f.read()
+                raw = f.read(max_bytes) if max_bytes else f.read()
             lines = raw.decode("utf-8", errors="replace")
         except FileNotFoundError:
             print(t("err.file_not_found", path=file_path), file=sys.stderr)
@@ -383,18 +396,33 @@ def translate(args: argparse.Namespace):
 
         translated_list = _translate_libretranslate(texts, lang, endpoint, api_key)
 
+        # 翻訳結果が不足していればリトライ
+        if len(translated_list) < len(texts):
+            missing_texts = texts[len(translated_list):]
+            logger.info("translate: libretranslate %d/%d missing, retrying", len(missing_texts), len(texts))
+            try:
+                retry_list = _translate_libretranslate(missing_texts, lang, endpoint, api_key)
+                translated_list.extend(retry_list)
+            except Exception as e:
+                logger.warning("translate: libretranslate retry failed: %s", e)
+
         # 出力を組み立て
         translate_idx = 0
         for i, prefix, text in line_map:
             if prefix is None:
                 print(text)
             else:
-                translated = translated_list[translate_idx] if translate_idx < len(translated_list) else text
+                if translate_idx < len(translated_list):
+                    translated = translated_list[translate_idx]
+                else:
+                    translated = text  # リトライでも不足 — 元テキスト維持
                 if prefix:
                     print(f"{prefix} {translated}")
                 else:
                     print(translated)
                 translate_idx += 1
+
+
     else:
         # api (OpenAI compatible) provider
         client, model = get_api_client(config)
@@ -442,6 +470,36 @@ def translate(args: argparse.Namespace):
         logger.debug("translate: parsed %d/%d translations",
                      len(translated_map), len(translatable))
 
+        # 未翻訳行をリトライ
+        missing = [idx for idx in range(len(translatable)) if idx not in translated_map]
+        if missing:
+            logger.info("translate: %d/%d lines missing, retrying", len(missing), len(translatable))
+            retry_numbered = "\n".join(
+                f"{idx}: {translatable[idx][1]}" for idx in missing
+            )
+            try:
+                retry_resp = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": retry_numbered},
+                    ],
+                    temperature=0.3,
+                )
+                retry_raw = retry_resp.choices[0].message.content
+                if retry_raw:
+                    for rline in retry_raw.strip().splitlines():
+                        rline = rline.strip()
+                        if not rline:
+                            continue
+                        rm = re.match(r"^(\d+):\s*(.*)$", rline)
+                        if rm:
+                            translated_map[int(rm.group(1))] = rm.group(2)
+                logger.info("translate: after retry %d/%d translated",
+                            len(translated_map), len(translatable))
+            except Exception as e:
+                logger.warning("translate: retry failed: %s", e)
+
         # 出力を組み立て
         translate_idx = 0
         for i, prefix, text in line_map:
@@ -461,6 +519,16 @@ def translate(args: argparse.Namespace):
 # --- summarize サブコマンド ---
 
 def _get_summary_format():
+    """summary_template.md があればそちらを優先、なければ i18n デフォルトを使用"""
+    template_path = os.path.join(DATA_DIR, "summary_template.md")
+    try:
+        with open(template_path, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+            if content:
+                logger.debug("summary_template.md を使用: %s", template_path)
+                return content
+    except FileNotFoundError:
+        pass
     return t("llm.summary_format")
 
 
@@ -513,28 +581,9 @@ def summarize(args: argparse.Namespace):
 
 def _summarize_full(client: OpenAI, model: str, transcript: str):
     """transcript 全文から議事録を生成する。"""
-    system_prompt = t("llm.summary_full_system", summary_format=_get_summary_format())
-
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": transcript},
-        ],
-        temperature=0.3,
-    )
-
-    return response.choices[0].message.content
-
-
-def _summarize_update(
-    client: OpenAI, model: str, transcript: str, existing_summary: str
-):
-    """既存の summary を踏まえて差分 transcript から議事録を更新する。"""
-    system_prompt = t("llm.summary_update_system", summary_format=_get_summary_format())
-
-    existing = existing_summary if existing_summary else t("llm.summary_update_none")
-    user_content = t("llm.summary_update_user", existing=existing, transcript=transcript)
+    summary_format = _get_summary_format()
+    system_prompt = t("llm.summary_full_system", summary_format=summary_format)
+    user_content = t("llm.summary_full_user", transcript=transcript, summary_format=summary_format)
 
     response = client.chat.completions.create(
         model=model,
@@ -545,7 +594,37 @@ def _summarize_update(
         temperature=0.3,
     )
 
-    return response.choices[0].message.content
+    result = response.choices[0].message.content
+    if not result or len(result.strip()) < 50:
+        logger.warning("要約結果が短すぎます (%d文字)、スキップ", len(result.strip()) if result else 0)
+        return None
+    return result
+
+
+def _summarize_update(
+    client: OpenAI, model: str, transcript: str, existing_summary: str
+):
+    """既存の summary を踏まえて差分 transcript から議事録を更新する。"""
+    summary_format = _get_summary_format()
+    system_prompt = t("llm.summary_update_system", summary_format=summary_format)
+
+    existing = existing_summary if existing_summary else t("llm.summary_update_none")
+    user_content = t("llm.summary_update_user", existing=existing, transcript=transcript, summary_format=summary_format)
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        temperature=0.3,
+    )
+
+    result = response.choices[0].message.content
+    if not result or len(result.strip()) < 50:
+        logger.warning("要約結果が短すぎます (%d文字)、スキップ", len(result.strip()) if result else 0)
+        return None
+    return result
 
 
 # --- query サブコマンド ---
@@ -593,9 +672,7 @@ def match_command(args: argparse.Namespace):
         print(json.dumps({"command": "", "confidence": 0}))
         return
 
-    commands_desc = "\n".join(
-        f"- {c['command']}: {c['description']}" for c in commands
-    )
+    commands_desc = "\n".join(f"- {c}" for c in commands)
 
     system_prompt = t("llm.match_command_system", commands=commands_desc)
 
@@ -633,6 +710,21 @@ def match_command(args: argparse.Namespace):
     print(json.dumps(output, ensure_ascii=False))
 
 
+# --- spell-check サブコマンド ---
+
+
+def spell_check_cmd(args: argparse.Namespace):
+    """stdin からテキストを読み取り、誤字訂正して stdout に出力する。"""
+    config = load_config()
+    model_name = config.get("spell_check_model", "mbyhphat/t5-japanese-typo-correction")
+    text = sys.stdin.read().strip()
+    if not text:
+        print("")
+        return
+    results = _spell_check([text], model_name)
+    print(results[0])
+
+
 # --- CLI ---
 
 
@@ -652,6 +744,9 @@ def main():
     )
     translate_parser.add_argument(
         "--offset", default=None, help="ファイル読み込み開始バイトオフセット"
+    )
+    translate_parser.add_argument(
+        "--max-bytes", default=None, help="読み込み最大バイト数"
     )
 
     # query
@@ -685,6 +780,11 @@ def main():
         "--existing", default=None, help="既存の summary ファイルパス (update モード用)"
     )
 
+    # spell-check
+    subparsers.add_parser(
+        "spell-check", help="stdin のテキストを誤字訂正して stdout に出力"
+    )
+
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="デバッグログを stderr に出力"
     )
@@ -710,6 +810,8 @@ def main():
         summarize(args)
     elif args.command == "match-command":
         match_command(args)
+    elif args.command == "spell-check":
+        spell_check_cmd(args)
 
 
 if __name__ == "__main__":

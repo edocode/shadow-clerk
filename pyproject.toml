@@ -15,6 +15,13 @@ dependencies = [
     "evdev>=1.6.0",
 ]
 
+[project.optional-dependencies]
+spell-check = [
+    "transformers>=4.30.0",
+    "torch>=2.0.0",
+    "sentencepiece>=0.1.99",
+]
+
 [project.scripts]
 clerk-daemon = "shadow_clerk.clerk_daemon:main"
 clerk-util = "shadow_clerk.clerk_util:main"

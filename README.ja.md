@@ -152,10 +152,16 @@ auto_summary: false           # end meeting 時に自動 summary 生成
 default_language: null        # clerk-daemon のデフォルト言語 (null=自動検出)
 default_model: small          # clerk-daemon のデフォルト Whisper モデル
 output_directory: null        # transcript 出力先ディレクトリ (null=データディレクトリ)
-llm_provider: claude          # 翻訳・Summary の LLM ("claude" or "api")
+llm_provider: claude          # 要約の LLM ("claude" or "api")
+translation_provider: null    # 翻訳プロバイダ (null=llm_provider を使用, "claude", "api", "libretranslate")
 api_endpoint: null            # OpenAI Compatible API の base URL
 api_model: null               # API モデル名 (gpt-4o, etc.)
 api_key_env: SHADOW_CLERK_API_KEY  # API キーを格納する環境変数名
+summary_source: transcript    # 要約ソース ("transcript" or "translate")
+libretranslate_endpoint: null     # LibreTranslate API URL (例: http://localhost:5000)
+libretranslate_api_key: null      # LibreTranslate API キー (不要なら null)
+libretranslate_spell_check: false # LibreTranslate 翻訳前の誤字訂正
+spell_check_model: mbyhphat/t5-japanese-typo-correction  # 誤字訂正モデル
 custom_commands: []               # カスタム音声コマンド (pattern + action のリスト)
 initial_prompt: null              # Whisper の initial_prompt (音声認識のヒント語彙)
 voice_command_key: menu        # Push-to-Talk キー (null=無効)
@@ -164,6 +170,9 @@ whisper_compute_type: int8     # 計算精度 (int8/float16/float32)
 whisper_device: cpu            # デバイス (cpu/cuda)
 interim_transcription: false   # 中間文字起こし（発話中にリアルタイム表示）
 interim_model: tiny            # 中間文字起こし用モデル
+use_kotoba_whisper: true       # 日本語(language=ja)時に Kotoba-Whisper を使用
+kotoba_whisper_model: kotoba-tech/kotoba-whisper-v2.0-faster  # Kotoba-Whisper モデル
+interim_use_kotoba_whisper: false  # 中間文字起こしでも Kotoba-Whisper を使用
 ui_language: ja                # UI言語 (ja/en) — ダッシュボード・ターミナル出力・LLMプロンプト
 ```
 
@@ -181,7 +190,7 @@ Claude Code から設定を操作:
 
 ### 外部 API モード
 
-`llm_provider: api` に設定すると、翻訳と議事録生成を OpenAI Compatible API 経由で実行できる。Claude Code 以外の LLM（OpenAI、Ollama 等）で処理したい場合に使う。
+`llm_provider: api` に設定すると、議事録生成を OpenAI Compatible API 経由で実行できる。Claude Code 以外の LLM（OpenAI、Ollama 等）で処理したい場合に使う。
 
 ```
 # OpenAI の場合
@@ -196,6 +205,25 @@ Claude Code から設定を操作:
 /shadow-clerk config set api_endpoint http://localhost:11434/v1
 /shadow-clerk config set api_model llama3
 /shadow-clerk config set api_key_env null
+```
+
+### LibreTranslate モード
+
+`translation_provider: libretranslate` に設定すると、LLM の代わりにセルフホストの [LibreTranslate](https://libretranslate.com/) インスタンスで翻訳を実行できる。
+
+```
+/shadow-clerk config set translation_provider libretranslate
+/shadow-clerk config set libretranslate_endpoint http://localhost:5000
+# オプション: 翻訳前に誤字訂正を有効化（音声認識の誤認識対策に有効）
+/shadow-clerk config set libretranslate_spell_check true
+```
+
+### 翻訳ファイルからの要約生成
+
+デフォルトでは transcript から要約を生成する。`summary_source: translate` に設定すると、翻訳ファイルから要約を生成できる:
+
+```
+/shadow-clerk config set summary_source translate
 ```
 
 ## ファイル構成
@@ -213,7 +241,6 @@ shadow-clerk/                          # リポジトリ
       SKILL.md.template                # Claude Code Skill テンプレート
   skills/
     SKILL.md                           # Claude Code Skill 定義（開発用）
-    clerk-util                         # 薄いラッパー（開発用）
 
 ~/.local/share/shadow-clerk/           # ランタイムデータ
   transcript-YYYYMMDD.txt              # 文字起こし結果（日付ベース）
@@ -265,4 +292,67 @@ dpkg -l | grep portaudio
 
 ```bash
 clerk-daemon --model tiny
+```
+
+### Kotoba-Whisper（日本語特化モデル）
+
+`use_kotoba_whisper: true`（デフォルト）にすると、`language=ja` の場合に [Kotoba-Whisper](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0) が自動的に使用される。言語が `ja` 以外に変わると標準 Whisper モデルに戻る。
+
+**モデル比較:**
+
+| モデル | パラメータ数 | エンコーダ | デコーダ | 日本語精度 | CPU速度 |
+|---|---|---|---|---|---|
+| Whisper tiny | 39M | 4層 | 4層 | 低い | 最速 |
+| Whisper base | 74M | 6層 | 6層 | 低い | 速い |
+| Whisper small | 244M | 12層 | 12層 | 中程度 | 中程度 |
+| Whisper medium | 769M | 24層 | 24層 | 中〜高 | 遅い |
+| Whisper large-v3 | 1550M | 32層 | 32層 | 高い | 非常に遅い |
+| **Kotoba-Whisper** | **756M** | **32層** | **2層** | **高い** | **medium 程度** |
+
+Kotoba-Whisper は large-v3 のエンコーダ全体（32層）を持ちつつ、デコーダを2層に蒸留したモデル。日本語精度は large-v3 に匹敵し、速度は medium 程度。
+
+**beam_size との組み合わせ:**
+
+`beam_size` はデコーダの探索幅を制御するパラメータ。デコーダ層数が多いモデルほど影響が大きい:
+
+| モデル | デコーダ層数 | beam=1 vs beam=5 の速度差 |
+|---|---|---|
+| Whisper tiny | 4層 | 小さい |
+| Whisper small | 12層 | 中程度 |
+| Whisper medium | 24層 | **大きい** |
+| Whisper large-v3 | 32層 | **非常に大きい** |
+| **Kotoba-Whisper** | **2層** | **ほぼなし** |
+
+Kotoba-Whisper はデコーダが2層しかないため、**beam=5 のままでも速度への影響がほとんどない**。標準 Whisper（特に medium 以上）で速度が気になる場合は `beam_size: 1` にすると改善する。
+
+**選び方ガイド:**
+
+| ユースケース | 設定 |
+|---|---|
+| 日本語メイン・精度重視 | `use_kotoba_whisper: true`, `whisper_beam_size: 5` |
+| 日本語メイン・速度重視 (CPU) | `use_kotoba_whisper: false`, `default_model: small`, `whisper_beam_size: 1` |
+| 多言語 | `use_kotoba_whisper: true`, `default_model: small`（ja 時は Kotoba、他は small） |
+| GPU (CUDA) 環境 | `use_kotoba_whisper: true`, `whisper_beam_size: 5`（最高精度・高速） |
+
+**中間文字起こし:**
+
+`interim_use_kotoba_whisper` は中間文字起こし（発話中のリアルタイム表示）で Kotoba-Whisper を使うかの設定。Kotoba-Whisper は 756M パラメータのため、中間文字起こしの速度要件に合わない場合がある。CPU 環境ではデフォルトの `false`（tiny/base 等の軽量モデル使用）を推奨。
+
+```yaml
+# 日本語精度重視（GPU 推奨）
+use_kotoba_whisper: true
+interim_use_kotoba_whisper: true
+whisper_beam_size: 5
+
+# 日本語精度重視 + 中間は速度重視（CPU 推奨）
+use_kotoba_whisper: true
+interim_use_kotoba_whisper: false
+interim_model: tiny
+whisper_beam_size: 5        # Kotoba はデコーダ2層なので beam=5 でも軽い
+
+# 速度最優先（CPU）
+use_kotoba_whisper: false
+default_model: small
+interim_model: tiny
+whisper_beam_size: 1
 ```

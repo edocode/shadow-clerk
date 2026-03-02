@@ -88,6 +88,8 @@ STRINGS = {
         "dash.meeting_end": "会議終了",
         "dash.translate_start": "翻訳開始",
         "dash.translate_stop": "翻訳停止",
+        "dash.translate_regen": "翻訳を再生成",
+        "dash.translate_regen_confirm": "翻訳を最初から再生成しますか？",
         "dash.translate_claude_hint": "llm_provider が claude の場合、翻訳は Claude Code から実行してください（/shadow-clerk translate <lang>）",
         "dash.realtime_translation": "リアルタイム翻訳",
         "dash.summary": "要約",
@@ -191,6 +193,9 @@ STRINGS = {
         "cfg.libretranslate_spell_check": "誤字訂正(LibreTranslate用)",
         "cfg.spell_check_model": "誤字訂正モデル",
         "cfg.summary_source": "要約ソース",
+        "cfg.use_kotoba_whisper": "Kotoba-Whisper (日本語)",
+        "cfg.kotoba_whisper_model": "Kotoba-Whisper モデル",
+        "cfg.interim_use_kotoba_whisper": "中間Kotoba-Whisper (日本語)",
 
         # --- llm.* : LLM プロンプト ---
         "llm.translate_system": (
@@ -202,32 +207,41 @@ STRINGS = {
             "4. 番号とコロンの後の翻訳テキストのみを出力してください。余計な説明は不要です。"
         ),
         "llm.summary_full_system": (
-            "あなたは議事録作成アシスタントです。以下の transcript（音声書き起こし）から議事録を作成してください。\n"
+            "あなたは議事録作成アシスタントです。指定されたテンプレートに厳密に従って議事録を出力してください。\n"
+            "テンプレート以外の形式で出力しないでください。"
+        ),
+        "llm.summary_full_user": (
+            "以下の transcript（音声書き起こし）から議事録を作成してください。\n"
             "\n"
-            "フォーマット:\n"
+            "【出力テンプレート（この構造に厳密に従うこと）】\n"
             "{summary_format}\n"
             "\n"
-            "注意事項:\n"
+            "【注意事項】\n"
             "- 日本語で作成してください\n"
             "- transcript の各行は [YYYY-MM-DD HH:MM:SS] [スピーカー] テキスト 形式です\n"
-            "- 文字起こしの誤認識と思われる箇所は文脈から推測して補正してください\n"
-            "- マークダウン形式で出力してください"
+            "- 音声認識による誤字・誤変換を文脈から推測して正しい表記に修正してください\n"
+            "- 固有名詞や専門用語は前後の文脈から最も適切な表記を推定してください\n"
+            "\n"
+            "【transcript】\n"
+            "{transcript}"
         ),
         "llm.summary_update_system": (
-            "あなたは議事録作成アシスタントです。既存の議事録と新しい transcript（音声書き起こしの差分）が与えられます。\n"
+            "あなたは議事録作成アシスタントです。指定されたテンプレートに厳密に従って議事録を出力してください。\n"
+            "テンプレート以外の形式で出力しないでください。"
+        ),
+        "llm.summary_update_user": (
             "既存の議事録を新しい transcript の内容で更新してください。\n"
             "\n"
-            "フォーマット:\n"
+            "【出力テンプレート（この構造に厳密に従うこと）】\n"
             "{summary_format}\n"
             "\n"
-            "注意事項:\n"
+            "【注意事項】\n"
             "- 日本語で作成してください\n"
             "- 既存の議事録の内容は維持しつつ、新しい情報を追加・統合してください\n"
             "- transcript の各行は [YYYY-MM-DD HH:MM:SS] [スピーカー] テキスト 形式です\n"
-            "- 文字起こしの誤認識と思われる箇所は文脈から推測して補正してください\n"
-            "- 更新後の議事録全体をマークダウン形式で出力してください"
-        ),
-        "llm.summary_update_user": (
+            "- 音声認識による誤字・誤変換を文脈から推測して正しい表記に修正してください\n"
+            "- 固有名詞や専門用語は前後の文脈から最も適切な表記を推定してください\n"
+            "\n"
             "## 既存の議事録\n"
             "{existing}\n"
             "\n"
@@ -236,6 +250,10 @@ STRINGS = {
         ),
         "llm.summary_update_none": "(なし — 新規作成してください)",
         "llm.summary_format": (
+            "以下のテンプレートの見出し構造・書式を厳密に守って出力してください。\n"
+            "見出しの追加・変更・省略はしないでください。内容がない場合は「特になし」と記載してください。\n"
+            "\n"
+            "```\n"
             "# 議事録\n"
             "\n"
             "- **日時**: YYYY-MM-DD HH:MM〜HH:MM（transcript のタイムスタンプから推定）\n"
@@ -253,7 +271,8 @@ STRINGS = {
             "- [ ] 担当者: タスク内容（期限があれば記載）\n"
             "\n"
             "## 詳細メモ\n"
-            "（重要な発言や補足情報）"
+            "（重要な発言や補足情報）\n"
+            "```"
         ),
         "llm.query_system": "あなたは親切なアシスタントです。簡潔に回答してください。",
         "llm.match_command_system": (
@@ -263,12 +282,11 @@ STRINGS = {
             "利用可能なコマンド一覧:\n"
             "{commands}\n"
             "\n"
-            "以下のルールに従ってください:\n"
-            '1. 音声認識テキストがどのコマンドに最も近いかを判断してください。\n'
-            "2. 音声認識の誤認識を考慮し、意味的に最も近いコマンドを選んでください。\n"
-            '3. 結果を以下の JSON 形式で返してください（JSON のみ、余計なテキストは不要）:\n'
-            '   {{"command": "マッチしたコマンド名", "confidence": 0-100の整数}}\n'
-            "4. confidence は一致の確信度です。完全一致なら100、やや曖昧なら60-80、関係なさそうなら0-30としてください。"
+            "ルール:\n"
+            "1. 音声認識の誤認識を考慮し、意味的に最も近いコマンドを選んでください。\n"
+            '2. 結果を JSON で返してください（JSON のみ）:\n'
+            '   {{"command": "マッチしたコマンド", "confidence": 0-100の整数}}\n'
+            "3. confidence は確信度です。完全一致なら100、やや曖昧なら60-80、関係なさそうなら0-30としてください。"
         ),
 
         # --- vcmd.* : 音声コマンド説明 ---
@@ -332,6 +350,8 @@ STRINGS = {
         "dash.meeting_end": "End Meeting",
         "dash.translate_start": "Start Translation",
         "dash.translate_stop": "Stop Translation",
+        "dash.translate_regen": "Regenerate translation",
+        "dash.translate_regen_confirm": "Regenerate translation from scratch?",
         "dash.translate_claude_hint": "When llm_provider is claude, please run translation from Claude Code (/shadow-clerk translate <lang>)",
         "dash.realtime_translation": "Realtime Translation",
         "dash.summary": "Summary",
@@ -435,6 +455,9 @@ STRINGS = {
         "cfg.libretranslate_spell_check": "Spell Check (LibreTranslate)",
         "cfg.spell_check_model": "Spell Check Model",
         "cfg.summary_source": "Summary Source",
+        "cfg.use_kotoba_whisper": "Kotoba-Whisper (Japanese)",
+        "cfg.kotoba_whisper_model": "Kotoba-Whisper Model",
+        "cfg.interim_use_kotoba_whisper": "Interim Kotoba-Whisper (Japanese)",
 
         # --- llm.* ---
         "llm.translate_system": (
@@ -446,32 +469,41 @@ STRINGS = {
             "4. Output only the number and translated text after the colon. No extra explanations."
         ),
         "llm.summary_full_system": (
-            "You are a meeting minutes assistant. Create meeting minutes from the following transcript (speech-to-text).\n"
+            "You are a meeting minutes assistant. Strictly follow the given template to output meeting minutes.\n"
+            "Do not output in any format other than the template."
+        ),
+        "llm.summary_full_user": (
+            "Create meeting minutes from the following transcript (speech-to-text).\n"
             "\n"
-            "Format:\n"
+            "[OUTPUT TEMPLATE - follow this structure exactly]\n"
             "{summary_format}\n"
             "\n"
-            "Notes:\n"
+            "[RULES]\n"
             "- Write in English\n"
             "- Each transcript line is in [YYYY-MM-DD HH:MM:SS] [Speaker] Text format\n"
-            "- Correct obvious speech recognition errors from context\n"
-            "- Output in markdown format"
+            "- Fix speech recognition errors by inferring correct words from context\n"
+            "- Infer the most appropriate spelling for proper nouns and technical terms\n"
+            "\n"
+            "[TRANSCRIPT]\n"
+            "{transcript}"
         ),
         "llm.summary_update_system": (
-            "You are a meeting minutes assistant. You are given existing meeting minutes and new transcript (speech-to-text diff).\n"
-            "Update the existing minutes with the new transcript content.\n"
+            "You are a meeting minutes assistant. Strictly follow the given template to output meeting minutes.\n"
+            "Do not output in any format other than the template."
+        ),
+        "llm.summary_update_user": (
+            "Update the existing meeting minutes with the new transcript content.\n"
             "\n"
-            "Format:\n"
+            "[OUTPUT TEMPLATE - follow this structure exactly]\n"
             "{summary_format}\n"
             "\n"
-            "Notes:\n"
+            "[RULES]\n"
             "- Write in English\n"
             "- Maintain existing minutes content while adding/integrating new information\n"
             "- Each transcript line is in [YYYY-MM-DD HH:MM:SS] [Speaker] Text format\n"
-            "- Correct obvious speech recognition errors from context\n"
-            "- Output the complete updated minutes in markdown format"
-        ),
-        "llm.summary_update_user": (
+            "- Fix speech recognition errors by inferring correct words from context\n"
+            "- Infer the most appropriate spelling for proper nouns and technical terms\n"
+            "\n"
             "## Existing Meeting Minutes\n"
             "{existing}\n"
             "\n"
@@ -480,6 +512,10 @@ STRINGS = {
         ),
         "llm.summary_update_none": "(None — please create new minutes)",
         "llm.summary_format": (
+            "Follow this template structure exactly. Do not add, change, or omit any headings.\n"
+            "If a section has no content, write \"N/A\".\n"
+            "\n"
+            "```\n"
             "# Meeting Minutes\n"
             "\n"
             "- **Date/Time**: YYYY-MM-DD HH:MM - HH:MM (estimated from transcript timestamps)\n"
@@ -497,7 +533,8 @@ STRINGS = {
             "- [ ] Owner: Task description (deadline if applicable)\n"
             "\n"
             "## Detailed Notes\n"
-            "(Important statements and supplementary information)"
+            "(Important statements and supplementary information)\n"
+            "```"
         ),
         "llm.query_system": "You are a helpful assistant. Please respond concisely.",
         "llm.match_command_system": (
@@ -507,12 +544,11 @@ STRINGS = {
             "Available commands:\n"
             "{commands}\n"
             "\n"
-            "Follow these rules:\n"
-            "1. Determine which command best matches the speech recognition text.\n"
-            "2. Consider speech recognition errors and choose the semantically closest command.\n"
-            '3. Return results in the following JSON format only (no extra text):\n'
-            '   {{"command": "matched command name", "confidence": 0-100 integer}}\n'
-            "4. confidence is the certainty of the match. Use 100 for exact match, 60-80 for somewhat ambiguous, 0-30 for unrelated."
+            "Rules:\n"
+            "1. Consider speech recognition errors and choose the semantically closest command.\n"
+            '2. Return results in JSON only:\n'
+            '   {{"command": "matched command", "confidence": 0-100 integer}}\n'
+            "3. confidence: 100 for exact match, 60-80 for somewhat ambiguous, 0-30 for unrelated."
         ),
 
         # --- vcmd.* ---
