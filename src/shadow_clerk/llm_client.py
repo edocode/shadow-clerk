@@ -172,7 +172,20 @@ def _translate_libretranslate(texts: list[str], lang: str, endpoint: str, api_ke
             result = json.loads(resp.read().decode("utf-8"))
         translated = result.get("translatedText", "")
         logger.debug("LibreTranslate response: %r", translated[:200])
-        return translated.split("\n")
+        lines = translated.split("\n")
+        # LibreTranslate bug: 入力に全大文字英単語(AI等)があると出力全体が大文字になる
+        # 各文の先頭を大文字にし、それ以外を小文字にする（title case ではなく sentence case）
+        fixed = []
+        for line in lines:
+            if line and len(line) > 3 and line == line.upper() and line != line.lower():
+                import re as _re
+                line = line.lower()
+                line = _re.sub(r'(^|[.!?]\s+)([a-z])', lambda m: m.group(1) + m.group(2).upper(), line)
+                # "i " / "i'" を "I " / "I'" に修正
+                line = _re.sub(r"\bi\b(?=['\s])", "I", line)
+                logger.debug("LibreTranslate uppercase fix: %r", line[:80])
+            fixed.append(line)
+        return fixed
     except Exception as e:
         logger.error("LibreTranslate error: %s", e)
         return texts  # フォールバック: 原文をそのまま返す
