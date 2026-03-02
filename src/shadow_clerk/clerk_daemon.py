@@ -703,7 +703,22 @@ class Recorder:
 
         # --output が指定されていれば固定、なければ日付ベースのデフォルト
         self._explicit_output = args.output is not None
-        self.output_path = args.output if self._explicit_output else self._get_default_output()
+        if self._explicit_output:
+            self.output_path = args.output
+        elif os.path.exists(SESSION_FILE):
+            # 会議セッション中に再起動された場合、セッションファイルを復元
+            try:
+                with open(SESSION_FILE, "r", encoding="utf-8") as f:
+                    session_path = f.read().strip()
+                if session_path and os.path.exists(session_path):
+                    self.output_path = session_path
+                    logger.info("会議セッション復元: %s", session_path)
+                else:
+                    self.output_path = self._get_default_output()
+            except Exception:
+                self.output_path = self._get_default_output()
+        else:
+            self.output_path = self._get_default_output()
         self.use_monitor = True
         self.use_mic = True
         self.word_replacer = WordReplacer()
