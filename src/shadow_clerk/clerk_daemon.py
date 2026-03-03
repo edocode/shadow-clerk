@@ -70,7 +70,7 @@ MAX_SEGMENT_DURATION = 30.0  # 最大セグメント長(秒)
 # DATA_DIR, CONFIG_FILE は from shadow_clerk import で取得済み
 
 DEFAULT_CONFIG = {
-    "translate_language": "ja",
+    "translate_language": "en",
     "auto_translate": False,
     "auto_summary": False,
     "default_language": None,
@@ -87,7 +87,7 @@ DEFAULT_CONFIG = {
     "whisper_compute_type": "int8", # int8/float16/float32
     "whisper_device": "cpu",       # cpu/cuda
     "interim_transcription": False,
-    "interim_model": "tiny",
+    "interim_model": "base",
     "ui_language": "ja",
     "translation_provider": None,
     "libretranslate_endpoint": None,
@@ -95,7 +95,7 @@ DEFAULT_CONFIG = {
     "libretranslate_spell_check": False,
     "spell_check_model": "mbyhphat/t5-japanese-typo-correction",
     "summary_source": "transcript",
-    "use_kotoba_whisper": True,
+    "use_kotoba_whisper": False,
     "kotoba_whisper_model": "kotoba-tech/kotoba-whisper-v2.0-faster",
     "interim_use_kotoba_whisper": False,
 }
@@ -2629,7 +2629,7 @@ main {
 </div>
 <div class="modal-overlay" id="helpModal" onclick="if(event.target===this)closeHelp()">
   <div class="modal" style="max-width:600px;">
-    <div class="modal-head"><span>{{i18n:dash.help_title}}</span><button onclick="closeHelp()">&times;</button></div>
+    <div class="modal-head"><span>{{i18n:dash.help_title}}</span><span style="margin-left:auto;margin-right:8px;"><a id="helpReadmeLink" href="https://github.com/edocode/shadow-clerk#readme" target="_blank" rel="noopener" style="font-size:13px;">README</a></span><button onclick="closeHelp()">&times;</button></div>
     <div class="modal-body" style="display:block;max-height:70vh;overflow-y:auto;font-size:13px;line-height:1.7;">
       <div id="helpContent" style="white-space:pre-wrap;"></div>
     </div>
@@ -3076,6 +3076,8 @@ async function saveCustomCmds(){
 }
 function openHelp(){
   document.getElementById('helpContent').textContent=I18N['dash.help_body'];
+  const lang=cfgData&&cfgData.ui_language||'en';
+  document.getElementById('helpReadmeLink').href='https://github.com/edocode/shadow-clerk/blob/main/'+(lang==='ja'?'README.ja.md':'README.md');
   document.getElementById('helpModal').classList.add('open');
 }
 function closeHelp(){document.getElementById('helpModal').classList.remove('open');}

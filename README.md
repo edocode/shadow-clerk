@@ -6,19 +6,19 @@ Runs on Ubuntu + PipeWire / PulseAudio environments.
 
 ## Features and requirements
 
-| Feature | Requires | Related settings |
-|---|---|---|
-| Transcription | faster-whisper (included) | `default_model`, `default_language` |
-| Kotoba-Whisper (Japanese high-accuracy) | Same (auto-downloaded on first use) | `use_kotoba_whisper: true` |
-| Interim transcription | Same | `interim_transcription: true`, `interim_model` |
-| Translation (LibreTranslate) | LibreTranslate server | `translation_provider: libretranslate` |
-| Translation (OpenAI compatible API) | OpenAI compatible API | `translation_provider: api`, `api_endpoint`, `api_model` |
-| Translation (Claude) | Claude Code | `translation_provider: claude` |
-| Summary (Claude) | Claude Code | `llm_provider: claude` |
-| Summary (OpenAI compatible API) | OpenAI compatible API | `llm_provider: api`, `api_endpoint`, `api_model` |
-| Voice commands (PTT) | None (built-in) | `voice_command_key` |
-| Voice commands (LLM matching) | OpenAI compatible API | `api_endpoint`, `api_model` |
-| Spell check (pre-translation) | transformers (auto-downloaded on first use) | `libretranslate_spell_check: true` |
+| Feature | Requires | Quality | Speed | Related settings |
+|---|---|:---:|:---:|---|
+| Transcription (default) | faster-whisper (included) | 3 | 4 | `default_model`, `default_language` |
+| Transcription (Japanese high-accuracy) | Same (auto-downloaded on first use) | 5 | 3 | `use_kotoba_whisper: true` |
+| Interim transcription | Same | 2 | 5 | `interim_transcription: true`, `interim_model` |
+| Translation (LibreTranslate) | LibreTranslate server | 2 | 4 | `translation_provider: libretranslate` |
+| Translation (OpenAI compatible API) | OpenAI compatible API | 3-5 | 2-5 | `translation_provider: api`, `api_endpoint`, `api_model` |
+| Translation (Claude) | Claude Code | 5 | 2 | `translation_provider: claude` |
+| Summary (Claude) | Claude Code | 5 | 3 | `llm_provider: claude` |
+| Summary (OpenAI compatible API) | OpenAI compatible API | 3-5 | 2-5 | `llm_provider: api`, `api_endpoint`, `api_model` |
+| Voice commands (PTT) | None (built-in) | — | — | `voice_command_key` |
+| Voice commands (LLM matching) | OpenAI compatible API | — | — | `api_endpoint`, `api_model` |
+| Spell check (pre-translation) | transformers (auto-downloaded on first use) | — | — | `libretranslate_spell_check: true` |
 
 **Minimal setup without LLM:** Transcription + LibreTranslate translation requires no external API or Claude Code. Everything runs locally.
 
@@ -208,7 +208,7 @@ Customize defaults and auto-features in `~/.local/share/shadow-clerk/config.yaml
 
 ```yaml
 # shadow-clerk config
-translate_language: ja        # Translation target language (ja/en/etc)
+translate_language: en        # Translation target language (ja/en/etc)
 auto_translate: false         # Auto-start translation on start meeting
 auto_summary: false           # Auto-generate summary on end meeting
 default_language: null        # Default language for clerk-daemon (null=auto-detect)
@@ -231,8 +231,8 @@ whisper_beam_size: 5           # Whisper beam size (1=fast, 5=accurate)
 whisper_compute_type: int8     # Compute precision (int8/float16/float32)
 whisper_device: cpu            # Device (cpu/cuda)
 interim_transcription: false   # Interim transcription (real-time display while speaking)
-interim_model: tiny            # Model for interim transcription
-use_kotoba_whisper: true       # Use Kotoba-Whisper when language=ja
+interim_model: base            # Model for interim transcription
+use_kotoba_whisper: false      # Use Kotoba-Whisper when language=ja
 kotoba_whisper_model: kotoba-tech/kotoba-whisper-v2.0-faster  # Kotoba-Whisper model
 interim_use_kotoba_whisper: false  # Use Kotoba-Whisper for interim transcription too
 ui_language: ja                # UI language (ja/en) — dashboard, terminal output, LLM prompts
@@ -328,7 +328,7 @@ clerk-daemon --model tiny
 
 ### Kotoba-Whisper (Japanese-specialized model)
 
-When `use_kotoba_whisper: true` (default), [Kotoba-Whisper](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0) is automatically used when `language=ja`. When the language is changed to something other than `ja`, it reverts to the standard Whisper model.
+When `use_kotoba_whisper: true`, [Kotoba-Whisper](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0) is automatically used when `language=ja`. When the language is changed to something other than `ja`, it reverts to the standard Whisper model.
 
 **Model comparison:**
 
@@ -362,7 +362,7 @@ Since Kotoba-Whisper has only 2 decoder layers, **beam=5 has almost no speed pen
 | Use case | Settings |
 |---|---|
 | Japanese-focused, accuracy priority | `use_kotoba_whisper: true`, `whisper_beam_size: 5` |
-| Japanese-focused, speed priority (CPU) | `use_kotoba_whisper: false`, `default_model: small`, `whisper_beam_size: 1` |
+| Japanese-focused, speed priority (CPU) | `use_kotoba_whisper: false`, `default_model: small`, `whisper_beam_size: 3` |
 | Multilingual | `use_kotoba_whisper: true`, `default_model: small` (Kotoba for ja, small for others) |
 | GPU (CUDA) environment | `use_kotoba_whisper: true`, `whisper_beam_size: 5` (best accuracy & speed) |
 
@@ -379,12 +379,12 @@ whisper_beam_size: 5
 # Japanese accuracy + fast interim (CPU recommended)
 use_kotoba_whisper: true
 interim_use_kotoba_whisper: false
-interim_model: tiny
+interim_model: base
 whisper_beam_size: 5        # Kotoba has only 2 decoder layers, beam=5 is fine
 
 # Maximum speed (CPU)
 use_kotoba_whisper: false
 default_model: small
-interim_model: tiny
+interim_model: base
 whisper_beam_size: 1
 ```
