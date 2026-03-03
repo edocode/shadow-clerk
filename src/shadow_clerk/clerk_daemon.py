@@ -32,7 +32,7 @@ from shadow_clerk import DATA_DIR, CONFIG_FILE
 from shadow_clerk.i18n import t, t_all
 
 try:
-    from shadow_clerk.llm_client import get_api_client, load_glossary, load_dotenv as llm_load_dotenv, _spell_check
+    from shadow_clerk.llm_client import get_api_client, load_glossary, load_glossary_readings, load_dotenv as llm_load_dotenv, _spell_check
     _HAS_LLM_CLIENT = True
 except ImportError:
     _HAS_LLM_CLIENT = False
@@ -665,23 +665,23 @@ class Recorder:
 
         # カスタム音声コマンドをコンパイル
         self._custom_commands = []
-        custom_keywords = []
         for entry in config.get("custom_commands") or []:
             try:
                 pat = re.compile(entry["pattern"], re.IGNORECASE)
                 self._custom_commands.append((pat, entry["action"]))
-                # pattern から語彙ヒント用キーワードを抽出（| 区切りを分割）
-                for kw in entry["pattern"].split("|"):
-                    kw = kw.strip()
-                    if kw:
-                        custom_keywords.append(kw)
             except (KeyError, re.error) as e:
                 logger.warning("カスタムコマンド定義エラー: %s — %s", entry, e)
 
-        # Whisper initial_prompt: 音声コマンドのキーワードをヒントとして与える
-        default_prompt = "クラーク、会議開始、会議終了、翻訳開始、翻訳停止、言語設定"
-        if custom_keywords:
-            default_prompt += "、" + "、".join(custom_keywords)
+        # Whisper initial_prompt: トリガーワード + glossary の reading をヒントとして与える
+        default_prompt = "クラーク"
+        # glossary の reading 列から語彙ヒントを注入
+        if _HAS_LLM_CLIENT:
+            try:
+                readings = load_glossary_readings()
+                if readings:
+                    default_prompt += "、" + "、".join(readings)
+            except Exception:
+                pass
         user_prompt = config.get("initial_prompt")
         initial_prompt = f"{default_prompt}、{user_prompt}" if user_prompt else default_prompt
 
@@ -856,6 +856,9 @@ class Recorder:
                 and time.time() - self._command_mode_release_time < PTT_GRACE_SEC
             ):
                 command_mode_latch = True
+            elif command_mode_latch and not self._command_mode:
+                # 猶予期間が過ぎてもセグメントが生成されなかった場合、ラッチをリセット
+                command_mode_latch = False
 
             timestamp = time.time()
             segment = segmenter.process_frame(frame, timestamp)
@@ -887,29 +890,12 @@ class Recorder:
             ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.transcribe_queue.put((segment, ts, label, command_mode_latch))
 
-    def _check_voice_command(self, text: str) -> str | None:
-        """文字起こし結果から音声コマンドを検出。コマンド文字列 or None を返す
-
-        「クラーク、翻訳開始」(前置き) と「翻訳開始、クラーク」(後置き) の両方に対応。
-        """
-        # プレフィックスまたはサフィックスでキーワードを検出
+    def _extract_command_body(self, text: str) -> str | None:
+        """プレフィックス/サフィックス「クラーク」を検出し、コマンド本文を返す。未検出なら None。"""
         if VOICE_CMD_PREFIX.match(text):
-            body = VOICE_CMD_PREFIX.sub("", text).strip()
+            return VOICE_CMD_PREFIX.sub("", text).strip()
         elif VOICE_CMD_SUFFIX.search(text):
-            body = VOICE_CMD_SUFFIX.sub("", text).strip()
-        else:
-            return None
-        # 1. 組み込みコマンド（優先）
-        for pattern, command in VOICE_COMMANDS:
-            if pattern.search(body):
-                return command
-        # 2. カスタムコマンド
-        for pattern, action in self._custom_commands:
-            if pattern.search(body):
-                return f"custom_exec {action}"
-        # 3. LLM フォールバック（API 設定済みの場合）
-        if load_config().get("api_endpoint") and body:
-            return f"llm_query {body}"
+            return VOICE_CMD_SUFFIX.sub("", text).strip()
         return None
 
     def _match_command_body(self, text: str) -> str | None:
@@ -1536,13 +1522,22 @@ class Recorder:
                             ).start()
                         continue
                     else:
-                        # 従来方式: プレフィックス/サフィックス検出
-                        voice_cmd = self._check_voice_command(text)
-                        if voice_cmd:
-                            logger.info("音声コマンド検出: %s → %s", text.strip(), voice_cmd)
-                            if voice_cmd.startswith("custom_exec "):
-                                logger.info("[%s] [%s] %s", timestamp, display_speaker, text.strip())
-                            self._execute_command(voice_cmd)
+                        # プレフィックス/サフィックス検出 → 誤字訂正経由でマッチング
+                        prefix_body = self._extract_command_body(text)
+                        if prefix_body is not None:
+                            config = load_config()
+                            if config.get("api_endpoint") and config.get("llm_provider") != "claude":
+                                threading.Thread(
+                                    target=self._llm_match_and_execute,
+                                    args=(prefix_body,),
+                                    name="cmd-match", daemon=True,
+                                ).start()
+                            else:
+                                threading.Thread(
+                                    target=self._spell_and_match,
+                                    args=(prefix_body, timestamp, display_speaker),
+                                    name="cmd-spell-match", daemon=True,
+                                ).start()
                             continue
 
                 # 日付変更チェック（セッション中でなく、明示的 output 指定でない場合のみ）
@@ -2077,6 +2072,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._save_glossary()
         elif path == "/api/summary":
             self._generate_summary()
+        elif path == "/api/transcript/delete":
+            self._delete_transcript_line()
         else:
             self.send_error(404)
 
@@ -2173,7 +2170,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 all_lines = f.readlines()
-            lines = [l.rstrip("\n") for l in all_lines[-50:]]
+            lines = [l.rstrip("\n") for l in all_lines]
         except OSError:
             pass
         self._send_json({
@@ -2195,7 +2192,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 all_lines = f.readlines()
-            lines = [l.rstrip("\n") for l in all_lines[-50:]]
+            lines = [l.rstrip("\n") for l in all_lines]
         except OSError:
             pass
         self._send_json({
@@ -2277,6 +2274,115 @@ class DashboardHandler(BaseHTTPRequestHandler):
             with open(COMMAND_FILE, "w", encoding="utf-8") as f:
                 f.write("generate_summary_full")
             self._send_json({"status": "ok", "message": t("dash.summary_generation_started")})
+
+    def _delete_transcript_line(self):
+        """POST /api/transcript/delete — transcript 行を削除（対応する翻訳行も削除）"""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length)
+            data = json.loads(body)
+            raw_line = data.get("line", "")
+            file_param = data.get("file", "")
+        except (json.JSONDecodeError, ValueError):
+            self.send_error(400)
+            return
+        if not raw_line or not file_param:
+            self.send_error(400)
+            return
+
+        # transcript ファイルパス
+        t_path = os.path.join(self.recorder._output_dir, os.path.basename(file_param))
+        if not os.path.exists(t_path):
+            self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
+            return
+
+        # transcript から行削除
+        if not self._remove_line_from_file(t_path, raw_line):
+            self._send_json({"status": "error", "message": t("dash.delete_error")})
+            return
+
+        # タイムスタンプを抽出して翻訳ファイルから対応行を削除
+        ts_match = re.match(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]", raw_line)
+        if ts_match:
+            timestamp = ts_match.group(1)
+            config = load_config()
+            lang = config.get("translate_language", "ja")
+            tr_name = os.path.basename(t_path).replace(".txt", f"-{lang}.txt")
+            tr_path = os.path.join(os.path.dirname(t_path), tr_name)
+            if os.path.exists(tr_path):
+                self._remove_line_from_file_by_ts(tr_path, timestamp)
+                # FileWatcher の翻訳オフセットをリセット
+                tr_key = ("translation", tr_path)
+                if self.file_watcher and tr_key in self.file_watcher._file_offsets:
+                    self.file_watcher._file_offsets[tr_key] = self._get_file_size(tr_path)
+
+        # FileWatcher のオフセットをリセット（SSE 差分が壊れないように）
+        t_key = ("transcript", t_path)
+        if self.file_watcher and t_key in self.file_watcher._file_offsets:
+            self.file_watcher._file_offsets[t_key] = self._get_file_size(t_path)
+
+        # translate_offset ファイルを新 transcript サイズに更新（再翻訳防止）
+        offset_file = t_path + ".translate_offset"
+        if os.path.exists(offset_file):
+            try:
+                with open(offset_file, "w", encoding="utf-8") as f:
+                    f.write(str(self._get_file_size(t_path)))
+            except OSError:
+                pass
+
+        self._send_json({"status": "ok"})
+
+    @staticmethod
+    def _remove_line_from_file(path, raw_line):
+        """ファイルから完全一致する行を1件だけ削除する"""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            target = raw_line.rstrip("\n") + "\n"
+            found = False
+            new_lines = []
+            for line in lines:
+                if not found and line == target:
+                    found = True
+                    continue
+                new_lines.append(line)
+            if not found:
+                return False
+            with open(path, "w", encoding="utf-8") as f:
+                f.writelines(new_lines)
+            return True
+        except OSError:
+            return False
+
+    @staticmethod
+    def _remove_line_from_file_by_ts(path, timestamp):
+        """ファイルからタイムスタンプ前方一致する行を1件だけ削除する"""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            prefix = f"[{timestamp}]"
+            found = False
+            new_lines = []
+            for line in lines:
+                if not found and line.startswith(prefix):
+                    found = True
+                    continue
+                new_lines.append(line)
+            if not found:
+                return False
+            with open(path, "w", encoding="utf-8") as f:
+                f.writelines(new_lines)
+            return True
+        except OSError:
+            return False
+
+    @staticmethod
+    def _get_file_size(path):
+        """ファイルサイズを返す（存在しない場合は0）"""
+        try:
+            return os.path.getsize(path)
+        except OSError:
+            return 0
 
     def _serve_config(self):
         self._send_json(load_config())
@@ -2429,7 +2535,11 @@ main {
   font-family: 'SF Mono','Monaco','Menlo','Consolas',monospace;
   font-size: 12px; line-height: 1.6;
 }
-.ln { margin-bottom:2px; word-break:break-word; }
+.ln { margin-bottom:2px; word-break:break-word; display:flex; align-items:flex-start; }
+.ln .ln-text { flex:1; }
+.del-btn { opacity:0; cursor:pointer; margin-right:4px; font-size:12px; flex-shrink:0; user-select:none; }
+.ln:hover .del-btn { opacity:0.6; }
+.del-btn:hover { opacity:1 !important; }
 .ts { color:var(--muted); }
 .sp-s { color:var(--self); font-weight:600; }
 .sp-o { color:var(--other); font-weight:600; }
@@ -2658,6 +2768,21 @@ main {
     </div>
   </div>
 </div>
+<div class="modal-overlay" id="delLineModal" onclick="if(event.target===this)closeDelModal()">
+  <div class="modal" style="max-width:600px;">
+    <div class="modal-head"><span>{{i18n:dash.delete_line_title}}</span><button onclick="closeDelModal()">&times;</button></div>
+    <div class="modal-body" style="display:block;max-height:50vh;overflow-y:auto;font-size:13px;">
+      <div style="margin-bottom:8px;font-weight:600;color:var(--muted);">{{i18n:dash.delete_line_transcript}}</div>
+      <div id="delLineTranscript" style="white-space:pre-wrap;line-height:1.6;padding:6px 8px;background:var(--bg);border-radius:4px;margin-bottom:12px;"></div>
+      <div style="margin-bottom:8px;font-weight:600;color:var(--muted);">{{i18n:dash.delete_line_translation}}</div>
+      <div id="delLineTranslation" style="white-space:pre-wrap;line-height:1.6;padding:6px 8px;background:var(--bg);border-radius:4px;color:var(--muted);"></div>
+    </div>
+    <div class="modal-foot">
+      <button onclick="closeDelModal()">{{i18n:dash.cancel}}</button>
+      <button class="dan" onclick="doDelLine()">{{i18n:dash.delete}}</button>
+    </div>
+  </div>
+</div>
 <script>
 /*I18N_JSON*/
 let curFile='', activeFile='';
@@ -2670,18 +2795,60 @@ const as={tp:true,rp:true,logc:true};
   });
 });
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function escAttr(s){return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function fmtLine(t){
   if(/^---\\s.*\\s---$/.test(t)) return '<div class="ln"><span class="mk">'+esc(t)+'</span></div>';
   const m=t.match(/^\\[(\\d{4}-\\d{2}-\\d{2}\\s\\d{2}:\\d{2}:\\d{2})\\]\\s\\[([^\\]]+)\\]\\s(.*)$/);
   if(m){const sp=m[2],mic=I18N['speaker.mic']||'自分';const c=(sp===mic||sp==='自分')?'sp-s':'sp-o';
     const dl=sp===mic?mic:sp==='自分'?mic:(sp===(I18N['speaker.monitor']||'相手')||sp==='相手')?(I18N['speaker.monitor']||'相手'):sp;
-    return '<div class="ln"><span class="ts">['+esc(m[1])+']</span> <span class="'+c+'">['+esc(dl)+']</span> '+esc(m[3])+'</div>';}
-  return '<div class="ln">'+esc(t)+'</div>';
+    return '<div class="ln" data-ts="'+escAttr(m[1])+'" data-raw="'+escAttr(t)+'"><span class="ln-text"><span class="ts">['+esc(m[1])+']</span> <span class="'+c+'">['+esc(dl)+']</span> '+esc(m[3])+'</span></div>';}
+  return '<div class="ln" data-raw="'+escAttr(t)+'"><span class="ln-text">'+esc(t)+'</span></div>';
+}
+function fmtTranscriptLine(t){
+  if(/^---\\s.*\\s---$/.test(t)) return '<div class="ln"><span class="mk">'+esc(t)+'</span></div>';
+  const m=t.match(/^\\[(\\d{4}-\\d{2}-\\d{2}\\s\\d{2}:\\d{2}:\\d{2})\\]\\s\\[([^\\]]+)\\]\\s(.*)$/);
+  if(m){const sp=m[2],mic=I18N['speaker.mic']||'自分';const c=(sp===mic||sp==='自分')?'sp-s':'sp-o';
+    const dl=sp===mic?mic:sp==='自分'?mic:(sp===(I18N['speaker.monitor']||'相手')||sp==='相手')?(I18N['speaker.monitor']||'相手'):sp;
+    return '<div class="ln" data-ts="'+escAttr(m[1])+'" data-raw="'+escAttr(t)+'"><span class="del-btn" onclick="openDelModal(this)">🗑</span><span class="ln-text"><span class="ts">['+esc(m[1])+']</span> <span class="'+c+'">['+esc(dl)+']</span> '+esc(m[3])+'</span></div>';}
+  return '<div class="ln" data-raw="'+escAttr(t)+'"><span class="ln-text">'+esc(t)+'</span></div>';
 }
 function addLines(id,text,fmt){
   const el=document.getElementById(id);
   text.split('\\n').forEach(l=>{if(l.trim())el.insertAdjacentHTML('beforeend',fmt(l));});
   if(as[id])el.scrollTop=el.scrollHeight;
+}
+/* --- Delete line --- */
+let _delRaw='',_delLnEl=null,_delTrEl=null;
+function openDelModal(btn){
+  const ln=btn.closest('.ln');if(!ln)return;
+  _delRaw=ln.dataset.raw||'';_delLnEl=ln;
+  document.getElementById('delLineTranscript').textContent=_delRaw;
+  const ts=ln.dataset.ts||'';
+  _delTrEl=null;
+  let trText='—';
+  if(ts){
+    const rp=document.getElementById('rp');
+    const els=rp.querySelectorAll('.ln[data-ts]');
+    for(const el of els){if(el.dataset.ts===ts){_delTrEl=el;trText=el.dataset.raw||el.textContent;break;}}
+  }
+  document.getElementById('delLineTranslation').textContent=trText;
+  document.getElementById('delLineModal').classList.add('open');
+}
+function closeDelModal(){document.getElementById('delLineModal').classList.remove('open');}
+async function doDelLine(){
+  if(!_delRaw)return;
+  const file=document.getElementById('tf').textContent;
+  try{
+    const r=await fetch('/api/transcript/delete',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({line:_delRaw,file:file})});
+    const d=await r.json();
+    if(d.status==='ok'){
+      if(_delLnEl)_delLnEl.remove();
+      if(_delTrEl)_delTrEl.remove();
+      closeDelModal();
+    }else{alert(I18N['dash.delete_error']||'Failed to delete');}
+  }catch(e){alert(I18N['dash.delete_error']||'Failed to delete');}
 }
 /* --- Meeting toggle --- */
 function updateMeetingBtn(session){
@@ -2768,7 +2935,7 @@ async function fetchStatus(){
 const es=new EventSource('/api/events');
 es.addEventListener('transcript',e=>{
   const d=JSON.parse(e.data);
-  if(!curFile||curFile===d.file){addLines('tp',d.diff,fmtLine);document.getElementById('tf').textContent=d.file;}
+  if(!curFile||curFile===d.file){addLines('tp',d.diff,fmtTranscriptLine);document.getElementById('tf').textContent=d.file;}
 });
 es.addEventListener('translation',e=>{
   const d=JSON.parse(e.data);addLines('rp',d.diff,fmtLine);document.getElementById('rf').textContent=d.file;
@@ -2815,7 +2982,7 @@ async function loadFiles(){
 async function loadT(file){
   try{const u=file?'/api/transcript?file='+encodeURIComponent(file):'/api/transcript';
   const d=await(await fetch(u)).json(),el=document.getElementById('tp');el.innerHTML='';
-  d.lines.forEach(l=>el.insertAdjacentHTML('beforeend',fmtLine(l)));
+  d.lines.forEach(l=>el.insertAdjacentHTML('beforeend',fmtTranscriptLine(l)));
   document.getElementById('tf').textContent=d.file;el.scrollTop=el.scrollHeight;}catch(e){}
 }
 async function loadR(file){
@@ -2958,7 +3125,7 @@ async function saveCfg(){
     setTimeout(()=>s.style.display='none',2000);
   }catch(e){}
 }
-const GL_COL_OPTS=[...LANG_OPTS,'note'];
+const GL_COL_OPTS=[...LANG_OPTS,'reading','note'];
 let glossaryCols=[];
 function glossaryAddRow(vals){
   const tb=document.getElementById('glossaryBody');
@@ -2988,7 +3155,7 @@ async function openGlossary(){
   let text='';
   try{const r=await fetch('/api/glossary');text=await r.text();}catch(e){}
   const lines=text.split('\\n').filter(l=>l.trim()&&!l.startsWith('#'));
-  glossaryCols=(lines.length>0)?lines[0].split('\\t'):['ja','en','note'];
+  glossaryCols=(lines.length>0)?lines[0].split('\\t'):['ja','en','reading','note'];
   const head=document.getElementById('glossaryHead');
   head.innerHTML='';
   glossaryCols.forEach(c=>{const th=document.createElement('th');th.appendChild(glossaryMakeHeadSel(c));head.appendChild(th);});

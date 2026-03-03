@@ -262,21 +262,29 @@ def load_glossary(lang: str) -> str:
     if not data_lines:
         return ""
 
-    # ヘッダー解析
-    headers = data_lines[0].split("\t")
-    has_note = headers[-1].strip().lower() == "note"
-    lang_cols = [h.strip() for h in headers]
-    if has_note:
-        lang_cols = lang_cols[:-1]
+    # ヘッダー解析: 言語列以外の特殊列（note, reading）を識別
+    headers = [h.strip() for h in data_lines[0].split("\t")]
+    special_cols = {"note", "reading"}
+    lang_cols = []
+    meta_indices = {}  # {"note": idx, "reading": idx}
+    for i, h in enumerate(headers):
+        if h.lower() in special_cols:
+            meta_indices[h.lower()] = i
+        else:
+            lang_cols.append((i, h))
 
     # 翻訳先言語の列インデックスを特定
-    try:
-        target_idx = lang_cols.index(lang)
-    except ValueError:
+    target_idx = None
+    for i, lc in lang_cols:
+        if lc == lang:
+            target_idx = i
+            break
+    if target_idx is None:
         return ""
 
     # 他の言語列を「原文」、lang 列を「翻訳先」としてペアを作成
-    note_idx = len(headers) - 1 if has_note else None
+    note_idx = meta_indices.get("note")
+    reading_idx = meta_indices.get("reading")
     pairs = []
     for row_line in data_lines[1:]:
         cols = row_line.split("\t")
@@ -284,21 +292,72 @@ def load_glossary(lang: str) -> str:
         if not target_term:
             continue
         note = cols[note_idx].strip() if note_idx is not None and note_idx < len(cols) else ""
-        for i, lc in enumerate(lang_cols):
-            if i == target_idx:
+        reading = cols[reading_idx].strip() if reading_idx is not None and reading_idx < len(cols) else ""
+        for col_idx, lc in lang_cols:
+            if col_idx == target_idx:
                 continue
-            source_term = cols[i].strip() if i < len(cols) else ""
+            source_term = cols[col_idx].strip() if col_idx < len(cols) else ""
             if not source_term:
                 continue
             entry = f"{source_term} → {target_term}"
+            annotations = []
+            if reading:
+                annotations.append(f"読み: {reading}")
             if note:
-                entry += f" ({note})"
+                annotations.append(note)
+            if annotations:
+                entry += f" ({', '.join(annotations)})"
             pairs.append(entry)
 
     if not pairs:
         return ""
 
     return "5. 以下の用語集を参考にしてください:\n" + "\n".join(f"  {p}" for p in pairs)
+
+
+def load_glossary_readings() -> list[str]:
+    """glossary.txt から reading 列の値を返す（Whisper initial_prompt 用）。
+
+    各行の用語名と reading を返す。reading がない行はスキップ。
+    """
+    if not os.path.exists(GLOSSARY_FILE):
+        return []
+    try:
+        with open(GLOSSARY_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except OSError:
+        return []
+
+    data_lines = [l.rstrip("\n") for l in lines if l.strip() and not l.strip().startswith("#")]
+    if not data_lines:
+        return []
+
+    headers = [h.strip() for h in data_lines[0].split("\t")]
+    reading_idx = None
+    for i, h in enumerate(headers):
+        if h.lower() == "reading":
+            reading_idx = i
+            break
+    if reading_idx is None:
+        return []
+
+    # 全言語列の用語 + reading を収集
+    results = []
+    for row_line in data_lines[1:]:
+        cols = row_line.split("\t")
+        reading = cols[reading_idx].strip() if reading_idx < len(cols) else ""
+        if not reading:
+            continue
+        # 各言語列の用語も追加（Whisper が認識できるように）
+        for i, h in enumerate(headers):
+            if h.lower() in ("note", "reading"):
+                continue
+            term = cols[i].strip() if i < len(cols) else ""
+            if term and term not in results:
+                results.append(term)
+        if reading not in results:
+            results.append(reading)
+    return results
 
 
 MARKER_RE = re.compile(r"^---\s+.+\s+---$")
@@ -592,9 +651,67 @@ def summarize(args: argparse.Namespace):
         print(result)
 
 
+def _estimate_tokens(text: str) -> int:
+    """テキストのトークン数を概算する（日本語: ~1文字/token, 英語: ~4文字/token）"""
+    cjk = sum(1 for c in text if "\u3000" <= c <= "\u9fff" or "\uf900" <= c <= "\ufaff" or "\uff00" <= c <= "\uffef")
+    ascii_chars = len(text) - cjk
+    return cjk + ascii_chars // 4
+
+
+def _split_transcript_lines(transcript: str, max_tokens: int) -> list[str]:
+    """transcript を行単位でチャンクに分割する。各チャンクが max_tokens 以下になるように。"""
+    lines = transcript.split("\n")
+    chunks = []
+    current_chunk = []
+    current_tokens = 0
+
+    for line in lines:
+        line_tokens = _estimate_tokens(line)
+        if current_chunk and current_tokens + line_tokens > max_tokens:
+            chunks.append("\n".join(current_chunk))
+            current_chunk = []
+            current_tokens = 0
+        current_chunk.append(line)
+        current_tokens += line_tokens
+
+    if current_chunk:
+        chunks.append("\n".join(current_chunk))
+    return chunks
+
+
+# プロンプト部分のトークン概算（system + template + フォーマット指示）
+_PROMPT_OVERHEAD_TOKENS = 2000
+
+
 def _summarize_full(client: OpenAI, model: str, transcript: str):
-    """transcript 全文から議事録を生成する。"""
+    """transcript 全文から議事録を生成する。長い場合はチャンク分割で段階的に要約。"""
     summary_format = _get_summary_format()
+
+    # コンテキスト上限の概算（65536 に対して余裕を持たせる）
+    max_context = 45000
+    transcript_tokens = _estimate_tokens(transcript)
+    overhead = _PROMPT_OVERHEAD_TOKENS + _estimate_tokens(summary_format)
+
+    if transcript_tokens + overhead <= max_context:
+        # 1回で処理できる場合
+        return _summarize_full_single(client, model, transcript, summary_format)
+    else:
+        # チャンク分割: 各チャンクを update モードで段階的に要約
+        # 既存 summary が蓄積されるため十分なマージンを確保 (8000 tokens)
+        chunk_max = max_context - overhead - 8000
+        chunks = _split_transcript_lines(transcript, chunk_max)
+        logger.info("transcript をチャンク分割: %d チャンク (概算 %d tokens)", len(chunks), transcript_tokens)
+        summary = ""
+        for i, chunk in enumerate(chunks):
+            logger.info("チャンク %d/%d を要約中...", i + 1, len(chunks))
+            summary = _summarize_update_single(client, model, chunk, summary, summary_format)
+            if not summary:
+                return None
+        return summary
+
+
+def _summarize_full_single(client: OpenAI, model: str, transcript: str, summary_format: str):
+    """transcript 全文から議事録を生成する（単一リクエスト）。"""
     system_prompt = t("llm.summary_full_system", summary_format=summary_format)
     user_content = t("llm.summary_full_user", transcript=transcript, summary_format=summary_format)
 
@@ -617,8 +734,33 @@ def _summarize_full(client: OpenAI, model: str, transcript: str):
 def _summarize_update(
     client: OpenAI, model: str, transcript: str, existing_summary: str
 ):
-    """既存の summary を踏まえて差分 transcript から議事録を更新する。"""
+    """既存の summary を踏まえて差分 transcript から議事録を更新する。長い場合はチャンク分割。"""
     summary_format = _get_summary_format()
+
+    max_context = 45000
+    transcript_tokens = _estimate_tokens(transcript)
+    overhead = _PROMPT_OVERHEAD_TOKENS + _estimate_tokens(summary_format) + _estimate_tokens(existing_summary)
+
+    if transcript_tokens + overhead <= max_context:
+        return _summarize_update_single(client, model, transcript, existing_summary, summary_format)
+    else:
+        # 既存 summary が蓄積されるため十分なマージンを確保 (8000 tokens)
+        chunk_max = max_context - _PROMPT_OVERHEAD_TOKENS - _estimate_tokens(summary_format) - 8000
+        chunks = _split_transcript_lines(transcript, chunk_max)
+        logger.info("差分 transcript をチャンク分割: %d チャンク (概算 %d tokens)", len(chunks), transcript_tokens)
+        summary = existing_summary
+        for i, chunk in enumerate(chunks):
+            logger.info("チャンク %d/%d を要約中...", i + 1, len(chunks))
+            summary = _summarize_update_single(client, model, chunk, summary, summary_format)
+            if not summary:
+                return None
+        return summary
+
+
+def _summarize_update_single(
+    client: OpenAI, model: str, transcript: str, existing_summary: str, summary_format: str
+):
+    """既存の summary を踏まえて差分 transcript から議事録を更新する（単一リクエスト）。"""
     system_prompt = t("llm.summary_update_system", summary_format=summary_format)
 
     existing = existing_summary if existing_summary else t("llm.summary_update_none")

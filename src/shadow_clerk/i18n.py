@@ -125,6 +125,11 @@ STRINGS = {
         "dash.custom_cmd_pattern": "パターン（正規表現）",
         "dash.custom_cmd_action": "アクション（シェルコマンド）",
         "dash.custom_cmd_hint": "PTTキーを押しながら発話した内容がパターンにマッチすると、アクションが実行されます。",
+        "dash.delete_line_title": "この行を削除しますか？",
+        "dash.delete_line_transcript": "文字起こし",
+        "dash.delete_line_translation": "翻訳",
+        "dash.delete": "削除",
+        "dash.delete_error": "削除に失敗しました",
         "dash.help": "ヘルプ",
         "dash.help_title": "ヘルプ",
         "dash.help_body": (
@@ -387,6 +392,11 @@ STRINGS = {
         "dash.custom_cmd_pattern": "Pattern (regex)",
         "dash.custom_cmd_action": "Action (shell command)",
         "dash.custom_cmd_hint": "When you speak while holding the PTT key and the text matches a pattern, the action is executed.",
+        "dash.delete_line_title": "Delete this line?",
+        "dash.delete_line_transcript": "Transcript",
+        "dash.delete_line_translation": "Translation",
+        "dash.delete": "Delete",
+        "dash.delete_error": "Failed to delete",
         "dash.help": "Help",
         "dash.help_title": "Help",
         "dash.help_body": (

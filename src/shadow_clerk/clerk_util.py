@@ -263,7 +263,12 @@ def cmd_poll_command(args):
     コマンドがあればその内容を stdout に出力して終了。
     recorder-status が stopped なら 'stopped' を出力して終了。
     --timeout <sec> 指定時は最大 sec 秒でタイムアウトして空文字で終了。
+    親プロセスが消滅した場合も自動終了する。
     """
+    import signal
+    # SIGHUP で即終了（親シェル終了時）
+    signal.signal(signal.SIGHUP, lambda *_: sys.exit(0))
+
     interval = float(args[0])
     rest = args[1:]
 
@@ -276,8 +281,13 @@ def cmd_poll_command(args):
 
     cmd_file = os.path.join(DATA_DIR, ".clerk_command")
     start = time.monotonic()
+    ppid = os.getppid()
 
     while True:
+        # 親プロセスが消滅していたら終了（孤立防止）
+        if os.getppid() != ppid:
+            return
+
         # コマンドファイルをチェック
         if os.path.isfile(cmd_file):
             try:
