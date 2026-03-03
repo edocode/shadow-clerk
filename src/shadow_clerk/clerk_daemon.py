@@ -95,9 +95,9 @@ DEFAULT_CONFIG = {
     "libretranslate_spell_check": False,
     "spell_check_model": "mbyhphat/t5-japanese-typo-correction",
     "summary_source": "transcript",
-    "use_kotoba_whisper": False,
+    "japanese_asr_model": "default",
     "kotoba_whisper_model": "kotoba-tech/kotoba-whisper-v2.0-faster",
-    "interim_use_kotoba_whisper": False,
+    "interim_japanese_asr_model": "default",
 }
 
 
@@ -551,13 +551,13 @@ class VADSegmenter:
 
 # --- 文字起こし ---
 class Transcriber:
-    """faster-whisper による文字起こし"""
+    """faster-whisper / ReazonSpeech K2 による文字起こし"""
 
     def __init__(self, model_size: str = "small", language: str | None = None,
                  initial_prompt: str | None = None,
                  beam_size: int = 5, compute_type: str = "int8",
                  device: str = "cpu",
-                 kotoba_config_key: str = "use_kotoba_whisper"):
+                 ja_asr_config_key: str = "japanese_asr_model"):
         self.model_size = model_size
         self.language = language
         self.initial_prompt = initial_prompt
@@ -566,22 +566,52 @@ class Transcriber:
         self.device = device
         self.model = None
         self._loaded_model_id: str | None = None
-        self._kotoba_config_key = kotoba_config_key
+        self._backend: str = "whisper"  # "whisper" or "reazonspeech-k2"
+        self._ja_asr_config_key = ja_asr_config_key
 
-    def _resolve_model_id(self) -> str:
+    def _resolve_model_id(self) -> tuple[str, str]:
+        """(backend, model_id) を返す"""
         config = load_config()
-        if self.language == "ja" and config.get(self._kotoba_config_key, False):
-            return config.get("kotoba_whisper_model", "kotoba-tech/kotoba-whisper-v2.0-faster")
-        return self.model_size
+        if self.language == "ja":
+            ja_asr = config.get(self._ja_asr_config_key, "default")
+            if ja_asr == "kotoba-whisper":
+                return ("whisper", config.get("kotoba_whisper_model",
+                        "kotoba-tech/kotoba-whisper-v2.0-faster"))
+            elif ja_asr == "reazonspeech-k2":
+                return ("reazonspeech-k2", "reazonspeech-k2")
+        return ("whisper", self.model_size)
 
     def load_model(self):
-        model_id = self._resolve_model_id()
-        if self.model is not None and self._loaded_model_id == model_id:
+        backend, model_id = self._resolve_model_id()
+        if self.model is not None and self._loaded_model_id == model_id and self._backend == backend:
             return
-        from faster_whisper import WhisperModel
-        logger.info("Whisper モデル読み込み中: %s (device=%s, compute_type=%s) ...",
-                     model_id, self.device, self.compute_type)
-        self.model = WhisperModel(model_id, device=self.device, compute_type=self.compute_type)
+        if backend == "reazonspeech-k2":
+            try:
+                # sherpa-onnx-core の libonnxruntime.so を参照するためパスを追加
+                import sherpa_onnx as _so
+                _so_lib = os.path.join(os.path.dirname(_so.__file__), "lib")
+                _ld = os.environ.get("LD_LIBRARY_PATH", "")
+                if _so_lib not in _ld:
+                    os.environ["LD_LIBRARY_PATH"] = f"{_so_lib}:{_ld}" if _ld else _so_lib
+                    import ctypes
+                    ctypes.cdll.LoadLibrary(os.path.join(_so_lib, "libonnxruntime.so"))
+                from reazonspeech.k2.asr import load_model as k2_load_model
+            except (ImportError, OSError) as e:
+                logger.warning("reazonspeech-k2 の読み込みに失敗: %s — "
+                               "Whisper にフォールバックします。", e)
+                backend, model_id = "whisper", self.model_size
+        if backend == "reazonspeech-k2":
+            precision = "fp32" if self.device == "cpu" else "fp16"
+            logger.info("ReazonSpeech K2 モデル読み込み中: %s (device=%s, precision=%s) ...",
+                         model_id, self.device, precision)
+            self.model = k2_load_model(device=self.device, precision=precision)
+            self._backend = "reazonspeech-k2"
+        else:
+            from faster_whisper import WhisperModel
+            logger.info("Whisper モデル読み込み中: %s (device=%s, compute_type=%s) ...",
+                         model_id, self.device, self.compute_type)
+            self.model = WhisperModel(model_id, device=self.device, compute_type=self.compute_type)
+            self._backend = "whisper"
         self._loaded_model_id = model_id
         logger.info("モデル読み込み完了: %s", model_id)
 
@@ -589,13 +619,14 @@ class Transcriber:
         self.model_size = model_size
         self.model = None
         self._loaded_model_id = None
+        self._backend = "whisper"
         self.load_model()
 
     def ensure_model_for_language(self):
         if self.model is None:
             return
-        model_id = self._resolve_model_id()
-        if self._loaded_model_id != model_id:
+        backend, model_id = self._resolve_model_id()
+        if self._loaded_model_id != model_id or self._backend != backend:
             logger.info("言語変更に伴いモデルを切り替え: %s -> %s", self._loaded_model_id, model_id)
             self.model = None
             self._loaded_model_id = None
@@ -615,7 +646,12 @@ class Transcriber:
         """音声セグメントを文字起こし"""
         if self.model is None:
             self.load_model()
+        if self._backend == "reazonspeech-k2":
+            return self._transcribe_k2(audio)
+        return self._transcribe_whisper(audio)
 
+    def _transcribe_whisper(self, audio: np.ndarray) -> str:
+        """Whisper バックエンドによる文字起こし"""
         # faster-whisper は float32 の numpy 配列を受け付ける
         audio_f32 = audio.astype(np.float32) / 32768.0
 
@@ -643,6 +679,14 @@ class Transcriber:
             text_parts.append(text)
 
         return " ".join(text_parts)
+
+    def _transcribe_k2(self, audio: np.ndarray) -> str:
+        """ReazonSpeech K2 バックエンドによる文字起こし"""
+        from reazonspeech.k2.asr import transcribe as k2_transcribe, audio_from_numpy
+        audio_f32 = audio.astype(np.float32) / 32768.0
+        k2_audio = audio_from_numpy(audio_f32, SAMPLE_RATE)
+        ret = k2_transcribe(self.model, k2_audio)
+        return ret.text.strip() if ret.text else ""
 
 
 # --- メインレコーダー ---
@@ -1585,7 +1629,7 @@ class Recorder:
         display_labels = {"mic": t("speaker.mic"), "monitor": t("speaker.monitor")}
         interim_transcriber = None
         interim_model_name = None
-        interim_use_kotoba = None
+        interim_ja_asr = None
         current_seq: dict[str, int] = {}  # source ごとの最新 seq
 
         while not self.stop_event.is_set():
@@ -1597,8 +1641,8 @@ class Recorder:
 
             # 有効化されたらモデルを遅延ロード（モデル変更時は再ロード）
             model_name = config.get("interim_model", "tiny")
-            use_kotoba = config.get("interim_use_kotoba_whisper", False)
-            if interim_transcriber is None or interim_model_name != model_name or interim_use_kotoba != use_kotoba:
+            ja_asr = config.get("interim_japanese_asr_model", "default")
+            if interim_transcriber is None or interim_model_name != model_name or interim_ja_asr != ja_asr:
                 logger.info("中間文字起こし: %s モデル読み込み中...", model_name)
                 interim_transcriber = Transcriber(
                     model_size=model_name,
@@ -1607,11 +1651,11 @@ class Recorder:
                     beam_size=1,
                     compute_type=config.get("whisper_compute_type", "int8"),
                     device=config.get("whisper_device", "cpu"),
-                    kotoba_config_key="interim_use_kotoba_whisper",
+                    ja_asr_config_key="interim_japanese_asr_model",
                 )
                 interim_transcriber.load_model()
                 interim_model_name = model_name
-                interim_use_kotoba = use_kotoba
+                interim_ja_asr = ja_asr
                 logger.info("中間文字起こし: %s モデル読み込み完了", model_name)
             # 言語同期
             if interim_transcriber.language != self.transcriber.language:
@@ -2074,6 +2118,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._generate_summary()
         elif path == "/api/transcript/delete":
             self._delete_transcript_line()
+        elif path == "/api/transcript/extract-meeting":
+            self._extract_meeting()
         else:
             self.send_error(404)
 
@@ -2141,6 +2187,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "mute_mic": self.recorder.mute_mic,
             "mute_monitor": self.recorder.mute_monitor,
             "ptt": self.recorder._command_mode,
+            "asr_backend": self.recorder.transcriber._backend,
+            "asr_model_id": self.recorder.transcriber._loaded_model_id or self.recorder.transcriber.model_size,
         })
 
     def _serve_files(self):
@@ -2276,17 +2324,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_json({"status": "ok", "message": t("dash.summary_generation_started")})
 
     def _delete_transcript_line(self):
-        """POST /api/transcript/delete — transcript 行を削除（対応する翻訳行も削除）"""
+        """POST /api/transcript/delete — transcript 行を削除（対応する翻訳行も削除）
+        {line, file} (単一行・後方互換) と {lines: [...], file} (複数行) の両方を受付
+        """
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length)
             data = json.loads(body)
-            raw_line = data.get("line", "")
+            raw_lines = data.get("lines", [])
+            if not raw_lines:
+                single = data.get("line", "")
+                if single:
+                    raw_lines = [single]
             file_param = data.get("file", "")
         except (json.JSONDecodeError, ValueError):
             self.send_error(400)
             return
-        if not raw_line or not file_param:
+        if not raw_lines or not file_param:
             self.send_error(400)
             return
 
@@ -2297,31 +2351,33 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
 
         # transcript から行削除
-        if not self._remove_line_from_file(t_path, raw_line):
+        if not self._remove_lines_from_file(t_path, raw_lines):
             self._send_json({"status": "error", "message": t("dash.delete_error")})
             return
 
         # タイムスタンプを抽出して翻訳ファイルから対応行を削除
-        ts_match = re.match(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]", raw_line)
-        if ts_match:
-            timestamp = ts_match.group(1)
+        timestamps = []
+        for raw_line in raw_lines:
+            ts_match = re.match(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]", raw_line)
+            if ts_match:
+                timestamps.append(ts_match.group(1))
+        if timestamps:
             config = load_config()
             lang = config.get("translate_language", "ja")
             tr_name = os.path.basename(t_path).replace(".txt", f"-{lang}.txt")
             tr_path = os.path.join(os.path.dirname(t_path), tr_name)
             if os.path.exists(tr_path):
-                self._remove_line_from_file_by_ts(tr_path, timestamp)
-                # FileWatcher の翻訳オフセットをリセット
+                self._remove_lines_from_file_by_ts(tr_path, timestamps)
                 tr_key = ("translation", tr_path)
                 if self.file_watcher and tr_key in self.file_watcher._file_offsets:
                     self.file_watcher._file_offsets[tr_key] = self._get_file_size(tr_path)
 
-        # FileWatcher のオフセットをリセット（SSE 差分が壊れないように）
+        # FileWatcher のオフセットをリセット
         t_key = ("transcript", t_path)
         if self.file_watcher and t_key in self.file_watcher._file_offsets:
             self.file_watcher._file_offsets[t_key] = self._get_file_size(t_path)
 
-        # translate_offset ファイルを新 transcript サイズに更新（再翻訳防止）
+        # translate_offset ファイルを新 transcript サイズに更新
         offset_file = t_path + ".translate_offset"
         if os.path.exists(offset_file):
             try:
@@ -2332,21 +2388,197 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
         self._send_json({"status": "ok"})
 
+    def _extract_meeting(self):
+        """POST /api/transcript/extract-meeting — タイムスタンプ範囲の行を会議ファイルへ移動"""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length)
+            data = json.loads(body)
+            file_param = data.get("file", "")
+            start_ts = data.get("start_ts", "")
+            end_ts = data.get("end_ts", "")
+            target = data.get("target", "new")
+        except (json.JSONDecodeError, ValueError):
+            self.send_error(400)
+            return
+        if not file_param or not start_ts or not end_ts:
+            self.send_error(400)
+            return
+
+        output_dir = self.recorder._output_dir
+        t_path = os.path.join(output_dir, os.path.basename(file_param))
+        if not os.path.exists(t_path):
+            self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
+            return
+
+        try:
+            with open(t_path, "r", encoding="utf-8") as f:
+                all_lines = f.readlines()
+        except OSError:
+            self._send_json({"status": "error", "message": t("dash.extract_meeting_error")})
+            return
+
+        # タイムスタンプ範囲内の行を抽出 / 残りを分離
+        extracted = []
+        remaining = []
+        ts_pattern = re.compile(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]")
+        for line in all_lines:
+            m = ts_pattern.match(line)
+            if m and start_ts <= m.group(1) <= end_ts:
+                extracted.append(line)
+            else:
+                remaining.append(line)
+
+        if not extracted:
+            self._send_json({"status": "error", "message": t("dash.extract_meeting_no_lines")})
+            return
+
+        # 会議ファイル名の決定
+        if target == "new":
+            # transcript-YYYYMMDDHHMM.txt 形式
+            meeting_ts = start_ts.replace("-", "").replace(" ", "").replace(":", "")[:12]
+            meeting_name = f"transcript-{meeting_ts}.txt"
+            meeting_path = os.path.join(output_dir, meeting_name)
+            # 会議開始/終了マーカー付きで作成
+            with open(meeting_path, "w", encoding="utf-8") as f:
+                f.write(f"--- meeting start ---\n")
+                f.writelines(extracted)
+                f.write(f"--- meeting end ---\n")
+        else:
+            # 既存会議ファイルにマージ
+            meeting_name = os.path.basename(target)
+            meeting_path = os.path.join(output_dir, meeting_name)
+            existing_lines = []
+            if os.path.exists(meeting_path):
+                with open(meeting_path, "r", encoding="utf-8") as f:
+                    existing_lines = f.readlines()
+            merged = self._merge_meeting_lines(existing_lines, extracted)
+            with open(meeting_path, "w", encoding="utf-8") as f:
+                f.writelines(merged)
+
+        # 日次 transcript から抽出行を削除
+        with open(t_path, "w", encoding="utf-8") as f:
+            f.writelines(remaining)
+
+        # 翻訳ファイルも同様に処理
+        config = load_config()
+        lang = config.get("translate_language", "ja")
+        tr_name = os.path.basename(t_path).replace(".txt", f"-{lang}.txt")
+        tr_path = os.path.join(output_dir, tr_name)
+        meeting_tr_name = meeting_name.replace(".txt", f"-{lang}.txt")
+        meeting_tr_path = os.path.join(output_dir, meeting_tr_name)
+        if os.path.exists(tr_path):
+            self._extract_translation_lines(
+                tr_path, meeting_tr_path, start_ts, end_ts,
+                is_new=(target == "new"),
+            )
+
+        # FileWatcher オフセットリセット
+        for ftype, fpath in [("transcript", t_path), ("translation", tr_path)]:
+            fkey = (ftype, fpath)
+            if self.file_watcher and fkey in self.file_watcher._file_offsets:
+                self.file_watcher._file_offsets[fkey] = self._get_file_size(fpath)
+
+        # translate_offset リセット
+        for p in [t_path, meeting_path]:
+            offset_file = p + ".translate_offset"
+            if os.path.exists(offset_file):
+                try:
+                    with open(offset_file, "w", encoding="utf-8") as f:
+                        f.write(str(self._get_file_size(p)))
+                except OSError:
+                    pass
+
+        self._send_json({
+            "status": "ok",
+            "message": t("dash.extract_meeting_success", name=meeting_name),
+        })
+
     @staticmethod
-    def _remove_line_from_file(path, raw_line):
-        """ファイルから完全一致する行を1件だけ削除する"""
+    def _merge_meeting_lines(existing, new_lines):
+        """既存会議ファイルの行と新しい行をタイムスタンプ順でマージ。マーカー行は保持。"""
+        ts_pattern = re.compile(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]")
+        marker_re = re.compile(r"^---\s.*\s---\s*$")
+
+        # 既存からマーカー除去してデータ行のみ抽出
+        data_lines = []
+        for line in existing:
+            if not marker_re.match(line.strip()):
+                data_lines.append(line)
+        # 新しい行を追加
+        data_lines.extend(new_lines)
+
+        # タイムスタンプでソート（タイムスタンプなし行はそのまま末尾）
+        def sort_key(line):
+            m = ts_pattern.match(line)
+            return m.group(1) if m else "9999"
+
+        data_lines.sort(key=sort_key)
+
+        # マーカーを先頭・末尾に付与して返す
+        result = ["--- meeting start ---\n"]
+        result.extend(data_lines)
+        result.append("--- meeting end ---\n")
+        return result
+
+    @staticmethod
+    def _extract_translation_lines(tr_path, meeting_tr_path, start_ts, end_ts, is_new=True):
+        """翻訳ファイルから対応行を会議翻訳ファイルへ移動/マージ"""
+        ts_pattern = re.compile(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]")
+        try:
+            with open(tr_path, "r", encoding="utf-8") as f:
+                all_lines = f.readlines()
+        except OSError:
+            return
+
+        extracted = []
+        remaining = []
+        for line in all_lines:
+            m = ts_pattern.match(line)
+            if m and start_ts <= m.group(1) <= end_ts:
+                extracted.append(line)
+            else:
+                remaining.append(line)
+
+        if not extracted:
+            return
+
+        if is_new or not os.path.exists(meeting_tr_path):
+            with open(meeting_tr_path, "w", encoding="utf-8") as f:
+                f.writelines(extracted)
+        else:
+            # 既存会議翻訳とマージ
+            with open(meeting_tr_path, "r", encoding="utf-8") as f:
+                existing = f.readlines()
+            merged = existing + extracted
+
+            def sort_key(line):
+                m = ts_pattern.match(line)
+                return m.group(1) if m else "9999"
+            merged.sort(key=sort_key)
+            with open(meeting_tr_path, "w", encoding="utf-8") as f:
+                f.writelines(merged)
+
+        # 元翻訳ファイルから抽出行を削除
+        with open(tr_path, "w", encoding="utf-8") as f:
+            f.writelines(remaining)
+
+    @staticmethod
+    def _remove_lines_from_file(path, raw_lines):
+        """ファイルから完全一致する行を各1件ずつ削除する"""
         try:
             with open(path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
-            target = raw_line.rstrip("\n") + "\n"
-            found = False
+            targets = collections.Counter(
+                ln.rstrip("\n") + "\n" for ln in raw_lines
+            )
             new_lines = []
             for line in lines:
-                if not found and line == target:
-                    found = True
+                if targets.get(line, 0) > 0:
+                    targets[line] -= 1
                     continue
                 new_lines.append(line)
-            if not found:
+            if len(new_lines) == len(lines):
                 return False
             with open(path, "w", encoding="utf-8") as f:
                 f.writelines(new_lines)
@@ -2355,20 +2587,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return False
 
     @staticmethod
-    def _remove_line_from_file_by_ts(path, timestamp):
-        """ファイルからタイムスタンプ前方一致する行を1件だけ削除する"""
+    def _remove_lines_from_file_by_ts(path, timestamps):
+        """ファイルからタイムスタンプ前方一致する行を各1件ずつ削除する"""
         try:
             with open(path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
-            prefix = f"[{timestamp}]"
-            found = False
+            ts_counter = collections.Counter(timestamps)
             new_lines = []
             for line in lines:
-                if not found and line.startswith(prefix):
-                    found = True
-                    continue
-                new_lines.append(line)
-            if not found:
+                matched = False
+                for ts, count in ts_counter.items():
+                    if count > 0 and line.startswith(f"[{ts}]"):
+                        ts_counter[ts] -= 1
+                        matched = True
+                        break
+                if not matched:
+                    new_lines.append(line)
+            if len(new_lines) == len(lines):
                 return False
             with open(path, "w", encoding="utf-8") as f:
                 f.writelines(new_lines)
@@ -2537,9 +2772,18 @@ main {
 }
 .ln { margin-bottom:2px; word-break:break-word; display:flex; align-items:flex-start; }
 .ln .ln-text { flex:1; }
-.del-btn { opacity:0; cursor:pointer; margin-right:4px; font-size:12px; flex-shrink:0; user-select:none; }
-.ln:hover .del-btn { opacity:0.6; }
-.del-btn:hover { opacity:1 !important; }
+.ln-cb { opacity:0; cursor:pointer; margin:3px 4px 0 0; flex-shrink:0; accent-color:var(--blue,#58a6ff); }
+.ln:hover .ln-cb { opacity:0.6; }
+.ln-cb:checked { opacity:1 !important; }
+.sel-actions { display:none; align-items:center; gap:6px; font-size:12px; }
+.sel-actions.show { display:flex; }
+.sel-count { color:var(--muted); white-space:nowrap; }
+.sel-actions button { min-width:auto; padding:2px 6px; font-size:12px; }
+.del-lines-list { max-height:30vh; overflow-y:auto; padding:6px 8px; background:var(--bg); border-radius:4px; margin-bottom:12px; white-space:pre-wrap; line-height:1.6; font-size:12px; }
+.extract-option { display:flex; align-items:center; gap:8px; padding:8px 0; cursor:pointer; font-size:13px; text-align:left; color:var(--text); }
+.extract-option input[type=radio] { width:auto !important; margin:0; flex-shrink:0; }
+.extract-option .eo-label { white-space:nowrap; }
+.extract-option select { width:auto !important; flex:1; min-width:120px; margin-left:4px; padding:3px 6px; font-size:12px; }
 .ts { color:var(--muted); }
 .sp-s { color:var(--self); font-weight:600; }
 .sp-o { color:var(--other); font-weight:600; }
@@ -2661,6 +2905,7 @@ main {
     <option value="pt">pt</option>
     <option value="ru">ru</option>
   </select>
+  <span id="asrInfo" style="font-size:11px;color:#888"></span>
   <select id="fsel" onchange="onSel()"><option value="">...</option></select>
   <div class="g">
     <button class="pri" id="btnMeeting" onclick="togMeeting()">{{i18n:dash.meeting_toggle_start}}</button>
@@ -2680,7 +2925,7 @@ main {
 <div id="resp"><div class="rh"><span>LLM Response</span><button class="toggle" onclick="hideResp()">&times;</button></div><div class="rb" id="respBody"></div></div>
 <main>
   <div class="panel" id="pnlT">
-    <div class="ph"><span>Transcript</span><span style="display:flex;gap:4px;align-items:center"><button class="toggle" id="btnMuteMic" onclick="togMute('mic')" title="{{i18n:dash.mute_mic}}">🎤</button><button class="toggle" id="btnMuteMonitor" onclick="togMute('monitor')" title="{{i18n:dash.mute_monitor}}">🔊</button><span id="tf" style="font-weight:normal"></span></span></div>
+    <div class="ph"><span>Transcript</span><span style="display:flex;gap:4px;align-items:center"><div class="sel-actions" id="selActions"><span class="sel-count" id="selCount"></span><button onclick="openBulkDelModal()" id="btnBulkDel" title="{{i18n:dash.delete}}">🗑</button><button onclick="openExtractModal()" id="btnExtract" title="{{i18n:dash.extract_meeting_title}}" style="display:none">⏱</button><button class="toggle" onclick="deselectAll()">&times;</button></div><button class="toggle" id="btnMuteMic" onclick="togMute('mic')" title="{{i18n:dash.mute_mic}}">🎤</button><button class="toggle" id="btnMuteMonitor" onclick="togMute('monitor')" title="{{i18n:dash.mute_monitor}}">🔊</button><span id="tf" style="font-weight:normal"></span></span></div>
     <div class="pc" id="tp"></div>
   </div>
   <div class="panel" id="pnlR">
@@ -2768,18 +3013,33 @@ main {
     </div>
   </div>
 </div>
-<div class="modal-overlay" id="delLineModal" onclick="if(event.target===this)closeDelModal()">
+<div class="modal-overlay" id="bulkDelModal" onclick="if(event.target===this)closeBulkDelModal()">
   <div class="modal" style="max-width:600px;">
-    <div class="modal-head"><span>{{i18n:dash.delete_line_title}}</span><button onclick="closeDelModal()">&times;</button></div>
+    <div class="modal-head"><span>{{i18n:dash.bulk_delete_title}}</span><button onclick="closeBulkDelModal()">&times;</button></div>
     <div class="modal-body" style="display:block;max-height:50vh;overflow-y:auto;font-size:13px;">
       <div style="margin-bottom:8px;font-weight:600;color:var(--muted);">{{i18n:dash.delete_line_transcript}}</div>
-      <div id="delLineTranscript" style="white-space:pre-wrap;line-height:1.6;padding:6px 8px;background:var(--bg);border-radius:4px;margin-bottom:12px;"></div>
+      <div class="del-lines-list" id="bulkDelTranscript"></div>
       <div style="margin-bottom:8px;font-weight:600;color:var(--muted);">{{i18n:dash.delete_line_translation}}</div>
-      <div id="delLineTranslation" style="white-space:pre-wrap;line-height:1.6;padding:6px 8px;background:var(--bg);border-radius:4px;color:var(--muted);"></div>
+      <div class="del-lines-list" id="bulkDelTranslation" style="color:var(--muted);"></div>
     </div>
     <div class="modal-foot">
-      <button onclick="closeDelModal()">{{i18n:dash.cancel}}</button>
-      <button class="dan" onclick="doDelLine()">{{i18n:dash.delete}}</button>
+      <button onclick="closeBulkDelModal()">{{i18n:dash.cancel}}</button>
+      <button class="dan" onclick="doBulkDel()">{{i18n:dash.delete}}</button>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="extractModal" onclick="if(event.target===this)closeExtractModal()">
+  <div class="modal" style="max-width:500px;">
+    <div class="modal-head"><span>{{i18n:dash.extract_meeting_title}}</span><button onclick="closeExtractModal()">&times;</button></div>
+    <div class="modal-body" style="display:block;font-size:13px;">
+      <div id="extractRange" style="margin-bottom:8px;color:var(--muted);"></div>
+      <div id="extractLineCount" style="margin-bottom:12px;color:var(--muted);"></div>
+      <label class="extract-option"><input type="radio" name="extractTarget" value="new" checked><span class="eo-label">{{i18n:dash.extract_meeting_new}}</span></label>
+      <label class="extract-option"><input type="radio" name="extractTarget" value="existing"><span class="eo-label">{{i18n:dash.extract_meeting_existing}}</span><select id="extractExistingSel" disabled onclick="event.stopPropagation()"></select></label>
+    </div>
+    <div class="modal-foot">
+      <button onclick="closeExtractModal()">{{i18n:dash.cancel}}</button>
+      <button class="pri" onclick="doExtractMeeting()">{{i18n:dash.extract_meeting_create}}</button>
     </div>
   </div>
 </div>
@@ -2809,7 +3069,7 @@ function fmtTranscriptLine(t){
   const m=t.match(/^\\[(\\d{4}-\\d{2}-\\d{2}\\s\\d{2}:\\d{2}:\\d{2})\\]\\s\\[([^\\]]+)\\]\\s(.*)$/);
   if(m){const sp=m[2],mic=I18N['speaker.mic']||'自分';const c=(sp===mic||sp==='自分')?'sp-s':'sp-o';
     const dl=sp===mic?mic:sp==='自分'?mic:(sp===(I18N['speaker.monitor']||'相手')||sp==='相手')?(I18N['speaker.monitor']||'相手'):sp;
-    return '<div class="ln" data-ts="'+escAttr(m[1])+'" data-raw="'+escAttr(t)+'"><span class="del-btn" onclick="openDelModal(this)">🗑</span><span class="ln-text"><span class="ts">['+esc(m[1])+']</span> <span class="'+c+'">['+esc(dl)+']</span> '+esc(m[3])+'</span></div>';}
+    return '<div class="ln" data-ts="'+escAttr(m[1])+'" data-raw="'+escAttr(t)+'"><input type="checkbox" class="ln-cb" onchange="onSelChange()"><span class="ln-text"><span class="ts">['+esc(m[1])+']</span> <span class="'+c+'">['+esc(dl)+']</span> '+esc(m[3])+'</span></div>';}
   return '<div class="ln" data-raw="'+escAttr(t)+'"><span class="ln-text">'+esc(t)+'</span></div>';
 }
 function addLines(id,text,fmt){
@@ -2817,38 +3077,116 @@ function addLines(id,text,fmt){
   text.split('\\n').forEach(l=>{if(l.trim())el.insertAdjacentHTML('beforeend',fmt(l));});
   if(as[id])el.scrollTop=el.scrollHeight;
 }
-/* --- Delete line --- */
-let _delRaw='',_delLnEl=null,_delTrEl=null;
-function openDelModal(btn){
-  const ln=btn.closest('.ln');if(!ln)return;
-  _delRaw=ln.dataset.raw||'';_delLnEl=ln;
-  document.getElementById('delLineTranscript').textContent=_delRaw;
-  const ts=ln.dataset.ts||'';
-  _delTrEl=null;
-  let trText='—';
-  if(ts){
-    const rp=document.getElementById('rp');
-    const els=rp.querySelectorAll('.ln[data-ts]');
-    for(const el of els){if(el.dataset.ts===ts){_delTrEl=el;trText=el.dataset.raw||el.textContent;break;}}
-  }
-  document.getElementById('delLineTranslation').textContent=trText;
-  document.getElementById('delLineModal').classList.add('open');
+/* --- Selection management --- */
+function getSelectedLines(){return Array.from(document.querySelectorAll('#tp .ln-cb:checked')).map(cb=>cb.closest('.ln'));}
+function onSelChange(){
+  const sel=getSelectedLines();const n=sel.length;
+  const bar=document.getElementById('selActions');
+  const cnt=document.getElementById('selCount');
+  const btnExt=document.getElementById('btnExtract');
+  if(n>0){
+    bar.classList.add('show');
+    cnt.textContent=(I18N['dash.selected_count']||'{count} selected').replace('{count}',n);
+    btnExt.style.display=(n===2)?'':'none';
+  }else{bar.classList.remove('show');btnExt.style.display='none';}
 }
-function closeDelModal(){document.getElementById('delLineModal').classList.remove('open');}
-async function doDelLine(){
-  if(!_delRaw)return;
+function deselectAll(){
+  document.querySelectorAll('#tp .ln-cb:checked').forEach(cb=>{cb.checked=false;});
+  onSelChange();
+}
+/* --- Bulk delete modal --- */
+function openBulkDelModal(){
+  const sel=getSelectedLines();if(!sel.length)return;
+  const tDiv=document.getElementById('bulkDelTranscript');
+  const rDiv=document.getElementById('bulkDelTranslation');
+  tDiv.innerHTML='';rDiv.innerHTML='';
+  sel.forEach(ln=>{
+    const d=document.createElement('div');d.textContent=ln.dataset.raw||ln.textContent;tDiv.appendChild(d);
+    const ts=ln.dataset.ts||'';
+    if(ts){
+      const rp=document.getElementById('rp');
+      const els=rp.querySelectorAll('.ln[data-ts]');
+      for(const el of els){if(el.dataset.ts===ts){const rd=document.createElement('div');rd.textContent=el.dataset.raw||el.textContent;rDiv.appendChild(rd);break;}}
+    }
+  });
+  if(!rDiv.children.length){const d=document.createElement('div');d.textContent='—';rDiv.appendChild(d);}
+  document.getElementById('bulkDelModal').classList.add('open');
+}
+function closeBulkDelModal(){document.getElementById('bulkDelModal').classList.remove('open');}
+async function doBulkDel(){
+  const sel=getSelectedLines();if(!sel.length)return;
+  const lines=sel.map(ln=>ln.dataset.raw||'').filter(Boolean);
   const file=document.getElementById('tf').textContent;
   try{
     const r=await fetch('/api/transcript/delete',{method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({line:_delRaw,file:file})});
+      body:JSON.stringify({lines:lines,file:file})});
     const d=await r.json();
     if(d.status==='ok'){
-      if(_delLnEl)_delLnEl.remove();
-      if(_delTrEl)_delTrEl.remove();
-      closeDelModal();
+      sel.forEach(ln=>{
+        const ts=ln.dataset.ts||'';
+        if(ts){const rp=document.getElementById('rp');const els=rp.querySelectorAll('.ln[data-ts]');
+          for(const el of els){if(el.dataset.ts===ts){el.remove();break;}}}
+        ln.remove();
+      });
+      deselectAll();closeBulkDelModal();
     }else{alert(I18N['dash.delete_error']||'Failed to delete');}
   }catch(e){alert(I18N['dash.delete_error']||'Failed to delete');}
+}
+/* --- Extract meeting modal --- */
+function openExtractModal(){
+  const sel=getSelectedLines();if(sel.length!==2)return;
+  const ts0=sel[0].dataset.ts||'';const ts1=sel[1].dataset.ts||'';
+  if(!ts0||!ts1)return;
+  const startTs=ts0<ts1?ts0:ts1;const endTs=ts0<ts1?ts1:ts0;
+  document.getElementById('extractRange').textContent=
+    (I18N['dash.extract_meeting_range']||'Range: {start} - {end}').replace('{start}',startTs).replace('{end}',endTs);
+  // タイムスタンプ範囲内の行数カウント
+  const allLns=document.querySelectorAll('#tp .ln[data-ts]');
+  let cnt=0;
+  allLns.forEach(ln=>{const t=ln.dataset.ts;if(t>=startTs&&t<=endTs)cnt++;});
+  document.getElementById('extractLineCount').textContent=
+    (I18N['dash.extract_meeting_lines']||'{count} lines selected').replace('{count}',cnt);
+  // 既存会議ファイルドロップダウン
+  const fsel=document.getElementById('fsel');
+  const eSel=document.getElementById('extractExistingSel');
+  eSel.innerHTML='';
+  Array.from(fsel.options).forEach(o=>{
+    if(o.value&&/^transcript-\\d{12}\\.txt$/.test(o.value)){
+      const opt=document.createElement('option');opt.value=o.value;opt.textContent=o.value;eSel.appendChild(opt);
+    }
+  });
+  // ラジオ初期化
+  document.querySelector('input[name="extractTarget"][value="new"]').checked=true;
+  eSel.disabled=true;
+  document.querySelectorAll('input[name="extractTarget"]').forEach(r=>{
+    r.onchange=()=>{eSel.disabled=(r.value!=='existing'||!r.checked);};
+  });
+  document.getElementById('extractModal').classList.add('open');
+}
+function closeExtractModal(){document.getElementById('extractModal').classList.remove('open');}
+async function doExtractMeeting(){
+  const sel=getSelectedLines();if(sel.length!==2)return;
+  const ts0=sel[0].dataset.ts||'';const ts1=sel[1].dataset.ts||'';
+  const startTs=ts0<ts1?ts0:ts1;const endTs=ts0<ts1?ts1:ts0;
+  const file=document.getElementById('tf').textContent;
+  const rad=document.querySelector('input[name="extractTarget"]:checked');
+  let target='new';
+  if(rad&&rad.value==='existing'){
+    const eSel=document.getElementById('extractExistingSel');
+    target=eSel.value||'new';
+  }
+  try{
+    const r=await fetch('/api/transcript/extract-meeting',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({file:file,start_ts:startTs,end_ts:endTs,target:target})});
+    const d=await r.json();
+    if(d.status==='ok'){
+      deselectAll();closeExtractModal();
+      loadFiles();loadT(curFile);loadR(curFile);
+      if(d.message)alert(d.message);
+    }else{alert(d.message||I18N['dash.extract_meeting_error']||'Failed');}
+  }catch(e){alert(I18N['dash.extract_meeting_error']||'Failed');}
 }
 /* --- Meeting toggle --- */
 function updateMeetingBtn(session){
@@ -2930,6 +3268,8 @@ async function fetchStatus(){
     muteMic=d.mute_mic;muteMonitor=d.mute_monitor;
     updateMuteBtn('mic',muteMic);updateMuteBtn('monitor',muteMonitor);
     if(d.ptt!==undefined)updatePTT(d.ptt);
+    const ai=document.getElementById('asrInfo');
+    if(ai&&d.asr_backend){ai.textContent=d.asr_backend==='whisper'?'Whisper: '+d.asr_model_id:d.asr_backend;}
   }catch(e){}
 }
 const es=new EventSource('/api/events');
@@ -2997,7 +3337,7 @@ async function loadLogs(){
     el.insertAdjacentHTML('beforeend','<div class="ll '+c+'">'+esc(l)+'</div>');});
   el.scrollTop=el.scrollHeight;}catch(e){}
 }
-function onSel(){curFile=document.getElementById('fsel').value;loadT(curFile);loadR(curFile);}
+function onSel(){deselectAll();curFile=document.getElementById('fsel').value;loadT(curFile);loadR(curFile);}
 async function cmd(c){try{await fetch('/api/command',{method:'POST',
   headers:{'Content-Type':'application/json'},body:JSON.stringify({command:c})});}catch(e){}}
 function onLangChange(l){cmd(l==='auto'?'unset_language':'set_language '+l);}
@@ -3020,14 +3360,14 @@ const CFG_FIELDS=[
   {type:'section',label:I18N['cfg.section.transcription']},
   {key:'default_language',label:I18N['cfg.default_language'],type:'select',opts:['auto',...LANG_OPTS]},
   {key:'default_model',label:I18N['cfg.default_model'],type:'select',opts:['tiny','base','small','medium','large-v3']},
-  {key:'use_kotoba_whisper',label:I18N['cfg.use_kotoba_whisper'],type:'bool'},
+  {key:'japanese_asr_model',label:I18N['cfg.japanese_asr_model'],type:'select',opts:['default','kotoba-whisper','reazonspeech-k2']},
   {key:'initial_prompt',label:I18N['cfg.initial_prompt'],type:'text',ph:I18N['cfg.initial_prompt_ph']},
   {key:'whisper_beam_size',label:I18N['cfg.whisper_beam_size'],type:'select',opts:['1','2','3','5']},
   {key:'whisper_compute_type',label:I18N['cfg.whisper_compute_type'],type:'select',opts:['int8','float16','float32']},
   {key:'whisper_device',label:I18N['cfg.whisper_device'],type:'select',opts:['cpu','cuda']},
   {key:'interim_transcription',label:I18N['cfg.interim_transcription'],type:'bool'},
   {key:'interim_model',label:I18N['cfg.interim_model'],type:'select',opts:['tiny','base','small','medium']},
-  {key:'interim_use_kotoba_whisper',label:I18N['cfg.interim_use_kotoba_whisper'],type:'bool'},
+  {key:'interim_japanese_asr_model',label:I18N['cfg.interim_japanese_asr_model'],type:'select',opts:['default','kotoba-whisper','reazonspeech-k2']},
   {key:'voice_command_key',label:I18N['cfg.voice_command_key'],type:'select',opts:['menu','f23','ctrl_r','ctrl_l','alt_r','alt_l','shift_r','shift_l']},
   {type:'section',label:I18N['cfg.section.translation']},
   {key:'translate_language',label:I18N['cfg.translate_language'],type:'select',opts:LANG_OPTS},
@@ -3094,6 +3434,11 @@ async function openCfg(){
     b.appendChild(el);
   });
   document.getElementById('cfgSaved').style.display='none';
+  const jaEl=document.getElementById('cfg_japanese_asr_model');
+  if(jaEl)jaEl.onchange=updateCfgDisabled;
+  const ijaEl=document.getElementById('cfg_interim_japanese_asr_model');
+  if(ijaEl)ijaEl.onchange=updateCfgDisabled;
+  updateCfgDisabled();
   document.getElementById('cfgModal').classList.add('open');
   if(cfgData.api_endpoint){fetchApiModels();}
 }
@@ -3124,6 +3469,18 @@ async function saveCfg(){
     const s=document.getElementById('cfgSaved');s.style.display='inline';
     setTimeout(()=>s.style.display='none',2000);
   }catch(e){}
+}
+function updateCfgDisabled(){
+  const ja=document.getElementById('cfg_japanese_asr_model');
+  const ija=document.getElementById('cfg_interim_japanese_asr_model');
+  const isK2=ja&&ja.value==='reazonspeech-k2';
+  const iIsK2=ija&&ija.value==='reazonspeech-k2';
+  ['default_model','whisper_beam_size','whisper_compute_type','initial_prompt'].forEach(k=>{
+    const el=document.getElementById('cfg_'+k);
+    if(el){el.disabled=isK2;el.style.opacity=isK2?'0.5':'1';}
+  });
+  const im=document.getElementById('cfg_interim_model');
+  if(im){im.disabled=iIsK2;im.style.opacity=iIsK2?'0.5':'1';}
 }
 const GL_COL_OPTS=[...LANG_OPTS,'reading','note'];
 let glossaryCols=[];

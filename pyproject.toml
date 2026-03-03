@@ -21,6 +21,10 @@ spell-check = [
     "torch>=2.0.0",
     "sentencepiece>=0.1.99",
 ]
+reazonspeech = [
+    "sherpa-onnx>=1.12.28",
+    "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr",
+]
 
 [project.scripts]
 clerk-daemon = "shadow_clerk.clerk_daemon:main"

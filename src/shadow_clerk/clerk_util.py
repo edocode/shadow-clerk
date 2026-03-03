@@ -4,6 +4,7 @@
 import importlib.resources
 import json
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
@@ -311,9 +312,21 @@ def cmd_poll_command(args):
         time.sleep(interval)
 
 
+def _exec_clerk_daemon(args: list[str]):
+    """同じ環境の clerk-daemon を exec する"""
+    # 1. sys.executable と同じディレクトリ (venv 内)
+    for base in (pathlib.Path(sys.executable).parent,
+                 pathlib.Path(sys.argv[0]).resolve().parent):
+        candidate = base / "clerk-daemon"
+        if candidate.exists():
+            os.execv(str(candidate), ["clerk-daemon"] + args)
+    # 2. フォールバック: PATH 検索
+    os.execvp("clerk-daemon", ["clerk-daemon"] + args)
+
+
 def cmd_start(args):
     """clerk-daemon [opts] を exec"""
-    os.execvp("clerk-daemon", ["clerk-daemon"] + list(args))
+    _exec_clerk_daemon(list(args))
 
 
 def cmd_stop(args):
@@ -345,7 +358,7 @@ def cmd_restart(args):
             print("warning: clerk-daemon が停止しませんでした", file=sys.stderr)
             sys.exit(1)
     # 起動 (exec)
-    os.execvp("clerk-daemon", ["clerk-daemon"] + list(args))
+    _exec_clerk_daemon(list(args))
 
 
 def cmd_run_llm(args):

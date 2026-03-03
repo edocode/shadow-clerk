@@ -9,7 +9,8 @@ Runs on Ubuntu + PipeWire / PulseAudio environments.
 | Feature | Requires | Quality | Speed | Related settings |
 |---|---|:---:|:---:|---|
 | Transcription (default) | faster-whisper (included) | 3 | 4 | `default_model`, `default_language` |
-| Transcription (Japanese high-accuracy) | Same (auto-downloaded on first use) | 5 | 3 | `use_kotoba_whisper: true` |
+| Transcription (Kotoba-Whisper) | Same (auto-downloaded on first use) | 5 | 3 | `japanese_asr_model: kotoba-whisper` |
+| Transcription (ReazonSpeech) | `uv sync --extra reazonspeech` | 5 | 4 | `japanese_asr_model: reazonspeech-k2` |
 | Interim transcription | Same | 2 | 5 | `interim_transcription: true`, `interim_model` |
 | Translation (LibreTranslate) | LibreTranslate server | 2 | 4 | `translation_provider: libretranslate` |
 | Translation (OpenAI compatible API) | OpenAI compatible API | 3-5 | 2-5 | `translation_provider: api`, `api_endpoint`, `api_model` |
@@ -36,12 +37,18 @@ sudo apt install libportaudio2 portaudio19-dev
 uv tool install shadow-clerk
 ```
 
+With ReazonSpeech support (Japanese high-accuracy ASR):
+
+```bash
+uv tool install "shadow-clerk[reazonspeech]"
+```
+
 For development:
 
 ```bash
 cd shadow-clerk
-uv venv
-uv pip install -e .
+uv sync                         # basic
+uv sync --extra reazonspeech    # with ReazonSpeech support
 ```
 
 This is all you need for transcription. Add the following options if you need translation or summarization.
@@ -226,15 +233,15 @@ libretranslate_spell_check: false # Spell check before LibreTranslate translatio
 spell_check_model: mbyhphat/t5-japanese-typo-correction  # Spell check model
 custom_commands: []               # Custom voice commands (list of pattern + action)
 initial_prompt: null              # Whisper initial_prompt (vocabulary hints for recognition)
-voice_command_key: menu        # Push-to-Talk key (null=disabled)
+voice_command_key: f23         # Push-to-Talk key (null=disabled)
 whisper_beam_size: 5           # Whisper beam size (1=fast, 5=accurate)
 whisper_compute_type: int8     # Compute precision (int8/float16/float32)
 whisper_device: cpu            # Device (cpu/cuda)
 interim_transcription: false   # Interim transcription (real-time display while speaking)
 interim_model: base            # Model for interim transcription
-use_kotoba_whisper: false      # Use Kotoba-Whisper when language=ja
+japanese_asr_model: default    # Japanese ASR model (default/kotoba-whisper/reazonspeech-k2)
 kotoba_whisper_model: kotoba-tech/kotoba-whisper-v2.0-faster  # Kotoba-Whisper model
-interim_use_kotoba_whisper: false  # Use Kotoba-Whisper for interim transcription too
+interim_japanese_asr_model: default  # Japanese ASR for interim transcription
 ui_language: ja                # UI language (ja/en) — dashboard, terminal output, LLM prompts
 ```
 
@@ -326,64 +333,52 @@ Use a lighter model with `--model tiny`:
 clerk-daemon --model tiny
 ```
 
-### Kotoba-Whisper (Japanese-specialized model)
+### Japanese ASR models
 
-When `use_kotoba_whisper: true`, [Kotoba-Whisper](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0) is automatically used when `language=ja`. When the language is changed to something other than `ja`, it reverts to the standard Whisper model.
+The `japanese_asr_model` setting selects the ASR backend used when `language=ja`. When the language changes to something other than `ja`, it automatically reverts to standard Whisper.
 
-**Model comparison:**
+| Value | Model | Requires | Japanese accuracy | CPU speed |
+|---|---|---|---|---|
+| `default` | Standard Whisper | — | Depends on model size | Depends on model size |
+| `kotoba-whisper` | [Kotoba-Whisper](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0) | Auto-downloaded on first use | High (rivals large-v3) | ~medium |
+| `reazonspeech-k2` | [ReazonSpeech k2](https://github.com/reazon-research/ReazonSpeech) | `uv sync --extra reazonspeech` | High | Fast |
 
-| Model | Parameters | Encoder | Decoder | Japanese accuracy | CPU speed |
-|---|---|---|---|---|---|
-| Whisper tiny | 39M | 4 layers | 4 layers | Low | Fastest |
-| Whisper base | 74M | 6 layers | 6 layers | Low | Fast |
-| Whisper small | 244M | 12 layers | 12 layers | Medium | Medium |
-| Whisper medium | 769M | 24 layers | 24 layers | Medium-High | Slow |
-| Whisper large-v3 | 1550M | 32 layers | 32 layers | High | Very slow |
-| **Kotoba-Whisper** | **756M** | **32 layers** | **2 layers** | **High** | **~medium** |
+**Kotoba-Whisper** retains the full large-v3 encoder (32 layers) while distilling the decoder down to just 2 layers. Since it has only 2 decoder layers, **beam=5 has almost no speed penalty**.
 
-Kotoba-Whisper retains the full large-v3 encoder (32 layers) while distilling the decoder down to just 2 layers. Japanese accuracy rivals large-v3 at roughly medium speed.
-
-**beam_size interaction:**
-
-`beam_size` controls the decoder search width. Models with more decoder layers are affected more:
-
-| Model | Decoder layers | beam=1 vs beam=5 speed difference |
-|---|---|---|
-| Whisper tiny | 4 layers | Small |
-| Whisper small | 12 layers | Medium |
-| Whisper medium | 24 layers | **Large** |
-| Whisper large-v3 | 32 layers | **Very large** |
-| **Kotoba-Whisper** | **2 layers** | **Negligible** |
-
-Since Kotoba-Whisper has only 2 decoder layers, **beam=5 has almost no speed penalty**. For standard Whisper (especially medium and above), setting `beam_size: 1` can noticeably improve speed.
+**ReazonSpeech k2** uses sherpa-onnx for inference. When selected, Whisper-specific settings (`default_model`, `whisper_beam_size`, `whisper_compute_type`, `initial_prompt`) are not used.
 
 **Selection guide:**
 
 | Use case | Settings |
 |---|---|
-| Japanese-focused, accuracy priority | `use_kotoba_whisper: true`, `whisper_beam_size: 5` |
-| Japanese-focused, speed priority (CPU) | `use_kotoba_whisper: false`, `default_model: small`, `whisper_beam_size: 3` |
-| Multilingual | `use_kotoba_whisper: true`, `default_model: small` (Kotoba for ja, small for others) |
-| GPU (CUDA) environment | `use_kotoba_whisper: true`, `whisper_beam_size: 5` (best accuracy & speed) |
+| Japanese-focused, accuracy priority | `japanese_asr_model: kotoba-whisper`, `whisper_beam_size: 5` |
+| Japanese-focused, fast & accurate | `japanese_asr_model: reazonspeech-k2` |
+| Japanese-focused, speed priority (CPU) | `japanese_asr_model: default`, `default_model: small`, `whisper_beam_size: 3` |
+| Multilingual | `japanese_asr_model: kotoba-whisper`, `default_model: small` (Kotoba for ja, small for others) |
 
 **Interim transcription:**
 
-`interim_use_kotoba_whisper` controls whether Kotoba-Whisper is used for interim transcription (real-time display while speaking). Since Kotoba-Whisper has 756M parameters, it may not meet the speed requirements for interim transcription. On CPU, the default `false` (using lightweight models like tiny/base) is recommended.
+`interim_japanese_asr_model` controls which Japanese ASR model is used for interim transcription (real-time display while speaking). On CPU, keeping the default (`default` with a lightweight model like tiny/base) is recommended.
 
 ```yaml
 # Japanese accuracy priority (GPU recommended)
-use_kotoba_whisper: true
-interim_use_kotoba_whisper: true
+japanese_asr_model: kotoba-whisper
+interim_japanese_asr_model: kotoba-whisper
 whisper_beam_size: 5
 
 # Japanese accuracy + fast interim (CPU recommended)
-use_kotoba_whisper: true
-interim_use_kotoba_whisper: false
+japanese_asr_model: kotoba-whisper
+interim_japanese_asr_model: default
 interim_model: base
 whisper_beam_size: 5        # Kotoba has only 2 decoder layers, beam=5 is fine
 
+# ReazonSpeech (fast & accurate, CPU friendly)
+japanese_asr_model: reazonspeech-k2
+interim_japanese_asr_model: default
+interim_model: base
+
 # Maximum speed (CPU)
-use_kotoba_whisper: false
+japanese_asr_model: default
 default_model: small
 interim_model: base
 whisper_beam_size: 1

@@ -130,6 +130,17 @@ STRINGS = {
         "dash.delete_line_translation": "翻訳",
         "dash.delete": "削除",
         "dash.delete_error": "削除に失敗しました",
+        "dash.bulk_delete_title": "選択した行を削除しますか？",
+        "dash.extract_meeting_title": "会議として切り出す",
+        "dash.extract_meeting_new": "新規会議とする",
+        "dash.extract_meeting_existing": "既存の会議に追加",
+        "dash.extract_meeting_create": "作成",
+        "dash.extract_meeting_range": "範囲: {start} 〜 {end}",
+        "dash.extract_meeting_lines": "{count}行が対象です",
+        "dash.extract_meeting_success": "会議ファイルを作成しました: {name}",
+        "dash.extract_meeting_error": "会議切り出しに失敗しました",
+        "dash.extract_meeting_no_lines": "選択範囲に行がありません",
+        "dash.selected_count": "{count}件選択",
         "dash.help": "ヘルプ",
         "dash.help_title": "ヘルプ",
         "dash.help_body": (
@@ -198,9 +209,9 @@ STRINGS = {
         "cfg.libretranslate_spell_check": "誤字訂正(LibreTranslate用)",
         "cfg.spell_check_model": "誤字訂正モデル",
         "cfg.summary_source": "要約ソース",
-        "cfg.use_kotoba_whisper": "Kotoba-Whisper (日本語)",
+        "cfg.japanese_asr_model": "日本語ASRモデル",
         "cfg.kotoba_whisper_model": "Kotoba-Whisper モデル",
-        "cfg.interim_use_kotoba_whisper": "中間Kotoba-Whisper (日本語)",
+        "cfg.interim_japanese_asr_model": "中間 日本語ASRモデル",
 
         # --- llm.* : LLM プロンプト ---
         "llm.translate_system": (
@@ -397,6 +408,17 @@ STRINGS = {
         "dash.delete_line_translation": "Translation",
         "dash.delete": "Delete",
         "dash.delete_error": "Failed to delete",
+        "dash.bulk_delete_title": "Delete selected lines?",
+        "dash.extract_meeting_title": "Extract as Meeting",
+        "dash.extract_meeting_new": "Create new meeting",
+        "dash.extract_meeting_existing": "Add to existing meeting",
+        "dash.extract_meeting_create": "Create",
+        "dash.extract_meeting_range": "Range: {start} - {end}",
+        "dash.extract_meeting_lines": "{count} lines selected",
+        "dash.extract_meeting_success": "Meeting file created: {name}",
+        "dash.extract_meeting_error": "Failed to extract meeting",
+        "dash.extract_meeting_no_lines": "No lines in selected range",
+        "dash.selected_count": "{count} selected",
         "dash.help": "Help",
         "dash.help_title": "Help",
         "dash.help_body": (
@@ -465,9 +487,9 @@ STRINGS = {
         "cfg.libretranslate_spell_check": "Spell Check (LibreTranslate)",
         "cfg.spell_check_model": "Spell Check Model",
         "cfg.summary_source": "Summary Source",
-        "cfg.use_kotoba_whisper": "Kotoba-Whisper (Japanese)",
+        "cfg.japanese_asr_model": "Japanese ASR Model",
         "cfg.kotoba_whisper_model": "Kotoba-Whisper Model",
-        "cfg.interim_use_kotoba_whisper": "Interim Kotoba-Whisper (Japanese)",
+        "cfg.interim_japanese_asr_model": "Interim Japanese ASR Model",
 
         # --- llm.* ---
         "llm.translate_system": (

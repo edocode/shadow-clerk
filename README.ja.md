@@ -9,7 +9,8 @@ Ubuntu + PipeWire / PulseAudio 環境で動作する。
 | 機能 | 必要なもの | 品質 | 速度 | 関連設定 |
 |---|---|:---:|:---:|---|
 | 文字起こし (標準) | faster-whisper（パッケージに含む） | 3 | 4 | `default_model`, `default_language` |
-| 文字起こし (日本語高精度) | 同上（初回に自動DL） | 5 | 3 | `use_kotoba_whisper: true` |
+| 文字起こし (Kotoba-Whisper) | 同上（初回に自動DL） | 5 | 3 | `japanese_asr_model: kotoba-whisper` |
+| 文字起こし (ReazonSpeech) | `uv sync --extra reazonspeech` | 5 | 4 | `japanese_asr_model: reazonspeech-k2` |
 | 中間文字起こし | 同上 | 2 | 5 | `interim_transcription: true`, `interim_model` |
 | 翻訳 (LibreTranslate) | LibreTranslate サーバー | 2 | 4 | `translation_provider: libretranslate` |
 | 翻訳 (OpenAI 互換 API) | OpenAI 互換 API | 3-5 | 2-5 | `translation_provider: api`, `api_endpoint`, `api_model` |
@@ -36,12 +37,18 @@ sudo apt install libportaudio2 portaudio19-dev
 uv tool install shadow-clerk
 ```
 
+ReazonSpeech 対応版（日本語高精度 ASR）:
+
+```bash
+uv tool install "shadow-clerk[reazonspeech]"
+```
+
 開発用:
 
 ```bash
 cd shadow-clerk
-uv venv
-uv pip install -e .
+uv sync                         # 基本
+uv sync --extra reazonspeech    # ReazonSpeech 対応
 ```
 
 これだけで文字起こし機能が使える。翻訳・要約が必要な場合は以下のオプションを追加する。
@@ -226,15 +233,15 @@ libretranslate_spell_check: false # LibreTranslate 翻訳前の誤字訂正
 spell_check_model: mbyhphat/t5-japanese-typo-correction  # 誤字訂正モデル
 custom_commands: []               # カスタム音声コマンド (pattern + action のリスト)
 initial_prompt: null              # Whisper の initial_prompt (音声認識のヒント語彙)
-voice_command_key: menu        # Push-to-Talk キー (null=無効)
+voice_command_key: f23         # Push-to-Talk キー (null=無効)
 whisper_beam_size: 5           # Whisper beam size (1=高速, 5=高精度)
 whisper_compute_type: int8     # 計算精度 (int8/float16/float32)
 whisper_device: cpu            # デバイス (cpu/cuda)
 interim_transcription: false   # 中間文字起こし（発話中にリアルタイム表示）
 interim_model: base            # 中間文字起こし用モデル
-use_kotoba_whisper: false      # 日本語(language=ja)時に Kotoba-Whisper を使用
+japanese_asr_model: default    # 日本語 ASR モデル (default/kotoba-whisper/reazonspeech-k2)
 kotoba_whisper_model: kotoba-tech/kotoba-whisper-v2.0-faster  # Kotoba-Whisper モデル
-interim_use_kotoba_whisper: false  # 中間文字起こしでも Kotoba-Whisper を使用
+interim_japanese_asr_model: default  # 中間文字起こし用の日本語 ASR モデル
 ui_language: ja                # UI言語 (ja/en) — ダッシュボード・ターミナル出力・LLMプロンプト
 ```
 
@@ -326,64 +333,52 @@ dpkg -l | grep portaudio
 clerk-daemon --model tiny
 ```
 
-### Kotoba-Whisper（日本語特化モデル）
+### 日本語 ASR モデル
 
-`use_kotoba_whisper: true` にすると、`language=ja` の場合に [Kotoba-Whisper](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0) が自動的に使用される。言語が `ja` 以外に変わると標準 Whisper モデルに戻る。
+`japanese_asr_model` で `language=ja` 時に使用する ASR バックエンドを選択できる。言語が `ja` 以外に変わると自動的に標準 Whisper に戻る。
 
-**モデル比較:**
+| 値 | モデル | 必要なもの | 日本語精度 | CPU速度 |
+|---|---|---|---|---|
+| `default` | 標準 Whisper | — | モデルサイズに依存 | モデルサイズに依存 |
+| `kotoba-whisper` | [Kotoba-Whisper](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0) | 初回に自動DL | 高い（large-v3 相当） | medium 程度 |
+| `reazonspeech-k2` | [ReazonSpeech k2](https://github.com/reazon-research/ReazonSpeech) | `uv sync --extra reazonspeech` | 高い | 速い |
 
-| モデル | パラメータ数 | エンコーダ | デコーダ | 日本語精度 | CPU速度 |
-|---|---|---|---|---|---|
-| Whisper tiny | 39M | 4層 | 4層 | 低い | 最速 |
-| Whisper base | 74M | 6層 | 6層 | 低い | 速い |
-| Whisper small | 244M | 12層 | 12層 | 中程度 | 中程度 |
-| Whisper medium | 769M | 24層 | 24層 | 中〜高 | 遅い |
-| Whisper large-v3 | 1550M | 32層 | 32層 | 高い | 非常に遅い |
-| **Kotoba-Whisper** | **756M** | **32層** | **2層** | **高い** | **medium 程度** |
+**Kotoba-Whisper** は large-v3 のエンコーダ全体（32層）を持ちつつ、デコーダを2層に蒸留したモデル。デコーダが2層しかないため、**beam=5 でも速度への影響がほとんどない**。
 
-Kotoba-Whisper は large-v3 のエンコーダ全体（32層）を持ちつつ、デコーダを2層に蒸留したモデル。日本語精度は large-v3 に匹敵し、速度は medium 程度。
-
-**beam_size との組み合わせ:**
-
-`beam_size` はデコーダの探索幅を制御するパラメータ。デコーダ層数が多いモデルほど影響が大きい:
-
-| モデル | デコーダ層数 | beam=1 vs beam=5 の速度差 |
-|---|---|---|
-| Whisper tiny | 4層 | 小さい |
-| Whisper small | 12層 | 中程度 |
-| Whisper medium | 24層 | **大きい** |
-| Whisper large-v3 | 32層 | **非常に大きい** |
-| **Kotoba-Whisper** | **2層** | **ほぼなし** |
-
-Kotoba-Whisper はデコーダが2層しかないため、**beam=5 のままでも速度への影響がほとんどない**。標準 Whisper（特に medium 以上）で速度が気になる場合は `beam_size: 1` にすると改善する。
+**ReazonSpeech k2** は sherpa-onnx で推論する。選択時、Whisper 固有の設定（`default_model`, `whisper_beam_size`, `whisper_compute_type`, `initial_prompt`）は使用されない。
 
 **選び方ガイド:**
 
 | ユースケース | 設定 |
 |---|---|
-| 日本語メイン・精度重視 | `use_kotoba_whisper: true`, `whisper_beam_size: 5` |
-| 日本語メイン・速度重視 (CPU) | `use_kotoba_whisper: false`, `default_model: small`, `whisper_beam_size: 3` |
-| 多言語 | `use_kotoba_whisper: true`, `default_model: small`（ja 時は Kotoba、他は small） |
-| GPU (CUDA) 環境 | `use_kotoba_whisper: true`, `whisper_beam_size: 5`（最高精度・高速） |
+| 日本語メイン・精度重視 | `japanese_asr_model: kotoba-whisper`, `whisper_beam_size: 5` |
+| 日本語メイン・高速＆高精度 | `japanese_asr_model: reazonspeech-k2` |
+| 日本語メイン・速度重視 (CPU) | `japanese_asr_model: default`, `default_model: small`, `whisper_beam_size: 3` |
+| 多言語 | `japanese_asr_model: kotoba-whisper`, `default_model: small`（ja 時は Kotoba、他は small） |
 
 **中間文字起こし:**
 
-`interim_use_kotoba_whisper` は中間文字起こし（発話中のリアルタイム表示）で Kotoba-Whisper を使うかの設定。Kotoba-Whisper は 756M パラメータのため、中間文字起こしの速度要件に合わない場合がある。CPU 環境ではデフォルトの `false`（tiny/base 等の軽量モデル使用）を推奨。
+`interim_japanese_asr_model` は中間文字起こし（発話中のリアルタイム表示）で使用する日本語 ASR モデルの設定。CPU 環境ではデフォルト（`default` + tiny/base 等の軽量モデル）を推奨。
 
 ```yaml
 # 日本語精度重視（GPU 推奨）
-use_kotoba_whisper: true
-interim_use_kotoba_whisper: true
+japanese_asr_model: kotoba-whisper
+interim_japanese_asr_model: kotoba-whisper
 whisper_beam_size: 5
 
 # 日本語精度重視 + 中間は速度重視（CPU 推奨）
-use_kotoba_whisper: true
-interim_use_kotoba_whisper: false
+japanese_asr_model: kotoba-whisper
+interim_japanese_asr_model: default
 interim_model: base
 whisper_beam_size: 5        # Kotoba はデコーダ2層なので beam=5 でも軽い
 
+# ReazonSpeech（高速＆高精度、CPU 向き）
+japanese_asr_model: reazonspeech-k2
+interim_japanese_asr_model: default
+interim_model: base
+
 # 速度最優先（CPU）
-use_kotoba_whisper: false
+japanese_asr_model: default
 default_model: small
 interim_model: base
 whisper_beam_size: 1
