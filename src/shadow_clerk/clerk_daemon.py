@@ -2,6 +2,7 @@
 """Shadow-clerk daemon: 音声キャプチャ・VAD・文字起こし"""
 
 import argparse
+import atexit
 import collections
 import datetime
 import io
@@ -141,6 +142,8 @@ def get_translation_provider(config: dict) -> str:
 # コマンド・セッションファイル
 COMMAND_FILE = os.path.join(DATA_DIR, ".clerk_command")
 SESSION_FILE = os.path.join(DATA_DIR, ".clerk_session")
+PID_FILE = os.path.join(DATA_DIR, "daemon.pid")
+LOG_FILE = os.path.join(DATA_DIR, "daemon.log")
 WORDS_FILE = os.path.join(DATA_DIR, "words.txt")
 GLOSSARY_FILE = os.path.join(DATA_DIR, "glossary.txt")
 
@@ -3082,6 +3085,35 @@ function closeHelp(){document.getElementById('helpModal').classList.remove('open
 """
 
 
+def _daemonize():
+    """ダブルフォークでデーモン化"""
+    pid = os.fork()
+    if pid > 0:
+        sys.exit(0)
+    os.setsid()
+    pid = os.fork()
+    if pid > 0:
+        sys.exit(0)
+    # 標準入出力を /dev/null にリダイレクト
+    devnull = os.open(os.devnull, os.O_RDWR)
+    os.dup2(devnull, 0)
+    os.dup2(devnull, 1)
+    os.dup2(devnull, 2)
+    os.close(devnull)
+
+
+def _write_pid_file():
+    with open(PID_FILE, "w") as f:
+        f.write(str(os.getpid()))
+
+
+def _remove_pid_file():
+    try:
+        os.unlink(PID_FILE)
+    except FileNotFoundError:
+        pass
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Shadow-clerk: Web会議の音声を録音・文字起こし",
@@ -3159,6 +3191,11 @@ def main():
         choices=["cpu", "cuda"],
         help="Whisper デバイス (default: cpu)",
     )
+    parser.add_argument(
+        "--daemon", "-d",
+        action="store_true",
+        help="デーモンとして起動（バックグラウンド実行、ログは daemon.log に出力）",
+    )
 
     args = parser.parse_args()
 
@@ -3179,11 +3216,25 @@ def main():
     args.whisper_compute_type = args.compute_type if args.compute_type is not None else config.get("whisper_compute_type", "int8")
     args.whisper_device = args.device if args.device is not None else config.get("whisper_device", "cpu")
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    log_format = "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
+    log_datefmt = "%H:%M:%S"
+
+    if args.daemon:
+        # デーモン化（ダブルフォークでバックグラウンド実行）
+        _daemonize()
+        _write_pid_file()
+        atexit.register(_remove_pid_file)
+        # ログはファイルのみ（stderr には出さない）
+        file_handler = logging.FileHandler(LOG_FILE)
+        file_handler.setFormatter(logging.Formatter(log_format, datefmt=log_datefmt))
+        logging.basicConfig(level=log_level, handlers=[file_handler])
+    else:
+        logging.basicConfig(
+            level=log_level,
+            format=log_format,
+            datefmt=log_datefmt,
+        )
 
     if args.list_devices:
         backend_name, backend = detect_backend(args.backend)

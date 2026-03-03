@@ -141,8 +141,33 @@ def cmd_command(args):
         f.write(cmd_text)
 
 
+PID_FILE = os.path.join(DATA_DIR, "daemon.pid")
+
+
+def _read_pid():
+    """PID ファイルから PID を読み取る。ファイルがなければ None"""
+    try:
+        with open(PID_FILE) as f:
+            return int(f.read().strip())
+    except (FileNotFoundError, ValueError):
+        return None
+
+
+def _is_pid_alive(pid):
+    """プロセスが存在するか"""
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
 def _is_recorder_running():
     """clerk-daemon プロセスが動作中か"""
+    pid = _read_pid()
+    if pid and _is_pid_alive(pid):
+        return True
+    # PID ファイルがない場合は従来の pgrep にフォールバック
     result = subprocess.run(
         ["pgrep", "-f", "clerk-daemon|clerk_daemon"], capture_output=True, text=True
     )
@@ -283,14 +308,24 @@ def cmd_start(args):
 
 def cmd_stop(args):
     """clerk-daemon プロセスに SIGTERM 送信"""
-    subprocess.run(["pkill", "-f", "clerk-daemon|clerk_daemon"])
+    import signal as _signal
+    pid = _read_pid()
+    if pid and _is_pid_alive(pid):
+        os.kill(pid, _signal.SIGTERM)
+    else:
+        subprocess.run(["pkill", "-f", "clerk-daemon|clerk_daemon"])
 
 
 def cmd_restart(args):
     """clerk-daemon を停止 → 待機 → 起動"""
     # 停止
     if _is_recorder_running():
-        subprocess.run(["pkill", "-f", "clerk-daemon|clerk_daemon"])
+        import signal as _signal
+        pid = _read_pid()
+        if pid and _is_pid_alive(pid):
+            os.kill(pid, _signal.SIGTERM)
+        else:
+            subprocess.run(["pkill", "-f", "clerk-daemon|clerk_daemon"])
         # 終了待機（最大10秒）
         for _ in range(20):
             time.sleep(0.5)
