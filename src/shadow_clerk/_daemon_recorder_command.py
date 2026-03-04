@@ -15,23 +15,11 @@ try:
 except ImportError:
     _HAS_LLM_CLIENT = False
 
-try:
-    from pynput import keyboard as pynput_keyboard
-    _HAS_PYNPUT = True
-except ImportError:
-    _HAS_PYNPUT = False
-
-try:
-    import evdev
-    from evdev import ecodes as _ecodes
-    _HAS_EVDEV = True
-except ImportError:
-    _HAS_EVDEV = False
-
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import (
     SAMPLE_RATE, COMMAND_FILE, SESSION_FILE, GLOSSARY_FILE,
     VOICE_CMD_PREFIX, VOICE_CMD_SUFFIX, VOICE_COMMANDS,
+    pynput_keyboard, _HAS_PYNPUT, evdev, _ecodes, _HAS_EVDEV,
 )
 from shadow_clerk._daemon_config import load_config, get_translation_provider, _builtin_command_descs
 

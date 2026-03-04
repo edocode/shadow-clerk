@@ -25,6 +25,7 @@ from shadow_clerk._daemon_constants import (
     SAMPLE_RATE, FRAME_SIZE, CHANNELS, DTYPE,
     COMMAND_FILE, SESSION_FILE, GLOSSARY_FILE,
     VOICE_CMD_PREFIX, VOICE_CMD_SUFFIX, VOICE_COMMANDS,
+    pynput_keyboard, _HAS_PYNPUT, evdev, _ecodes, _HAS_EVDEV,
 )
 from shadow_clerk._daemon_config import load_config, get_translation_provider
 from shadow_clerk._daemon_audio import detect_backend, find_monitor_device_sd

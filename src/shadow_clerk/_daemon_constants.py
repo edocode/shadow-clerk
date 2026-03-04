@@ -4,6 +4,23 @@ import os
 import re
 from shadow_clerk import DATA_DIR, CONFIG_FILE
 
+# --- オプショナル依存パッケージ ---
+try:
+    from pynput import keyboard as pynput_keyboard
+    _HAS_PYNPUT = True
+except ImportError:
+    pynput_keyboard = None  # type: ignore[assignment]
+    _HAS_PYNPUT = False
+
+try:
+    import evdev
+    from evdev import ecodes as _ecodes
+    _HAS_EVDEV = True
+except ImportError:
+    evdev = None  # type: ignore[assignment]
+    _ecodes = None  # type: ignore[assignment]
+    _HAS_EVDEV = False
+
 # --- 定数 ---
 SAMPLE_RATE = 16000
 CHANNELS = 1
