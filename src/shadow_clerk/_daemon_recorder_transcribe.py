@@ -175,7 +175,7 @@ class _RecorderTranscribeMixin:
     def _should_skip_response(text: str, file_speaker: str, last_speaker: str | None) -> bool:
         """「はい」「いいえ」などの相手にたいする応答のみの発話を、直前が同じ話者の場合スキップ"""
         s = text.strip()
-        if s not in ("はい", "いいえ", "ああ", "うん", "へー", "ほー", "はー"):
+        if s not in ("はい", "いいえ", "ああ", "うん", "はー", "ひー", "ふー", "へー", "ほー", "あー", "いー", "うー", "えー", "おー"):
             return False
         # 直前の話者が別人なら記録する（= スキップしない）
         if last_speaker is not None and last_speaker != file_speaker:
