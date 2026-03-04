@@ -51,7 +51,49 @@ uv sync                         # 基本
 uv sync --extra reazonspeech    # ReazonSpeech 対応
 ```
 
-これだけで文字起こし機能が使える。翻訳・要約が必要な場合は以下のオプションを追加する。
+これだけで文字起こし機能が使える。以下のオプション extras も利用可能:
+
+### オプション: 日本語 ASR モデル
+
+**Kotoba-Whisper** — 追加インストール不要。初回使用時にモデルが自動ダウンロードされる:
+
+```yaml
+# config.yaml
+japanese_asr_model: kotoba-whisper
+```
+
+**ReazonSpeech k2** — `reazonspeech` extra が必要:
+
+```bash
+uv tool install "shadow-clerk[reazonspeech]"
+# 開発用:
+uv sync --extra reazonspeech
+```
+
+```yaml
+# config.yaml
+japanese_asr_model: reazonspeech-k2
+```
+
+### オプション: 誤字訂正（翻訳前補正）
+
+`spell-check` extra が必要（`transformers`, `torch`, `sentencepiece` をインストール）:
+
+```bash
+uv tool install "shadow-clerk[spell-check]"
+# 開発用:
+uv sync --extra spell-check
+```
+
+```yaml
+# config.yaml
+libretranslate_spell_check: true
+spell_check_model: mbyhphat/t5-japanese-typo-correction  # デフォルト
+```
+
+誤字訂正モデルは初回使用時に自動ダウンロードされる。音声認識の誤字を補正してから LibreTranslate に送信する。
+
+翻訳・要約が必要な場合は以下のオプションを追加する。
 
 ### 3. (オプション) LibreTranslate のセットアップ
 
@@ -286,7 +328,7 @@ shadow-clerk/                          # リポジトリ
   transcript-YYYYMMDDHHMM.txt          # 会議セッション用
   transcript-YYYYMMDD-<lang>.txt       # 翻訳結果
   summary-YYYYMMDD.md                  # 議事録（transcript に対応）
-  words.txt                            # 単語置換リスト (TSV)
+  glossary.txt                         # 用語集 (TSV: 翻訳用語 & reading ベースのテキスト置換)
   glossary.txt                         # 翻訳用語集 (TSV)
   config.yaml                          # 設定ファイル
 ```

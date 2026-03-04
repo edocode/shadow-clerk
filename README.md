@@ -51,7 +51,49 @@ uv sync                         # basic
 uv sync --extra reazonspeech    # with ReazonSpeech support
 ```
 
-This is all you need for transcription. Add the following options if you need translation or summarization.
+This is all you need for transcription. The following optional extras are available:
+
+### Optional: Japanese ASR models
+
+**Kotoba-Whisper** — No extra install required. The model is auto-downloaded on first use. Just set:
+
+```yaml
+# config.yaml
+japanese_asr_model: kotoba-whisper
+```
+
+**ReazonSpeech k2** — Requires the `reazonspeech` extra:
+
+```bash
+uv tool install "shadow-clerk[reazonspeech]"
+# or for development:
+uv sync --extra reazonspeech
+```
+
+```yaml
+# config.yaml
+japanese_asr_model: reazonspeech-k2
+```
+
+### Optional: Spell check (pre-translation correction)
+
+Requires the `spell-check` extra (installs `transformers`, `torch`, `sentencepiece`):
+
+```bash
+uv tool install "shadow-clerk[spell-check]"
+# or for development:
+uv sync --extra spell-check
+```
+
+```yaml
+# config.yaml
+libretranslate_spell_check: true
+spell_check_model: mbyhphat/t5-japanese-typo-correction  # default
+```
+
+The spell check model is auto-downloaded on first use. It corrects Japanese speech recognition typos before sending text to LibreTranslate.
+
+Add the following options if you need translation or summarization.
 
 ### 3. (Optional) LibreTranslate setup
 
@@ -286,8 +328,7 @@ shadow-clerk/                          # Repository
   transcript-YYYYMMDDHHMM.txt          # Meeting session transcript
   transcript-YYYYMMDD-<lang>.txt       # Translation output
   summary-YYYYMMDD.md                  # Meeting minutes (corresponds to transcript)
-  words.txt                            # Word replacement list (TSV)
-  glossary.txt                         # Translation glossary (TSV)
+  glossary.txt                         # Glossary (TSV: translation terms & reading-based text replacement)
   config.yaml                          # Configuration file
 ```
 
