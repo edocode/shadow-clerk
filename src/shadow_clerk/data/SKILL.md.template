@@ -54,28 +54,18 @@ In the following instructions, `clerk-util` refers to its full path `{clerk_util
 ### Subcommands
 
 No arguments, or `update`:
-1. Check session file with `clerk-util read .clerk_session`. If present, use the filename in it as the transcript file. Otherwise use today's `transcript-YYYYMMDD.txt` from `clerk-util ls`
-2. Read byte offset from `clerk-util read .transcript_offset` (0 if absent)
-3. Read the transcript file from the offset position to the end
-4. If no new text, report "No new utterances" and exit
-5. Derive the summary filename from the transcript filename (`transcript-` -> `summary-`, `.txt` -> `.md`)
-   - Example: `transcript-20260227.txt` -> `summary-20260227.md`
-   - Example: `transcript-202602271430.txt` -> `summary-202602271430.md`
-6. Read config with `clerk-util read-config` and check `llm_provider`
-7. Generate minutes:
-   - **`llm_provider: claude` (default)** — Use the diff text to update the minutes, incorporating existing summary if present (Claude generates inline)
-   - **`llm_provider: api`** — Run `clerk-util run-llm summarize --mode update --file <transcript> --output <summary> --existing <summary>` to generate/save minutes. Omit `--existing` if no existing summary
-9. Write current transcript file size (bytes) to `clerk-util write .transcript_offset <size>`
+- Run `clerk-util summarize --mode update`
+- This automatically resolves the transcript file (from `.clerk_session` or today's date), checks `summary_source` config, and generates/updates minutes via `llm_client`
 
 `full`:
-1. Check session file with `clerk-util read .clerk_session`. If present, use the filename in it as the transcript file. Otherwise use today's `transcript-YYYYMMDD.txt` from `clerk-util ls`
-2. Read the entire transcript file
-3. Derive the summary filename from the transcript filename (`transcript-` -> `summary-`, `.txt` -> `.md`)
-4. Read config with `clerk-util read-config` and check `llm_provider`
-5. Generate minutes:
-   - **`llm_provider: claude` (default)** — Generate minutes from the full content (Claude generates inline)
-   - **`llm_provider: api`** — Run `clerk-util run-llm summarize --mode full --file <transcript> --output <summary>` to generate/save minutes
-7. Write current transcript file size to `clerk-util write .transcript_offset <size>`
+- Run `clerk-util summarize --mode full`
+- Same as `update` but regenerates minutes from the entire transcript
+
+`summarize [DATE] [--mode full|update]`:
+- DATE format: `YYYYMMDD` or `YYYYMMDDHHMM` (omit to auto-detect from session/today)
+- Resolves transcript, translation, and summary file paths from the date
+- Checks `summary_source` config to determine source file (transcript or translation)
+- Runs `llm_client summarize` to generate minutes and save to summary file
 
 `set language <lang>`:
 - If `<lang>` is `ja` or `en`: run `clerk-util command set_language <lang>`
@@ -113,7 +103,7 @@ No arguments, or `update`:
 - Translation offset for the date-based transcript is automatically managed per file by clerk-daemon
 - Read config with `clerk-util read-config`
 - If `auto_translate: true` and translation is running, stop it (same as `translate stop`)
-- If `auto_summary: true`, auto-run minutes generation equivalent to the `update` subcommand
+- If `auto_summary: true`, run `clerk-util summarize --mode update` to generate minutes
 
 `start [opts]`:
 1. Check if already running with `clerk-util recorder-status`. If `running`, display "recorder is already running" and exit
@@ -131,9 +121,12 @@ No arguments, or `update`:
        - Get `translate_language` from `clerk-util read-config`
        - Start translation loop (same process as `translate <translate_language>` subcommand)
      - If `translate_stop` detected, stop translation loop (same as translate subcommand stop)
-     - If `generate_summary` detected:
+     - If `generate_summary <filename>` detected (e.g., `generate_summary transcript-202603041819.txt`):
        - Clear with `clerk-util write .clerk_command ""`
-       - Run the `update` subcommand (same as no-args / `update` above) to generate/update minutes
+       - Run `clerk-util summarize <filename> --mode update` to generate/update minutes
+     - If `generate_summary_full <filename>` detected:
+       - Clear with `clerk-util write .clerk_command ""`
+       - Run `clerk-util summarize <filename> --mode full` to regenerate minutes from scratch
      - If `stopped` returned, exit the loop
 5. Display "recorder started"
 
@@ -299,6 +292,6 @@ Replace `transcript-` with `summary-` and `.txt` with `.md` in the transcript fi
 
 ### Notes
 - Each line in the transcript follows the format `[YYYY-MM-DD HH:MM:SS] text`
-- Japanese and English may be mixed. Generate minutes in the user's preferred language
+- Japanese and English may be mixed. Check `ui_language` in config (`clerk-util read-config`) to determine the output language for minutes (`ja` → Japanese, `en` → English)
 - Correct apparent speech recognition errors based on context
 - `.transcript_offset` and `<transcript>.translate_offset` are plain text files containing only a number

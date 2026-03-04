@@ -360,6 +360,105 @@ def cmd_run_llm(args):
     os.execvp(sys.executable, [sys.executable, "-m", "shadow_clerk.llm_client"] + list(args))
 
 
+def cmd_summarize(args):
+    """clerk-util summarize [YYYYMMDD|YYYYMMDDHHMM|transcript-*.txt] [--mode full|update]
+
+    日付またはファイル名からファイルを自動解決し、llm_client summarize を実行する。
+    省略時は .clerk_session → 今日の日付。
+    --mode 省略時は full。
+    """
+    import datetime
+    import re
+
+    # 引数パース
+    date_str = None
+    mode = "full"
+    i = 0
+    while i < len(args):
+        if args[i] == "--mode" and i + 1 < len(args):
+            mode = args[i + 1]
+            i += 2
+        elif not args[i].startswith("-"):
+            date_str = args[i]
+            i += 1
+        else:
+            i += 1
+
+    # transcript-YYYYMMDD.txt 形式のファイル名から日付を抽出
+    if date_str and re.match(r"transcript-\d+\.txt$", date_str):
+        date_str = date_str.replace("transcript-", "").replace(".txt", "")
+
+    # 日付が未指定の場合: .clerk_session → 今日の日付
+    if date_str is None:
+        session_file = os.path.join(DATA_DIR, ".clerk_session")
+        if os.path.isfile(session_file):
+            with open(session_file) as f:
+                session_name = f.read().strip()
+            if session_name:
+                # transcript-YYYYMMDDHHMM.txt → YYYYMMDDHHMM
+                date_str = session_name.replace("transcript-", "").replace(".txt", "")
+        if date_str is None:
+            date_str = datetime.datetime.now().strftime("%Y%m%d")
+
+    # ファイルパス解決
+    transcript_name = f"transcript-{date_str}.txt"
+    summary_name = f"summary-{date_str}.md"
+    transcript_path = os.path.join(OUTPUT_DIR, transcript_name)
+    summary_path = os.path.join(OUTPUT_DIR, summary_name)
+
+    # summary_source 設定をチェック
+    source_path = transcript_path
+    if os.path.isfile(CONFIG_FILE):
+        import yaml
+        with open(CONFIG_FILE) as f:
+            config = yaml.safe_load(f) or {}
+        summary_source = config.get("summary_source", "transcript")
+        if summary_source == "translate":
+            translate_lang = config.get("translate_language", "en")
+            translation_name = f"transcript-{date_str}-{translate_lang}.txt"
+            translation_path = os.path.join(OUTPUT_DIR, translation_name)
+            if os.path.isfile(translation_path):
+                source_path = translation_path
+            else:
+                print(f"Warning: translation file not found ({translation_name}), falling back to transcript", file=sys.stderr)
+
+    if not os.path.isfile(source_path):
+        print(f"Error: file not found: {source_path}", file=sys.stderr)
+        sys.exit(1)
+
+    # llm_client summarize を実行
+    import subprocess
+    llm_args = [sys.executable, "-m", "shadow_clerk.llm_client",
+                "summarize", "--mode", mode, "--file", source_path, "--output", summary_path]
+    if mode == "update" and os.path.isfile(summary_path):
+        llm_args += ["--existing", summary_path]
+
+    result = subprocess.run(llm_args)
+
+    # 完了通知をダッシュボードに送信
+    if result.returncode == 0:
+        import yaml
+        try:
+            with open(CONFIG_FILE) as f:
+                cfg = yaml.safe_load(f) or {}
+        except Exception:
+            cfg = {}
+        port = cfg.get("dashboard_port", 8765)
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                f"http://localhost:{port}/api/summary/notify",
+                data=json.dumps({"name": summary_name}).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=5)
+        except Exception:
+            pass  # daemon が動いていない場合は無視
+
+    sys.exit(result.returncode)
+
+
 def cmd_claude_setup(args):
     """Claude Code skill として登録する"""
     # 言語オプションの解析
@@ -476,6 +575,7 @@ def cmd_help(args):
     print("  stop              clerk-daemon を停止 (SIGTERM)")
     print("  restart [opts]    clerk-daemon を停止→待機→起動 (exec)")
     print("  run-llm <args...>          llm_client を実行 (exec)")
+    print("  summarize [DATE] [--mode full|update]  議事録を生成 (DATE: YYYYMMDD or YYYYMMDDHHMM)")
     print()
     print("Setup subcommands:")
     print("  claude-setup [lang]  Claude Code skill として登録 (lang: ja, en, ...)")
@@ -504,6 +604,7 @@ COMMANDS = {
     "stop": cmd_stop,
     "restart": cmd_restart,
     "run-llm": cmd_run_llm,
+    "summarize": cmd_summarize,
     "claude-setup": cmd_claude_setup,
     "help": cmd_help,
 }

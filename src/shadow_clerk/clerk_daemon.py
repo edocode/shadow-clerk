@@ -1281,8 +1281,9 @@ class Recorder:
                     ).start()
                 else:
                     # Claude provider: .clerk_command に書いて Claude Code に処理させる
+                    session_name = os.path.basename(session_transcript)
                     with open(COMMAND_FILE, "w", encoding="utf-8") as f:
-                        f.write("generate_summary")
+                        f.write(f"generate_summary {session_name}")
                     logger.info("要約コマンドを .clerk_command に書き込み (claude provider)")
 
         elif cmd.startswith("set_model "):
@@ -1498,16 +1499,17 @@ class Recorder:
                         cmd = f.read().strip()
                     # 翻訳コマンド: translation_provider で判定
                     _translate_commands = ("translate_start", "translate_stop", "translate_regenerate")
-                    # 要約コマンド: llm_provider で判定
-                    _summary_commands = ("generate_summary", "generate_summary_full")
-                    if cmd in _translate_commands:
+                    # 要約コマンド: llm_provider で判定 (ファイル名付き: generate_summary_full transcript-*.txt)
+                    _is_translate = cmd in _translate_commands
+                    _is_summary = cmd.startswith("generate_summary")
+                    if _is_translate:
                         config = load_config()
                         if get_translation_provider(config) in ("api", "libretranslate"):
                             os.remove(COMMAND_FILE)
                             logger.info("コマンドファイル検出: %s", cmd)
                             self._execute_command(cmd)
                         # claude provider → SKILL.md 向けにファイルを残す
-                    elif cmd in _summary_commands:
+                    elif _is_summary:
                         config = load_config()
                         if config.get("llm_provider") == "api":
                             os.remove(COMMAND_FILE)
@@ -2166,6 +2168,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._save_config()
         elif path == "/api/glossary":
             self._save_glossary()
+        elif path == "/api/summary/notify":
+            self._notify_summary_done()
         elif path == "/api/summary":
             self._generate_summary()
         elif path == "/api/transcript/delete":
@@ -2373,9 +2377,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
             ).start()
         else:
             # Claude provider: .clerk_command に書いて Claude Code に処理させる（全文モード）
+            transcript_name = os.path.basename(transcript_path)
             with open(COMMAND_FILE, "w", encoding="utf-8") as f:
-                f.write("generate_summary_full")
+                f.write(f"generate_summary_full {transcript_name}")
             self._send_json({"status": "ok", "message": t("dash.summary_generation_started")})
+
+    def _notify_summary_done(self):
+        """POST /api/summary/notify — 外部プロセスからの要約完了通知"""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length) if length else b"{}"
+            data = json.loads(body) if body else {}
+        except (json.JSONDecodeError, ValueError):
+            data = {}
+        summary_name = data.get("name", "")
+        if summary_name and hasattr(self.recorder, "_file_watcher"):
+            self.recorder._file_watcher._broadcast("alert", json.dumps(
+                {"message": t("dash.alert_summary_done", name=summary_name)},
+                ensure_ascii=False))
+        self._send_json({"status": "ok"})
 
     def _delete_transcript_line(self):
         """POST /api/transcript/delete — transcript 行を削除（対応する翻訳行も削除）
