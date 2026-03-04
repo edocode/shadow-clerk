@@ -825,8 +825,10 @@ class Recorder:
         if monitor_device is not None:
             dev_info = sd.query_devices(monitor_device)
             logger.info("sounddevice monitor キャプチャ開始 (device=%s: %s)", monitor_device, dev_info["name"])
-            self._monitor_capture_sounddevice(monitor_device)
-            return
+            if self._monitor_capture_sounddevice(monitor_device):
+                return
+            # sounddevice 失敗 → バックエンドにフォールバック
+            logger.info("sounddevice 失敗、%s バックエンドにフォールバック", self.backend_name)
 
         # バックエンド固有のモニターキャプチャ
         if self.backend:
@@ -841,17 +843,15 @@ class Recorder:
         logger.warning("モニターソースが見つかりません。マイクのみで録音します。")
         self.use_monitor = False
 
-    def _monitor_capture_sounddevice(self, device):
-        """sounddevice でモニターデバイスをキャプチャ"""
+    def _monitor_capture_sounddevice(self, device) -> bool:
+        """sounddevice でモニターデバイスをキャプチャ。成功なら True、失敗なら False。"""
         def callback(indata, frames, time_info, status):
             if status:
                 logger.warning("モニター status: %s", status)
             self.monitor_queue.put(indata[:, 0].copy().astype(np.int16))
 
-        max_retries = 5
+        max_retries = 2
         for attempt in range(max_retries):
-            logger.debug("モニターストリーム作成試行 %d/%d (sd._initialized=%s)",
-                         attempt + 1, max_retries, sd._initialized)
             try:
                 sd._initialize()
                 with self._stream_lock:
@@ -867,15 +867,14 @@ class Recorder:
                 self.stop_event.wait()
                 stream.stop()
                 stream.close()
-                return
+                return True
             except sd.PortAudioError as e:
                 if attempt < max_retries - 1:
-                    logger.warning("モニターキャプチャエラー (リトライ %d/%d, sd._initialized=%s): %s",
-                                   attempt + 1, max_retries, sd._initialized, e)
-                    time.sleep(2)
+                    logger.warning("sounddevice モニターエラー (リトライ %d/%d): %s", attempt + 1, max_retries, e)
+                    time.sleep(1)
                 else:
-                    logger.error("モニターキャプチャエラー: %s", e)
-                    self.use_monitor = False
+                    logger.warning("sounddevice モニター失敗、バックエンドにフォールバック: %s", e)
+        return False
 
     def _vad_thread_for_queue(self, audio_queue: queue.Queue, segmenter: VADSegmenter,
                               label: str):
@@ -3042,7 +3041,7 @@ main {
     <option value="ru">ru</option>
   </select>
   <span id="asrInfo" style="font-size:11px;color:#888"></span>
-  <select id="fsel" onchange="onSel()"><option value="">...</option></select>
+  <select id="fsel" onchange="onSel()"><option value="">...</option></select><button class="toggle" id="btnGoActive" onclick="goActive()" title="Go to active file" style="font-size:13px;padding:2px 4px">★</button>
   <div class="g">
     <button class="pri" id="btnMeeting" onclick="togMeeting()">{{i18n:dash.meeting_toggle_start}}</button>
     <button id="btnTranslate" onclick="togTranslate()">{{i18n:dash.translate_start}}</button>
@@ -3534,6 +3533,7 @@ async function loadLogs(){
   el.scrollTop=el.scrollHeight;}catch(e){}
 }
 function onSel(){deselectAll();curFile=document.getElementById('fsel').value;loadT(curFile);loadR(curFile);}
+function goActive(){if(!activeFile)return;const s=document.getElementById('fsel');s.value=activeFile;onSel();}
 async function cmd(c){try{await fetch('/api/command',{method:'POST',
   headers:{'Content-Type':'application/json'},body:JSON.stringify({command:c})});}catch(e){}}
 function onLangChange(l){cmd(l==='auto'?'unset_language':'set_language '+l);}
