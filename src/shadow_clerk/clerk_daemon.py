@@ -639,7 +639,7 @@ class Transcriber:
         r"|Thank you for watching|Thanks for watching"
         r"|Please subscribe|See you next time"
         r"|Subtitles by|Amara\.org"
-        r"|pgiep)",
+        r"|pqrep)",
         re.IGNORECASE,
     )
 
