@@ -32,7 +32,7 @@ from shadow_clerk import DATA_DIR, CONFIG_FILE
 from shadow_clerk.i18n import t, t_all
 
 try:
-    from shadow_clerk.llm_client import get_api_client, load_glossary, load_glossary_readings, load_dotenv as llm_load_dotenv, _spell_check
+    from shadow_clerk.llm_client import get_api_client, load_glossary, load_glossary_replacements, load_dotenv as llm_load_dotenv, _spell_check
     _HAS_LLM_CLIENT = True
 except ImportError:
     _HAS_LLM_CLIENT = False
@@ -144,7 +144,6 @@ COMMAND_FILE = os.path.join(DATA_DIR, ".clerk_command")
 SESSION_FILE = os.path.join(DATA_DIR, ".clerk_session")
 PID_FILE = os.path.join(DATA_DIR, "daemon.pid")
 LOG_FILE = os.path.join(DATA_DIR, "daemon.log")
-WORDS_FILE = os.path.join(DATA_DIR, "words.txt")
 GLOSSARY_FILE = os.path.join(DATA_DIR, "glossary.txt")
 
 # 音声コマンド検出パターン
@@ -178,42 +177,38 @@ def _builtin_command_descs():
     ]
 
 
-class WordReplacer:
-    """words.txt (TSV) によるテキスト置換。ファイル変更時は自動再読み込み。"""
+class GlossaryReplacer:
+    """glossary.txt の reading → 言語列 によるテキスト置換。ファイル変更時・言語変更時は自動再読み込み。"""
 
-    def __init__(self, path: str = WORDS_FILE):
-        self._path = path
+    def __init__(self):
+        self._path = GLOSSARY_FILE
         self._replacements: list[tuple[str, str]] = []
         self._mtime: float | None = None
-        self._load()
+        self._lang: str | None = None
+        self._load(None)
 
-    def _load(self):
+    def _load(self, lang: str | None):
         try:
             mtime = os.path.getmtime(self._path)
-            if mtime == self._mtime:
+            if mtime == self._mtime and lang == self._lang:
                 return
             self._mtime = mtime
-            replacements = []
-            with open(self._path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    parts = line.split("\t", 1)
-                    if len(parts) == 2 and parts[0]:
-                        replacements.append((parts[0], parts[1]))
-            self._replacements = replacements
-            logger.info("words.txt 読み込み: %d 件", len(replacements))
+            self._lang = lang
+            if _HAS_LLM_CLIENT:
+                self._replacements = load_glossary_replacements(lang)
+            else:
+                self._replacements = []
+            logger.info("glossary replacements 読み込み: %d 件 (lang=%s)", len(self._replacements), lang)
         except FileNotFoundError:
             if self._mtime is not None:
                 self._replacements = []
                 self._mtime = None
-                logger.info("words.txt が削除されました")
+                logger.info("glossary.txt が削除されました")
 
-    def apply(self, text: str) -> str:
-        self._load()
-        for wrong, correct in self._replacements:
-            text = text.replace(wrong, correct)
+    def apply(self, text: str, lang: str | None = None) -> str:
+        self._load(lang)
+        for reading, replacement in self._replacements:
+            text = text.replace(reading, replacement)
         return text
 
 
@@ -716,16 +711,8 @@ class Recorder:
             except (KeyError, re.error) as e:
                 logger.warning("カスタムコマンド定義エラー: %s — %s", entry, e)
 
-        # Whisper initial_prompt: トリガーワード + glossary の reading をヒントとして与える
+        # Whisper initial_prompt: トリガーワード + ユーザー指定プロンプト
         default_prompt = "クラーク"
-        # glossary の reading 列から語彙ヒントを注入
-        if _HAS_LLM_CLIENT:
-            try:
-                readings = load_glossary_readings()
-                if readings:
-                    default_prompt += "、" + "、".join(readings)
-            except Exception:
-                pass
         user_prompt = config.get("initial_prompt")
         initial_prompt = f"{default_prompt}、{user_prompt}" if user_prompt else default_prompt
 
@@ -768,7 +755,7 @@ class Recorder:
             self.output_path = self._get_default_output()
         self.use_monitor = True
         self.use_mic = True
-        self.word_replacer = WordReplacer()
+        self.word_replacer = GlossaryReplacer()
 
         # Push-to-Talk コマンドモード
         self._command_mode = False
@@ -811,15 +798,19 @@ class Recorder:
             self.mic_queue.put(indata[:, 0].copy().astype(np.int16))
 
         try:
-            with sd.InputStream(
-                samplerate=SAMPLE_RATE,
-                channels=CHANNELS,
-                dtype=DTYPE,
-                blocksize=FRAME_SIZE,
-                device=mic_device,
-                callback=callback,
-            ):
-                self.stop_event.wait()
+            with self._stream_lock:
+                stream = sd.InputStream(
+                    samplerate=SAMPLE_RATE,
+                    channels=CHANNELS,
+                    dtype=DTYPE,
+                    blocksize=FRAME_SIZE,
+                    device=mic_device,
+                    callback=callback,
+                )
+                stream.start()
+            self.stop_event.wait()
+            stream.stop()
+            stream.close()
         except sd.PortAudioError as e:
             logger.error("マイクキャプチャエラー: %s", e)
             self.use_mic = False
@@ -857,19 +848,34 @@ class Recorder:
                 logger.warning("モニター status: %s", status)
             self.monitor_queue.put(indata[:, 0].copy().astype(np.int16))
 
-        try:
-            with sd.InputStream(
-                samplerate=SAMPLE_RATE,
-                channels=CHANNELS,
-                dtype=DTYPE,
-                blocksize=FRAME_SIZE,
-                device=device,
-                callback=callback,
-            ):
+        max_retries = 5
+        for attempt in range(max_retries):
+            logger.debug("モニターストリーム作成試行 %d/%d (sd._initialized=%s)",
+                         attempt + 1, max_retries, sd._initialized)
+            try:
+                sd._initialize()
+                with self._stream_lock:
+                    stream = sd.InputStream(
+                        samplerate=SAMPLE_RATE,
+                        channels=CHANNELS,
+                        dtype=DTYPE,
+                        blocksize=FRAME_SIZE,
+                        device=device,
+                        callback=callback,
+                    )
+                    stream.start()
                 self.stop_event.wait()
-        except sd.PortAudioError as e:
-            logger.error("モニターキャプチャエラー: %s", e)
-            self.use_monitor = False
+                stream.stop()
+                stream.close()
+                return
+            except sd.PortAudioError as e:
+                if attempt < max_retries - 1:
+                    logger.warning("モニターキャプチャエラー (リトライ %d/%d, sd._initialized=%s): %s",
+                                   attempt + 1, max_retries, sd._initialized, e)
+                    time.sleep(2)
+                else:
+                    logger.error("モニターキャプチャエラー: %s", e)
+                    self.use_monitor = False
 
     def _vad_thread_for_queue(self, audio_queue: queue.Queue, segmenter: VADSegmenter,
                               label: str):
@@ -1518,6 +1524,32 @@ class Recorder:
                 logger.error("コマンド処理エラー: %s", e)
             self.stop_event.wait(timeout=0.5)
 
+    # 短いノイズ語フィルタ: 3文字以内、かな/カナ開始、小書きかな/カナ終了
+    _SMALL_KANA = set("ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶ")
+    _KANA_START = re.compile(r"^[\u3041-\u3096\u30A1-\u30F6]")
+
+    @staticmethod
+    def _is_noise_text(text: str) -> bool:
+        """短いノイズ語（「あっ」「ピッ」等）かどうか判定"""
+        s = text.strip()
+        if len(s) > 3 or len(s) == 0:
+            return False
+        if Recorder._KANA_START.match(s) and s[-1] in Recorder._SMALL_KANA:
+            return True
+        return False
+
+    @staticmethod
+    def _should_skip_response(text: str, file_speaker: str, last_speaker: str | None) -> bool:
+        """「はい」「いいえ」などの相手にたいする応答のみの発話を、直前が同じ話者の場合スキップ"""
+        s = text.strip()
+        if s not in ("はい", "いいえ", "ああ", "うん", "へー", "ほー", "はー"):
+            return False
+        # 直前の話者が別人なら記録する（= スキップしない）
+        if last_speaker is not None and last_speaker != file_speaker:
+            return False
+        # 直前が同じ話者 or 不明 → スキップ
+        return True
+
     def _transcribe_thread(self):
         """文字起こしスレッド"""
         logger.info("文字起こしスレッド開始")
@@ -1527,6 +1559,7 @@ class Recorder:
         file_labels = {"mic": "自分", "monitor": "相手"}
         # ターミナル表示用ラベル（i18n 対応）
         display_labels = {"mic": t("speaker.mic"), "monitor": t("speaker.monitor")}
+        last_file_speaker = None  # 直前に書き込んだ話者（はい/いいえフィルタ用）
 
         while not self.stop_event.is_set():
             try:
@@ -1591,12 +1624,23 @@ class Recorder:
                         logger.info("日付変更検出、出力先切り替え: %s", new_path)
                         self.output_path = new_path
 
-                text = self.word_replacer.apply(text)
+                text = self.word_replacer.apply(text, self.transcriber.language)
                 file_speaker = file_labels.get(source, source)
+
+                # ノイズフィルタ: 短い感嘆語（「あっ」「ピッ」等）
+                if self._is_noise_text(text):
+                    logger.debug("ノイズフィルタ: %r をスキップ", text.strip())
+                    continue
+                # はい/いいえフィルタ: 直前が同じ話者ならスキップ
+                if self._should_skip_response(text, file_speaker, last_file_speaker):
+                    logger.debug("応答フィルタ: %r (speaker=%s) をスキップ", text.strip(), file_speaker)
+                    continue
+
                 file_line = f"[{timestamp}] [{file_speaker}] {text}\n"
                 with open(self.output_path, "a", encoding="utf-8") as f:
                     f.write(file_line)
                     f.flush()
+                last_file_speaker = file_speaker
                 display_line = f"[{timestamp}] [{display_speaker}] {text}"
                 print(f"  {display_line}")
                 # 中間テキストをクリア
@@ -1614,11 +1658,16 @@ class Recorder:
                 display_speaker = display_labels.get(source, source)
                 text = self.transcriber.transcribe(segment)
                 if text.strip():
-                    text = self.word_replacer.apply(text)
+                    text = self.word_replacer.apply(text, self.transcriber.language)
+                    if self._is_noise_text(text):
+                        continue
+                    if self._should_skip_response(text, file_speaker, last_file_speaker):
+                        continue
                     file_line = f"[{timestamp}] [{file_speaker}] {text}\n"
                     with open(self.output_path, "a", encoding="utf-8") as f:
                         f.write(file_line)
                         f.flush()
+                    last_file_speaker = file_speaker
                     display_line = f"[{timestamp}] [{display_speaker}] {text}"
                     print(f"  {display_line}")
             except queue.Empty:
@@ -1824,6 +1873,9 @@ class Recorder:
         self.mic_segmenter = VADSegmenter()
         self.monitor_segmenter = VADSegmenter()
 
+        # PortAudio ストリーム作成の排他制御
+        self._stream_lock = threading.Lock()
+
         threads = [
             threading.Thread(target=self._mic_capture_thread, name="mic-capture", daemon=True),
             threading.Thread(target=self._monitor_capture_thread, name="monitor-capture", daemon=True),
@@ -1874,6 +1926,7 @@ class Recorder:
             DashboardHandler.file_watcher = self._file_watcher
 
             port = getattr(self.args, "dashboard_port", 8765)
+            ThreadingHTTPServer.allow_reuse_address = True
             self._dashboard_server = ThreadingHTTPServer(("", port), DashboardHandler)
             threads.append(threading.Thread(
                 target=self._dashboard_server.serve_forever,
@@ -2118,6 +2171,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._generate_summary()
         elif path == "/api/transcript/delete":
             self._delete_transcript_line()
+        elif path == "/api/transcript/delete-file":
+            self._delete_transcript_file()
         elif path == "/api/transcript/extract-meeting":
             self._extract_meeting()
         else:
@@ -2387,6 +2442,87 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 pass
 
         self._send_json({"status": "ok"})
+
+    def _delete_transcript_file(self):
+        """POST /api/transcript/delete-file — transcript ファイルと関連ファイルを一括削除"""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length)
+            data = json.loads(body)
+            file_param = data.get("file", "")
+        except (json.JSONDecodeError, ValueError):
+            self.send_error(400)
+            return
+        if not file_param:
+            self.send_error(400)
+            return
+
+        output_dir = self.recorder._output_dir
+        t_path = os.path.join(output_dir, os.path.basename(file_param))
+        if not os.path.exists(t_path):
+            self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
+            return
+
+        deleted = []
+        # 1. transcript ファイル削除
+        try:
+            os.remove(t_path)
+            deleted.append(os.path.basename(t_path))
+        except OSError:
+            self._send_json({"status": "error", "message": t("dash.delete_error")})
+            return
+
+        # 日付部分を抽出 (transcript-YYYYMMDD.txt → YYYYMMDD, transcript-YYYYMMDDHHMM.txt → YYYYMMDDHHMM)
+        base = os.path.basename(t_path)
+        stem = base.rsplit(".", 1)[0]  # transcript-YYYYMMDD
+
+        # 2. 全翻訳ファイル (transcript-YYYYMMDD-*.txt) を削除
+        for f in os.listdir(output_dir):
+            if f.startswith(stem + "-") and f.endswith(".txt"):
+                fp = os.path.join(output_dir, f)
+                try:
+                    os.remove(fp)
+                    deleted.append(f)
+                except OSError:
+                    pass
+
+        # 3. summary ファイル削除 (summary-YYYYMMDD.md or summary-YYYYMMDDHHMM.md)
+        date_part = stem.replace("transcript-", "")
+        summary_name = f"summary-{date_part}.md"
+        summary_path = os.path.join(output_dir, summary_name)
+        if os.path.exists(summary_path):
+            try:
+                os.remove(summary_path)
+                deleted.append(summary_name)
+            except OSError:
+                pass
+
+        # 4. translate_offset ファイル削除
+        offset_file = t_path + ".translate_offset"
+        if os.path.exists(offset_file):
+            try:
+                os.remove(offset_file)
+                deleted.append(os.path.basename(offset_file))
+            except OSError:
+                pass
+
+        # 5. FileWatcher オフセットから当該エントリ削除
+        if self.file_watcher:
+            keys_to_remove = [k for k in self.file_watcher._file_offsets
+                              if k[1] == t_path or k[1].startswith(os.path.join(output_dir, stem + "-"))]
+            for k in keys_to_remove:
+                del self.file_watcher._file_offsets[k]
+            # mtime キャッシュもクリア
+            keys_to_remove_mt = [k for k in self.file_watcher._mtimes
+                                 if k == t_path or k.startswith(os.path.join(output_dir, stem + "-"))]
+            for k in keys_to_remove_mt:
+                del self.file_watcher._mtimes[k]
+
+        # 6. アクティブファイルだった場合は新デフォルトに切り替え
+        if self.recorder.output_path == t_path:
+            self.recorder.output_path = self.recorder._get_default_output()
+
+        self._send_json({"status": "ok", "deleted": deleted})
 
     def _extract_meeting(self):
         """POST /api/transcript/extract-meeting — タイムスタンプ範囲の行を会議ファイルへ移動"""
@@ -2925,7 +3061,7 @@ main {
 <div id="resp"><div class="rh"><span>LLM Response</span><button class="toggle" onclick="hideResp()">&times;</button></div><div class="rb" id="respBody"></div></div>
 <main>
   <div class="panel" id="pnlT">
-    <div class="ph"><span>Transcript</span><span style="display:flex;gap:4px;align-items:center"><div class="sel-actions" id="selActions"><span class="sel-count" id="selCount"></span><button onclick="openBulkDelModal()" id="btnBulkDel" title="{{i18n:dash.delete}}">🗑</button><button onclick="openExtractModal()" id="btnExtract" title="{{i18n:dash.extract_meeting_title}}" style="display:none">⏱</button><button class="toggle" onclick="deselectAll()">&times;</button></div><button class="toggle" id="btnMuteMic" onclick="togMute('mic')" title="{{i18n:dash.mute_mic}}">🎤</button><button class="toggle" id="btnMuteMonitor" onclick="togMute('monitor')" title="{{i18n:dash.mute_monitor}}">🔊</button><span id="tf" style="font-weight:normal"></span></span></div>
+    <div class="ph"><span>Transcript <button class="toggle" onclick="openFileDelModal()" title="{{i18n:dash.delete_file_title}}" style="font-size:12px;margin-left:2px">🗑</button></span><span style="display:flex;gap:4px;align-items:center"><div class="sel-actions" id="selActions"><span class="sel-count" id="selCount"></span><button onclick="openBulkDelModal()" id="btnBulkDel" title="{{i18n:dash.delete}}">🗑</button><button onclick="openExtractModal()" id="btnExtract" title="{{i18n:dash.extract_meeting_title}}" style="display:none">⏱</button><button class="toggle" onclick="deselectAll()">&times;</button></div><button class="toggle" id="btnMuteMic" onclick="togMute('mic')" title="{{i18n:dash.mute_mic}}">🎤</button><button class="toggle" id="btnMuteMonitor" onclick="togMute('monitor')" title="{{i18n:dash.mute_monitor}}">🔊</button><span id="tf" style="font-weight:normal"></span></span></div>
     <div class="pc" id="tp"></div>
   </div>
   <div class="panel" id="pnlR">
@@ -3017,6 +3153,10 @@ main {
   <div class="modal" style="max-width:600px;">
     <div class="modal-head"><span>{{i18n:dash.bulk_delete_title}}</span><button onclick="closeBulkDelModal()">&times;</button></div>
     <div class="modal-body" style="display:block;max-height:50vh;overflow-y:auto;font-size:13px;">
+      <div id="bulkDelRangeOpt" style="display:none;margin-bottom:8px;">
+        <label class="extract-option"><input type="radio" name="bulkDelMode" value="range"><span class="eo-label">{{i18n:dash.bulk_delete_range}}</span></label>
+        <label class="extract-option"><input type="radio" name="bulkDelMode" value="selected"><span class="eo-label">{{i18n:dash.bulk_delete_selected}}</span></label>
+      </div>
       <div style="margin-bottom:8px;font-weight:600;color:var(--muted);">{{i18n:dash.delete_line_transcript}}</div>
       <div class="del-lines-list" id="bulkDelTranscript"></div>
       <div style="margin-bottom:8px;font-weight:600;color:var(--muted);">{{i18n:dash.delete_line_translation}}</div>
@@ -3040,6 +3180,19 @@ main {
     <div class="modal-foot">
       <button onclick="closeExtractModal()">{{i18n:dash.cancel}}</button>
       <button class="pri" onclick="doExtractMeeting()">{{i18n:dash.extract_meeting_create}}</button>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="fileDelModal" onclick="if(event.target===this)closeFileDelModal()">
+  <div class="modal" style="max-width:500px;">
+    <div class="modal-head"><span>{{i18n:dash.delete_file_title}}</span><button onclick="closeFileDelModal()">&times;</button></div>
+    <div class="modal-body" style="display:block;font-size:13px;">
+      <div style="margin-bottom:8px;color:var(--muted);">{{i18n:dash.delete_file_desc}}</div>
+      <div class="del-lines-list" id="fileDelList"></div>
+    </div>
+    <div class="modal-foot">
+      <button onclick="closeFileDelModal()">{{i18n:dash.cancel}}</button>
+      <button class="dan" onclick="doFileDel()">{{i18n:dash.delete}}</button>
     </div>
   </div>
 </div>
@@ -3110,12 +3263,25 @@ function openBulkDelModal(){
     }
   });
   if(!rDiv.children.length){const d=document.createElement('div');d.textContent='—';rDiv.appendChild(d);}
+  const rangeOpt=document.getElementById('bulkDelRangeOpt');
+  if(sel.length===2){rangeOpt.style.display='';document.querySelector('input[name="bulkDelMode"][value="range"]').checked=true;}
+  else{rangeOpt.style.display='none';}
   document.getElementById('bulkDelModal').classList.add('open');
 }
-function closeBulkDelModal(){document.getElementById('bulkDelModal').classList.remove('open');}
+function closeBulkDelModal(){document.getElementById('bulkDelModal').classList.remove('open');
+  const r=document.querySelector('input[name="bulkDelMode"][value="range"]');if(r)r.checked=true;}
 async function doBulkDel(){
   const sel=getSelectedLines();if(!sel.length)return;
-  const lines=sel.map(ln=>ln.dataset.raw||'').filter(Boolean);
+  const mode=document.querySelector('input[name="bulkDelMode"]:checked');
+  const isRange=mode&&mode.value==='range'&&sel.length===2;
+  let targets=sel;
+  if(isRange){
+    const ts0=sel[0].dataset.ts||'';const ts1=sel[1].dataset.ts||'';
+    const tsMin=ts0<ts1?ts0:ts1;const tsMax=ts0<ts1?ts1:ts0;
+    const allLn=document.querySelectorAll('#tp .ln[data-ts]');
+    targets=Array.from(allLn).filter(ln=>{const ts=ln.dataset.ts||'';return ts>=tsMin&&ts<=tsMax;});
+  }
+  const lines=targets.map(ln=>ln.dataset.raw||'').filter(Boolean);
   const file=document.getElementById('tf').textContent;
   try{
     const r=await fetch('/api/transcript/delete',{method:'POST',
@@ -3123,7 +3289,7 @@ async function doBulkDel(){
       body:JSON.stringify({lines:lines,file:file})});
     const d=await r.json();
     if(d.status==='ok'){
-      sel.forEach(ln=>{
+      targets.forEach(ln=>{
         const ts=ln.dataset.ts||'';
         if(ts){const rp=document.getElementById('rp');const els=rp.querySelectorAll('.ln[data-ts]');
           for(const el of els){if(el.dataset.ts===ts){el.remove();break;}}}
@@ -3131,6 +3297,36 @@ async function doBulkDel(){
       });
       deselectAll();closeBulkDelModal();
     }else{alert(I18N['dash.delete_error']||'Failed to delete');}
+  }catch(e){alert(I18N['dash.delete_error']||'Failed to delete');}
+}
+/* --- File delete modal --- */
+function openFileDelModal(){
+  if(!curFile)return;
+  const stem=curFile.replace(/\.txt$/,'');
+  const date=stem.replace('transcript-','');
+  const files=[curFile];
+  const sel=document.getElementById('fsel');
+  for(const opt of sel.options){
+    const v=opt.value;
+    if(v!==curFile && v.startsWith(stem+'-') && v.endsWith('.txt'))files.push(v);
+  }
+  files.push('summary-'+date+'.md');
+  files.push(curFile+'.translate_offset');
+  const list=document.getElementById('fileDelList');
+  list.innerHTML='';
+  files.forEach(f=>{const d=document.createElement('div');d.textContent=f;list.appendChild(d);});
+  document.getElementById('fileDelModal').classList.add('open');
+}
+function closeFileDelModal(){document.getElementById('fileDelModal').classList.remove('open');}
+async function doFileDel(){
+  if(!curFile)return;
+  try{
+    const r=await fetch('/api/transcript/delete-file',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({file:curFile})});
+    const d=await r.json();
+    if(d.status==='ok'){closeFileDelModal();loadFiles();}
+    else{alert(I18N['dash.delete_error']||'Failed to delete');}
   }catch(e){alert(I18N['dash.delete_error']||'Failed to delete');}
 }
 /* --- Extract meeting modal --- */
@@ -3749,8 +3945,6 @@ def main():
     if args.daemon:
         # デーモン化（ダブルフォークでバックグラウンド実行）
         _daemonize()
-        _write_pid_file()
-        atexit.register(_remove_pid_file)
         # ログはファイルのみ（stderr には出さない）
         file_handler = logging.FileHandler(LOG_FILE)
         file_handler.setFormatter(logging.Formatter(log_format, datefmt=log_datefmt))
@@ -3761,6 +3955,10 @@ def main():
             format=log_format,
             datefmt=log_datefmt,
         )
+
+    # PID ファイルは常に書き込む（clerk-util recorder-status で使用）
+    _write_pid_file()
+    atexit.register(_remove_pid_file)
 
     if args.list_devices:
         backend_name, backend = detect_backend(args.backend)

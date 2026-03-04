@@ -315,10 +315,12 @@ def load_glossary(lang: str) -> str:
     return "5. 以下の用語集を参考にしてください:\n" + "\n".join(f"  {p}" for p in pairs)
 
 
-def load_glossary_readings() -> list[str]:
-    """glossary.txt から reading 列の値を返す（Whisper initial_prompt 用）。
+def load_glossary_replacements(lang: str | None = None) -> list[tuple[str, str]]:
+    """glossary.txt から reading → 言語列の置換ペアを返す（transcription 後のテキスト置換用）。
 
-    各行の用語名と reading を返す。reading がない行はスキップ。
+    lang 指定時: reading → lang列 の置換ペアを返す。
+    lang=None (auto): 全言語列について reading → 各言語列 の置換ペアをすべて返す。
+    reading が空、または reading と対象列の値が同一の行はスキップ。
     """
     if not os.path.exists(GLOSSARY_FILE):
         return []
@@ -333,31 +335,108 @@ def load_glossary_readings() -> list[str]:
         return []
 
     headers = [h.strip() for h in data_lines[0].split("\t")]
+    special_cols = {"note", "reading"}
     reading_idx = None
+    lang_cols = []  # [(col_idx, lang_name), ...]
     for i, h in enumerate(headers):
         if h.lower() == "reading":
             reading_idx = i
-            break
+        elif h.lower() not in special_cols:
+            lang_cols.append((i, h))
+
     if reading_idx is None:
         return []
 
-    # 全言語列の用語 + reading を収集
-    results = []
+    # 対象言語列を決定
+    if lang is not None:
+        target_cols = [(i, h) for i, h in lang_cols if h == lang]
+    else:
+        target_cols = lang_cols
+
+    if not target_cols:
+        return []
+
+    pairs = []
     for row_line in data_lines[1:]:
         cols = row_line.split("\t")
         reading = cols[reading_idx].strip() if reading_idx < len(cols) else ""
         if not reading:
             continue
-        # 各言語列の用語も追加（Whisper が認識できるように）
-        for i, h in enumerate(headers):
-            if h.lower() in ("note", "reading"):
+        for col_idx, _ in target_cols:
+            target_val = cols[col_idx].strip() if col_idx < len(cols) else ""
+            if not target_val or target_val == reading:
                 continue
-            term = cols[i].strip() if i < len(cols) else ""
-            if term and term not in results:
-                results.append(term)
-        if reading not in results:
-            results.append(reading)
-    return results
+            pairs.append((reading, target_val))
+
+    return pairs
+
+
+def load_glossary_for_summary(lang: str | None = None) -> str:
+    """glossary.txt を読み込み、要約用の用語集テキストを返す。
+
+    lang 指定時: その言語列を主軸にした用語集テキスト。
+    lang=None (auto): 全言語列を使った用語集テキスト。
+    ファイルが存在しない/空の場合は空文字列を返す。
+    """
+    if not os.path.exists(GLOSSARY_FILE):
+        return ""
+    try:
+        with open(GLOSSARY_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except OSError:
+        return ""
+
+    data_lines = [l.rstrip("\n") for l in lines if l.strip() and not l.strip().startswith("#")]
+    if not data_lines:
+        return ""
+
+    headers = [h.strip() for h in data_lines[0].split("\t")]
+    special_cols = {"note", "reading"}
+    reading_idx = None
+    note_idx = None
+    lang_cols = []
+    for i, h in enumerate(headers):
+        hl = h.lower()
+        if hl == "reading":
+            reading_idx = i
+        elif hl == "note":
+            note_idx = i
+        else:
+            lang_cols.append((i, h))
+
+    if lang is not None:
+        display_cols = [(i, h) for i, h in lang_cols if h == lang]
+        if not display_cols:
+            display_cols = lang_cols
+    else:
+        display_cols = lang_cols
+
+    entries = []
+    for row_line in data_lines[1:]:
+        cols = row_line.split("\t")
+        terms = []
+        for col_idx, lc in display_cols:
+            val = cols[col_idx].strip() if col_idx < len(cols) else ""
+            if val:
+                terms.append(val)
+        if not terms:
+            continue
+        reading = cols[reading_idx].strip() if reading_idx is not None and reading_idx < len(cols) else ""
+        note = cols[note_idx].strip() if note_idx is not None and note_idx < len(cols) else ""
+        entry = " / ".join(terms)
+        annotations = []
+        if reading:
+            annotations.append(reading)
+        if note:
+            annotations.append(note)
+        if annotations:
+            entry += f" ({', '.join(annotations)})"
+        entries.append(f"- {entry}")
+
+    if not entries:
+        return ""
+
+    return "以下の用語集を参考にしてください（正しい表記で出力してください）:\n" + "\n".join(entries)
 
 
 MARKER_RE = re.compile(r"^---\s+.+\s+---$")
@@ -713,6 +792,11 @@ def _summarize_full(client: OpenAI, model: str, transcript: str):
 def _summarize_full_single(client: OpenAI, model: str, transcript: str, summary_format: str):
     """transcript 全文から議事録を生成する（単一リクエスト）。"""
     system_prompt = t("llm.summary_full_system", summary_format=summary_format)
+    config = load_config()
+    default_lang = config.get("default_language")
+    glossary_text = load_glossary_for_summary(default_lang if default_lang != "auto" else None)
+    if glossary_text:
+        system_prompt += "\n\n" + glossary_text
     user_content = t("llm.summary_full_user", transcript=transcript, summary_format=summary_format)
 
     response = client.chat.completions.create(
@@ -762,6 +846,11 @@ def _summarize_update_single(
 ):
     """既存の summary を踏まえて差分 transcript から議事録を更新する（単一リクエスト）。"""
     system_prompt = t("llm.summary_update_system", summary_format=summary_format)
+    config = load_config()
+    default_lang = config.get("default_language")
+    glossary_text = load_glossary_for_summary(default_lang if default_lang != "auto" else None)
+    if glossary_text:
+        system_prompt += "\n\n" + glossary_text
 
     existing = existing_summary if existing_summary else t("llm.summary_update_none")
     user_content = t("llm.summary_update_user", existing=existing, transcript=transcript, summary_format=summary_format)
