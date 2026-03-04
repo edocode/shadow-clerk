@@ -367,6 +367,12 @@ clerk-daemon --monitor 5
 dpkg -l | grep portaudio
 ```
 
+`PortAudioError: Error initializing PortAudio: ... PulseAudio_Initialize: Can't connect to server` と表示される場合、PulseAudio 互換サービスがクラッシュしている可能性がある。PipeWire 環境では `pipewire-pulse` を再起動する:
+
+```bash
+systemctl --user restart pipewire-pulse
+```
+
 ### 文字起こしが遅い
 
 `--model tiny` で軽量モデルを使う:

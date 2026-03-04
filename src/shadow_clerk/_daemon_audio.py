@@ -4,8 +4,6 @@ import queue
 import shutil
 import subprocess
 import threading
-import numpy as np
-import sounddevice as sd
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import SAMPLE_RATE, CHANNELS, FRAME_SIZE
 
@@ -74,6 +72,7 @@ class PipeWireBackend(AudioBackend):
                 if not data:
                     break
                 if len(data) == FRAME_SIZE * 2:
+                    import numpy as np
                     samples = np.frombuffer(data, dtype=np.int16)
                     audio_queue.put(samples)
         finally:
@@ -135,6 +134,7 @@ class PulseAudioBackend(AudioBackend):
                 if not data:
                     break
                 if len(data) == FRAME_SIZE * 2:
+                    import numpy as np
                     samples = np.frombuffer(data, dtype=np.int16)
                     audio_queue.put(samples)
         finally:
@@ -211,6 +211,7 @@ def find_monitor_device_sd() -> int | None:
     `.monitor` サフィックスを持つ入力デバイスのみを対象とする。
     デフォルト Sink に対応するモニターを優先する。
     """
+    import sounddevice as sd
     devices = sd.query_devices()
     candidates = []
     for i, dev in enumerate(devices):
@@ -239,6 +240,7 @@ def find_monitor_device_sd() -> int | None:
 
 def list_all_devices(backend_name: str, backend: AudioBackend | None):
     """全デバイス一覧表示"""
+    import sounddevice as sd
     print(t("rec.sounddevice_devices"))
     print(sd.query_devices())
 

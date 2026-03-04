@@ -366,6 +366,12 @@ Make sure `libportaudio2` is installed:
 dpkg -l | grep portaudio
 ```
 
+If you see `PortAudioError: Error initializing PortAudio: ... PulseAudio_Initialize: Can't connect to server`, the PulseAudio-compatible service may have crashed. On PipeWire systems, restart `pipewire-pulse`:
+
+```bash
+systemctl --user restart pipewire-pulse
+```
+
 ### Slow transcription
 
 Use a lighter model with `--model tiny`:
