@@ -166,13 +166,7 @@ def _is_pid_alive(pid):
 def _is_recorder_running():
     """clerk-daemon プロセスが動作中か"""
     pid = _read_pid()
-    if pid and _is_pid_alive(pid):
-        return True
-    # PID ファイルがない場合は従来の pgrep にフォールバック
-    result = subprocess.run(
-        ["pgrep", "-f", "clerk-daemon|clerk_daemon"], capture_output=True, text=True
-    )
-    return result.returncode == 0
+    return bool(pid and _is_pid_alive(pid))
 
 
 def cmd_recorder_status(args):
