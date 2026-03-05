@@ -178,12 +178,18 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
     def _serve_translation(self):
         params = parse_qs(urlparse(self.path).query)
         file_param = params.get("file", [None])[0]
+        config = load_config()
+        lang = config.get("translate_language", "ja")
         if file_param:
             file_param = os.path.basename(file_param)
-            filepath = os.path.join(self.recorder._output_dir, file_param)
+            # transcript ファイル名から翻訳ファイル名を導出
+            if re.search(r"-[a-z]{2}\.txt$", file_param):
+                # 既に翻訳ファイル名の場合はそのまま使用
+                tr_name = file_param
+            else:
+                tr_name = file_param.replace(".txt", f"-{lang}.txt")
+            filepath = os.path.join(self.recorder._output_dir, tr_name)
         else:
-            config = load_config()
-            lang = config.get("translate_language", "ja")
             basename = os.path.basename(self.recorder.output_path)
             tr_name = basename.replace(".txt", f"-{lang}.txt")
             filepath = os.path.join(self.recorder._output_dir, tr_name)
