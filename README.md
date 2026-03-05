@@ -23,6 +23,8 @@ Runs on Ubuntu + PipeWire / PulseAudio environments.
 
 **Minimal setup without LLM:** Transcription + LibreTranslate translation requires no external API or Claude Code. Everything runs locally.
 
+See the [Feature Tour](docs/feature-tour.en.md) for a visual walkthrough with screenshots.
+
 ## Setup
 
 ### 1. System packages

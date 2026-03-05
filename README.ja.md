@@ -23,6 +23,8 @@ Ubuntu + PipeWire / PulseAudio 環境で動作する。
 
 **LLM なしで使える最小構成:** 文字起こし + LibreTranslate 翻訳であれば、外部 API や Claude Code は不要。すべてローカルで完結する。
 
+スクリーンショット付きの機能紹介は [Feature Tour](docs/feature-tour.md) を参照。
+
 ## セットアップ
 
 ### 1. システムパッケージ
