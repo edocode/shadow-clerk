@@ -223,7 +223,8 @@ shadow-clerk — Web会議 議事録アシスタント
 音声コマンド:
   Push-to-Talk           Menu キーを押しながら発話でコマンド実行（プレフィックス不要）
                          voice_command_key で変更可能 (ctrl_r/ctrl_l/alt_r/alt_l/shift_r/shift_l/null)
-  プレフィックス方式     「クラーク」+ コマンドで従来通り動作（フォールバック）
+  ウェイクワード方式     ウェイクワード（デフォルト「シェルク」）+ コマンドで動作（フォールバック）
+                         wake_word で変更可能
   custom_commands        config.yaml にカスタム音声コマンドを登録可能
                          例: {pattern: "youtube", action: "xdg-open https://www.youtube.com"}
   LLM フォールバック     組み込み・カスタムにマッチしない場合、api_endpoint 設定済みなら LLM に問い合わせ

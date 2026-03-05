@@ -59,6 +59,7 @@ DEFAULT_CONFIG = {
     "custom_commands": [],
     "initial_prompt": None,
     "voice_command_key": "f23",
+    "wake_word": "シェルク",
     "ui_language": "ja",
     "translation_provider": None,
     "libretranslate_endpoint": None,

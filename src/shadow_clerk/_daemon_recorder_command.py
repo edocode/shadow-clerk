@@ -19,6 +19,7 @@ from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import (
     SAMPLE_RATE, COMMAND_FILE, SESSION_FILE, GLOSSARY_FILE,
     VOICE_CMD_PREFIX, VOICE_CMD_SUFFIX, VOICE_COMMANDS,
+    build_wake_word_patterns,
     pynput_keyboard, _HAS_PYNPUT, evdev, _ecodes, _HAS_EVDEV,
 )
 from shadow_clerk._daemon_config import load_config, get_translation_provider, _builtin_command_descs
@@ -29,12 +30,19 @@ logger = logging.getLogger("shadow-clerk")
 class _RecorderCommandMixin:
     """コマンド処理・キーリスナー ミックスイン"""
 
+    def _init_wake_word_patterns(self):
+        """config の wake_word からコマンド検出パターンを初期化"""
+        wake_word = (load_config().get("wake_word") or "").strip() or "シェルク"
+        self._wake_prefix, self._wake_suffix = build_wake_word_patterns(wake_word)
+
     def _extract_command_body(self, text: str) -> str | None:
-        """プレフィックス/サフィックス「クラーク」を検出し、コマンド本文を返す。未検出なら None。"""
-        if VOICE_CMD_PREFIX.match(text):
-            return VOICE_CMD_PREFIX.sub("", text).strip()
-        elif VOICE_CMD_SUFFIX.search(text):
-            return VOICE_CMD_SUFFIX.sub("", text).strip()
+        """プレフィックス/サフィックスのウェイクワードを検出し、コマンド本文を返す。未検出なら None。"""
+        prefix = getattr(self, "_wake_prefix", VOICE_CMD_PREFIX)
+        suffix = getattr(self, "_wake_suffix", VOICE_CMD_SUFFIX)
+        if prefix.match(text):
+            return prefix.sub("", text).strip()
+        elif suffix.search(text):
+            return suffix.sub("", text).strip()
         return None
 
     def _match_command_body(self, text: str) -> str | None:
@@ -50,8 +58,9 @@ class _RecorderCommandMixin:
         for pattern, action in self._custom_commands:
             if pattern.search(body):
                 return f"custom_exec {action}"
-        # 3. LLM フォールバック（API 設定済みの場合）
-        if load_config().get("api_endpoint") and body:
+        # 3. LLM フォールバック（API 設定済み or claude プロバイダの場合）
+        config = load_config()
+        if body and (config.get("api_endpoint") or config.get("llm_provider") == "claude"):
             return f"llm_query {body}"
         return None
 

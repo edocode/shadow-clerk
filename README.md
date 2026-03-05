@@ -170,7 +170,7 @@ Press `Ctrl+C` to stop recording.
 
 #### Push-to-Talk (recommended)
 
-Hold down the Menu key (next to Right Alt) while speaking a command — no prefix ("clerk") needed. This avoids Whisper's unreliable recognition of the "clerk" keyword:
+Hold down the Menu key (next to Right Alt) while speaking a command — no wake word needed:
 
 ```
 [Hold Menu key] "start translation" → Translation starts
@@ -181,19 +181,19 @@ The trigger key can be changed via `voice_command_key` in `config.yaml` (`ctrl_r
 
 #### Prefix mode (fallback)
 
-During recording, say "clerk" followed by a command for hands-free control:
+During recording, say the wake word (default: "sheruku" / "シェルク") followed by a command for hands-free control:
 
 | Voice command | Action |
 |---|---|
-| "clerk, start meeting" | Start a new meeting session |
-| "clerk, end meeting" | End the meeting session |
-| "clerk, language ja" | Switch transcription language to Japanese |
-| "clerk, language en" | Switch transcription language to English |
-| "clerk, unset language" | Reset to auto-detect |
-| "clerk, start translation" | Start the translation loop |
-| "clerk, stop translation" | Stop the translation loop |
+| "sheruku, start meeting" | Start a new meeting session |
+| "sheruku, end meeting" | End the meeting session |
+| "sheruku, language ja" | Switch transcription language to Japanese |
+| "sheruku, language en" | Switch transcription language to English |
+| "sheruku, unset language" | Reset to auto-detect |
+| "sheruku, start translation" | Start the translation loop |
+| "sheruku, stop translation" | Stop the translation loop |
 
-The separator (comma, space) between the prefix and command is optional.
+The separator (comma, space) between the wake word and command is optional. The wake word can be changed via `wake_word` in `config.yaml`.
 
 #### Custom voice commands
 
@@ -215,7 +215,7 @@ custom_commands:
 If a voice command doesn't match any built-in or custom command and `api_endpoint` is configured, the utterance is sent to the LLM as a query. The response is printed to stdout and saved to `.clerk_response`.
 
 ```
-"clerk, what is 1+1?" → LLM returns the answer
+"sheruku, what is 1+1?" → LLM returns the answer
 ```
 
 ### CLI options
@@ -276,6 +276,7 @@ spell_check_model: mbyhphat/t5-japanese-typo-correction  # Spell check model
 custom_commands: []               # Custom voice commands (list of pattern + action)
 initial_prompt: null              # Whisper initial_prompt (vocabulary hints for recognition)
 voice_command_key: f23         # Push-to-Talk key (null=disabled)
+wake_word: シェルク              # Wake word (trigger word for voice commands)
 whisper_beam_size: 5           # Whisper beam size (1=fast, 5=accurate)
 whisper_compute_type: int8     # Compute precision (int8/float16/float32)
 whisper_device: cpu            # Device (cpu/cuda)

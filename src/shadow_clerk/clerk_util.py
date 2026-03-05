@@ -193,6 +193,7 @@ api_key_env: SHADOW_CLERK_API_KEY
 custom_commands: []
 initial_prompt: null
 voice_command_key: f23
+wake_word: シェルク
 ui_language: ja"""
         with open(CONFIG_FILE, "w") as f:
             f.write(default_config + "\n")

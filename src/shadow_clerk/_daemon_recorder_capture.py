@@ -14,6 +14,7 @@ from shadow_clerk._daemon_constants import (
     SAMPLE_RATE, FRAME_SIZE, CHANNELS, DTYPE,
     COMMAND_FILE, SESSION_FILE, GLOSSARY_FILE,
     VOICE_CMD_PREFIX, VOICE_CMD_SUFFIX, VOICE_COMMANDS,
+    build_wake_word_patterns,
     pynput_keyboard, _HAS_PYNPUT, evdev, _ecodes, _HAS_EVDEV,
 )
 from shadow_clerk._daemon_config import load_config, get_translation_provider, _builtin_command_descs
@@ -57,10 +58,13 @@ class _RecorderCaptureMixin:
             except (KeyError, re.error) as e:
                 logger.warning("カスタムコマンド定義エラー: %s — %s", entry, e)
 
-        # Whisper initial_prompt: トリガーワード + ユーザー指定プロンプト
-        default_prompt = "クラーク"
+        # ウェイクワードパターン初期化（_RecorderCommandMixin）
+        wake_word = (config.get("wake_word") or "").strip() or "シェルク"
+        self._wake_prefix, self._wake_suffix = build_wake_word_patterns(wake_word)
+
+        # Whisper initial_prompt: ウェイクワード + ユーザー指定プロンプト
         user_prompt = config.get("initial_prompt")
-        initial_prompt = f"{default_prompt}、{user_prompt}" if user_prompt else default_prompt
+        initial_prompt = f"{wake_word}、{user_prompt}" if user_prompt else wake_word
 
         self.transcriber = Transcriber(
             model_size=args.model,

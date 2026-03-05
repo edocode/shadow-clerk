@@ -220,7 +220,8 @@ Subcommands:
 Voice commands:
   Push-to-Talk          Hold Menu key while speaking a command (no prefix needed)
                          Configurable via voice_command_key (ctrl_r/ctrl_l/alt_r/alt_l/shift_r/shift_l/null)
-  Prefix mode           Say "clerk" + command as fallback
+  Wake word mode        Say wake word (default: "sheruku") + command as fallback
+                         Configurable via wake_word setting
   custom_commands       Register custom voice commands in config.yaml
                          e.g.: {pattern: "youtube", action: "xdg-open https://www.youtube.com"}
   LLM fallback          If no built-in/custom match, queries LLM when api_endpoint is configured

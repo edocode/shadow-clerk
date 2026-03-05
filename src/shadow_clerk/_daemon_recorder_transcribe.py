@@ -41,6 +41,18 @@ class _RecorderTranscribeMixin:
 
     def _llm_query(self, text: str):
         """LLM にクエリを投げて結果を表示・保存する（バックグラウンド実行）"""
+        config = load_config()
+        if config.get("llm_provider") == "claude":
+            # Claude プロバイダ: .clerk_command 経由で Claude Code subagent に処理させる
+            command_file = os.path.join(DATA_DIR, ".clerk_command")
+            try:
+                with open(command_file, "w", encoding="utf-8") as f:
+                    f.write(f"llm_query {text}")
+                logger.info("LLM クエリを .clerk_command に書き込み (claude): %s", text)
+            except Exception as e:
+                logger.error("LLM クエリ (.clerk_command 書き込み失敗): %s", e)
+            return
+
         response_file = os.path.join(DATA_DIR, ".clerk_response")
         try:
             result = subprocess.run(

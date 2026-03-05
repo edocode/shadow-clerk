@@ -362,15 +362,16 @@ const CFG_FIELDS=[
   {type:'section',label:I18N['cfg.section.transcription']},
   {key:'default_language',label:I18N['cfg.default_language'],type:'select',opts:['auto',...LANG_OPTS]},
   {key:'default_model',label:I18N['cfg.default_model'],type:'select',opts:['tiny','base','small','medium','large-v3']},
-  {key:'japanese_asr_model',label:I18N['cfg.japanese_asr_model'],type:'select',opts:['default','kotoba-whisper','reazonspeech-k2']},
   {key:'initial_prompt',label:I18N['cfg.initial_prompt'],type:'text',ph:I18N['cfg.initial_prompt_ph']},
   {key:'whisper_beam_size',label:I18N['cfg.whisper_beam_size'],type:'select',opts:['1','2','3','5']},
   {key:'whisper_compute_type',label:I18N['cfg.whisper_compute_type'],type:'select',opts:['int8','float16','float32']},
   {key:'whisper_device',label:I18N['cfg.whisper_device'],type:'select',opts:['cpu','cuda']},
+  {key:'japanese_asr_model',label:I18N['cfg.japanese_asr_model'],type:'select',opts:['default','kotoba-whisper','reazonspeech-k2']},
   {key:'interim_transcription',label:I18N['cfg.interim_transcription'],type:'bool'},
   {key:'interim_model',label:I18N['cfg.interim_model'],type:'select',opts:['tiny','base','small','medium']},
   {key:'interim_japanese_asr_model',label:I18N['cfg.interim_japanese_asr_model'],type:'select',opts:['default','kotoba-whisper','reazonspeech-k2']},
   {key:'voice_command_key',label:I18N['cfg.voice_command_key'],type:'select',opts:['menu','f23','ctrl_r','ctrl_l','alt_r','alt_l','shift_r','shift_l']},
+  {key:'wake_word',label:I18N['cfg.wake_word'],type:'text',ph:I18N['cfg.wake_word_ph']},
   {type:'section',label:I18N['cfg.section.translation']},
   {key:'translate_language',label:I18N['cfg.translate_language'],type:'select',opts:LANG_OPTS},
   {key:'auto_translate',label:I18N['cfg.auto_translate'],type:'bool'},
@@ -473,14 +474,8 @@ async function saveCfg(){
   }catch(e){}
 }
 function updateCfgDisabled(){
-  const ja=document.getElementById('cfg_japanese_asr_model');
   const ija=document.getElementById('cfg_interim_japanese_asr_model');
-  const isK2=ja&&ja.value==='reazonspeech-k2';
   const iIsK2=ija&&ija.value==='reazonspeech-k2';
-  ['default_model','whisper_beam_size','whisper_compute_type','initial_prompt'].forEach(k=>{
-    const el=document.getElementById('cfg_'+k);
-    if(el){el.disabled=isK2;el.style.opacity=isK2?'0.5':'1';}
-  });
   const im=document.getElementById('cfg_interim_model');
   if(im){im.disabled=iIsK2;im.style.opacity=iIsK2?'0.5':'1';}
 }

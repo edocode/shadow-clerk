@@ -20,6 +20,9 @@ _CSS_TEMPLATE = """\
   --btn-h: #30363d;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+a:visited { color: var(--purple); }
 body {
   background: var(--bg); color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
