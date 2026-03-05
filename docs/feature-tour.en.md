@@ -60,6 +60,16 @@ Use the **Mic Mute** / **Speaker Mute** buttons on the toolbar to temporarily st
 
 Speaker audio (e.g., the other party's voice in a meeting) can also be included in the transcript.
 
+## Active File Navigation (★ Mark)
+
+A ★ mark may appear next to the file name in the toolbar. This indicates the currently recording (active) transcript file. Even while viewing a different file, clicking the ★ mark instantly navigates to the file being recorded.
+
+![★ mark - Go to active file](images/17_star_goto_active.png)
+
+When a meeting starts, the active file switches to the meeting file (with timestamp), and the ★ mark moves accordingly. After the meeting ends, it automatically returns to the daily file.
+
+![After meeting start - active file switches to meeting file](images/18_star_meeting_active.png)
+
 ## Meeting Mode
 
 Start meeting mode by pressing the **Start Meeting** button.
