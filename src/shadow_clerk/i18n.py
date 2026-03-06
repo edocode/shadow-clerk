@@ -120,6 +120,26 @@ STRINGS = {
         "dash.unmute_mic": "マイクミュート解除",
         "dash.mute_monitor": "スピーカーミュート",
         "dash.unmute_monitor": "スピーカーミュート解除",
+        "dash.mic_unavailable": "マイク利用不可",
+        "dash.monitor_unavailable": "スピーカー利用不可",
+        "dash.ts_mic": "<b>マイクのキャプチャに失敗しました</b><br><br>"
+            "<b>確認手順:</b><ol>"
+            "<li>マイクが接続されているか確認</li>"
+            "<li><code>pactl list short sources</code> でマイクデバイスを確認</li>"
+            "<li><code>--mic DEVICE_ID</code> オプションでデバイスを指定して再起動</li>"
+            "</ol>"
+            "<b>サービス再起動:</b><br>"
+            "<code>systemctl --user restart pipewire pulseaudio</code><br><br>"
+            "修正後、clerk-daemon を再起動してください。",
+        "dash.ts_monitor": "<b>スピーカー（モニター）のキャプチャに失敗しました</b><br><br>"
+            "<b>確認手順:</b><ol>"
+            "<li><code>pactl list short sources</code> でモニターソース（<code>.monitor</code> 付き）を確認</li>"
+            "<li><code>pw-record --list-targets</code> で PipeWire デバイスを確認</li>"
+            "<li><code>--monitor DEVICE_ID</code> オプションでデバイスを指定して再起動</li>"
+            "</ol>"
+            "<b>サービス再起動:</b><br>"
+            "<code>systemctl --user restart pipewire pulseaudio</code><br><br>"
+            "修正後、clerk-daemon を再起動してください。",
         "dash.custom_commands": "コマンド",
         "dash.custom_commands_title": "カスタム音声コマンド",
         "dash.custom_cmd_pattern": "パターン（正規表現）",
@@ -404,6 +424,26 @@ STRINGS = {
         "dash.unmute_mic": "Unmute Mic",
         "dash.mute_monitor": "Mute Speaker",
         "dash.unmute_monitor": "Unmute Speaker",
+        "dash.mic_unavailable": "Mic Unavailable",
+        "dash.monitor_unavailable": "Speaker Unavailable",
+        "dash.ts_mic": "<b>Microphone capture failed</b><br><br>"
+            "<b>Troubleshooting:</b><ol>"
+            "<li>Check that a microphone is connected</li>"
+            "<li>Run <code>pactl list short sources</code> to find mic devices</li>"
+            "<li>Restart with <code>--mic DEVICE_ID</code> to specify the device</li>"
+            "</ol>"
+            "<b>Restart audio services:</b><br>"
+            "<code>systemctl --user restart pipewire pulseaudio</code><br><br>"
+            "After fixing, restart clerk-daemon.",
+        "dash.ts_monitor": "<b>Speaker (monitor) capture failed</b><br><br>"
+            "<b>Troubleshooting:</b><ol>"
+            "<li>Run <code>pactl list short sources</code> and look for <code>.monitor</code> sources</li>"
+            "<li>Run <code>pw-record --list-targets</code> to find PipeWire devices</li>"
+            "<li>Restart with <code>--monitor DEVICE_ID</code> to specify the device</li>"
+            "</ol>"
+            "<b>Restart audio services:</b><br>"
+            "<code>systemctl --user restart pipewire pulseaudio</code><br><br>"
+            "After fixing, restart clerk-daemon.",
         "dash.custom_commands": "Commands",
         "dash.custom_commands_title": "Custom Voice Commands",
         "dash.custom_cmd_pattern": "Pattern (regex)",

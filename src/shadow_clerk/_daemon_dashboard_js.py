@@ -225,15 +225,27 @@ async function regenTranslate(){
 }
 
 /* --- Mute toggles --- */
-function updateMuteBtn(type,muted){
+function updateMuteBtn(type,muted,available){
   const btn=document.getElementById(type==='mic'?'btnMuteMic':'btnMuteMonitor');
+  if(available===false){btn.classList.remove('off');btn.classList.add('unavail');btn.title=I18N[type==='mic'?'dash.mic_unavailable':'dash.monitor_unavailable']||'Unavailable';return;}
+  btn.classList.remove('unavail');
   if(muted){btn.classList.add('off');btn.title=I18N[type==='mic'?'dash.unmute_mic':'dash.unmute_monitor'];}
   else{btn.classList.remove('off');btn.title=I18N[type==='mic'?'dash.mute_mic':'dash.mute_monitor'];}
 }
 function togMute(type){
+  const btn=document.getElementById(type==='mic'?'btnMuteMic':'btnMuteMonitor');
+  if(btn.classList.contains('unavail')){showTroubleshoot(type);return;}
   if(type==='mic'){muteMic=!muteMic;cmd(muteMic?'mute_mic':'unmute_mic');updateMuteBtn('mic',muteMic);}
   else{muteMonitor=!muteMonitor;cmd(muteMonitor?'mute_monitor':'unmute_monitor');updateMuteBtn('monitor',muteMonitor);}
 }
+function showTroubleshoot(type){
+  const title=I18N[type==='mic'?'dash.mic_unavailable':'dash.monitor_unavailable']||'Unavailable';
+  const key=type==='mic'?'dash.ts_mic':'dash.ts_monitor';
+  document.getElementById('tsTitle').textContent=title;
+  document.getElementById('tsBody').innerHTML=I18N[key]||'';
+  document.getElementById('troubleshootModal').classList.add('open');
+}
+function closeTroubleshoot(){document.getElementById('troubleshootModal').classList.remove('open');}
 /* --- PTT toggle --- */
 function updatePTT(active){
   pttActive=active;
@@ -267,7 +279,7 @@ async function fetchStatus(){
     updateMeetingBtn(d.session);
     updateTranslateBtn(d.translating);
     muteMic=d.mute_mic;muteMonitor=d.mute_monitor;
-    updateMuteBtn('mic',muteMic);updateMuteBtn('monitor',muteMonitor);
+    updateMuteBtn('mic',muteMic,d.use_mic);updateMuteBtn('monitor',muteMonitor,d.use_monitor);
     if(d.ptt!==undefined)updatePTT(d.ptt);
     const ai=document.getElementById('asrInfo');
     if(ai&&d.asr_backend){ai.textContent=d.asr_backend==='whisper'?'Whisper: '+d.asr_model_id:d.asr_backend;}
@@ -293,6 +305,10 @@ es.addEventListener('session',e=>{
 });
 es.addEventListener('ptt',e=>{
   try{const d=JSON.parse(e.data);updatePTT(d.active);}catch(ex){}
+});
+es.addEventListener('asr_status',e=>{
+  try{const d=JSON.parse(e.data);const ai=document.getElementById('asrInfo');
+  if(ai&&d.asr_backend){ai.textContent=d.asr_backend==='whisper'?'Whisper: '+d.asr_model_id:d.asr_backend;}}catch(ex){}
 });
 es.addEventListener('interim_transcript',e=>{
   const d=JSON.parse(e.data);

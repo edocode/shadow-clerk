@@ -137,6 +137,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             "translating": translating,
             "mute_mic": self.recorder.mute_mic,
             "mute_monitor": self.recorder.mute_monitor,
+            "use_mic": self.recorder.use_mic,
+            "use_monitor": self.recorder.use_monitor,
             "ptt": self.recorder._command_mode,
             "asr_backend": self.recorder.transcriber._backend,
             "asr_model_id": self.recorder.transcriber._loaded_model_id or self.recorder.transcriber.model_size,

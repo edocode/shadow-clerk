@@ -114,6 +114,8 @@ main {
 .toggle { font-size:12px; opacity:.7; cursor:pointer; padding:2px 6px; border:1px solid var(--border); border-radius:4px; background:transparent; color:var(--muted); }
 .toggle:hover { opacity:1; }
 .toggle.off { opacity:.4; text-decoration:line-through; }
+.toggle.unavail { color:#e44; opacity:1; position:relative; cursor:help; }
+.toggle.unavail::after { content:'\U0001f6ab'; position:absolute; top:-2px; right:-4px; font-size:9px; }
 .panel.hidden { display:none; }
 #logp.collapsed #logc { display:none; }
 #logp.collapsed { height:auto; }

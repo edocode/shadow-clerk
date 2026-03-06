@@ -42,7 +42,8 @@ uv tool install shadow-clerk
 ReazonSpeech 対応版（日本語高精度 ASR）:
 
 ```bash
-uv tool install "shadow-clerk[reazonspeech]"
+uv tool install "shadow-clerk[reazonspeech]" \
+  --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
 ```
 
 開発用:
@@ -67,7 +68,8 @@ japanese_asr_model: kotoba-whisper
 **ReazonSpeech k2** — `reazonspeech` extra が必要:
 
 ```bash
-uv tool install "shadow-clerk[reazonspeech]"
+uv tool install "shadow-clerk[reazonspeech]" \
+  --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
 # 開発用:
 uv sync --extra reazonspeech
 ```

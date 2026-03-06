@@ -128,11 +128,17 @@ class _RecorderCommandMixin:
             self._execute_command(command)
         else:
             logger.info("LLM コマンドマッチ低信頼度: '%s' → %s (confidence=%d)", text, command, confidence)
-            print(t("rec.voice_cmd_fail", text=text.strip(), confidence=confidence))
-            if hasattr(self, "_file_watcher"):
-                self._file_watcher._broadcast("alert", json.dumps(
-                    {"message": t("dash.alert_cmd_fail", text=text.strip())},
-                    ensure_ascii=False))
+            # コマンドにマッチしなかった場合、LLM クエリにフォールバック
+            config = load_config()
+            if text.strip() and (config.get("api_endpoint") or config.get("llm_provider") == "claude"):
+                logger.info("LLM クエリにフォールバック: %s", text.strip())
+                self._execute_command(f"llm_query {text.strip()}")
+            else:
+                print(t("rec.voice_cmd_fail", text=text.strip(), confidence=confidence))
+                if hasattr(self, "_file_watcher"):
+                    self._file_watcher._broadcast("alert", json.dumps(
+                        {"message": t("dash.alert_cmd_fail", text=text.strip())},
+                        ensure_ascii=False))
 
     def _auto_summarize(self, transcript_path: str):
         """会議終了時に自動で議事録を生成する"""
@@ -323,6 +329,14 @@ class _RecorderCommandMixin:
                 except Exception:
                     pass
 
+    def _broadcast_asr_status(self):
+        """ASRバックエンド/モデル変更をSSEで通知"""
+        if hasattr(self, "_file_watcher"):
+            self._file_watcher._broadcast("asr_status", json.dumps({
+                "asr_backend": self.transcriber._backend,
+                "asr_model_id": self.transcriber._loaded_model_id or self.transcriber.model_size,
+            }))
+
     def _execute_command(self, cmd: str):
         """コマンド文字列をパースして実行"""
         cmd = cmd.strip()
@@ -334,11 +348,13 @@ class _RecorderCommandMixin:
             self.transcriber.language = lang
             logger.info("言語を変更: %s", lang)
             self.transcriber.ensure_model_for_language()
+            self._broadcast_asr_status()
 
         elif cmd == "unset_language":
             self.transcriber.language = None
             logger.info("言語を自動検出に変更")
             self.transcriber.ensure_model_for_language()
+            self._broadcast_asr_status()
 
         elif cmd.startswith("start_meeting"):
             parts = cmd.split(None, 1)
