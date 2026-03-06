@@ -46,6 +46,12 @@ uv tool install "shadow-clerk[reazonspeech]" \
   --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
 ```
 
+> **Note:** If you already installed without extras and want to add them later, use `--force` to reinstall:
+> ```bash
+> uv tool install --force --editable ".[spell-check]"
+> ```
+> Without `--force`, `uv tool install` reports "already installed" and does not add the extra.
+
 For development:
 
 ```bash
