@@ -46,11 +46,14 @@ uv tool install "shadow-clerk[reazonspeech]" \
   --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
 ```
 
-> **注意:** extras なしでインストール済みの場合、後から extras を追加するには `--force` で再インストールが必要:
+> **注意:** extras なしでインストール済みの場合、後から extras を追加するには `--force` で再インストールが必要。`--force` なしでは「already installed」と表示され、extra が追加されません:
 > ```bash
+> # 例: spell-check extra を後から追加
 > uv tool install --force --editable ".[spell-check]"
+> # 例: reazonspeech extra を後から追加
+> uv tool install --force --editable ".[reazonspeech]" \
+>   --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
 > ```
-> `--force` なしでは「already installed」と表示され、extra が追加されません。
 
 開発用:
 
