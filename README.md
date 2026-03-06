@@ -151,6 +151,22 @@ This generates `~/.claude/skills/shadow-clerk/SKILL.md` and adds permissions to 
 
 ## Usage
 
+### Starting the daemon
+
+If you installed via `uv tool install`:
+
+```bash
+clerk-daemon
+```
+
+For development (`uv sync`):
+
+```bash
+uv run clerk-daemon
+```
+
+> **Note:** `uv run` uses the project `.venv`, while `uv tool install` uses its own isolated environment. Make sure extras (e.g. `spell-check`, `reazonspeech`) are installed in the matching environment.
+
 ### Recording & transcription
 
 ```bash

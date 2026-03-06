@@ -151,6 +151,22 @@ clerk-util claude-setup
 
 ## 使い方
 
+### デーモンの起動
+
+`uv tool install` でインストールした場合:
+
+```bash
+clerk-daemon
+```
+
+開発用（`uv sync`）の場合:
+
+```bash
+uv run clerk-daemon
+```
+
+> **注意:** `uv run` はプロジェクトの `.venv` を、`uv tool install` は専用の隔離環境を使用します。extras（`spell-check`, `reazonspeech` など）は対応する環境にインストールしてください。
+
 ### 録音・文字起こし
 
 ```bash
