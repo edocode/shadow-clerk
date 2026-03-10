@@ -35,37 +35,23 @@ sudo apt install libportaudio2 portaudio19-dev
 
 ### 2. インストール
 
-```bash
-uv tool install shadow-clerk
-```
+|  | コマンド |
+|---|---|
+| 基本 | `uv tool install shadow-clerk` |
+| + ReazonSpeech | `uv tool install "shadow-clerk[reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| + スペルチェック | `uv tool install "shadow-clerk[spell-check]"` |
+| + 両方 | `uv tool install "shadow-clerk[spell-check,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 
-ReazonSpeech 対応版（日本語高精度 ASR）:
+> **注意:** `uv tool install` はツールごとに1つの環境を管理します。異なる extras で再インストールする場合は `--force` を付けてください。`--force` なしでは「already installed」と表示され、extra が追加されません。指定した extras のみが含まれ、以前の extras は削除されます。
 
-```bash
-uv tool install "shadow-clerk[reazonspeech]" \
-  --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
-```
+### 2a. 開発用
 
-> **注意:** `uv tool install` はツールごとに1つの環境を管理します。`--force` で再インストールすると、指定した extras のみが含まれ、以前の extras は削除されます。複数の extras を使う場合はまとめて指定してください:
-> ```bash
-> # spell-check と reazonspeech を両方
-> uv tool install --force --editable ".[spell-check,reazonspeech]" \
->   --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
-> # spell-check のみ
-> uv tool install --force --editable ".[spell-check]"
-> # reazonspeech のみ
-> uv tool install --force --editable ".[reazonspeech]" \
->   --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
-> ```
-> `--force` なしでは「already installed」と表示され、extra が追加されません。
-
-開発用:
-
-```bash
-cd shadow-clerk
-uv sync                         # 基本
-uv sync --extra reazonspeech    # ReazonSpeech 対応
-```
+|  | コマンド |
+|---|---|
+| 基本 | `uv sync` |
+| + ReazonSpeech | `uv sync --extra reazonspeech` |
+| + スペルチェック | `uv sync --extra spell-check` |
+| + 両方 | `uv sync --extra spell-check --extra reazonspeech` |
 
 これだけで文字起こし機能が使える。以下のオプション extras も利用可能:
 

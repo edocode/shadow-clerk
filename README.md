@@ -35,37 +35,23 @@ sudo apt install libportaudio2 portaudio19-dev
 
 ### 2. Install
 
-```bash
-uv tool install shadow-clerk
-```
+|  | Command |
+|---|---|
+| Basic | `uv tool install shadow-clerk` |
+| + ReazonSpeech | `uv tool install "shadow-clerk[reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| + Spell check | `uv tool install "shadow-clerk[spell-check]"` |
+| + Both | `uv tool install "shadow-clerk[spell-check,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 
-With ReazonSpeech support (Japanese high-accuracy ASR):
+> **Note:** `uv tool install` maintains a single environment per tool. When reinstalling with different extras, use `--force` — without it, `uv tool install` reports "already installed" and does not add the extra. Only the extras specified in the command are included; previously installed extras are removed.
 
-```bash
-uv tool install "shadow-clerk[reazonspeech]" \
-  --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
-```
+### 2a. For development
 
-> **Note:** `uv tool install` maintains a single environment per tool. When reinstalling with `--force`, only the specified extras are included — any previously installed extras are removed. To use multiple extras, specify them all at once:
-> ```bash
-> # Both spell-check and reazonspeech
-> uv tool install --force --editable ".[spell-check,reazonspeech]" \
->   --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
-> # spell-check only
-> uv tool install --force --editable ".[spell-check]"
-> # reazonspeech only
-> uv tool install --force --editable ".[reazonspeech]" \
->   --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
-> ```
-> Without `--force`, `uv tool install` reports "already installed" and does not add the extra.
-
-For development:
-
-```bash
-cd shadow-clerk
-uv sync                         # basic
-uv sync --extra reazonspeech    # with ReazonSpeech support
-```
+|  | Command |
+|---|---|
+| Basic | `uv sync` |
+| + ReazonSpeech | `uv sync --extra reazonspeech` |
+| + Spell check | `uv sync --extra spell-check` |
+| + Both | `uv sync --extra spell-check --extra reazonspeech` |
 
 This is all you need for transcription. The following optional extras are available:
 
