@@ -5,6 +5,7 @@ _JS_TEMPLATE = """\
 /*I18N_JSON*/
 let curFile='', activeFile='';
 let meetingActive=false, translating=false, muteMic=false, muteMonitor=false, pttActive=false;
+let audioBackend='';
 let panelMode=0; // 0=T|R, 1=T, 2=R
 const as={tp:true,rp:true,logc:true};
 ['tp','rp','logc'].forEach(id=>{
@@ -240,9 +241,24 @@ function togMute(type){
 }
 function showTroubleshoot(type){
   const title=I18N[type==='mic'?'dash.mic_unavailable':'dash.monitor_unavailable']||'Unavailable';
-  const key=type==='mic'?'dash.ts_mic':'dash.ts_monitor';
+  const isMic=type==='mic';
+  const T=k=>I18N[k]||k;
+  let html='<b>'+T(isMic?'dash.ts_mic_title':'dash.ts_monitor_title')+'</b><br><br>';
+  html+='<b>'+T('dash.ts_possible_causes')+'</b><ol>';
+  html+='<li>'+T(isMic?'dash.ts_mic_cause1':'dash.ts_monitor_cause1')+'</li>';
+  html+='<li>'+T('dash.ts_cause_service')+'</li>';
+  html+='</ol>';
+  html+='<b>'+T('dash.ts_fix_steps')+'</b><ol>';
+  let restartCmd='';
+  if(audioBackend==='pipewire'){restartCmd='systemctl --user restart pipewire pipewire-pulse';}
+  else if(audioBackend==='pulseaudio'){restartCmd='systemctl --user restart pulseaudio';}
+  if(restartCmd){html+='<li>'+T('dash.ts_restart_service')+'<br><code>'+restartCmd+'</code></li>';}
+  html+='<li>'+T('dash.ts_list_devices')+'<br><code>clerk-daemon --list-devices</code></li>';
+  const opt=isMic?'--mic':'--monitor';
+  html+='<li>'+T('dash.ts_restart_clerk').replace('{opt}',opt)+'</li>';
+  html+='</ol>';
   document.getElementById('tsTitle').textContent=title;
-  document.getElementById('tsBody').innerHTML=I18N[key]||'';
+  document.getElementById('tsBody').innerHTML=html;
   document.getElementById('troubleshootModal').classList.add('open');
 }
 function closeTroubleshoot(){document.getElementById('troubleshootModal').classList.remove('open');}
@@ -278,7 +294,7 @@ async function fetchStatus(){
     const s=document.getElementById('langSel');if(s&&d.language)s.value=d.language;
     updateMeetingBtn(d.session);
     updateTranslateBtn(d.translating);
-    muteMic=d.mute_mic;muteMonitor=d.mute_monitor;
+    muteMic=d.mute_mic;muteMonitor=d.mute_monitor;if(d.backend)audioBackend=d.backend;
     updateMuteBtn('mic',muteMic,d.use_mic);updateMuteBtn('monitor',muteMonitor,d.use_monitor);
     if(d.ptt!==undefined)updatePTT(d.ptt);
     const ai=document.getElementById('asrInfo');

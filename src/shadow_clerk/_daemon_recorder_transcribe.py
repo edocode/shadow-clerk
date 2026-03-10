@@ -346,6 +346,7 @@ class _RecorderTranscribeMixin:
                     compute_type=config.get("whisper_compute_type", "int8"),
                     device=config.get("whisper_device", "cpu"),
                     ja_asr_config_key="interim_japanese_asr_model",
+                    label="interim",
                 )
                 interim_transcriber.load_model()
                 interim_model_name = model_name

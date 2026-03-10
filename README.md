@@ -360,16 +360,16 @@ shadow-clerk/                          # Repository
 # List available devices
 clerk-daemon --list-devices
 
-# Check if PipeWire is running
-pw-cli info
+# PipeWire: check status
+wpctl status
 
-# List PulseAudio sources
+# PulseAudio: list sources
 pactl list short sources
 ```
 
 ### Monitor source (system audio) not detected
 
-On PipeWire, check monitor devices with `pw-record --list-targets`.
+On PipeWire, check sink (output) devices with `wpctl status`.
 On PulseAudio, look for sources containing `.monitor` with `pactl list short sources`.
 
 You can also specify the device number manually:

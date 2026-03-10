@@ -122,24 +122,16 @@ STRINGS = {
         "dash.unmute_monitor": "スピーカーミュート解除",
         "dash.mic_unavailable": "マイク利用不可",
         "dash.monitor_unavailable": "スピーカー利用不可",
-        "dash.ts_mic": "<b>マイクのキャプチャに失敗しました</b><br><br>"
-            "<b>確認手順:</b><ol>"
-            "<li>マイクが接続されているか確認</li>"
-            "<li><code>pactl list short sources</code> でマイクデバイスを確認</li>"
-            "<li><code>--mic DEVICE_ID</code> オプションでデバイスを指定して再起動</li>"
-            "</ol>"
-            "<b>サービス再起動:</b><br>"
-            "<code>systemctl --user restart pipewire pulseaudio</code><br><br>"
-            "修正後、clerk-daemon を再起動してください。",
-        "dash.ts_monitor": "<b>スピーカー（モニター）のキャプチャに失敗しました</b><br><br>"
-            "<b>確認手順:</b><ol>"
-            "<li><code>pactl list short sources</code> でモニターソース（<code>.monitor</code> 付き）を確認</li>"
-            "<li><code>pw-record --list-targets</code> で PipeWire デバイスを確認</li>"
-            "<li><code>--monitor DEVICE_ID</code> オプションでデバイスを指定して再起動</li>"
-            "</ol>"
-            "<b>サービス再起動:</b><br>"
-            "<code>systemctl --user restart pipewire pulseaudio</code><br><br>"
-            "修正後、clerk-daemon を再起動してください。",
+        "dash.ts_mic_title": "マイクのキャプチャに失敗しました",
+        "dash.ts_monitor_title": "スピーカー（モニター）のキャプチャに失敗しました",
+        "dash.ts_possible_causes": "考えられる原因:",
+        "dash.ts_mic_cause1": "マイクが接続されていない",
+        "dash.ts_monitor_cause1": "モニターデバイス（ループバック）が見つからない",
+        "dash.ts_cause_service": "オーディオサービスがクラッシュしている",
+        "dash.ts_fix_steps": "対処手順:",
+        "dash.ts_restart_service": "オーディオサービスを再起動:",
+        "dash.ts_list_devices": "利用可能なデバイスを確認:",
+        "dash.ts_restart_clerk": "デバイス ID を指定して clerk-daemon を起動し直す:<br><code>clerk-daemon {opt} DEVICE_ID</code>",
         "dash.custom_commands": "コマンド",
         "dash.custom_commands_title": "カスタム音声コマンド",
         "dash.custom_cmd_pattern": "パターン（正規表現）",
@@ -246,7 +238,8 @@ STRINGS = {
             "1. 各行は「番号: テキスト」形式で与えられます。同じ「番号: 翻訳結果」形式で返してください。\n"
             "2. 音声認識の書き起こしテキストです。明らかな誤認識は文脈から推測して補正してから翻訳してください。\n"
             "3. 翻訳先言語（{lang}）と同じ言語で書かれている行は翻訳不要ですが、音声認識の誤認識・typo があれば修正して出力してください。\n"
-            "4. 番号とコロンの後の翻訳テキストのみを出力してください。余計な説明は不要です。"
+            "4. 用語集にreadingが記載されている場合、音声認識結果にそのreadingと類似する語句があれば、対応する正しい用語に修正してください。\n"
+            "5. 番号とコロンの後の翻訳テキストのみを出力してください。余計な説明は不要です。"
         ),
         "llm.summary_full_system": (
             "あなたは議事録作成アシスタントです。指定されたテンプレートに厳密に従って議事録を出力してください。\n"
@@ -263,6 +256,7 @@ STRINGS = {
             "- transcript の各行は [YYYY-MM-DD HH:MM:SS] [スピーカー] テキスト 形式です\n"
             "- 音声認識による誤字・誤変換を文脈から推測して正しい表記に修正してください\n"
             "- 固有名詞や専門用語は前後の文脈から最も適切な表記を推定してください\n"
+            "- 用語集にreadingが記載されている場合、音声認識結果にそのreadingと類似する語句があれば、対応する正しい用語に修正してください\n"
             "\n"
             "【transcript】\n"
             "{transcript}"
@@ -283,6 +277,7 @@ STRINGS = {
             "- transcript の各行は [YYYY-MM-DD HH:MM:SS] [スピーカー] テキスト 形式です\n"
             "- 音声認識による誤字・誤変換を文脈から推測して正しい表記に修正してください\n"
             "- 固有名詞や専門用語は前後の文脈から最も適切な表記を推定してください\n"
+            "- 用語集にreadingが記載されている場合、音声認識結果にそのreadingと類似する語句があれば、対応する正しい用語に修正してください\n"
             "\n"
             "## 既存の議事録\n"
             "{existing}\n"
@@ -426,24 +421,16 @@ STRINGS = {
         "dash.unmute_monitor": "Unmute Speaker",
         "dash.mic_unavailable": "Mic Unavailable",
         "dash.monitor_unavailable": "Speaker Unavailable",
-        "dash.ts_mic": "<b>Microphone capture failed</b><br><br>"
-            "<b>Troubleshooting:</b><ol>"
-            "<li>Check that a microphone is connected</li>"
-            "<li>Run <code>pactl list short sources</code> to find mic devices</li>"
-            "<li>Restart with <code>--mic DEVICE_ID</code> to specify the device</li>"
-            "</ol>"
-            "<b>Restart audio services:</b><br>"
-            "<code>systemctl --user restart pipewire pulseaudio</code><br><br>"
-            "After fixing, restart clerk-daemon.",
-        "dash.ts_monitor": "<b>Speaker (monitor) capture failed</b><br><br>"
-            "<b>Troubleshooting:</b><ol>"
-            "<li>Run <code>pactl list short sources</code> and look for <code>.monitor</code> sources</li>"
-            "<li>Run <code>pw-record --list-targets</code> to find PipeWire devices</li>"
-            "<li>Restart with <code>--monitor DEVICE_ID</code> to specify the device</li>"
-            "</ol>"
-            "<b>Restart audio services:</b><br>"
-            "<code>systemctl --user restart pipewire pulseaudio</code><br><br>"
-            "After fixing, restart clerk-daemon.",
+        "dash.ts_mic_title": "Microphone capture failed",
+        "dash.ts_monitor_title": "Speaker (monitor) capture failed",
+        "dash.ts_possible_causes": "Possible causes:",
+        "dash.ts_mic_cause1": "Microphone is not connected",
+        "dash.ts_monitor_cause1": "Monitor device (loopback) not found",
+        "dash.ts_cause_service": "Audio service has crashed",
+        "dash.ts_fix_steps": "How to fix:",
+        "dash.ts_restart_service": "Restart the audio service:",
+        "dash.ts_list_devices": "Check available devices:",
+        "dash.ts_restart_clerk": "Restart clerk-daemon with the device ID:<br><code>clerk-daemon {opt} DEVICE_ID</code>",
         "dash.custom_commands": "Commands",
         "dash.custom_commands_title": "Custom Voice Commands",
         "dash.custom_cmd_pattern": "Pattern (regex)",
@@ -550,7 +537,8 @@ STRINGS = {
             "1. Each line is given in 'number: text' format. Return results in the same 'number: translated text' format.\n"
             "2. This is speech recognition transcript text. Correct obvious misrecognitions from context before translating.\n"
             "3. Lines already in the target language ({lang}) do not need translation, but fix any speech recognition errors or typos.\n"
-            "4. Output only the number and translated text after the colon. No extra explanations."
+            "4. If the glossary includes a 'reading' for a term, and the transcript contains a similar-sounding word, correct it to the proper term.\n"
+            "5. Output only the number and translated text after the colon. No extra explanations."
         ),
         "llm.summary_full_system": (
             "You are a meeting minutes assistant. Strictly follow the given template to output meeting minutes.\n"
@@ -567,6 +555,7 @@ STRINGS = {
             "- Each transcript line is in [YYYY-MM-DD HH:MM:SS] [Speaker] Text format\n"
             "- Fix speech recognition errors by inferring correct words from context\n"
             "- Infer the most appropriate spelling for proper nouns and technical terms\n"
+            "- If the glossary includes a 'reading' for a term, and the transcript contains a similar-sounding word, correct it to the proper term\n"
             "\n"
             "[TRANSCRIPT]\n"
             "{transcript}"
@@ -587,6 +576,7 @@ STRINGS = {
             "- Each transcript line is in [YYYY-MM-DD HH:MM:SS] [Speaker] Text format\n"
             "- Fix speech recognition errors by inferring correct words from context\n"
             "- Infer the most appropriate spelling for proper nouns and technical terms\n"
+            "- If the glossary includes a 'reading' for a term, and the transcript contains a similar-sounding word, correct it to the proper term\n"
             "\n"
             "## Existing Meeting Minutes\n"
             "{existing}\n"

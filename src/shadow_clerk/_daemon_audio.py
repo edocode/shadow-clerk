@@ -28,31 +28,66 @@ class PipeWireBackend(AudioBackend):
         return shutil.which("pw-record") is not None
 
     def detect_monitor_source(self) -> str | None:
-        try:
-            result = subprocess.run(
-                ["pw-record", "--list-targets"],
-                capture_output=True, text=True, timeout=5,
-            )
-            for line in result.stdout.splitlines():
-                if "monitor" in line.lower():
-                    return line.strip()
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
+        # wpctl でデフォルト Sink のノード ID を取得
+        if shutil.which("wpctl"):
+            try:
+                result = subprocess.run(
+                    ["wpctl", "inspect", "@DEFAULT_AUDIO_SINK@"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                # 1行目: "id 74, type PipeWire:Interface:Node"
+                first = result.stdout.split("\n", 1)[0]
+                if first.startswith("id "):
+                    node_id = first.split(",")[0].split()[1]
+                    logger.info("PipeWire デフォルト Sink ノード ID: %s (wpctl)", node_id)
+                    return node_id
+            except (subprocess.TimeoutExpired, FileNotFoundError, IndexError, ValueError):
+                pass
+        # pactl フォールバック: デフォルト Sink 名 + ".monitor"
+        if shutil.which("pactl"):
+            try:
+                result = subprocess.run(
+                    ["pactl", "get-default-sink"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                sink_name = result.stdout.strip()
+                if sink_name:
+                    monitor = sink_name + ".monitor"
+                    logger.info("PipeWire monitor ソース: %s (pactl)", monitor)
+                    return monitor
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
         return None
 
     def list_devices(self):
         print(t("rec.pipewire_devices"))
-        try:
-            result = subprocess.run(
-                ["pw-record", "--list-targets"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if result.stdout.strip():
-                print(result.stdout)
-            else:
-                print(t("rec.no_devices"))
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            print(t("rec.pw_unavailable"))
+        if shutil.which("wpctl"):
+            try:
+                result = subprocess.run(
+                    ["wpctl", "status"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if result.stdout.strip():
+                    print(result.stdout)
+                else:
+                    print(t("rec.no_devices"))
+                return
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+        if shutil.which("pactl"):
+            try:
+                result = subprocess.run(
+                    ["pactl", "list", "short", "sinks"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if result.stdout.strip():
+                    print(result.stdout)
+                else:
+                    print(t("rec.no_devices"))
+                return
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+        print(t("rec.pw_unavailable"))
 
     def start_monitor_capture(self, target: str, audio_queue: queue.Queue,
                               stop_event: threading.Event):

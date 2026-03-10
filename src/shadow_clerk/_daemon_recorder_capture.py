@@ -7,7 +7,6 @@ import re
 import threading
 import time
 import numpy as np
-import sounddevice as sd
 from shadow_clerk import DATA_DIR
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import (
@@ -141,6 +140,7 @@ class _RecorderCaptureMixin:
 
     def _mic_capture_thread(self):
         """マイク音声キャプチャスレッド"""
+        import sounddevice as sd
         mic_device = self.args.mic
         logger.info("マイクキャプチャ開始 (device=%s)", mic_device)
 
@@ -169,6 +169,7 @@ class _RecorderCaptureMixin:
 
     def _monitor_capture_thread(self):
         """モニター音声キャプチャスレッド"""
+        import sounddevice as sd
         # sounddevice でモニターデバイスを探す
         monitor_device = self.args.monitor
         if monitor_device is None:
@@ -197,6 +198,7 @@ class _RecorderCaptureMixin:
 
     def _monitor_capture_sounddevice(self, device) -> bool:
         """sounddevice でモニターデバイスをキャプチャ。成功なら True、失敗なら False。"""
+        import sounddevice as sd
 
         def callback(indata, frames, time_info, status):
             if status:

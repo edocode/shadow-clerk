@@ -152,6 +152,11 @@ def main():
     if args.daemon:
         # デーモン化（ダブルフォークでバックグラウンド実行）
         _daemonize()
+        # sounddevice (PortAudio) はフォーク前に初期化されると壊れるため
+        # キャッシュを消して遅延インポートで再初期化させる
+        for mod_name in list(sys.modules):
+            if "sounddevice" in mod_name or "_sounddevice" in mod_name:
+                del sys.modules[mod_name]
         # ログはファイルのみ（stderr には出さない）
         file_handler = logging.FileHandler(LOG_FILE)
         file_handler.setFormatter(logging.Formatter(log_format, datefmt=log_datefmt))

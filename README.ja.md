@@ -363,16 +363,16 @@ shadow-clerk/                          # リポジトリ
 # デバイス一覧を確認
 clerk-daemon --list-devices
 
-# PipeWire が動作しているか確認
-pw-cli info
+# PipeWire: ステータス確認
+wpctl status
 
-# PulseAudio ソース一覧
+# PulseAudio: ソース一覧
 pactl list short sources
 ```
 
 ### モニターソース（システム音声）が検出されない
 
-PipeWire 環境では `pw-record --list-targets` で monitor デバイスを確認する。
+PipeWire 環境では `wpctl status` で sink（出力）デバイスを確認する。
 PulseAudio 環境では `pactl list short sources` で `.monitor` を含むソースを確認する。
 
 手動でデバイス番号を指定することもできる:

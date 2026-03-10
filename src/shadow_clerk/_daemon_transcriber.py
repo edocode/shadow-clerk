@@ -59,7 +59,8 @@ class Transcriber:
                  initial_prompt: str | None = None,
                  beam_size: int = 5, compute_type: str = "int8",
                  device: str = "cpu",
-                 ja_asr_config_key: str = "japanese_asr_model"):
+                 ja_asr_config_key: str = "japanese_asr_model",
+                 label: str = "main"):
         self.model_size = model_size
         self.language = language
         self.initial_prompt = initial_prompt
@@ -70,6 +71,7 @@ class Transcriber:
         self._loaded_model_id: str | None = None
         self._backend: str = "whisper"  # "whisper" or "reazonspeech-k2"
         self._ja_asr_config_key = ja_asr_config_key
+        self._label = label
 
     def _resolve_model_id(self) -> tuple[str, str]:
         """(backend, model_id) を返す"""
@@ -104,18 +106,18 @@ class Transcriber:
                 backend, model_id = "whisper", self.model_size
         if backend == "reazonspeech-k2":
             precision = "fp32" if self.device == "cpu" else "fp16"
-            logger.info("ReazonSpeech K2 モデル読み込み中: %s (device=%s, precision=%s) ...",
-                         model_id, self.device, precision)
+            logger.info("[%s] ReazonSpeech K2 モデル読み込み中: %s (device=%s, precision=%s) ...",
+                         self._label, model_id, self.device, precision)
             self.model = k2_load_model(device=self.device, precision=precision)
             self._backend = "reazonspeech-k2"
         else:
             from faster_whisper import WhisperModel
-            logger.info("Whisper モデル読み込み中: %s (device=%s, compute_type=%s) ...",
-                         model_id, self.device, self.compute_type)
+            logger.info("[%s] Whisper モデル読み込み中: %s (device=%s, compute_type=%s) ...",
+                         self._label, model_id, self.device, self.compute_type)
             self.model = WhisperModel(model_id, device=self.device, compute_type=self.compute_type)
             self._backend = "whisper"
         self._loaded_model_id = model_id
-        logger.info("モデル読み込み完了: %s", model_id)
+        logger.info("[%s] モデル読み込み完了: %s", self._label, model_id)
 
     def reload_model(self, model_size: str):
         self.model_size = model_size
