@@ -67,7 +67,7 @@ def load_glossary(lang: str) -> str:
             entry = f"{source_term} → {target_term}"
             annotations = []
             if reading:
-                annotations.append(f"読み: {reading}")
+                annotations.append(f"reading: {reading}")
             if note:
                 annotations.append(note)
             if annotations:
@@ -77,7 +77,7 @@ def load_glossary(lang: str) -> str:
     if not pairs:
         return ""
 
-    return "5. 以下の用語集を参考にしてください:\n" + "\n".join(f"  {p}" for p in pairs)
+    return "6. 以下の用語集を参考にしてください:\n" + "\n".join(f"  {p}" for p in pairs)
 
 
 def load_glossary_replacements(lang: str | None = None) -> list[tuple[str, str]]:
