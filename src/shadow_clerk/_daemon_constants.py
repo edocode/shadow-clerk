@@ -62,6 +62,8 @@ DEFAULT_CONFIG = {
     "libretranslate_spell_check": False,
     "spell_check_model": "mbyhphat/t5-japanese-typo-correction",
     "summary_source": "transcript",
+    "summary_hiragana_step": True,
+    "translation_hiragana_step": True,
     "japanese_asr_model": "default",
     "kotoba_whisper_model": "kotoba-tech/kotoba-whisper-v2.0-faster",
     "interim_japanese_asr_model": "default",

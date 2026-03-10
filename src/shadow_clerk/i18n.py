@@ -227,6 +227,8 @@ STRINGS = {
         "cfg.libretranslate_spell_check": "誤字訂正(LibreTranslate用)",
         "cfg.spell_check_model": "誤字訂正モデル",
         "cfg.summary_source": "要約ソース",
+        "cfg.translation_hiragana_step": "平仮名思考ステップ",
+        "cfg.summary_hiragana_step": "平仮名思考ステップ",
         "cfg.japanese_asr_model": "日本語ASRモデル",
         "cfg.kotoba_whisper_model": "Kotoba-Whisper モデル",
         "cfg.interim_japanese_asr_model": "中間 日本語ASRモデル",
@@ -239,7 +241,20 @@ STRINGS = {
             "2. 音声認識の書き起こしテキストです。明らかな誤認識は文脈から推測して補正してから翻訳してください。\n"
             "3. 翻訳先言語（{lang}）と同じ言語で書かれている行は翻訳不要ですが、音声認識の誤認識・typo があれば修正して出力してください。\n"
             "4. 用語集にreadingが記載されている場合、音声認識結果にそのreadingと類似する語句があれば、対応する正しい用語に修正してください。\n"
-            "5. 番号とコロンの後の翻訳テキストのみを出力してください。余計な説明は不要です。"
+            "5. 番号とコロンの後の翻訳テキストのみを出力してください。余計な説明は不要です。\n"
+            "{hiragana_step}"
+        ),
+        "llm.correct_system": (
+            "あなたは音声認識テキストの誤変換修正アシスタントです。\n"
+            "入力テキストは日本語の音声認識結果であり、多数の漢字誤変換を含みます。\n"
+            "以下のルールに従って誤変換を修正してください:\n"
+            "\n"
+            "1. 各行は「番号: テキスト」形式で与えられます。同じ「番号: 修正後テキスト」形式で返してください。\n"
+            "2. 音声認識は同音異義語を頻繁に誤変換します。各単語の「読み」を考え、文脈に合った正しい漢字・表記に修正してください。\n"
+            "3. 用語集のreadingマッピングに一致する読みを持つ語句は、必ず用語集の正しい表記に修正してください。\n"
+            "4. 用語集にない語句でも、文脈から明らかに誤変換と判断できる場合は修正してください。\n"
+            "5. 番号とコロンの後の修正済みテキストのみを出力してください。余計な説明は不要です。\n"
+            "6. 修正が不要な行もそのまま出力してください（省略しないこと）。"
         ),
         "llm.summary_full_system": (
             "あなたは議事録作成アシスタントです。指定されたテンプレートに厳密に従って議事録を出力してください。\n"
@@ -257,6 +272,7 @@ STRINGS = {
             "- 音声認識による誤字・誤変換を文脈から推測して正しい表記に修正してください\n"
             "- 固有名詞や専門用語は前後の文脈から最も適切な表記を推定してください\n"
             "- 用語集にreadingが記載されている場合、音声認識結果にそのreadingと類似する語句があれば、対応する正しい用語に修正してください\n"
+            "{hiragana_step}"
             "\n"
             "【transcript】\n"
             "{transcript}"
@@ -278,12 +294,32 @@ STRINGS = {
             "- 音声認識による誤字・誤変換を文脈から推測して正しい表記に修正してください\n"
             "- 固有名詞や専門用語は前後の文脈から最も適切な表記を推定してください\n"
             "- 用語集にreadingが記載されている場合、音声認識結果にそのreadingと類似する語句があれば、対応する正しい用語に修正してください\n"
+            "{hiragana_step}"
             "\n"
             "## 既存の議事録\n"
             "{existing}\n"
             "\n"
             "## 新しい transcript（差分）\n"
             "{transcript}"
+        ),
+        "llm.summary_hiragana_step": (
+            "\n"
+            "【重要】議事録を作成する前に以下の思考手順を内部で実行してください（出力には含めないこと）:\n"
+            "  a. transcript の各行の日本語テキストの漢字をすべて平仮名（読み）に変換して意味を再解釈する\n"
+            "  b. 平仮名にした読みを用語集の reading と照合し、音声認識の誤変換を特定する\n"
+            "  c. 文脈に基づいて正しい漢字・用語に修正してから議事録を作成する\n"
+            "  平仮名や中間ステップは絶対に出力しないでください。議事録のみ出力してください。\n"
+        ),
+        "llm.translation_hiragana_step": (
+            "\n"
+            "【重要】翻訳前に以下の思考手順を内部で実行してください（出力には含めないこと）:\n"
+            "  a. 各行の日本語テキストの漢字をすべて平仮名（読み）に変換して意味を再解釈する\n"
+            "  b. 平仮名にした読みを用語集の reading マッピングと照合し、音声認識の誤変換を特定する\n"
+            "     例: 「習性」→ ひらがな「しゅうせい」→ glossaryで「しゅうせい→修正」を発見 → 文脈的に「修正」が正しい\n"
+            "  c. 文脈に基づいて正しい漢字・用語に修正する\n"
+            "  d. 修正後のテキストを翻訳先言語（{lang}）に翻訳する\n"
+            "  出力は最終的な翻訳結果（「番号: 翻訳テキスト」形式）のみにしてください。\n"
+            "  平仮名や中間ステップは絶対に出力しないでください。"
         ),
         "llm.summary_update_none": "(なし — 新規作成してください)",
         "llm.summary_format": (
@@ -526,6 +562,8 @@ STRINGS = {
         "cfg.libretranslate_spell_check": "Spell Check (LibreTranslate)",
         "cfg.spell_check_model": "Spell Check Model",
         "cfg.summary_source": "Summary Source",
+        "cfg.translation_hiragana_step": "Hiragana Thinking Step",
+        "cfg.summary_hiragana_step": "Hiragana Thinking Step",
         "cfg.japanese_asr_model": "Japanese ASR Model",
         "cfg.kotoba_whisper_model": "Kotoba-Whisper Model",
         "cfg.interim_japanese_asr_model": "Interim Japanese ASR Model",
@@ -538,7 +576,20 @@ STRINGS = {
             "2. This is speech recognition transcript text. Correct obvious misrecognitions from context before translating.\n"
             "3. Lines already in the target language ({lang}) do not need translation, but fix any speech recognition errors or typos.\n"
             "4. If the glossary includes a 'reading' for a term, and the transcript contains a similar-sounding word, correct it to the proper term.\n"
-            "5. Output only the number and translated text after the colon. No extra explanations."
+            "5. Output only the number and translated text after the colon. No extra explanations.\n"
+            "{hiragana_step}"
+        ),
+        "llm.correct_system": (
+            "You are a speech recognition error correction assistant.\n"
+            "The input is Japanese speech recognition output containing many kanji misconversions.\n"
+            "Follow these rules to correct misconversions:\n"
+            "\n"
+            "1. Each line is given in 'number: text' format. Return results in the same 'number: corrected text' format.\n"
+            "2. Speech recognition frequently misconverts homophones. Consider the 'reading' of each word and correct to the right kanji/notation based on context.\n"
+            "3. Words whose reading matches a glossary reading mapping MUST be corrected to the glossary's correct notation.\n"
+            "4. Even words not in the glossary should be corrected if clearly misconverted based on context.\n"
+            "5. Output only the number and corrected text after the colon. No extra explanations.\n"
+            "6. Output all lines including those that need no correction (do not omit any)."
         ),
         "llm.summary_full_system": (
             "You are a meeting minutes assistant. Strictly follow the given template to output meeting minutes.\n"
@@ -556,6 +607,7 @@ STRINGS = {
             "- Fix speech recognition errors by inferring correct words from context\n"
             "- Infer the most appropriate spelling for proper nouns and technical terms\n"
             "- If the glossary includes a 'reading' for a term, and the transcript contains a similar-sounding word, correct it to the proper term\n"
+            "{hiragana_step}"
             "\n"
             "[TRANSCRIPT]\n"
             "{transcript}"
@@ -577,6 +629,7 @@ STRINGS = {
             "- Fix speech recognition errors by inferring correct words from context\n"
             "- Infer the most appropriate spelling for proper nouns and technical terms\n"
             "- If the glossary includes a 'reading' for a term, and the transcript contains a similar-sounding word, correct it to the proper term\n"
+            "{hiragana_step}"
             "\n"
             "## Existing Meeting Minutes\n"
             "{existing}\n"
@@ -584,6 +637,8 @@ STRINGS = {
             "## New Transcript (diff)\n"
             "{transcript}"
         ),
+        "llm.summary_hiragana_step": "",
+        "llm.translation_hiragana_step": "",
         "llm.summary_update_none": "(None — please create new minutes)",
         "llm.summary_format": (
             "Follow this template structure exactly. Do not add, change, or omit any headings.\n"

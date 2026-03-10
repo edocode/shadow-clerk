@@ -129,6 +129,13 @@ Process subcommands:
        - `clerk-util write .clerk_command ""` でクリア
        - `clerk-util read-config` で `translate_language` を取得
        - `translate <translate_language>` サブコマンドと同じ翻訳ループを開始する
+     - `translate_regenerate` で始まるコマンドを検出したら（例: `translate_regenerate 202603091914`）:
+       - `clerk-util write .clerk_command ""` でクリア
+       - `clerk-util read-config` で `translate_language` を取得
+       - コマンドから日時部分を取得（例: `202603091914`）
+       - 対象 transcript ファイルは `transcript-<日時部分>.txt`
+       - オフセットをリセット: `clerk-util write transcript-<日時部分>.txt.translate_offset 0`
+       - ファイル全体を一括翻訳する（過去ファイルは増えないのでループせず、翻訳完了後にコマンドポーリングに戻る）
      - `translate_stop` を検出したら翻訳ループを停止する（translate サブコマンドの停止処理と同じ）
      - `generate_summary <filename>` を検出したら（例: `generate_summary transcript-202603041819.txt`）:
        - `clerk-util write .clerk_command ""` でクリア
@@ -166,22 +173,26 @@ Process subcommands:
 5. ループ開始:
    a. `clerk-util read-from <transcript> <offset>` で transcript ファイルをオフセット位置から読む
    b. 新しい行があれば:
-      - **`llm_provider: claude`（デフォルト）の場合** — 以下を Claude 自身がインラインで実行する:
+      - **`translation_provider: claude`（デフォルト）の場合** — 以下を Claude 自身がインラインで実行する:
         - `clerk-util read glossary.txt` で用語集を読む（ファイルがなければスキップ）
         - ヘッダーから翻訳先言語（`<lang>`）の列を特定し、用語集の対応する訳語を把握する
-        - 各行のテキスト部分に音声認識由来の明らかな typo・誤認識があれば、文脈から推測して修正してから翻訳する
-        - 用語集に載っている語は指定された訳語を使って翻訳する
-        - 各行を `<lang>` に翻訳する（Claude 自身が翻訳を行う）
-        - `--- 会議開始 ---` や `--- 会議終了 ---` 等のマーカー行は翻訳せずそのまま出力する
-        - 翻訳先言語と同じ言語で書かれている行は翻訳不要だが、音声認識由来の誤認識・typo があれば修正して出力する
-        - タイムスタンプ `[YYYY-MM-DD HH:MM:SS]` とスピーカーラベル `[自分]` `[相手]` 等はそのまま保持し、テキスト部分のみ翻訳する
-          - 例（ja の場合）: `[2026-02-27 14:30:00] [自分] Hello, let's discuss the project timeline.` → `[2026-02-27 14:30:00] [自分] こんにちは、プロジェクトのタイムラインについて話しましょう。`
+        - 用語集の `reading` 列を使って、音声認識の漢字誤変換を特定する（例: 習性→reading「しゅうせい」→ 用語集の「修正」にマッチ）
+        - **同言語（例: ja→ja）の場合**: 翻訳ではなく**音声認識の誤変換修正**が主目的。各単語の読みを考え、用語集の reading マッピングや文脈から正しい漢字・表記に修正する
+        - **異言語の場合**: 音声認識の誤認識を修正してから翻訳する
+        - `--- 会議開始 ---` や `--- 会議終了 ---` 等のマーカー行は修正せずそのまま出力する
+        - タイムスタンプ `[YYYY-MM-DD HH:MM:SS]` とスピーカーラベル `[自分]` `[相手]` 等はそのまま保持し、テキスト部分のみ翻訳/修正する
+          - 例（ja→en）: `[2026-02-27 14:30:00] [自分] プロジェクトのタイムラインについて話しましょう。` → `[2026-02-27 14:30:00] [自分] Let's discuss the project timeline.`
+          - 例（ja→ja）: `[2026-02-27 14:30:00] [相手] その習性が原因かなと` → `[2026-02-27 14:30:00] [相手] その修正が原因かなと`（習性→修正: 同じ読み「しゅうせい」、文脈はバグ修正の話）
       - **`llm_provider: api` の場合** — `clerk-util run-llm translate <lang> --file <transcript> --offset <offset> --verbose` を実行して翻訳結果を得る。stdout が翻訳結果、stderr にデバッグログが出る
-      - 翻訳結果を `<transcriptのベース名>-<lang>.txt` に追記する
+      - **`llm_provider: libretranslate` の場合** — `clerk-util run-llm translate <lang> --file <transcript> --offset <offset> --verbose` を実行して翻訳結果を得る。内部的に LibreTranslate を使用する。`libretranslate_endpoint` の設定が必要。`libretranslate_spell_check: true` の場合、翻訳前にスペル修正（transformers モデル経由）を適用する
+      - 翻訳/修正結果を `<transcriptのベース名>-<lang>.txt` に書き込む（出力ディレクトリは `clerk-util read-config` で `output_directory` を確認。null なら data ディレクトリ `{data_dir}` を使用）
         - 例: `transcript-20260227.txt` → `transcript-20260227-ja.txt`
         - 例: `transcript-202602271430.txt` → `transcript-202602271430-ja.txt`
+        - **Write ツール**（clerk-util ではなく）で翻訳ファイルを直接書き込むこと。Write ツールにはフルパスを指定する（例: `{data_dir}/transcript-20260227-ja.txt`）
+        - 最初のチャンク（offset が 0 だった場合）: Write ツールでファイルを作成/上書き
+        - 以降のチャンク: Edit ツールで追記するか、再読み込みして Write ツールで全体を書き込む
       - 翻訳結果を stdout にも表示する（print）
-      - `clerk-util write .translate_offset <offset>` にバイトオフセットを更新して書き込む
+      - `clerk-util write <transcript>.translate_offset <offset>` にバイトオフセットを更新して書き込む
    c. 新しい行がなければ `clerk-util poll-command 5` で待機する（poll-command がコマンド検出 or stopped を返すまでブロック）
       - `translate_stop` が返ったら `clerk-util write .clerk_command ""` で `.clerk_command` をクリアし「翻訳を停止しました」と表示して終了
       - `stopped` が返ったらループを終了

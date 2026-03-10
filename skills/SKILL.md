@@ -136,6 +136,13 @@ No arguments, or `update`:
        - Clear with `clerk-util write .clerk_command ""`
        - Get `translate_language` from `clerk-util read-config`
        - Start translation loop (same process as `translate <translate_language>` subcommand)
+     - If command starts with `translate_regenerate` (e.g., `translate_regenerate 202603091914`):
+       - Clear with `clerk-util write .clerk_command ""`
+       - Get `translate_language` from `clerk-util read-config`
+       - Extract the date part from the command (e.g., `202603091914`)
+       - The transcript file is `transcript-<date_part>.txt`
+       - Reset translate offset: `clerk-util write transcript-<date_part>.txt.translate_offset 0`
+       - Run a one-shot full translation of the file (translate all content, then return to polling — do NOT loop, since past files don't grow)
      - If `translate_stop` detected, stop translation loop (same as translate subcommand stop)
      - If `generate_summary` detected:
        - Clear with `clerk-util write .clerk_command ""`
@@ -176,18 +183,21 @@ Real-time translation mode. Detects new lines in transcript, translates them, sa
       - **`translation_provider: claude` (default)** — Claude performs inline:
         - Read glossary with `clerk-util read glossary.txt` (skip if file doesn't exist)
         - Identify the target language (`<lang>`) column from the header and note corresponding translations
-        - If text contains obvious speech recognition typos/errors, correct them based on context before translating
-        - Use glossary translations for listed terms
-        - Translate each line to `<lang>` (Claude performs translation)
-        - Pass through marker lines like `--- Meeting Start ---` or `--- Meeting End ---` without translation
-        - Lines already in the target language don't need translation, but fix speech recognition errors/typos
-        - Preserve timestamps `[YYYY-MM-DD HH:MM:SS]` and speaker labels `[Self]` `[Other]` etc., translate only the text portion
-          - Example (ja): `[2026-02-27 14:30:00] [Self] Hello, let's discuss the project timeline.` -> `[2026-02-27 14:30:00] [Self] こんにちは、プロジェクトのタイムラインについて話しましょう。`
+        - The glossary has a `reading` column — use reading mappings to identify and correct kanji misconversions (e.g., 習性→reading「しゅうせい」→ matches glossary entry 修正)
+        - **Same-language (e.g., ja→ja)**: This is primarily **speech recognition error correction**, not translation. Convert suspicious words mentally to hiragana readings, match against glossary readings, and correct to the right kanji/notation based on context
+        - **Different language**: Correct speech recognition errors first, then translate to `<lang>`
+        - Pass through marker lines like `--- Meeting Start ---` or `--- Meeting End ---` without modification
+        - Preserve timestamps `[YYYY-MM-DD HH:MM:SS]` and speaker labels `[Self]` `[Other]` etc., translate/correct only the text portion
+          - Example (ja→en): `[2026-02-27 14:30:00] [自分] プロジェクトのタイムラインについて話しましょう。` -> `[2026-02-27 14:30:00] [自分] Let's discuss the project timeline.`
+          - Example (ja→ja): `[2026-02-27 14:30:00] [相手] その習性が原因かなと` -> `[2026-02-27 14:30:00] [相手] その修正が原因かなと` (習性→修正: same reading しゅうせい, context is bug fix discussion)
       - **`translation_provider: api`** — Run `clerk-util run-llm translate <lang> --file <transcript> --offset <offset> --verbose` to get translation. stdout is the translation, stderr has debug logs
       - **`translation_provider: libretranslate`** — Run `clerk-util run-llm translate <lang> --file <transcript> --offset <offset> --verbose` to get translation. Uses LibreTranslate internally. Requires `libretranslate_endpoint` to be configured. If `libretranslate_spell_check: true`, applies spell correction (via transformers model) before translation
-      - Append translation to `<transcript basename>-<lang>.txt`
+      - Write translation to `<transcript basename>-<lang>.txt` under the output directory (use `clerk-util read-config` to check `output_directory`; if null, use the data directory `{data_dir}`)
         - Example: `transcript-20260227.txt` -> `transcript-20260227-ja.txt`
         - Example: `transcript-202602271430.txt` -> `transcript-202602271430-ja.txt`
+        - **Use the Write tool** (not clerk-util) to write the translation file directly. The Write tool works with the full path (e.g., `{data_dir}/transcript-20260227-ja.txt`)
+        - For the first chunk (offset was 0): use the Write tool to create/overwrite the file
+        - For subsequent chunks: use the Edit tool to append, or re-read and Write the full content
       - Display translation on stdout (print)
       - Update byte offset with `clerk-util write <transcript>.translate_offset <offset>`
    c. If no new lines, wait with `clerk-util poll-command 3 --timeout 10` (returns after command detected, stopped, or 10s timeout)

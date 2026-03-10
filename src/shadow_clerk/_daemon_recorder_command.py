@@ -440,7 +440,7 @@ class _RecorderCommandMixin:
             print(t("rec.translate_stop"))
 
 
-        elif cmd == "translate_regenerate":
+        elif cmd.startswith("translate_regenerate"):
             # 翻訳中なら停止
             if self._translate_thread and self._translate_thread.is_alive():
                 self._translate_stop_event.set()
@@ -449,7 +449,13 @@ class _RecorderCommandMixin:
 
             config = load_config()
             lang = config.get("translate_language", "ja")
-            transcript = self.output_path
+            # 引数で日時部分が指定されていればそのファイルを対象にする
+            parts = cmd.split(None, 1)
+            if len(parts) > 1 and parts[1].strip():
+                date_part = parts[1].strip()
+                transcript = os.path.join(self._output_dir, f"transcript-{date_part}.txt")
+            else:
+                transcript = self.output_path
 
             # オフセットリセット（翻訳ファイルは _translate_loop 側で上書き）
             offset_file = self._translate_offset_file(transcript)
@@ -460,13 +466,17 @@ class _RecorderCommandMixin:
             # provider に応じて翻訳を再開
             if get_translation_provider(config) in ("api", "libretranslate"):
                 self._translate_stop_event.clear()
+                # 過去ファイルは one-shot、現在ファイルはループ
+                target = transcript if transcript != self.output_path else None
                 self._translate_thread = threading.Thread(
-                    target=self._translate_loop, name="translate-loop", daemon=True)
+                    target=self._translate_loop, args=(target,),
+                    name="translate-loop", daemon=True)
                 self._translate_thread.start()
             else:
                 self._translating_external = True
+                # ファイル情報を含めてコマンドを転送（subagent が拾う）
                 with open(COMMAND_FILE, "w", encoding="utf-8") as f:
-                    f.write("translate_start")
+                    f.write(cmd)
 
         elif cmd.startswith("custom_exec "):
             action = cmd.split(None, 1)[1]

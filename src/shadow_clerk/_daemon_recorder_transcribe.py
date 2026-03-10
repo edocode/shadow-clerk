@@ -81,15 +81,21 @@ class _RecorderTranscribeMixin:
         """
         return transcript_path + ".translate_offset"
 
-    def _translate_loop(self):
-        """翻訳ループスレッド (llm_provider: api 用)"""
+    def _translate_loop(self, target_transcript: str | None = None):
+        """翻訳ループスレッド (llm_provider: api 用)
+
+        target_transcript が指定されている場合、そのファイルを一括翻訳して終了する。
+        指定がない場合は self.output_path を継続的にポーリングする。
+        """
         config = load_config()
         lang = config.get("translate_language", "ja")
-        logger.info("翻訳ループ開始: lang=%s", lang)
+        one_shot = target_transcript is not None
+        logger.info("翻訳ループ開始: lang=%s%s", lang,
+                     f" (one-shot: {os.path.basename(target_transcript)})" if one_shot else "")
 
         while not self.stop_event.is_set() and not self._translate_stop_event.is_set():
             try:
-                transcript = self.output_path
+                transcript = target_transcript or self.output_path
                 offset_file = self._translate_offset_file(transcript)
                 try:
                     with open(offset_file, "r", encoding="utf-8") as f:
@@ -122,12 +128,26 @@ class _RecorderTranscribeMixin:
                         with open(offset_file, "w", encoding="utf-8") as f:
                             f.write(str(effective_size))
                         logger.info("翻訳完了: %d bytes → %s", effective_size - offset, tr_name)
+                        # one-shot: 全チャンク翻訳完了したら終了
+                        if one_shot and effective_size >= size:
+                            logger.info("one-shot 翻訳完了: %s", tr_name)
+                            return
                     elif result.returncode != 0:
                         logger.error("翻訳エラー: %s", result.stderr.strip()[:200])
+                        if one_shot:
+                            return
+                elif one_shot:
+                    # one-shot でサイズ変化なし → 翻訳対象なし
+                    logger.info("one-shot 翻訳: 対象テキストなし")
+                    return
             except subprocess.TimeoutExpired:
                 logger.error("翻訳タイムアウト")
+                if one_shot:
+                    return
             except Exception as e:
                 logger.error("翻訳ループエラー: %s", e)
+                if one_shot:
+                    return
 
             self._translate_stop_event.wait(timeout=5.0)
 
@@ -142,9 +162,9 @@ class _RecorderTranscribeMixin:
                     with open(COMMAND_FILE, "r", encoding="utf-8") as f:
                         cmd = f.read().strip()
                     # 翻訳コマンド: translation_provider で判定
-                    _translate_commands = ("translate_start", "translate_stop", "translate_regenerate")
+                    _translate_prefixes = ("translate_start", "translate_stop", "translate_regenerate")
                     # 要約コマンド: llm_provider で判定 (ファイル名付き: generate_summary_full transcript-*.txt)
-                    _is_translate = cmd in _translate_commands
+                    _is_translate = any(cmd == p or cmd.startswith(p + " ") for p in _translate_prefixes)
                     _is_summary = cmd.startswith("generate_summary")
                     if _is_translate:
                         config = load_config()

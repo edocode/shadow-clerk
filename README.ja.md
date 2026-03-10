@@ -257,18 +257,73 @@ custom_commands:
 | `--compute-type` | Whisper 計算精度 (`int8`, `float16`, `float32`) | `int8` |
 | `--device` | Whisper デバイス (`cpu`, `cuda`) | `cpu` |
 
+### 翻訳・要約のプロバイダ
+
+翻訳と要約にはそれぞれ複数のプロバイダを選択できる。プロバイダによって動作方式が異なる:
+
+#### Claude モード (`translation_provider: claude` / `llm_provider: claude`)
+
+Claude Code の Skill（`/shadow-clerk`）経由で実行する。翻訳・要約は Claude 自身がインラインで行う。
+
+- **最も高品質** — 特に日本語の同音異義語修正（ja→ja）で顕著
+- **Claude Code が必須** — ターミナルで Claude Code を起動した状態で使う
+- **翻訳の動作**: `/shadow-clerk start` で clerk-daemon を起動すると、バックグラウンドの subagent が翻訳・コマンド監視を行う。ダッシュボードからの翻訳指示も subagent が処理する
+- **フォアグラウンド翻訳**: `/shadow-clerk translate start` で直接実行すると、翻訳ループが Claude Code のターミナルに表示される（待機中のポーリング出力が続くため、通常は `/shadow-clerk start` でバックグラウンド実行を推奨）
+
+```yaml
+# config.yaml
+translation_provider: claude   # 翻訳を Claude で実行
+llm_provider: claude           # 要約を Claude で実行（デフォルト）
+```
+
+#### API モード (`translation_provider: api` / `llm_provider: api`)
+
+clerk-daemon が内部的に外部 API（OpenAI 互換）を呼び出して翻訳・要約を行う。Claude Code は不要。
+
+- **Claude Code なしで動作** — clerk-daemon 単体で翻訳・要約が完結
+- **品質はモデル依存** — GPT-4o 等の高性能モデルなら高品質、小型モデルでは日本語修正が弱い場合あり
+- **翻訳の動作**: clerk-daemon 内部のスレッドが翻訳を処理。音声コマンドやダッシュボードからの指示で開始・停止
+- **要約も同様**: `clerk-util summarize` コマンドで外部 API を使って議事録を生成
+
+```yaml
+# config.yaml
+translation_provider: api     # 翻訳を外部 API で実行
+llm_provider: api             # 要約を外部 API で実行
+api_endpoint: https://api.openai.com/v1
+api_model: gpt-4o
+```
+
+#### LibreTranslate モード (`translation_provider: libretranslate`)
+
+翻訳のみ。ローカルで動作し、外部 API や Claude Code は不要（要約は別途 `llm_provider` で設定）。
+
+#### 推奨構成
+
+| 用途 | 翻訳 | 要約 | 特徴 |
+|---|---|---|---|
+| 高品質（Claude Code 使用） | `translation_provider: claude` | `llm_provider: claude` | 最高品質、Claude Code 必須 |
+| 自律動作（外部 API） | `translation_provider: api` | `llm_provider: api` | Claude Code 不要、品質はモデル依存 |
+| ローカル完結 | `translation_provider: libretranslate` | — | LLM 不要、品質は低い |
+| ハイブリッド | `translation_provider: api` | `llm_provider: claude` | 翻訳は自動、要約は高品質 |
+
 ### 議事録生成 (Claude Code Skill)
 
 Claude Code から clerk-daemon の起動・停止・議事録生成を行える:
 
 ```
-/shadow-clerk start                    # clerk-daemon をバックグラウンドで起動
+/shadow-clerk start                    # clerk-daemon をバックグラウンドで起動（翻訳 subagent も自動起動）
 /shadow-clerk start --language ja      # オプション付きで起動
 /shadow-clerk stop                     # clerk-daemon を停止
+/shadow-clerk start meeting            # 会議セッションを開始（auto_translate 連動）
+/shadow-clerk end meeting              # 会議セッションを終了（auto_summary 連動）
 /shadow-clerk          # 差分テキストから議事録を更新
 /shadow-clerk full     # 全文から議事録を再生成
 /shadow-clerk status   # 現在の状態を確認
+/shadow-clerk translate start          # 翻訳ループを開始（フォアグラウンド）
+/shadow-clerk translate stop           # 翻訳ループを停止
 ```
+
+> **Note:** `/shadow-clerk start` で起動すると、翻訳コマンド監視用の subagent がバックグラウンドで動作する。`translation_provider: claude` の場合、ダッシュボードからの翻訳指示（開始・再生成）はこの subagent が処理する。
 
 生成された議事録は `~/.local/share/shadow-clerk/summary-YYYYMMDD.md` に保存される。
 

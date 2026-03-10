@@ -221,7 +221,8 @@ async function togTranslate(){
 }
 async function regenTranslate(){
   if(!confirm(I18N['dash.translate_regen_confirm']))return;
-  cmd('translate_regenerate');
+  const m=curFile.match(/transcript-(\d{8,12})/);
+  cmd('translate_regenerate'+(m?' '+m[1]:''));
   updateTranslateBtn(true);
 }
 
@@ -412,9 +413,11 @@ const CFG_FIELDS=[
   {key:'libretranslate_api_key',label:I18N['cfg.libretranslate_api_key'],type:'text',ph:''},
   {key:'libretranslate_spell_check',label:I18N['cfg.libretranslate_spell_check'],type:'bool'},
   {key:'spell_check_model',label:I18N['cfg.spell_check_model'],type:'text',ph:'sonoisa/t5-base-japanese-spell-checker'},
+  {key:'translation_hiragana_step',label:I18N['cfg.translation_hiragana_step'],type:'bool',def:true},
   {type:'section',label:I18N['cfg.section.summary']},
   {key:'auto_summary',label:I18N['cfg.auto_summary'],type:'bool'},
   {key:'summary_source',label:I18N['cfg.summary_source'],type:'select',opts:['transcript','translate']},
+  {key:'summary_hiragana_step',label:I18N['cfg.summary_hiragana_step'],type:'bool',def:true},
   {type:'section',label:I18N['cfg.section.api']},
   {key:'llm_provider',label:I18N['cfg.llm_provider'],type:'select',opts:['claude','api']},
   {key:'api_endpoint',label:I18N['cfg.api_endpoint'],type:'text',ph:'https://...'},
@@ -430,7 +433,7 @@ async function openCfg(){
       const h=document.createElement('div');h.className='cfg-section';h.textContent=f.label;b.appendChild(h);return;
     }
     const lbl=document.createElement('label');lbl.textContent=f.label;b.appendChild(lbl);
-    let el;const v=cfgData[f.key];
+    let el;const v=(cfgData[f.key]!==undefined)?cfgData[f.key]:f.def;
     if(f.type==='bool'){
       el=document.createElement('select');el.id='cfg_'+f.key;
       ['true','false'].forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=o;el.appendChild(op);});

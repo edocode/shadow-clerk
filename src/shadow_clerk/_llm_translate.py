@@ -238,7 +238,19 @@ def translate(args: argparse.Namespace):
         )
         logger.debug("translate: API request:\n%s", numbered_lines)
 
-        system_prompt = t("llm.translate_system", lang=lang)
+        # 入力テキストがターゲット言語と同じか判定 → 同言語なら誤変換修正モード
+        sample_text = " ".join(text for _, text in translatable[:10])
+        is_same_lang = _seems_target_language(sample_text, lang)
+
+        if is_same_lang:
+            # 同言語: 誤変換修正に特化したプロンプト
+            logger.debug("translate: same-language correction mode (lang=%s)", lang)
+            system_prompt = t("llm.correct_system")
+        else:
+            hiragana_step = ""
+            if config.get("translation_hiragana_step", True):
+                hiragana_step = t("llm.translation_hiragana_step", lang=lang) or ""
+            system_prompt = t("llm.translate_system", lang=lang, hiragana_step=hiragana_step)
 
         glossary_section = load_glossary(lang)
         if glossary_section:

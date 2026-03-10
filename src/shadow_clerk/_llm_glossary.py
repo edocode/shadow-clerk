@@ -74,10 +74,34 @@ def load_glossary(lang: str) -> str:
                 entry += f" ({', '.join(annotations)})"
             pairs.append(entry)
 
-    if not pairs:
+    # reading → target_term のマッピングも追加（同言語翻訳・誤認識修正用）
+    # reading と target_term が異なる場合のみ
+    reading_pairs = []
+    if reading_idx is not None:
+        for row_line in data_lines[1:]:
+            cols = row_line.split("\t")
+            target_term = cols[target_idx].strip() if target_idx < len(cols) else ""
+            reading = cols[reading_idx].strip() if reading_idx < len(cols) else ""
+            if not target_term or not reading or reading == target_term:
+                continue
+            note = cols[note_idx].strip() if note_idx is not None and note_idx < len(cols) else ""
+            entry = f"reading「{reading}」→ {target_term}"
+            if note:
+                entry += f" ({note})"
+            reading_pairs.append(entry)
+
+    if not pairs and not reading_pairs:
         return ""
 
-    return "6. 以下の用語集を参考にしてください:\n" + "\n".join(f"  {p}" for p in pairs)
+    section = "以下の用語集を参考にしてください:\n"
+    if pairs:
+        section += "\n".join(f"  {p}" for p in pairs)
+    if reading_pairs:
+        if pairs:
+            section += "\n"
+        section += "  音声認識の誤変換を修正する際は、以下のreadingマッピングを参照してください:\n"
+        section += "\n".join(f"  {p}" for p in reading_pairs)
+    return section
 
 
 def load_glossary_replacements(lang: str | None = None) -> list[tuple[str, str]]:

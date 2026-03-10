@@ -255,18 +255,73 @@ If a voice command doesn't match any built-in or custom command and `api_endpoin
 | `--compute-type` | Whisper compute precision (`int8`, `float16`, `float32`) | `int8` |
 | `--device` | Whisper device (`cpu`, `cuda`) | `cpu` |
 
+### Translation & Summary Providers
+
+Translation and summary each support multiple providers with different operation modes:
+
+#### Claude mode (`translation_provider: claude` / `llm_provider: claude`)
+
+Runs via the Claude Code Skill (`/shadow-clerk`). Claude performs translation and summary inline.
+
+- **Highest quality** — especially for Japanese homophone correction (ja→ja)
+- **Requires Claude Code** — must be running in a Claude Code terminal session
+- **How translation works**: `/shadow-clerk start` launches clerk-daemon with a background subagent that handles translation and command monitoring. Dashboard-initiated translation is also processed by this subagent
+- **Foreground translation**: `/shadow-clerk translate start` runs the translation loop directly in the terminal (polling output is visible; use `/shadow-clerk start` for background operation instead)
+
+```yaml
+# config.yaml
+translation_provider: claude   # Translation by Claude
+llm_provider: claude           # Summary by Claude (default)
+```
+
+#### API mode (`translation_provider: api` / `llm_provider: api`)
+
+clerk-daemon calls an external API (OpenAI-compatible) internally. Claude Code is not required.
+
+- **Works without Claude Code** — clerk-daemon handles translation and summary on its own
+- **Quality depends on model** — high-end models (GPT-4o) produce good results; smaller models may struggle with Japanese correction
+- **How translation works**: An internal thread in clerk-daemon processes translation. Started/stopped via voice commands or dashboard
+- **Summary works similarly**: `clerk-util summarize` generates minutes via the external API
+
+```yaml
+# config.yaml
+translation_provider: api     # Translation via external API
+llm_provider: api             # Summary via external API
+api_endpoint: https://api.openai.com/v1
+api_model: gpt-4o
+```
+
+#### LibreTranslate mode (`translation_provider: libretranslate`)
+
+Translation only. Runs locally without any external API or Claude Code (summary still needs `llm_provider`).
+
+#### Recommended configurations
+
+| Use case | Translation | Summary | Notes |
+|---|---|---|---|
+| Best quality (with Claude Code) | `translation_provider: claude` | `llm_provider: claude` | Highest quality, requires Claude Code |
+| Autonomous (external API) | `translation_provider: api` | `llm_provider: api` | No Claude Code needed, quality varies by model |
+| Fully local | `translation_provider: libretranslate` | — | No LLM needed, lower quality |
+| Hybrid | `translation_provider: api` | `llm_provider: claude` | Auto translation + high-quality summary |
+
 ### Meeting minutes (Claude Code Skill)
 
 You can start/stop clerk-daemon and generate meeting minutes from Claude Code:
 
 ```
-/shadow-clerk start                    # Start clerk-daemon in the background
+/shadow-clerk start                    # Start clerk-daemon in the background (with translation subagent)
 /shadow-clerk start --language ja      # Start with options
 /shadow-clerk stop                     # Stop clerk-daemon
+/shadow-clerk start meeting            # Start a meeting session (auto_translate linked)
+/shadow-clerk end meeting              # End a meeting session (auto_summary linked)
 /shadow-clerk          # Update minutes from transcript diff
 /shadow-clerk full     # Regenerate minutes from full transcript
 /shadow-clerk status   # Check current status
+/shadow-clerk translate start          # Start translation loop (foreground)
+/shadow-clerk translate stop           # Stop translation loop
 ```
+
+> **Note:** `/shadow-clerk start` launches a background subagent for command monitoring. When `translation_provider: claude`, dashboard-initiated translation (start/regenerate) is processed by this subagent.
 
 Generated meeting minutes are saved to `~/.local/share/shadow-clerk/summary-YYYYMMDD.md`.
 

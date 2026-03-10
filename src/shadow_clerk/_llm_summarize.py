@@ -14,6 +14,13 @@ from shadow_clerk._llm_glossary import load_glossary_for_summary
 logger = logging.getLogger("llm-client")
 
 
+def _get_hiragana_step(config: dict) -> str:
+    """summary_hiragana_step が有効なら平仮名思考ステップのテキストを返す"""
+    if config.get("summary_hiragana_step", True):
+        return t("llm.summary_hiragana_step") or ""
+    return ""
+
+
 def _get_summary_format():
     """summary_template.md があればそちらを優先、なければ i18n デフォルトを使用"""
     template_path = os.path.join(DATA_DIR, "summary_template.md")
@@ -143,7 +150,9 @@ def _summarize_full_single(client: OpenAI, model: str, transcript: str, summary_
     if glossary_text:
         system_prompt += "\n\n" + glossary_text
 
-    user_content = t("llm.summary_full_user", transcript=transcript, summary_format=summary_format)
+    hiragana_step = _get_hiragana_step(config)
+    user_content = t("llm.summary_full_user", transcript=transcript,
+                     summary_format=summary_format, hiragana_step=hiragana_step)
 
     response = client.chat.completions.create(
         model=model,
@@ -198,8 +207,10 @@ def _summarize_update_single(
     if glossary_text:
         system_prompt += "\n\n" + glossary_text
 
+    hiragana_step = _get_hiragana_step(config)
     existing = existing_summary if existing_summary else t("llm.summary_update_none")
-    user_content = t("llm.summary_update_user", existing=existing, transcript=transcript, summary_format=summary_format)
+    user_content = t("llm.summary_update_user", existing=existing, transcript=transcript,
+                     summary_format=summary_format, hiragana_step=hiragana_step)
 
     response = client.chat.completions.create(
         model=model,
