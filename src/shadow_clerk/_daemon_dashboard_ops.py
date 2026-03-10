@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 import urllib.error
 import urllib.request
 import yaml
@@ -193,67 +194,79 @@ class _DashboardHandlerOps:
             self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
             return
 
-        try:
-            with open(t_path, "r", encoding="utf-8") as f:
-                all_lines = f.readlines()
-        except OSError:
-            self._send_json({"status": "error", "message": t("dash.extract_meeting_error")})
-            return
+        with self.recorder.transcript_lock:
+            try:
+                with open(t_path, "r", encoding="utf-8") as f:
+                    all_lines = f.readlines()
+            except OSError:
+                self._send_json({"status": "error", "message": t("dash.extract_meeting_error")})
+                return
 
-        # タイムスタンプ範囲内の行を抽出 / 残りを分離
-        extracted = []
-        remaining = []
-        ts_pattern = re.compile(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]")
-        for line in all_lines:
-            m = ts_pattern.match(line)
-            if m and start_ts <= m.group(1) <= end_ts:
-                extracted.append(line)
+            # タイムスタンプ範囲内の行を抽出 / 残りを分離
+            extracted = []
+            remaining = []
+            ts_pattern = re.compile(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]")
+            for line in all_lines:
+                m = ts_pattern.match(line)
+                if m and start_ts <= m.group(1) <= end_ts:
+                    extracted.append(line)
+                else:
+                    remaining.append(line)
+
+            if not extracted:
+                self._send_json({"status": "error", "message": t("dash.extract_meeting_no_lines")})
+                return
+
+            # 会議ファイル名の決定
+            if target == "new":
+                # transcript-YYYYMMDDHHMM.txt 形式
+                meeting_ts = start_ts.replace("-", "").replace(" ", "").replace(":", "")[:12]
+                meeting_name = f"transcript-{meeting_ts}.txt"
+                meeting_path = os.path.join(output_dir, meeting_name)
+                # 会議開始/終了マーカー付きで作成
+                with open(meeting_path, "w", encoding="utf-8") as f:
+                    f.write("--- meeting start ---\n")
+                    f.writelines(extracted)
+                    f.write("--- meeting end ---\n")
             else:
-                remaining.append(line)
+                # 既存会議ファイルにマージ
+                meeting_name = os.path.basename(target)
+                meeting_path = os.path.join(output_dir, meeting_name)
+                existing_lines = []
+                if os.path.exists(meeting_path):
+                    with open(meeting_path, "r", encoding="utf-8") as f:
+                        existing_lines = f.readlines()
+                merged = self._merge_meeting_lines(existing_lines, extracted)
+                with open(meeting_path, "w", encoding="utf-8") as f:
+                    f.writelines(merged)
 
-        if not extracted:
-            self._send_json({"status": "error", "message": t("dash.extract_meeting_no_lines")})
-            return
+            # 日次 transcript から抽出行を削除（一時ファイル→rename で安全に書き戻し）
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                dir=output_dir, prefix=".transcript-", suffix=".tmp")
+            try:
+                with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                    f.writelines(remaining)
+                os.replace(tmp_path, t_path)
+            except BaseException:
+                # 書き込み失敗時は一時ファイルを削除
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
 
-        # 会議ファイル名の決定
-        if target == "new":
-            # transcript-YYYYMMDDHHMM.txt 形式
-            meeting_ts = start_ts.replace("-", "").replace(" ", "").replace(":", "")[:12]
-            meeting_name = f"transcript-{meeting_ts}.txt"
-            meeting_path = os.path.join(output_dir, meeting_name)
-            # 会議開始/終了マーカー付きで作成
-            with open(meeting_path, "w", encoding="utf-8") as f:
-                f.write(f"--- meeting start ---\n")
-                f.writelines(extracted)
-                f.write(f"--- meeting end ---\n")
-        else:
-            # 既存会議ファイルにマージ
-            meeting_name = os.path.basename(target)
-            meeting_path = os.path.join(output_dir, meeting_name)
-            existing_lines = []
-            if os.path.exists(meeting_path):
-                with open(meeting_path, "r", encoding="utf-8") as f:
-                    existing_lines = f.readlines()
-            merged = self._merge_meeting_lines(existing_lines, extracted)
-            with open(meeting_path, "w", encoding="utf-8") as f:
-                f.writelines(merged)
-
-        # 日次 transcript から抽出行を削除
-        with open(t_path, "w", encoding="utf-8") as f:
-            f.writelines(remaining)
-
-        # 翻訳ファイルも同様に処理
-        config = load_config()
-        lang = config.get("translate_language", "ja")
-        tr_name = os.path.basename(t_path).replace(".txt", f"-{lang}.txt")
-        tr_path = os.path.join(output_dir, tr_name)
-        meeting_tr_name = meeting_name.replace(".txt", f"-{lang}.txt")
-        meeting_tr_path = os.path.join(output_dir, meeting_tr_name)
-        if os.path.exists(tr_path):
-            self._extract_translation_lines(
-                tr_path, meeting_tr_path, start_ts, end_ts,
-                is_new=(target == "new"),
-            )
+            # 翻訳ファイルも同様に処理
+            config = load_config()
+            lang = config.get("translate_language", "ja")
+            tr_name = os.path.basename(t_path).replace(".txt", f"-{lang}.txt")
+            tr_path = os.path.join(output_dir, tr_name)
+            meeting_tr_name = meeting_name.replace(".txt", f"-{lang}.txt")
+            meeting_tr_path = os.path.join(output_dir, meeting_tr_name)
+            if os.path.exists(tr_path):
+                self._extract_translation_lines(
+                    tr_path, meeting_tr_path, start_ts, end_ts,
+                    is_new=(target == "new"),
+                )
 
         # FileWatcher オフセットリセット
         for ftype, fpath in [("transcript", t_path), ("translation", tr_path)]:
@@ -341,9 +354,20 @@ class _DashboardHandlerOps:
             with open(meeting_tr_path, "w", encoding="utf-8") as f:
                 f.writelines(merged)
 
-        # 元翻訳ファイルから抽出行を削除
-        with open(tr_path, "w", encoding="utf-8") as f:
-            f.writelines(remaining)
+        # 元翻訳ファイルから抽出行を削除（一時ファイル→rename で安全に書き戻し）
+        output_dir = os.path.dirname(tr_path)
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            dir=output_dir, prefix=".translate-", suffix=".tmp")
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                f.writelines(remaining)
+            os.replace(tmp_path, tr_path)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     @staticmethod
     def _remove_lines_from_file(path, raw_lines):

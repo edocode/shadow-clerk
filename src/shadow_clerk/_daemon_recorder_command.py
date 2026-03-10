@@ -360,10 +360,11 @@ class _RecorderCommandMixin:
             parts = cmd.split(None, 1)
             now = datetime.datetime.now()
             filename = now.strftime("transcript-%Y%m%d%H%M.txt")
-            self.output_path = os.path.join(self._output_dir, filename)
-            marker = f"--- 会議開始 {now.strftime('%Y-%m-%d %H:%M')} ---\n"
-            with open(self.output_path, "a", encoding="utf-8") as f:
-                f.write(marker)
+            with self.transcript_lock:
+                self.output_path = os.path.join(self._output_dir, filename)
+                marker = f"--- 会議開始 {now.strftime('%Y-%m-%d %H:%M')} ---\n"
+                with open(self.output_path, "a", encoding="utf-8") as f:
+                    f.write(marker)
             with open(SESSION_FILE, "w", encoding="utf-8") as f:
                 f.write(self.output_path)
             logger.info("会議開始: %s", self.output_path)
@@ -371,9 +372,10 @@ class _RecorderCommandMixin:
 
         elif cmd == "end_meeting":
             marker = "--- 会議終了 ---\n"
-            session_transcript = self.output_path
-            with open(session_transcript, "a", encoding="utf-8") as f:
-                f.write(marker)
+            with self.transcript_lock:
+                session_transcript = self.output_path
+                with open(session_transcript, "a", encoding="utf-8") as f:
+                    f.write(marker)
             logger.info("会議終了: %s", session_transcript)
             print(t("rec.meeting_end", path=session_transcript))
             # 明示的 output 指定の場合はその値に戻す、そうでなければ現在日付のデフォルト

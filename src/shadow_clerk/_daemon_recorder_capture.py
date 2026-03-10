@@ -42,6 +42,7 @@ class _RecorderCaptureMixin:
         self.vad_queue: queue.Queue = queue.Queue()
         self.transcribe_queue: queue.Queue = queue.Queue()
         self.interim_queue: queue.Queue = queue.Queue(maxsize=2)
+        self.transcript_lock = threading.Lock()  # トランスクリプトファイル読み書きの排他制御
 
         self.backend_name, self.backend = detect_backend(args.backend)
 

@@ -307,9 +307,10 @@ class _RecorderTranscribeMixin:
                     continue
 
                 file_line = f"[{timestamp}] [{file_speaker}] {text}\n"
-                with open(self.output_path, "a", encoding="utf-8") as f:
-                    f.write(file_line)
-                    f.flush()
+                with self.transcript_lock:
+                    with open(self.output_path, "a", encoding="utf-8") as f:
+                        f.write(file_line)
+                        f.flush()
                 last_file_speaker = file_speaker
                 display_line = f"[{timestamp}] [{display_speaker}] {text}"
                 print(f"  {display_line}")
@@ -334,9 +335,10 @@ class _RecorderTranscribeMixin:
                     if self._should_skip_response(text, file_speaker, last_file_speaker):
                         continue
                     file_line = f"[{timestamp}] [{file_speaker}] {text}\n"
-                    with open(self.output_path, "a", encoding="utf-8") as f:
-                        f.write(file_line)
-                        f.flush()
+                    with self.transcript_lock:
+                        with open(self.output_path, "a", encoding="utf-8") as f:
+                            f.write(file_line)
+                            f.flush()
                     last_file_speaker = file_speaker
                     display_line = f"[{timestamp}] [{display_speaker}] {text}"
                     print(f"  {display_line}")
