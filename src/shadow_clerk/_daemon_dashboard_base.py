@@ -269,7 +269,9 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
             return
         config = load_config()
-        if config.get("llm_provider") == "api":
+        llm_prov = config.get("llm_provider", "claude")
+        if llm_prov == "api":
+            logger.info("ダッシュボード: 要約生成 provider=api, file=%s", os.path.basename(transcript_path))
             self._send_json({"status": "ok", "message": t("dash.summary_generation_started")})
             threading.Thread(
                 target=self.recorder._auto_summarize,
@@ -279,6 +281,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         else:
             # Claude provider: .clerk_command に書いて Claude Code に処理させる（全文モード）
             transcript_name = os.path.basename(transcript_path)
+            logger.info("ダッシュボード: 要約生成 provider=claude, file=%s (.clerk_command 経由)", transcript_name)
             with open(COMMAND_FILE, "w", encoding="utf-8") as f:
                 f.write(f"generate_summary_full {transcript_name}")
             self._send_json({"status": "ok", "message": t("dash.summary_generation_started")})

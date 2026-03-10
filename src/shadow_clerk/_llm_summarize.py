@@ -39,6 +39,7 @@ def summarize(args: argparse.Namespace):
     """transcript から議事録を生成する。"""
     config = load_config()
     client, model = get_api_client(config)
+    logger.info("要約開始: provider=api (model=%s), mode=%s", model, args.mode)
 
     # transcript ファイルを読む
     transcript_path = os.path.expanduser(args.file)

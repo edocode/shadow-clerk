@@ -90,7 +90,8 @@ class _RecorderTranscribeMixin:
         config = load_config()
         lang = config.get("translate_language", "ja")
         one_shot = target_transcript is not None
-        logger.info("翻訳ループ開始: lang=%s%s", lang,
+        provider = get_translation_provider(config)
+        logger.info("翻訳ループ開始: provider=%s, lang=%s%s", provider, lang,
                      f" (one-shot: {os.path.basename(target_transcript)})" if one_shot else "")
 
         while not self.stop_event.is_set() and not self._translate_stop_event.is_set():
@@ -168,18 +169,22 @@ class _RecorderTranscribeMixin:
                     _is_summary = cmd.startswith("generate_summary")
                     if _is_translate:
                         config = load_config()
-                        if get_translation_provider(config) in ("api", "libretranslate"):
+                        provider = get_translation_provider(config)
+                        if provider in ("api", "libretranslate"):
                             os.remove(COMMAND_FILE)
-                            logger.info("コマンドファイル検出: %s", cmd)
+                            logger.info("翻訳コマンド検出: %s (provider=%s, 内部処理)", cmd, provider)
                             self._execute_command(cmd)
-                        # claude provider → SKILL.md 向けにファイルを残す
+                        else:
+                            logger.info("翻訳コマンド検出: %s (provider=claude, subagent に委譲)", cmd)
                     elif _is_summary:
                         config = load_config()
-                        if config.get("llm_provider") == "api":
+                        llm_prov = config.get("llm_provider", "claude")
+                        if llm_prov == "api":
                             os.remove(COMMAND_FILE)
-                            logger.info("コマンドファイル検出: %s", cmd)
+                            logger.info("要約コマンド検出: %s (provider=api, 内部処理)", cmd)
                             self._execute_command(cmd)
-                        # claude provider → SKILL.md 向けにファイルを残す
+                        else:
+                            logger.info("要約コマンド検出: %s (provider=claude, subagent に委譲)", cmd)
                     else:
                         os.remove(COMMAND_FILE)
                         if cmd:
@@ -404,31 +409,54 @@ class _RecorderTranscribeMixin:
                 logger.debug("中間文字起こしエラー: %s", e)
 
     def _interim_translate_thread(self):
-        """リアルタイム interim 翻訳スレッド"""
+        """リアルタイム interim 翻訳スレッド
+
+        claude provider の場合は Claude Code に依頼できないため、
+        api_endpoint があれば API に、libretranslate_endpoint があれば
+        LibreTranslate にフォールバックする。
+        """
         current_seq: dict[str, int] = {}
         client = None
         model = None
+        _logged_provider = False
 
         while not self.stop_event.is_set():
             config = load_config()
             translation_provider = get_translation_provider(config)
 
-            if translation_provider == "libretranslate":
+            # claude provider → 中間翻訳に使えるバックエンドを探す
+            interim_provider = translation_provider
+            if interim_provider == "claude":
+                if config.get("api_endpoint") and _HAS_LLM_CLIENT:
+                    interim_provider = "api"
+                elif config.get("libretranslate_endpoint"):
+                    interim_provider = "libretranslate"
+                else:
+                    # フォールバック先なし
+                    if not _logged_provider:
+                        logger.info("中間翻訳: provider=claude, フォールバック先なし (api_endpoint/libretranslate 未設定)")
+                        _logged_provider = True
+                    self.stop_event.wait(timeout=5.0)
+                    continue
+
+            if not _logged_provider:
+                logger.info("中間翻訳スレッド開始: provider=%s%s",
+                            interim_provider,
+                            f" (translation_provider={translation_provider} からフォールバック)" if interim_provider != translation_provider else "")
+                _logged_provider = True
+
+            if interim_provider == "libretranslate":
                 lt_endpoint = config.get("libretranslate_endpoint")
                 if not lt_endpoint:
                     self.stop_event.wait(timeout=2.0)
                     continue
-            elif translation_provider == "api":
+            elif interim_provider == "api":
                 if not _HAS_LLM_CLIENT:
                     self.stop_event.wait(timeout=5.0)
                     continue
                 if not config.get("api_endpoint"):
                     self.stop_event.wait(timeout=2.0)
                     continue
-            else:
-                # claude provider → interim 翻訳なし
-                self.stop_event.wait(timeout=5.0)
-                continue
 
             try:
                 text, source, speaker, timestamp, seq = self._interim_translate_queue.get(timeout=1.0)
@@ -442,7 +470,7 @@ class _RecorderTranscribeMixin:
 
             lang = config.get("translate_language", "ja")
 
-            if translation_provider == "libretranslate":
+            if interim_provider == "libretranslate":
                 try:
                     # spell check（有効時）
                     src_text = text
@@ -473,7 +501,7 @@ class _RecorderTranscribeMixin:
                              "translated": translated, "timestamp": timestamp},
                             ensure_ascii=False))
                 except Exception as e:
-                    logger.debug("interim LibreTranslate 翻訳エラー: %s", e)
+                    logger.warning("中間翻訳エラー (libretranslate): %s", e)
             else:
                 # api_model 未設定時はスキップ
                 if not config.get("api_model"):
@@ -486,7 +514,7 @@ class _RecorderTranscribeMixin:
                         client, model = get_api_client(config)
 
                     glossary = load_glossary(lang)
-                    system_prompt = t("llm.translate_system", lang=lang)
+                    system_prompt = t("llm.translate_system", lang=lang, hiragana_step="")
                     if glossary:
                         system_prompt += "\n" + glossary
 
@@ -510,10 +538,10 @@ class _RecorderTranscribeMixin:
                              "translated": translated, "timestamp": timestamp},
                             ensure_ascii=False))
                 except SystemExit:
-                    logger.debug("interim 翻訳: API 設定不足のためスキップ")
+                    logger.warning("中間翻訳: API 設定不足のためスキップ (provider=api)")
                     client = None
                 except Exception as e:
-                    logger.debug("interim 翻訳エラー: %s", e)
+                    logger.warning("中間翻訳エラー (api): %s", e)
                     # API エラー時はクライアントをリセットして再接続を試みる
                     client = None
 

@@ -116,6 +116,7 @@ def translate(args: argparse.Namespace):
     config = load_config()
     provider = get_translation_provider(config)
     lang = args.lang
+    logger.info("翻訳開始: provider=%s, lang=%s", provider, lang)
 
     # --file 指定時はファイルから読む（--offset 対応）、なければ stdin
     if args.file:
@@ -186,6 +187,7 @@ def translate(args: argparse.Namespace):
 
     if provider == "libretranslate":
         # LibreTranslate: 直接翻訳（オプションで誤字訂正）
+        logger.info("翻訳実行: provider=libretranslate, %d 行", len(translatable))
         endpoint = config.get("libretranslate_endpoint")
         if not endpoint:
             print("Error: libretranslate_endpoint is not configured.", file=sys.stderr)
@@ -231,6 +233,7 @@ def translate(args: argparse.Namespace):
     else:
         # api (OpenAI compatible) provider
         client, model = get_api_client(config)
+        logger.info("翻訳実行: provider=api (model=%s), %d 行", model, len(translatable))
 
         # バッチで翻訳（全テキストをまとめて送信）
         numbered_lines = "\n".join(

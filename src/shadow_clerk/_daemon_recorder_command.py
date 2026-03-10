@@ -168,7 +168,7 @@ class _RecorderCommandMixin:
         ]
 
         src_name = os.path.basename(source_path)
-        logger.info("自動要約開始: %s → %s", src_name, summary_name)
+        logger.info("要約実行: provider=api, %s → %s", src_name, summary_name)
         print(t("rec.auto_summary_start", src=src_name, dst=summary_name))
 
         try:
@@ -388,7 +388,9 @@ class _RecorderCommandMixin:
             # auto_summary: 会議終了時に自動で議事録を生成
             config = load_config()
             if config.get("auto_summary"):
-                if config.get("llm_provider") == "api":
+                llm_prov = config.get("llm_provider", "claude")
+                if llm_prov == "api":
+                    logger.info("自動要約開始: provider=api")
                     threading.Thread(
                         target=self._auto_summarize,
                         args=(session_transcript,),
@@ -399,7 +401,7 @@ class _RecorderCommandMixin:
                     session_name = os.path.basename(session_transcript)
                     with open(COMMAND_FILE, "w", encoding="utf-8") as f:
                         f.write(f"generate_summary {session_name}")
-                    logger.info("要約コマンドを .clerk_command に書き込み (claude provider)")
+                    logger.info("自動要約開始: provider=claude (.clerk_command 経由)")
 
         elif cmd.startswith("set_model "):
             model_size = cmd.split(None, 1)[1].strip()
@@ -411,10 +413,12 @@ class _RecorderCommandMixin:
 
         elif cmd == "translate_start":
             config = load_config()
-            if get_translation_provider(config) in ("api", "libretranslate"):
+            provider = get_translation_provider(config)
+            if provider in ("api", "libretranslate"):
                 if self._translate_thread and self._translate_thread.is_alive():
-                    logger.info("翻訳ループは既に動作中")
+                    logger.info("翻訳ループは既に動作中 (provider=%s)", provider)
                 else:
+                    logger.info("翻訳開始: provider=%s", provider)
                     self._translate_stop_event.clear()
                     self._translate_thread = threading.Thread(
                         target=self._translate_loop, name="translate-loop", daemon=True)
@@ -423,7 +427,7 @@ class _RecorderCommandMixin:
                 self._translating_external = True
                 with open(COMMAND_FILE, "w", encoding="utf-8") as f:
                     f.write("translate_start")
-                logger.info("翻訳開始コマンドを .clerk_command に書き込み (claude provider)")
+                logger.info("翻訳開始: provider=claude (.clerk_command 経由)")
             print(t("rec.translate_start"))
 
         elif cmd == "translate_stop":
@@ -431,12 +435,12 @@ class _RecorderCommandMixin:
                 self._translate_stop_event.set()
                 self._translate_thread.join(timeout=10)
                 self._translate_thread = None
-                logger.info("翻訳ループ停止")
+                logger.info("翻訳停止: provider=api/libretranslate (内部スレッド)")
             else:
                 self._translating_external = False
                 with open(COMMAND_FILE, "w", encoding="utf-8") as f:
                     f.write("translate_stop")
-                logger.info("翻訳停止コマンドを .clerk_command に書き込み")
+                logger.info("翻訳停止: provider=claude (.clerk_command 経由)")
             print(t("rec.translate_stop"))
 
 
@@ -461,10 +465,12 @@ class _RecorderCommandMixin:
             offset_file = self._translate_offset_file(transcript)
             with open(offset_file, "w", encoding="utf-8") as f:
                 f.write("0")
-            logger.info("翻訳再生成: offset リセット")
+            provider = get_translation_provider(config)
+            tr_basename = os.path.basename(transcript)
+            logger.info("翻訳再生成: provider=%s, file=%s, offset リセット", provider, tr_basename)
 
             # provider に応じて翻訳を再開
-            if get_translation_provider(config) in ("api", "libretranslate"):
+            if provider in ("api", "libretranslate"):
                 self._translate_stop_event.clear()
                 # 過去ファイルは one-shot、現在ファイルはループ
                 target = transcript if transcript != self.output_path else None
@@ -477,6 +483,7 @@ class _RecorderCommandMixin:
                 # ファイル情報を含めてコマンドを転送（subagent が拾う）
                 with open(COMMAND_FILE, "w", encoding="utf-8") as f:
                     f.write(cmd)
+                logger.info("翻訳再生成: provider=claude (.clerk_command 経由)")
 
         elif cmd.startswith("custom_exec "):
             action = cmd.split(None, 1)[1]
