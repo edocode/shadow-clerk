@@ -17,7 +17,7 @@ from shadow_clerk._daemon_constants import (
     pynput_keyboard, _HAS_PYNPUT, evdev, _ecodes, _HAS_EVDEV,
 )
 from shadow_clerk._daemon_config import load_config, get_translation_provider, _builtin_command_descs
-from shadow_clerk._daemon_audio import detect_backend, find_monitor_device_sd
+from shadow_clerk._daemon_audio import detect_backend, find_monitor_device_sd, PulseAudioBackend
 from shadow_clerk._daemon_vad import VADSegmenter
 from shadow_clerk._daemon_transcriber import Transcriber, GlossaryReplacer
 from shadow_clerk._daemon_dashboard import LogBuffer, FileWatcher, DashboardHandler
@@ -189,10 +189,37 @@ class _RecorderCaptureMixin:
             monitor_source = self.backend.detect_monitor_source()
             if monitor_source:
                 logger.info("%s monitor キャプチャ開始: %s", self.backend_name, monitor_source)
-                self.backend.start_monitor_capture(
-                    monitor_source, self.monitor_queue, self.stop_event
-                )
-                return
+                try:
+                    self.backend.start_monitor_capture(
+                        monitor_source, self.monitor_queue, self.stop_event
+                    )
+                    # stop_event が set される前に終了した場合はキャプチャ失敗
+                    if not self.stop_event.is_set():
+                        logger.warning("monitor キャプチャが予期せず終了しました: %s", monitor_source)
+                    else:
+                        return
+                except FileNotFoundError as e:
+                    logger.error("monitor キャプチャコマンドが見つかりません: %s", e)
+                except Exception as e:
+                    logger.error("monitor キャプチャ失敗: %s", e)
+
+        # PipeWire バックエンド失敗時に PulseAudio (parec) でフォールバック
+        if self.backend_name == "pipewire" and PulseAudioBackend.is_available():
+            logger.info("PipeWire monitor 失敗、PulseAudio (parec) にフォールバック")
+            pa_backend = PulseAudioBackend()
+            pa_source = pa_backend.detect_monitor_source()
+            if pa_source:
+                logger.info("PulseAudio monitor キャプチャ開始: %s", pa_source)
+                try:
+                    pa_backend.start_monitor_capture(pa_source, self.monitor_queue, self.stop_event)
+                    if not self.stop_event.is_set():
+                        logger.warning("PulseAudio monitor キャプチャが予期せず終了しました: %s", pa_source)
+                        self.use_monitor = False
+                    return
+                except FileNotFoundError as e:
+                    logger.error("parec が見つかりません: %s", e)
+                except Exception as e:
+                    logger.error("PulseAudio monitor キャプチャ失敗: %s", e)
 
         logger.warning("モニターソースが見つかりません。マイクのみで録音します。")
         self.use_monitor = False
