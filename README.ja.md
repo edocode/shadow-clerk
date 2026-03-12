@@ -35,12 +35,17 @@ sudo apt install libportaudio2 portaudio19-dev
 
 ### 2. インストール
 
+```bash
+git clone https://gitlab.edocode.co.jp/common/shadow-clerk.git
+cd shadow-clerk
+```
+
 |  | コマンド |
 |---|---|
-| 基本 | `uv tool install shadow-clerk` |
-| + ReazonSpeech | `uv tool install "shadow-clerk[reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
-| + スペルチェック | `uv tool install "shadow-clerk[spell-check]"` |
-| + 両方 | `uv tool install "shadow-clerk[spell-check,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| 基本 | `uv tool install -e .` |
+| + ReazonSpeech | `uv tool install -e ".[reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| + スペルチェック | `uv tool install -e ".[spell-check]"` |
+| + 両方 | `uv tool install -e ".[spell-check,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 
 > **注意:** `uv tool install` はツールごとに1つの環境を管理します。異なる extras で再インストールする場合は `--force` を付けてください。`--force` なしでは「already installed」と表示され、extra が追加されません。指定した extras のみが含まれ、以前の extras は削除されます。
 
@@ -67,7 +72,7 @@ japanese_asr_model: kotoba-whisper
 **ReazonSpeech k2** — `reazonspeech` extra が必要:
 
 ```bash
-uv tool install "shadow-clerk[reazonspeech]" \
+uv tool install -e ".[reazonspeech]" \
   --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
 # 開発用:
 uv sync --extra reazonspeech
