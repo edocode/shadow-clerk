@@ -43,17 +43,36 @@ class PipeWireBackend(AudioBackend):
                     return node_id
             except (subprocess.TimeoutExpired, FileNotFoundError, IndexError, ValueError):
                 pass
-        # pactl フォールバック: デフォルト Sink 名 + ".monitor"
+        # pactl フォールバック: pactl list short sources で存在するモニターを確認
         if shutil.which("pactl"):
             try:
-                result = subprocess.run(
+                # デフォルト Sink 名を取得
+                default_result = subprocess.run(
                     ["pactl", "get-default-sink"],
                     capture_output=True, text=True, timeout=5,
                 )
-                sink_name = result.stdout.strip()
-                if sink_name:
-                    monitor = sink_name + ".monitor"
-                    logger.info("PipeWire monitor ソース: %s (pactl)", monitor)
+                default_sink = default_result.stdout.strip()
+
+                # 利用可能なソース一覧からモニターを検索
+                sources_result = subprocess.run(
+                    ["pactl", "list", "short", "sources"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                monitor_sources = []
+                for line in sources_result.stdout.splitlines():
+                    parts = line.split("\t")
+                    if len(parts) >= 2 and ".monitor" in parts[1]:
+                        monitor_sources.append(parts[1])
+
+                if default_sink:
+                    expected = default_sink + ".monitor"
+                    if expected in monitor_sources:
+                        logger.info("PipeWire monitor ソース: %s (pactl)", expected)
+                        return expected
+
+                if monitor_sources:
+                    monitor = monitor_sources[0]
+                    logger.info("PipeWire monitor ソース: %s (pactl, 最初の候補)", monitor)
                     return monitor
             except (subprocess.TimeoutExpired, FileNotFoundError):
                 pass
@@ -100,7 +119,7 @@ class PipeWireBackend(AudioBackend):
             "-",
         ]
         logger.info("PipeWire monitor capture: %s", " ".join(cmd))
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
             while not stop_event.is_set():
                 data = proc.stdout.read(FRAME_SIZE * 2)
@@ -113,6 +132,9 @@ class PipeWireBackend(AudioBackend):
         finally:
             proc.terminate()
             proc.wait()
+            err = proc.stderr.read()
+            if err:
+                logger.warning("pw-record stderr: %s", err.decode("utf-8", errors="replace").strip())
 
 
 class PulseAudioBackend(AudioBackend):
@@ -162,7 +184,7 @@ class PulseAudioBackend(AudioBackend):
             "--format=s16le",
         ]
         logger.info("PulseAudio monitor capture: %s", " ".join(cmd))
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
             while not stop_event.is_set():
                 data = proc.stdout.read(FRAME_SIZE * 2)
@@ -175,6 +197,9 @@ class PulseAudioBackend(AudioBackend):
         finally:
             proc.terminate()
             proc.wait()
+            err = proc.stderr.read()
+            if err:
+                logger.warning("parec stderr: %s", err.decode("utf-8", errors="replace").strip())
 
 
 def detect_backend(preferred: str = "auto") -> tuple[str, AudioBackend | None]:
@@ -243,7 +268,8 @@ def _get_default_sink_name() -> str | None:
 def find_monitor_device_sd() -> int | None:
     """sounddevice でモニターデバイスを検索
 
-    `.monitor` サフィックスを持つ入力デバイスのみを対象とする。
+    PipeWire: `.monitor` サフィックスを持つ入力デバイス
+    PulseAudio: "Monitor of " プレフィックスを持つ入力デバイス
     デフォルト Sink に対応するモニターを優先する。
     """
     import sounddevice as sd
@@ -251,7 +277,11 @@ def find_monitor_device_sd() -> int | None:
     candidates = []
     for i, dev in enumerate(devices):
         name = dev["name"]
-        if name.endswith(".monitor") and dev["max_input_channels"] > 0:
+        is_monitor = (
+            name.endswith(".monitor")
+            or name.lower().startswith("monitor of ")
+        )
+        if is_monitor and dev["max_input_channels"] > 0:
             candidates.append((i, name))
             logger.debug("monitor 候補: #%d %s", i, name)
 

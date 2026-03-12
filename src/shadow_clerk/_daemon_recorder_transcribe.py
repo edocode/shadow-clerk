@@ -185,6 +185,17 @@ class _RecorderTranscribeMixin:
                             self._execute_command(cmd)
                         else:
                             logger.info("要約コマンド検出: %s (provider=claude, subagent に委譲)", cmd)
+                    elif cmd.startswith("llm_query "):
+                        # llm_query は _llm_query (claude provider) が自分で COMMAND_FILE に書き込む。
+                        # ここで _execute_command を呼ぶと再度書き込まれ無限ループになるため、
+                        # claude provider の場合はファイルを残して Claude Code に委譲する。
+                        config = load_config()
+                        if config.get("llm_provider") == "claude":
+                            logger.debug("LLM クエリ検出 (provider=claude, Claude Code に委譲): %s", cmd)
+                        else:
+                            os.remove(COMMAND_FILE)
+                            logger.info("コマンドファイル検出: %s", cmd)
+                            self._execute_command(cmd)
                     else:
                         os.remove(COMMAND_FILE)
                         if cmd:
