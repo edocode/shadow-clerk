@@ -43,39 +43,9 @@ class PipeWireBackend(AudioBackend):
                     return node_id
             except (subprocess.TimeoutExpired, FileNotFoundError, IndexError, ValueError):
                 pass
-        # pactl フォールバック: pactl list short sources で存在するモニターを確認
-        if shutil.which("pactl"):
-            try:
-                # デフォルト Sink 名を取得
-                default_result = subprocess.run(
-                    ["pactl", "get-default-sink"],
-                    capture_output=True, text=True, timeout=5,
-                )
-                default_sink = default_result.stdout.strip()
-
-                # 利用可能なソース一覧からモニターを検索
-                sources_result = subprocess.run(
-                    ["pactl", "list", "short", "sources"],
-                    capture_output=True, text=True, timeout=5,
-                )
-                monitor_sources = []
-                for line in sources_result.stdout.splitlines():
-                    parts = line.split("\t")
-                    if len(parts) >= 2 and ".monitor" in parts[1]:
-                        monitor_sources.append(parts[1])
-
-                if default_sink:
-                    expected = default_sink + ".monitor"
-                    if expected in monitor_sources:
-                        logger.info("PipeWire monitor ソース: %s (pactl)", expected)
-                        return expected
-
-                if monitor_sources:
-                    monitor = monitor_sources[0]
-                    logger.info("PipeWire monitor ソース: %s (pactl, 最初の候補)", monitor)
-                    return monitor
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                pass
+        # wpctl でノード ID が取れなかった場合は pw-record では使えないため None を返す。
+        # 呼び出し側が PulseAudio バックエンドへフォールバックする。
+        logger.debug("PipeWire: wpctl からノード ID を取得できませんでした。PulseAudio にフォールバックします。")
         return None
 
     def list_devices(self):
