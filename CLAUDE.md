@@ -5,6 +5,21 @@
 See `README.md` for project overview, setup, usage, CLI options, and configuration.
 See `SPEC.md` for detailed architecture, module design, thread model, data flow diagrams, and data directory layout.
 
+## Commands
+
+```bash
+# Development setup
+uv sync                          # Install dependencies
+uv sync --extra reazonspeech     # With ReazonSpeech support
+
+# Run
+uv run clerk-daemon              # Start daemon (dev)
+uv run clerk-util                # Utility commands (dev)
+
+# Syntax check (no test suite)
+uv run python -m py_compile src/shadow_clerk/<file>.py
+```
+
 ## Coding Conventions
 
 ### File Size
@@ -23,12 +38,19 @@ See `SPEC.md` for detailed architecture, module design, thread model, data flow 
 - Logger-based logging (no print)
 - Japanese comments in source code are acceptable
 - Module files: underscore (`clerk_daemon.py`), CLI commands: hyphen (`clerk-daemon`)
+- Module split pattern: public entry `clerk_daemon.py` / `llm_client.py` delegate to private `_daemon_*.py` / `_llm_*.py` submodules
+- Entry points: `clerk-daemon` (recording/transcription daemon), `clerk-util` (data directory operations & process management)
 
 ### i18n
 - All user-facing strings go through `i18n.py` with `t()` function
 - Dashboard uses `{{i18n:key}}` template placeholders replaced at serve time
 - i18n JSON injected via `/*I18N_JSON*/` placeholder
 - **Caution**: `t(key, **kwargs)` — avoid naming kwargs the same as Python builtins or the `key` parameter itself
+
+## Environment
+
+- **Python command**: Always use `uv run python` (not `python3` or `python` directly). This avoids environment differences.
+- **Data directory**: `~/.local/share/shadow-clerk/` — config, transcripts, translations, summaries
 
 ## Known Pitfalls
 
