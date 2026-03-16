@@ -208,14 +208,18 @@ class _RecorderTranscribeMixin:
     # 短いノイズ語フィルタ: 3文字以内、かな/カナ開始、小書きかな/カナ終了
     _SMALL_KANA = set("ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶ")
     _KANA_START = re.compile(r"^[\u3041-\u3096\u30A1-\u30F6]")
+    # 半濁音 + ン/ん パターン（「ピン」「プン」等の効果音）
+    _HANDAKUON_N = re.compile(r"^[パピプペポぱぴぷぺぽ][ンん]$")
 
     @staticmethod
     def _is_noise_text(text: str) -> bool:
-        """短いノイズ語（「あっ」「ピッ」等）かどうか判定"""
+        """短いノイズ語（「あっ」「ピッ」「ピン」等）かどうか判定"""
         s = text.strip()
         if len(s) > 3 or len(s) == 0:
             return False
         if _RecorderTranscribeMixin._KANA_START.match(s) and s[-1] in _RecorderTranscribeMixin._SMALL_KANA:
+            return True
+        if _RecorderTranscribeMixin._HANDAKUON_N.match(s):
             return True
         return False
 

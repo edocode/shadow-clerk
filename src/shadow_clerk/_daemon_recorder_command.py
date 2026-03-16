@@ -173,7 +173,7 @@ class _RecorderCommandMixin:
 
         try:
             result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=180,
+                cmd, capture_output=True, text=True, timeout=600,
                 cwd=os.path.dirname(os.path.abspath(__file__)),
             )
             if result.returncode == 0:
