@@ -21,6 +21,13 @@ def _get_hiragana_step(config: dict) -> str:
     return ""
 
 
+def _get_length_instruction(config: dict) -> str:
+    """summary_length 設定に応じた長さ指示テキストを返す"""
+    length = config.get("summary_length", "half")
+    key = f"llm.summary_length_{length}"
+    return t(key) or ""
+
+
 def _get_summary_format():
     """summary_template.md があればそちらを優先、なければ i18n デフォルトを使用"""
     template_path = os.path.join(DATA_DIR, "summary_template.md")
@@ -144,8 +151,10 @@ def _summarize_full(client: OpenAI, model: str, transcript: str):
 
 def _summarize_full_single(client: OpenAI, model: str, transcript: str, summary_format: str):
     """transcript 全文から議事録を生成する（単一リクエスト）。"""
-    system_prompt = t("llm.summary_full_system", summary_format=summary_format)
     config = load_config()
+    length_instruction = _get_length_instruction(config)
+    system_prompt = t("llm.summary_full_system", summary_format=summary_format,
+                      length_instruction=length_instruction)
     default_lang = config.get("default_language")
     glossary_text = load_glossary_for_summary(default_lang if default_lang != "auto" else None)
     if glossary_text:
@@ -201,8 +210,10 @@ def _summarize_update_single(
     client: OpenAI, model: str, transcript: str, existing_summary: str, summary_format: str
 ):
     """既存の summary を踏まえて差分 transcript から議事録を更新する（単一リクエスト）。"""
-    system_prompt = t("llm.summary_update_system", summary_format=summary_format)
     config = load_config()
+    length_instruction = _get_length_instruction(config)
+    system_prompt = t("llm.summary_update_system", summary_format=summary_format,
+                      length_instruction=length_instruction)
     default_lang = config.get("default_language")
     glossary_text = load_glossary_for_summary(default_lang if default_lang != "auto" else None)
     if glossary_text:

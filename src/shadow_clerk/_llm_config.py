@@ -67,6 +67,7 @@ DEFAULT_CONFIG = {
     "libretranslate_spell_check": False,
     "spell_check_model": "mbyhphat/t5-japanese-typo-correction",
     "summary_source": "transcript",
+    "summary_length": "half",
 }
 
 

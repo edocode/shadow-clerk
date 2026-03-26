@@ -229,6 +229,7 @@ STRINGS = {
         "cfg.summary_source": "要約ソース",
         "cfg.translation_hiragana_step": "平仮名思考ステップ",
         "cfg.summary_hiragana_step": "平仮名思考ステップ",
+        "cfg.summary_length": "要約の長さ",
         "cfg.japanese_asr_model": "日本語ASRモデル",
         "cfg.kotoba_whisper_model": "Kotoba-Whisper モデル",
         "cfg.interim_japanese_asr_model": "中間 日本語ASRモデル",
@@ -240,7 +241,7 @@ STRINGS = {
             "1. 各行は「番号: テキスト」形式で与えられます。同じ「番号: 翻訳結果」形式で返してください。\n"
             "2. 音声認識の書き起こしテキストです。明らかな誤認識は文脈から推測して補正してから翻訳してください。\n"
             "3. 翻訳先言語（{lang}）と同じ言語で書かれている行は翻訳不要ですが、音声認識の誤認識・typo があれば修正して出力してください。\n"
-            "4. 用語集にreadingが記載されている場合、音声認識結果にそのreadingと類似する語句があれば、対応する正しい用語に修正してください。\n"
+            "4. 用語集にreadingが記載されている場合、音声認識結果にそのreadingと類似する語句があれば、対応する正しい用語に修正してください。上から順に優先的に照合してください。\n"
             "5. 番号とコロンの後の翻訳テキストのみを出力してください。余計な説明は不要です。\n"
             "{hiragana_step}"
         ),
@@ -251,14 +252,14 @@ STRINGS = {
             "\n"
             "1. 各行は「番号: テキスト」形式で与えられます。同じ「番号: 修正後テキスト」形式で返してください。\n"
             "2. 音声認識は同音異義語を頻繁に誤変換します。各単語の「読み」を考え、文脈に合った正しい漢字・表記に修正してください。\n"
-            "3. 用語集のreadingマッピングに一致する読みを持つ語句は、必ず用語集の正しい表記に修正してください。\n"
+            "3. 用語集のreadingマッピングに一致する読みを持つ語句は、必ず用語集の正しい表記に修正してください。上から順に優先的に照合してください。\n"
             "4. 用語集にない語句でも、文脈から明らかに誤変換と判断できる場合は修正してください。\n"
             "5. 番号とコロンの後の修正済みテキストのみを出力してください。余計な説明は不要です。\n"
             "6. 修正が不要な行もそのまま出力してください（省略しないこと）。"
         ),
         "llm.summary_full_system": (
             "あなたは議事録作成アシスタントです。指定されたテンプレートに厳密に従って議事録を出力してください。\n"
-            "テンプレート以外の形式で出力しないでください。"
+            "テンプレート以外の形式で出力しないでください。{length_instruction}"
         ),
         "llm.summary_full_user": (
             "以下の transcript（音声書き起こし）から議事録を作成してください。\n"
@@ -271,7 +272,7 @@ STRINGS = {
             "- transcript の各行は [YYYY-MM-DD HH:MM:SS] [スピーカー] テキスト 形式です\n"
             "- 音声認識による誤字・誤変換を文脈から推測して正しい表記に修正してください\n"
             "- 固有名詞や専門用語は前後の文脈から最も適切な表記を推定してください\n"
-            "- 用語集にreadingが記載されている場合、音声認識結果にそのreadingと類似する語句があれば、対応する正しい用語に修正してください\n"
+            "- 用語集にreadingが記載されている場合、音声認識結果にそのreadingと類似する語句があれば、対応する正しい用語に修正してください。上から順に優先的に照合してください\n"
             "{hiragana_step}"
             "\n"
             "【transcript】\n"
@@ -279,7 +280,7 @@ STRINGS = {
         ),
         "llm.summary_update_system": (
             "あなたは議事録作成アシスタントです。指定されたテンプレートに厳密に従って議事録を出力してください。\n"
-            "テンプレート以外の形式で出力しないでください。"
+            "テンプレート以外の形式で出力しないでください。{length_instruction}"
         ),
         "llm.summary_update_user": (
             "既存の議事録を新しい transcript の内容で更新してください。\n"
@@ -293,7 +294,7 @@ STRINGS = {
             "- transcript の各行は [YYYY-MM-DD HH:MM:SS] [スピーカー] テキスト 形式です\n"
             "- 音声認識による誤字・誤変換を文脈から推測して正しい表記に修正してください\n"
             "- 固有名詞や専門用語は前後の文脈から最も適切な表記を推定してください\n"
-            "- 用語集にreadingが記載されている場合、音声認識結果にそのreadingと類似する語句があれば、対応する正しい用語に修正してください\n"
+            "- 用語集にreadingが記載されている場合、音声認識結果にそのreadingと類似する語句があれば、対応する正しい用語に修正してください。上から順に優先的に照合してください\n"
             "{hiragana_step}"
             "\n"
             "## 既存の議事録\n"
@@ -322,6 +323,12 @@ STRINGS = {
             "  平仮名や中間ステップは絶対に出力しないでください。"
         ),
         "llm.summary_update_none": "(なし — 新規作成してください)",
+        "llm.summary_length_half": "\nA4半枚程度（400〜500字）に収めて簡潔にまとめてください。",
+        "llm.summary_length_1page": "\nA41枚程度（800〜1000字）でまとめてください。",
+        "llm.summary_length_2pages": "\nA42枚程度（1600〜2000字）で詳細にまとめてください。",
+        "llm.summary_length_3pages": "\nA43枚程度（2400〜3000字）で詳細にまとめてください。",
+        "llm.summary_length_4pages": "\nA44枚程度（3200〜4000字）で詳細にまとめてください。",
+        "llm.summary_length_5pages": "\nA45枚程度（4000〜5000字）で詳細にまとめてください。",
         "llm.summary_format": (
             "以下のテンプレートの見出し構造・書式を厳密に守って出力してください。\n"
             "見出しの追加・変更・省略はしないでください。内容がない場合は「特になし」と記載してください。\n"
@@ -564,6 +571,7 @@ STRINGS = {
         "cfg.summary_source": "Summary Source",
         "cfg.translation_hiragana_step": "Hiragana Thinking Step",
         "cfg.summary_hiragana_step": "Hiragana Thinking Step",
+        "cfg.summary_length": "Summary Length",
         "cfg.japanese_asr_model": "Japanese ASR Model",
         "cfg.kotoba_whisper_model": "Kotoba-Whisper Model",
         "cfg.interim_japanese_asr_model": "Interim Japanese ASR Model",
@@ -575,7 +583,7 @@ STRINGS = {
             "1. Each line is given in 'number: text' format. Return results in the same 'number: translated text' format.\n"
             "2. This is speech recognition transcript text. Correct obvious misrecognitions from context before translating.\n"
             "3. Lines already in the target language ({lang}) do not need translation, but fix any speech recognition errors or typos.\n"
-            "4. If the glossary includes a 'reading' for a term, and the transcript contains a similar-sounding word, correct it to the proper term.\n"
+            "4. If the glossary includes a 'reading' for a term, and the transcript contains a similar-sounding word, correct it to the proper term. Match readings from top to bottom in order.\n"
             "5. Output only the number and translated text after the colon. No extra explanations.\n"
             "{hiragana_step}"
         ),
@@ -586,14 +594,14 @@ STRINGS = {
             "\n"
             "1. Each line is given in 'number: text' format. Return results in the same 'number: corrected text' format.\n"
             "2. Speech recognition frequently misconverts homophones. Consider the 'reading' of each word and correct to the right kanji/notation based on context.\n"
-            "3. Words whose reading matches a glossary reading mapping MUST be corrected to the glossary's correct notation.\n"
+            "3. Words whose reading matches a glossary reading mapping MUST be corrected to the glossary's correct notation. Match readings from top to bottom in order.\n"
             "4. Even words not in the glossary should be corrected if clearly misconverted based on context.\n"
             "5. Output only the number and corrected text after the colon. No extra explanations.\n"
             "6. Output all lines including those that need no correction (do not omit any)."
         ),
         "llm.summary_full_system": (
             "You are a meeting minutes assistant. Strictly follow the given template to output meeting minutes.\n"
-            "Do not output in any format other than the template."
+            "Do not output in any format other than the template.{length_instruction}"
         ),
         "llm.summary_full_user": (
             "Create meeting minutes from the following transcript (speech-to-text).\n"
@@ -606,7 +614,7 @@ STRINGS = {
             "- Each transcript line is in [YYYY-MM-DD HH:MM:SS] [Speaker] Text format\n"
             "- Fix speech recognition errors by inferring correct words from context\n"
             "- Infer the most appropriate spelling for proper nouns and technical terms\n"
-            "- If the glossary includes a 'reading' for a term, and the transcript contains a similar-sounding word, correct it to the proper term\n"
+            "- If the glossary includes a 'reading' for a term, and the transcript contains a similar-sounding word, correct it to the proper term. Match readings from top to bottom in order\n"
             "{hiragana_step}"
             "\n"
             "[TRANSCRIPT]\n"
@@ -614,7 +622,7 @@ STRINGS = {
         ),
         "llm.summary_update_system": (
             "You are a meeting minutes assistant. Strictly follow the given template to output meeting minutes.\n"
-            "Do not output in any format other than the template."
+            "Do not output in any format other than the template.{length_instruction}"
         ),
         "llm.summary_update_user": (
             "Update the existing meeting minutes with the new transcript content.\n"
@@ -628,7 +636,7 @@ STRINGS = {
             "- Each transcript line is in [YYYY-MM-DD HH:MM:SS] [Speaker] Text format\n"
             "- Fix speech recognition errors by inferring correct words from context\n"
             "- Infer the most appropriate spelling for proper nouns and technical terms\n"
-            "- If the glossary includes a 'reading' for a term, and the transcript contains a similar-sounding word, correct it to the proper term\n"
+            "- If the glossary includes a 'reading' for a term, and the transcript contains a similar-sounding word, correct it to the proper term. Match readings from top to bottom in order\n"
             "{hiragana_step}"
             "\n"
             "## Existing Meeting Minutes\n"
@@ -640,6 +648,12 @@ STRINGS = {
         "llm.summary_hiragana_step": "",
         "llm.translation_hiragana_step": "",
         "llm.summary_update_none": "(None — please create new minutes)",
+        "llm.summary_length_half": "\nKeep the summary brief, around half an A4 page (400-500 characters).",
+        "llm.summary_length_1page": "\nAim for approximately one A4 page (800-1000 characters).",
+        "llm.summary_length_2pages": "\nProvide a detailed summary of approximately two A4 pages (1600-2000 characters).",
+        "llm.summary_length_3pages": "\nProvide a detailed summary of approximately three A4 pages (2400-3000 characters).",
+        "llm.summary_length_4pages": "\nProvide a detailed summary of approximately four A4 pages (3200-4000 characters).",
+        "llm.summary_length_5pages": "\nProvide a detailed summary of approximately five A4 pages (4000-5000 characters).",
         "llm.summary_format": (
             "Follow this template structure exactly. Do not add, change, or omit any headings.\n"
             "If a section has no content, write \"N/A\".\n"

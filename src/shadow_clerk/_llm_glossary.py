@@ -76,7 +76,8 @@ def load_glossary(lang: str) -> str:
 
     # reading → target_term のマッピングも追加（同言語翻訳・誤認識修正用）
     # reading と target_term が異なる場合のみ
-    reading_pairs = []
+    # reading の長さ降順でソート（長いreadingを優先してLLMが正確にマッチできるように）
+    reading_pairs_raw = []  # (reading_len, entry)
     if reading_idx is not None:
         for row_line in data_lines[1:]:
             cols = row_line.split("\t")
@@ -88,7 +89,8 @@ def load_glossary(lang: str) -> str:
             entry = f"reading「{reading}」→ {target_term}"
             if note:
                 entry += f" ({note})"
-            reading_pairs.append(entry)
+            reading_pairs_raw.append((len(reading), entry))
+    reading_pairs = [e for _, e in sorted(reading_pairs_raw, key=lambda x: x[0], reverse=True)]
 
     if not pairs and not reading_pairs:
         return ""
@@ -99,7 +101,7 @@ def load_glossary(lang: str) -> str:
     if reading_pairs:
         if pairs:
             section += "\n"
-        section += "  音声認識の誤変換を修正する際は、以下のreadingマッピングを参照してください:\n"
+        section += "  音声認識の誤変換を修正する際は、以下のreadingマッピングを上から順に優先的に照合してください:\n"
         section += "\n".join(f"  {p}" for p in reading_pairs)
     return section
 
@@ -157,7 +159,8 @@ def load_glossary_replacements(lang: str | None = None) -> list[tuple[str, str]]
                 continue
             pairs.append((reading, target_val))
 
-    return pairs
+    # reading の長さ降順でソート（長いreadingを先に置換して部分マッチを防ぐ）
+    return sorted(pairs, key=lambda x: len(x[0]), reverse=True)
 
 
 def load_glossary_for_summary(lang: str | None = None) -> str:

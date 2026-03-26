@@ -63,6 +63,7 @@ DEFAULT_CONFIG = {
     "spell_check_model": "mbyhphat/t5-japanese-typo-correction",
     "summary_source": "transcript",
     "summary_hiragana_step": True,
+    "summary_length": "half",
     "translation_hiragana_step": True,
     "japanese_asr_model": "default",
     "kotoba_whisper_model": "kotoba-tech/kotoba-whisper-v2.0-faster",

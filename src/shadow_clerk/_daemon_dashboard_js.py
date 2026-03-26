@@ -418,6 +418,7 @@ const CFG_FIELDS=[
   {key:'auto_summary',label:I18N['cfg.auto_summary'],type:'bool'},
   {key:'summary_source',label:I18N['cfg.summary_source'],type:'select',opts:['transcript','translate']},
   {key:'summary_hiragana_step',label:I18N['cfg.summary_hiragana_step'],type:'bool',def:true},
+  {key:'summary_length',label:I18N['cfg.summary_length'],type:'select',opts:['half','1page','2pages','3pages','4pages','5pages']},
   {type:'section',label:I18N['cfg.section.api']},
   {key:'llm_provider',label:I18N['cfg.llm_provider'],type:'select',opts:['claude','api']},
   {key:'api_endpoint',label:I18N['cfg.api_endpoint'],type:'text',ph:'https://...'},
