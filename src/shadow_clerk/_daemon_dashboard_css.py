@@ -133,7 +133,7 @@ main {
 #mtgContent { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
 #searchPane { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
 #searchForm { padding:6px 8px; border-bottom:1px solid var(--border); flex-shrink:0; }
-#searchForm input[type=text] { font-size:11px; padding:2px 4px; }
+#searchForm input[type=text], #searchForm select { font-size:11px; padding:2px 4px; }
 #searchForm label { font-size:10px; display:flex; align-items:center; gap:2px; color:var(--muted); cursor:pointer; white-space:nowrap; }
 .sr-item { padding:4px 8px; cursor:pointer; border-radius:3px; margin-bottom:1px;
   display:flex; justify-content:space-between; align-items:center; gap:4px; }

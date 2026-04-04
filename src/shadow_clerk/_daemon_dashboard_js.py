@@ -360,17 +360,50 @@ es.addEventListener('interim_clear',e=>{
   const itp=document.getElementById('itp');
   if(itp)itp.innerHTML='';
 });
+function _todayYestStr(){
+  const nd=new Date();
+  const fd=d=>`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+  const yd=new Date(nd);yd.setDate(yd.getDate()-1);
+  return [fd(nd),fd(yd)];
+}
 async function loadFiles(){
   try{const r=await fetch('/api/files'),d=await r.json(),s=document.getElementById('fsel'),p=s.value;
   s.innerHTML='';activeFile=d.active||'';
   fileInfo=d.file_info||{};
-  d.files.forEach(f=>{const o=document.createElement('option');o.value=f;
-    o.textContent=(fileInfo[f]?.label||f)+(f===d.active?' ★':'');s.appendChild(o);});
-  s.value=(p&&d.files.includes(p))?p:(d.active||'');curFile=s.value;
   meetingGroups=d.groups||{};
+  // ヘッダー fsel: 今日・前日 + アクティブ + 直前の選択ファイルのみ表示
+  const [tod,yes]=_todayYestStr();
+  const shown=new Set(d.files.filter(f=>{
+    const dt=fileInfo[f]?.dt||'';
+    return dt.startsWith(tod)||dt.startsWith(yes)||f===d.active||f===p;
+  }));
+  d.files.forEach(f=>{
+    if(!shown.has(f))return;
+    const o=document.createElement('option');o.value=f;
+    o.textContent=(fileInfo[f]?.label||f)+(f===d.active?' ★':'');s.appendChild(o);
+  });
+  s.value=(p&&shown.has(p))?p:(d.active||'');curFile=s.value;
+  populateYearSelect();
   if(leftTab==='meetings') renderMtgPane();
   else if(leftTab==='dates') renderDatePane();
   }catch(e){}
+}
+function populateYearSelect(){
+  const sel=document.getElementById('srYear');if(!sel)return;
+  const cur=sel.value;
+  const years=[...new Set(Object.values(fileInfo).map(fi=>(fi.dt||'').substring(0,4)).filter(Boolean))].sort().reverse();
+  sel.innerHTML=`<option value="">${I18N['dash.search_year']||'年'}</option>`;
+  years.forEach(y=>{const o=document.createElement('option');o.value=y;o.textContent=y;sel.appendChild(o);});
+  if(cur)sel.value=cur;
+}
+function initSearchSelects(){
+  const mo=document.getElementById('srMonth');
+  const dy=document.getElementById('srDay');
+  const hr=document.getElementById('srHour');
+  if(!mo||!dy||!hr)return;
+  for(let i=1;i<=12;i++){const o=document.createElement('option');o.value=String(i).padStart(2,'0');o.textContent=String(i).padStart(2,'0');mo.appendChild(o);}
+  for(let i=1;i<=31;i++){const o=document.createElement('option');o.value=String(i).padStart(2,'0');o.textContent=String(i).padStart(2,'0');dy.appendChild(o);}
+  for(let i=0;i<=23;i++){const o=document.createElement('option');o.value=String(i).padStart(2,'0');o.textContent=String(i).padStart(2,'0');hr.appendChild(o);}
 }
 function togMtgPane(){
   const p=document.getElementById('pnlM');if(!p)return;
@@ -496,7 +529,13 @@ function renderMtgPane(){
 function selectMtgGroup(name){curGroup=name;renderMtgPane();}
 function clearMtgGroup(){curGroup=null;renderMtgPane();return false;}
 function selectMtgFile(file){
-  const fsel=document.getElementById('fsel');fsel.value=file;onSel();_updateRenameMtgBtn();
+  const fsel=document.getElementById('fsel');
+  if(!Array.from(fsel.options).some(o=>o.value===file)){
+    const o=document.createElement('option');o.value=file;
+    o.textContent=(fileInfo[file]?.label||file)+(file===activeFile?' ★':'');
+    fsel.appendChild(o);
+  }
+  fsel.value=file;onSel();_updateRenameMtgBtn();
 }
 async function loadT(file){
   try{const u=file?'/api/transcript?file='+encodeURIComponent(file):'/api/transcript';
@@ -531,7 +570,7 @@ es.addEventListener('alert',e=>{
   const d=JSON.parse(e.data);if(d.message){alert(d.message);}
 });
 function hideResp(){document.getElementById('resp').classList.remove('show');}
-switchLeftTab('dates');loadFiles();loadT('');loadR('');loadLogs();setInterval(loadFiles,10000);
+initSearchSelects();switchLeftTab('dates');loadFiles();loadT('');loadR('');loadLogs();setInterval(loadFiles,10000);
 const LANG_OPTS=['ja','en','zh','ko','fr','de','es','pt','ru'];
 const CFG_FIELDS=[
   {type:'section',label:I18N['cfg.section.general']},
