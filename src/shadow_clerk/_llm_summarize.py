@@ -10,6 +10,8 @@ from shadow_clerk import DATA_DIR
 from shadow_clerk.i18n import t
 from shadow_clerk._llm_config import load_config, get_api_client, resolve_path
 from shadow_clerk._llm_glossary import load_glossary_for_summary
+from shadow_clerk._transcript_name import TranscriptName
+from shadow_clerk.domain import Summary
 
 logger = logging.getLogger("llm-client")
 
@@ -80,10 +82,22 @@ def summarize(args: argparse.Namespace):
         result = _summarize_update(client, model, transcript, existing_summary)
 
     if result:
+        # Summary バリューオブジェクトとして扱う
+        tn = TranscriptName.parse(os.path.basename(transcript_path))
+        summary = Summary(transcript_name=tn, content=result) if tn else None
+
         if args.output:
             output_path = os.path.expanduser(args.output)
             if not os.path.isabs(output_path):
                 output_path = resolve_path(output_path, config)
+        elif summary:
+            # args.output 未指定かつ TranscriptName をパースできた場合は
+            # transcript と同ディレクトリに summary ファイルを自動生成
+            output_path = summary.file_path(os.path.dirname(transcript_path))
+        else:
+            output_path = None
+
+        if output_path:
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write(result)
             logger.info("summary 保存: %s", output_path)

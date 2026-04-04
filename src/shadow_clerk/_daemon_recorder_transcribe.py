@@ -33,7 +33,8 @@ from shadow_clerk._daemon_audio import detect_backend, find_monitor_device_sd
 from shadow_clerk._daemon_vad import VADSegmenter
 from shadow_clerk._daemon_transcriber import Transcriber, GlossaryReplacer
 from shadow_clerk._daemon_dashboard import LogBuffer, FileWatcher, DashboardHandler
-from shadow_clerk.domain import Speaker, TranscriptLine
+from shadow_clerk.domain import Speaker, TranscriptLine, Translation
+from shadow_clerk._transcript_name import TranscriptName
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -122,9 +123,19 @@ class _RecorderTranscribeMixin:
                         capture_output=True, text=True, timeout=300,
                     )
                     if result.returncode == 0 and result.stdout.strip():
-                        basename = os.path.basename(transcript)
-                        tr_name = basename.replace(".txt", f"-{lang}.txt")
-                        tr_path = os.path.join(os.path.dirname(transcript), tr_name)
+                        tn = TranscriptName.parse(os.path.basename(transcript))
+                        translation = Translation(
+                            transcript_name=tn,
+                            language=lang,
+                            content=result.stdout,
+                        ) if tn else None
+                        tr_path = (
+                            translation.file_path(os.path.dirname(transcript))
+                            if translation else
+                            os.path.join(os.path.dirname(transcript),
+                                         os.path.basename(transcript).replace(".txt", f"-{lang}.txt"))
+                        )
+                        tr_name = os.path.basename(tr_path)
                         mode = "w" if offset == 0 else "a"
                         with open(tr_path, mode, encoding="utf-8") as f:
                             f.write(result.stdout)

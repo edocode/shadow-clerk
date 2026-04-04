@@ -22,6 +22,7 @@ from shadow_clerk._daemon_audio import detect_backend, find_monitor_device_sd, P
 from shadow_clerk._daemon_vad import VADSegmenter
 from shadow_clerk._daemon_transcriber import Transcriber, GlossaryReplacer
 from shadow_clerk._daemon_dashboard import LogBuffer, FileWatcher, DashboardHandler
+from shadow_clerk.domain import MeetingSession
 
 try:
     from shadow_clerk.llm_client import get_api_client, load_glossary, load_glossary_replacements, load_dotenv as llm_load_dotenv, _spell_check
@@ -116,6 +117,9 @@ class _RecorderCaptureMixin:
         # Mic/Speaker ミュートフラグ
         self.mute_mic = False
         self.mute_monitor = False
+
+        # 会議セッション（進行中は MeetingSession、それ以外は None）
+        self.current_session: MeetingSession | None = None
 
         # 翻訳ループ
         self._translate_stop_event = threading.Event()

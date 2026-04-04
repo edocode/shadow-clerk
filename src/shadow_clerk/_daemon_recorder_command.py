@@ -18,6 +18,7 @@ except ImportError:
 
 from shadow_clerk.i18n import t
 from shadow_clerk._transcript_name import TranscriptName
+from shadow_clerk.domain import MeetingSession
 from shadow_clerk._daemon_constants import (
     SAMPLE_RATE, COMMAND_FILE, SESSION_FILE, GLOSSARY_FILE,
     VOICE_CMD_PREFIX, VOICE_CMD_SUFFIX, VOICE_COMMANDS,
@@ -390,6 +391,7 @@ class _RecorderCommandMixin:
                 marker = f"--- 会議開始 {now.strftime('%Y-%m-%d %H:%M')} ---\n"
                 with open(self.output_path, "a", encoding="utf-8") as f:
                     f.write(marker)
+            self.current_session = MeetingSession.start(self.output_path, now)
             with open(SESSION_FILE, "w", encoding="utf-8") as f:
                 f.write(self.output_path)
             logger.info("会議開始: %s", self.output_path)
@@ -408,6 +410,12 @@ class _RecorderCommandMixin:
                 self.output_path = self.args.output
             else:
                 self.output_path = self._get_default_output()
+            if self.current_session:
+                ended = self.current_session.end()
+                logger.info("会議セッション終了: 開始=%s 終了=%s",
+                            ended.started_at.strftime("%H:%M:%S"),
+                            ended.ended_at.strftime("%H:%M:%S"))
+                self.current_session = None
             try:
                 os.remove(SESSION_FILE)
             except FileNotFoundError:
