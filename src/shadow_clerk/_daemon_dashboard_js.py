@@ -411,7 +411,7 @@ async function loadFiles(){
   d.files.forEach(f=>{
     if(!shown.has(f))return;
     const o=document.createElement('option');o.value=f;
-    o.textContent=(fileInfo[f]?.label||f)+(f===d.active?' ★':'');s.appendChild(o);
+    o.textContent=_mtgLabel(f)+(f===d.active?' ★':'');s.appendChild(o);
   });
   s.value=(p&&shown.has(p))?p:(d.active||'');curFile=s.value;
   populateYearSelect();
@@ -473,8 +473,8 @@ function renderDatePane(){
     dp.innerHTML=`<div style="color:var(--muted);font-size:12px;padding:8px">${esc(I18N['dash.dates_empty']||'No daily transcripts.')}</div>`;
     return;
   }
-  dp.innerHTML=files.map(([f,fi])=>
-    `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}">${esc(fi.label||f)}</div>`
+  dp.innerHTML=files.map(([f])=>
+    `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}">${esc(_mtgLabel(f))}</div>`
   ).join('');
 }
 /* --- 検索 --- */
@@ -552,8 +552,7 @@ function renderMtgPane(){
     document.getElementById('btnRenameMtgGroup').style.display=curGroup==='ad-hoc'?'none':'';
     const files=(meetingGroups[curGroup]||[]);
     mp.innerHTML=files.map(f=>{
-      const label=fileInfo[f]?.meeting_label||f;
-      return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}">${esc(label)}</div>`;
+      return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}">${esc(_mtgLabel(f))}</div>`;
     }).join('');
   }
 }
@@ -569,7 +568,7 @@ function selectMtgFile(file){
     .forEach(f=>{
       if(existing.has(f))return;
       const o=document.createElement('option');o.value=f;
-      o.textContent=(fileInfo[f]?.label||f)+(f===activeFile?' ★':'');
+      o.textContent=_mtgLabel(f)+(f===activeFile?' ★':'');
       fsel.appendChild(o);
     });
   fsel.value=file;onSel();_updateRenameMtgBtn();
