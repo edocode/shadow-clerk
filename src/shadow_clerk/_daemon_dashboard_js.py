@@ -224,7 +224,9 @@ function updateTranslateBtn(active){
 }
 async function togTranslate(){
   if(translating){cmd('translate_stop');updateTranslateBtn(false);return;}
-  cmd('translate_start');updateTranslateBtn(true);
+  const fi=fileInfo[curFile];
+  const dateArg=fi&&curFile&&curFile!==activeFile?(fi.dt+(fi.name?'@'+fi.name:'')):'';
+  cmd('translate_start'+(dateArg?' '+dateArg:''));updateTranslateBtn(true);
 }
 async function regenTranslate(){
   if(!confirm(I18N['dash.translate_regen_confirm']))return;

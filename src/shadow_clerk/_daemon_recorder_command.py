@@ -444,9 +444,17 @@ class _RecorderCommandMixin:
             logger.info("モデル変更完了: %s", model_size)
             print(t("rec.model_changed", model=model_size))
 
-        elif cmd == "translate_start":
+        elif cmd == "translate_start" or cmd.startswith("translate_start "):
             config = load_config()
             provider = get_translation_provider(config)
+            # 引数でファイルが指定されていればそのファイルを対象にする
+            parts = cmd.split(None, 1)
+            target_transcript: str | None = None
+            if len(parts) > 1 and parts[1].strip():
+                date_part = parts[1].strip()
+                target_transcript = os.path.join(
+                    self._output_dir, TranscriptName.from_date_str(date_part).filename)
+                logger.info("翻訳対象ファイル指定: %s", os.path.basename(target_transcript))
             if provider in ("api", "libretranslate"):
                 if self._translate_thread and self._translate_thread.is_alive():
                     logger.info("翻訳ループは既に動作中 (provider=%s)", provider)
@@ -454,12 +462,13 @@ class _RecorderCommandMixin:
                     logger.info("翻訳開始: provider=%s", provider)
                     self._translate_stop_event.clear()
                     self._translate_thread = threading.Thread(
-                        target=self._translate_loop, name="translate-loop", daemon=True)
+                        target=self._translate_loop, args=(target_transcript,),
+                        name="translate-loop", daemon=True)
                     self._translate_thread.start()
             else:
                 self._translating_external = True
                 with open(COMMAND_FILE, "w", encoding="utf-8") as f:
-                    f.write("translate_start")
+                    f.write(cmd)  # ファイル引数も含めて転送
                 logger.info("翻訳開始: provider=claude (.clerk_command 経由)")
             print(t("rec.translate_start"))
 
