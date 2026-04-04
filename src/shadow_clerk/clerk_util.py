@@ -370,7 +370,6 @@ def cmd_summarize(args):
     --mode 省略時は full。
     """
     import datetime
-    import re
 
     # 引数パース
     date_str = None
