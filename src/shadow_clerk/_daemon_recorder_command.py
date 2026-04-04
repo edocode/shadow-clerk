@@ -1,5 +1,6 @@
 """Shadow-clerk daemon: レコーダーコマンド・キーリスナー ミックスイン"""
 # pylint: disable=duplicate-code  # 各モジュールで必要な optional import ブロックは共通形だが抽象化不可
+from __future__ import annotations
 import datetime
 import json
 import logging
@@ -149,7 +150,7 @@ class _RecorderCommandMixin:
                         {"message": t("dash.alert_cmd_fail", text=text.strip())},
                         ensure_ascii=False))
 
-    def _auto_summarize(self, transcript_path: str):
+    def _auto_summarize(self, transcript_path: str) -> None:
         """会議終了時に自動で議事録を生成する"""
         basename = os.path.basename(transcript_path)
         tn = TranscriptName.parse(basename)
@@ -157,13 +158,15 @@ class _RecorderCommandMixin:
             logger.warning("_auto_summarize: TranscriptName パース失敗: %s", basename)
             return
         summary_path = os.path.join(self._output_dir, tn.summary_filename)
+        summary_name = tn.summary_filename
 
         # summary_source に応じてソースファイルを切り替え
         config = load_config()
         source_path = transcript_path
         if config.get("summary_source") == "translate":
             lang = config.get("translate_language", "ja")
-            tr_path = os.path.join(os.path.dirname(transcript_path), tn.translation_filename(lang))
+            tr_name = tn.translation_filename(lang)
+            tr_path = os.path.join(os.path.dirname(transcript_path), tr_name)
             if os.path.exists(tr_path):
                 source_path = tr_path
                 logger.info("summary_source=translate: 翻訳ファイル使用: %s", tr_name)
@@ -218,8 +221,9 @@ class _RecorderCommandMixin:
         }
         return key_map.get(key_name)
 
-    def _key_listener_thread(self):
+    def _key_listener_thread(self) -> None:
         """pynput でグローバルキー監視を行うスレッド"""
+        from typing import Any
         target_key = self._resolve_pynput_key(self._voice_command_key)
         if target_key is None:
             logger.warning("voice_command_key '%s' を解決できません", self._voice_command_key)
@@ -227,13 +231,13 @@ class _RecorderCommandMixin:
 
         logger.info("キーリスナー開始: %s", self._voice_command_key)
 
-        def on_press(key):
+        def on_press(key: Any) -> None:
             if key == target_key:
                 self._command_mode = True
                 logger.info("コマンドモード ON (%s pressed)", self._voice_command_key)
                 print(t("rec.ptt_on", vkey=self._voice_command_key))
 
-        def on_release(key):
+        def on_release(key: Any) -> None:
             if key == target_key:
                 self._command_mode = False
                 self._command_mode_release_time = time.time()

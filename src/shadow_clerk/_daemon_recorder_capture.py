@@ -1,5 +1,7 @@
 """Shadow-clerk daemon: レコーダー音声キャプチャ・VAD ミックスイン"""
 # pylint: disable=duplicate-code  # 各モジュールで必要な optional import ブロックは共通形だが抽象化不可
+from __future__ import annotations
+import argparse
 import datetime
 import logging
 import os
@@ -27,7 +29,7 @@ logger = logging.getLogger("shadow-clerk")
 class _RecorderCaptureMixin:
     """音声キャプチャ・VAD ミックスイン"""
 
-    def __init__(self, args):
+    def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
         self.stop_event = threading.Event()
         self.mic_queue: queue.Queue = queue.Queue()
@@ -125,23 +127,25 @@ class _RecorderCaptureMixin:
         filename = datetime.datetime.now().strftime("transcript-%Y%m%d.txt")
         return os.path.join(self._output_dir, filename)
 
-    def _setup_signal_handlers(self):
+    def _setup_signal_handlers(self) -> None:
         import signal
+        import types
 
-        def handler(signum, frame):
+        def handler(signum: int, frame: types.FrameType | None) -> None:
             logger.info("シグナル受信 (%s)、終了処理中...", signal.Signals(signum).name)
             self.stop_event.set()
 
         signal.signal(signal.SIGINT, handler)
         signal.signal(signal.SIGTERM, handler)
 
-    def _mic_capture_thread(self):
+    def _mic_capture_thread(self) -> None:
         """マイク音声キャプチャスレッド"""
+        from typing import Any
         import sounddevice as sd
         mic_device = self.args.mic
         logger.info("マイクキャプチャ開始 (device=%s)", mic_device)
 
-        def callback(indata, frames, time_info, status):
+        def callback(indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
             if status:
                 logger.warning("マイク status: %s", status)
             self.mic_queue.put(indata[:, 0].copy().astype(np.int16))
@@ -164,7 +168,7 @@ class _RecorderCaptureMixin:
             logger.error("マイクキャプチャエラー: %s", e)
             self.use_mic = False
 
-    def _monitor_capture_thread(self):
+    def _monitor_capture_thread(self) -> None:
         """モニター音声キャプチャスレッド"""
         import sounddevice as sd
         # sounddevice でモニターデバイスを探す
@@ -220,11 +224,12 @@ class _RecorderCaptureMixin:
         logger.warning("モニターソースが見つかりません。マイクのみで録音します。")
         self.use_monitor = False
 
-    def _monitor_capture_sounddevice(self, device) -> bool:
+    def _monitor_capture_sounddevice(self, device: int) -> bool:
         """sounddevice でモニターデバイスをキャプチャ。成功なら True、失敗なら False。"""
+        from typing import Any
         import sounddevice as sd
 
-        def callback(indata, frames, time_info, status):
+        def callback(indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
             if status:
                 logger.warning("モニター status: %s", status)
             self.monitor_queue.put(indata[:, 0].copy().astype(np.int16))

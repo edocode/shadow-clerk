@@ -20,7 +20,7 @@ _TRANSLATION_RE = re.compile(r'^transcript-(\d{8,12})(?:@([^.]+))?-([a-z]{2,10})
 class TranscriptName:
     """transcript ファイル名の値オブジェクト"""
 
-    def __init__(self, datetime_str: str, meeting_name: str | None = None):
+    def __init__(self, datetime_str: str, meeting_name: str | None = None) -> None:
         """
         datetime_str: "YYYYMMDD" or "YYYYMMDDHHMM"
         meeting_name: サニタイズ済み会議名、または None

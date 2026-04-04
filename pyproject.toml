@@ -43,3 +43,32 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 shadow_clerk = ["data/*.template"]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.20.0",
+    "types-pyyaml>=6.0.12.20250915",
+]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+# mixin パターン: 属性は複数 mixin の組み合わせで定義されるため false positive が多い
+module = [
+    "shadow_clerk._daemon_recorder",
+    "shadow_clerk._daemon_recorder_capture",
+    "shadow_clerk._daemon_recorder_command",
+    "shadow_clerk._daemon_recorder_transcribe",
+]
+disable_error_code = ["attr-defined", "misc", "has-type", "assignment", "union-attr", "type-var", "arg-type"]
+
+[[tool.mypy.overrides]]
+# サブクラスパターン: ベースクラスがサブクラスで定義されたメソッド/属性を参照
+module = [
+    "shadow_clerk._daemon_dashboard_base",
+    "shadow_clerk._daemon_dashboard_ops",
+]
+disable_error_code = ["attr-defined"]

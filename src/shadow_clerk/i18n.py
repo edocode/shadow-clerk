@@ -9,7 +9,7 @@ from shadow_clerk import CONFIG_FILE
 _current_lang = "ja"
 
 
-def init(lang=None):
+def init(lang: str | None = None) -> None:
     """config.yaml から ui_language を読み、設定する。lang 引数で上書き可能。"""
     global _current_lang
     if lang:
