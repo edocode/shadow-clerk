@@ -34,12 +34,18 @@ uv run python -m py_compile src/shadow_clerk/<file>.py
 
 ### Python Style
 - Modern Python 3.11+ (type hints, match/case, walrus operators)
+- **Type hints are mandatory**: All function signatures (arguments and return types) must have type annotations. Use `from __future__ import annotations` at the top of each file.
 - snake_case for functions/variables, PascalCase for classes, UPPER_SNAKE_CASE for constants
 - Logger-based logging (no print)
 - Japanese comments in source code are acceptable
 - Module files: underscore (`clerk_daemon.py`), CLI commands: hyphen (`clerk-daemon`)
 - Module split pattern: public entry `clerk_daemon.py` / `llm_client.py` delegate to private `_daemon_*.py` / `_llm_*.py` submodules
 - Entry points: `clerk-daemon` (recording/transcription daemon), `clerk-util` (data directory operations & process management)
+
+### Domain Model (DDD)
+- Value objects go in `domain/` subpackage (`src/shadow_clerk/domain/`)
+- Use `@dataclass(frozen=True)` for value objects; `Enum` for constrained string types (Speaker, Language, etc.)
+- Prefer value objects over raw strings/dicts for domain concepts: `TranscriptLine`, `MeetingSession`, `Summary`, `Translation`
 
 ### i18n
 - All user-facing strings go through `i18n.py` with `t()` function
