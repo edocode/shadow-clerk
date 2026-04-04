@@ -387,8 +387,8 @@ def cmd_summarize(args):
             i += 1
 
     # transcript-*.txt 形式のファイル名 → TranscriptName で解析
-    if date_str and TranscriptName.is_transcript(date_str):
-        tn = TranscriptName.parse(date_str)
+    if date_str and (tn := TranscriptName.parse(date_str)):
+        pass
     elif date_str:
         tn = TranscriptName.from_date_str(date_str)
     else:

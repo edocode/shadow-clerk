@@ -47,18 +47,6 @@ class TranscriptName:
             dt, name = date_str, None
         return cls(dt, name or None)
 
-    # --- 判定 ---
-
-    @classmethod
-    def is_transcript(cls, filename: str) -> bool:
-        """transcript ファイル名かどうか（日次・会議両方）"""
-        return bool(_FILE_RE.match(filename))
-
-    @classmethod
-    def is_meeting(cls, filename: str) -> bool:
-        """会議ファイル名かどうか（HHMM 付き）"""
-        return bool(_MEETING_RE.match(filename))
-
     @property
     def is_meeting_file(self) -> bool:
         return len(self.datetime_str) == 12

@@ -153,31 +153,29 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
 
     def _serve_files(self):
         output_dir = self.recorder._output_dir
-        files = []
+        transcript_file_names: list[tuple[str, TranscriptName]] = []
         try:
             for f in sorted(os.listdir(output_dir), reverse=True):
-                if TranscriptName.is_transcript(f):
-                    files.append(f)
+                if (tn := TranscriptName.parse(f)) is not None:
+                    transcript_file_names.append((f, tn))
         except OSError:
             pass
         # 会議グループと file_info を構築
         groups: dict[str, list[str]] = {}
         file_info: dict[str, dict] = {}
-        for f in files:
-            tn = TranscriptName.parse(f)
-            if tn:
-                file_info[f] = {
-                    "label": tn.label,
-                    "meeting_label": tn.meeting_label,
-                    "meeting_group": tn.meeting_group,
-                    "summary": tn.summary_filename,
-                    "dt": tn.datetime_str,
-                    "name": tn.meeting_name,
-                }
-                if tn.meeting_group is not None:
-                    groups.setdefault(tn.meeting_group, []).append(f)
+        for f, tn in transcript_file_names:
+            file_info[f] = {
+                "label": tn.label,
+                "meeting_label": tn.meeting_label,
+                "meeting_group": tn.meeting_group,
+                "summary": tn.summary_filename,
+                "dt": tn.datetime_str,
+                "name": tn.meeting_name,
+            }
+            if tn.meeting_group is not None:
+                groups.setdefault(tn.meeting_group, []).append(f)
         self._send_json({
-            "files": files,
+            "files": [f for f, _ in transcript_file_names],
             "active": os.path.basename(self.recorder.output_path),
             "groups": groups,
             "file_info": file_info,
