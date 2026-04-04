@@ -16,6 +16,7 @@ except ImportError:
     _HAS_LLM_CLIENT = False
 
 from shadow_clerk.i18n import t
+from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk._daemon_constants import (
     SAMPLE_RATE, COMMAND_FILE, SESSION_FILE, GLOSSARY_FILE,
     VOICE_CMD_PREFIX, VOICE_CMD_SUFFIX, VOICE_COMMANDS,
@@ -155,7 +156,8 @@ class _RecorderCommandMixin:
     def _auto_summarize(self, transcript_path: str):
         """会議終了時に自動で議事録を生成する"""
         basename = os.path.basename(transcript_path)
-        summary_name = basename.replace("transcript-", "summary-").replace(".txt", ".md")
+        tn = TranscriptName.parse(basename)
+        summary_name = tn.summary_filename if tn else basename.replace("transcript-", "summary-").replace(".txt", ".md")
         summary_path = os.path.join(self._output_dir, summary_name)
 
         # summary_source に応じてソースファイルを切り替え
@@ -163,7 +165,7 @@ class _RecorderCommandMixin:
         source_path = transcript_path
         if config.get("summary_source") == "translate":
             lang = config.get("translate_language", "ja")
-            tr_name = basename.replace(".txt", f"-{lang}.txt")
+            tr_name = tn.translation_filename(lang) if tn else basename.replace(".txt", f"-{lang}.txt")
             tr_path = os.path.join(os.path.dirname(transcript_path), tr_name)
             if os.path.exists(tr_path):
                 source_path = tr_path
@@ -480,7 +482,7 @@ class _RecorderCommandMixin:
             parts = cmd.split(None, 1)
             if len(parts) > 1 and parts[1].strip():
                 date_part = parts[1].strip()
-                transcript = os.path.join(self._output_dir, f"transcript-{date_part}.txt")
+                transcript = os.path.join(self._output_dir, TranscriptName.from_date_str(date_part).filename)
             else:
                 transcript = self.output_path
 

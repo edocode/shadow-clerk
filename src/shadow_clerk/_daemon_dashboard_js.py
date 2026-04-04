@@ -3,6 +3,25 @@
 # JavaScript content extracted from _HTML_TEMPLATE (between <script> and </script> tags)
 _JS_TEMPLATE = """\
 /*I18N_JSON*/
+/* --- TranscriptName ヘルパー --- */
+const TN={
+  FILE_RE:/^transcript-(\\d{8,12})(?:@([^.]+))?\\.txt$/,
+  MEETING_RE:/^transcript-(\\d{12})(?:@([^.]+))?\\.txt$/,
+  isTranscript(f){return TN.FILE_RE.test(f);},
+  isMeeting(f){return TN.MEETING_RE.test(f);},
+  parse(f){const m=f.match(TN.FILE_RE);if(!m)return null;return{dt:m[1],name:m[2]||null};},
+  filename(dt,name){return 'transcript-'+dt+(name?'@'+name:'')+'.txt';},
+  summaryFilename(dt,name){return 'summary-'+dt+(name?'@'+name:'')+'.md';},
+  translationFilename(dt,name,lang){return 'transcript-'+dt+(name?'@'+name:'')+'-'+lang+'.txt';},
+  meetingGroup(f){const p=TN.parse(f);if(!p||p.dt.length<12)return null;return p.name||'ad-hoc';},
+  fmtDatetime(dt){
+    if(dt.length>=12)return dt.slice(0,4)+'-'+dt.slice(4,6)+'-'+dt.slice(6,8)+' '+dt.slice(8,10)+':'+dt.slice(10,12);
+    if(dt.length>=8)return dt.slice(0,4)+'-'+dt.slice(4,6)+'-'+dt.slice(6,8);
+    return dt;
+  },
+  label(f){const p=TN.parse(f);if(!p)return f;return TN.fmtDatetime(p.dt)+(p.name?'@'+p.name:'');},
+  meetingLabel(f){const p=TN.parse(f);if(!p)return f;return TN.fmtDatetime(p.dt);},
+};
 let curFile='', activeFile='';
 let meetingActive=false, translating=false, muteMic=false, muteMonitor=false, pttActive=false;
 let audioBackend='';
@@ -109,15 +128,15 @@ async function doBulkDel(){
 /* --- File delete modal --- */
 function openFileDelModal(){
   if(!curFile)return;
+  const p=TN.parse(curFile);
   const stem=curFile.replace(/\\.txt$/,'');
-  const date=stem.replace('transcript-','');
   const files=[curFile];
   const sel=document.getElementById('fsel');
   for(const opt of sel.options){
     const v=opt.value;
     if(v!==curFile && v.startsWith(stem+'-') && v.endsWith('.txt'))files.push(v);
   }
-  files.push('summary-'+date+'.md');
+  if(p)files.push(TN.summaryFilename(p.dt,p.name));
   files.push(curFile+'.translate_offset');
   const list=document.getElementById('fileDelList');
   list.innerHTML='';
@@ -155,7 +174,7 @@ function openExtractModal(){
   const eSel=document.getElementById('extractExistingSel');
   eSel.innerHTML='';
   Array.from(fsel.options).forEach(o=>{
-    if(o.value&&/^transcript-\\d{12}(?:@[^.]+)?\\.txt$/.test(o.value)){
+    if(o.value&&TN.isMeeting(o.value)){
       const opt=document.createElement('option');opt.value=o.value;opt.textContent=o.value;eSel.appendChild(opt);
     }
   });
@@ -222,8 +241,8 @@ async function togTranslate(){
 }
 async function regenTranslate(){
   if(!confirm(I18N['dash.translate_regen_confirm']))return;
-  const m=curFile.match(/transcript-(\d{8,12})/);
-  cmd('translate_regenerate'+(m?' '+m[1]:''));
+  const p=TN.parse(curFile);
+  cmd('translate_regenerate'+(p?' '+p.dt+(p.name?'@'+p.name:''):''));
   updateTranslateBtn(true);
 }
 
@@ -352,9 +371,7 @@ async function loadFiles(){
   try{const r=await fetch('/api/files'),d=await r.json(),s=document.getElementById('fsel'),p=s.value;
   s.innerHTML='';activeFile=d.active||'';
   d.files.forEach(f=>{const o=document.createElement('option');o.value=f;
-    const fm=f.replace(/^transcript-/,'').replace(/\.txt$/,'')
-      .replace(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})/,'$1-$2-$3 $4:$5');
-    o.textContent=fm+(f===d.active?' ★':'');s.appendChild(o);});
+    o.textContent=TN.label(f)+(f===d.active?' ★':'');s.appendChild(o);});
   s.value=(p&&d.files.includes(p))?p:(d.active||'');curFile=s.value;
   meetingGroups=d.groups||{};
   renderMtgPane();}catch(e){}
@@ -392,9 +409,7 @@ function renderMtgPane(){
     document.getElementById('btnRenameMtgGroup').style.display=curGroup==='ad-hoc'?'none':'';
     const files=(meetingGroups[curGroup]||[]);
     mp.innerHTML=files.map(f=>{
-      const raw=f.replace(/^transcript-/,'').replace(/@.+$/,'').replace(/\.txt$/,'');
-      const lm=raw.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/);
-      const label=lm?`${lm[1]}-${lm[2]}-${lm[3]} ${lm[4]}:${lm[5]}`:raw;
+      const label=TN.meetingLabel(f);
       return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}">${esc(label)}</div>`;
     }).join('');
   }
@@ -725,7 +740,7 @@ async function doRenameMtgGroup(){
   if(meetingGroups[newName])selectMtgGroup(newName);
   setTimeout(closeRenameMtgGroup,800);
 }
-function _isMeetingFile(f){return f&&/^transcript-\d{12}/.test(f);}
+function _isMeetingFile(f){return f&&TN.isMeeting(f);}
 function _updateRenameMtgBtn(){
   const btn=document.getElementById('btnRenameMtg');
   if(btn)btn.style.display=_isMeetingFile(curFile)?'':'none';
@@ -733,8 +748,8 @@ function _updateRenameMtgBtn(){
 function openRenameMtg(){
   if(!_isMeetingFile(curFile))return;
   // 現在のファイル名から会議名を抽出
-  const m=curFile.match(/^transcript-\d{12}(?:@(.+))?\.txt$/);
-  const curName=m&&m[1]?m[1]:'';
+  const _p=TN.parse(curFile);
+  const curName=_p&&_p.name?_p.name:'';
   document.getElementById('renameMtgCurrent').textContent=curFile;
   // 既存グループのドロップダウンを構築
   const sel=document.getElementById('renameMtgSel');
@@ -756,10 +771,8 @@ function onRenameMtgSel(val){
   _updateRenameMtgPreview(val||document.getElementById('renameMtgInput').value);
 }
 function _updateRenameMtgPreview(name){
-  const m=curFile.match(/^(transcript-\d{12})/);if(!m)return;
-  const stem=m[1];
-  const suffix=name?'@'+name:'';
-  document.getElementById('renameMtgPreview').textContent='→ '+stem+suffix+'.txt';
+  const p=TN.parse(curFile);if(!p)return;
+  document.getElementById('renameMtgPreview').textContent='→ '+TN.filename(p.dt,name||null);
 }
 function closeRenameMtg(){document.getElementById('renameMtgModal').classList.remove('open');}
 async function doRenameMtg(){

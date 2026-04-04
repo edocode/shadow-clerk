@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import queue
-import re
 import threading
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -12,6 +11,7 @@ from shadow_clerk.i18n import t, t_all
 from shadow_clerk._daemon_constants import COMMAND_FILE, SESSION_FILE
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_dashboard_html import _HTML_TEMPLATE
+from shadow_clerk._transcript_name import TranscriptName
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -155,21 +155,16 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         files = []
         try:
             for f in sorted(os.listdir(output_dir), reverse=True):
-                if (f.startswith("transcript-") and f.endswith(".txt")
-                        and not re.search(r"-[a-z]{2}\.txt$", f)):
+                if TranscriptName.is_transcript(f):
                     files.append(f)
         except OSError:
             pass
-        # 会議グループを構築:
-        #   transcript-YYYYMMDDHHMM@name.txt → name グループ
-        #   transcript-YYYYMMDDHHMM.txt      → "ad-hoc" グループ
-        #   transcript-YYYYMMDD.txt          → グループ対象外
+        # 会議グループを構築（HHMM 付きファイルのみ）
         groups: dict[str, list[str]] = {}
         for f in files:
-            m = re.match(r'^transcript-\d{12}(?:@(.+))?\.txt$', f)
-            if m:
-                name = m.group(1) if m.group(1) else "ad-hoc"
-                groups.setdefault(name, []).append(f)
+            tn = TranscriptName.parse(f)
+            if tn and tn.meeting_group is not None:
+                groups.setdefault(tn.meeting_group, []).append(f)
         self._send_json({
             "files": files,
             "active": os.path.basename(self.recorder.output_path),
@@ -201,16 +196,17 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         lang = config.get("translate_language", "ja")
         if file_param:
             file_param = os.path.basename(file_param)
-            # transcript ファイル名から翻訳ファイル名を導出
-            if re.search(r"-[a-z]{2}\.txt$", file_param):
+            tn = TranscriptName.parse(file_param)
+            if tn:
+                tr_name = tn.translation_filename(lang)
+            else:
                 # 既に翻訳ファイル名の場合はそのまま使用
                 tr_name = file_param
-            else:
-                tr_name = file_param.replace(".txt", f"-{lang}.txt")
             filepath = os.path.join(self.recorder._output_dir, tr_name)
         else:
             basename = os.path.basename(self.recorder.output_path)
-            tr_name = basename.replace(".txt", f"-{lang}.txt")
+            tn = TranscriptName.parse(basename)
+            tr_name = tn.translation_filename(lang) if tn else basename.replace(".txt", f"-{lang}.txt")
             filepath = os.path.join(self.recorder._output_dir, tr_name)
         lines = []
         try:
@@ -247,7 +243,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         if transcript_path is None:
             transcript_path = self.recorder.output_path
         basename = os.path.basename(transcript_path)
-        summary_name = basename.replace("transcript-", "summary-").replace(".txt", ".md")
+        tn = TranscriptName.parse(basename)
+        summary_name = tn.summary_filename if tn else basename.replace("transcript-", "summary-").replace(".txt", ".md")
         return os.path.join(self.recorder._output_dir, summary_name)
 
     def _serve_summary(self):
@@ -255,9 +252,9 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         params = parse_qs(urlparse(self.path).query)
         file_param = params.get("file", [None])[0]
         if file_param:
-            # transcript ファイル名から summary パスを導出
             file_param = os.path.basename(file_param)
-            summary_name = file_param.replace("transcript-", "summary-").replace(".txt", ".md")
+            tn = TranscriptName.parse(file_param)
+            summary_name = tn.summary_filename if tn else file_param.replace("transcript-", "summary-").replace(".txt", ".md")
             summary_path = os.path.join(self.recorder._output_dir, summary_name)
         else:
             summary_path = self._get_summary_path()

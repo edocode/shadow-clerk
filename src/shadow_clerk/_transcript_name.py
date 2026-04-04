@@ -1,0 +1,117 @@
+"""Shadow-clerk: transcript ファイル名の値オブジェクト
+
+transcript ファイル名のパース・構築・派生を一元管理する。
+
+フォーマット:
+  transcript-YYYYMMDD.txt               日次ファイル（会議なし）
+  transcript-YYYYMMDDHHMM.txt           会議ファイル（名前なし = ad-hoc）
+  transcript-YYYYMMDDHHMM@name.txt      会議ファイル（名前付き）
+"""
+import re
+
+# 全 transcript ファイルにマッチ（日次 + 会議）
+_FILE_RE = re.compile(r'^transcript-(\d{8,12})(?:@([^.]+))?\.txt$')
+# 会議ファイルにのみマッチ（HHMM あり）
+_MEETING_RE = re.compile(r'^transcript-(\d{12})(?:@([^.]+))?\.txt$')
+
+
+class TranscriptName:
+    """transcript ファイル名の値オブジェクト"""
+
+    def __init__(self, datetime_str: str, meeting_name: str | None = None):
+        """
+        datetime_str: "YYYYMMDD" or "YYYYMMDDHHMM"
+        meeting_name: サニタイズ済み会議名、または None
+        """
+        self.datetime_str = datetime_str
+        self.meeting_name = meeting_name or None
+
+    # --- ファクトリ ---
+
+    @classmethod
+    def parse(cls, filename: str) -> "TranscriptName | None":
+        """ファイル名から TranscriptName を生成。マッチしなければ None。"""
+        m = _FILE_RE.match(filename)
+        if not m:
+            return None
+        return cls(m.group(1), m.group(2) or None)
+
+    @classmethod
+    def from_date_str(cls, date_str: str) -> "TranscriptName":
+        """日付文字列から TranscriptName を生成。
+        date_str は "YYYYMMDD", "YYYYMMDDHHMM", "YYYYMMDDHHMM@name" のいずれか。
+        """
+        if "@" in date_str:
+            dt, name = date_str.split("@", 1)
+        else:
+            dt, name = date_str, None
+        return cls(dt, name or None)
+
+    # --- 判定 ---
+
+    @classmethod
+    def is_transcript(cls, filename: str) -> bool:
+        """transcript ファイル名かどうか（日次・会議両方）"""
+        return bool(_FILE_RE.match(filename))
+
+    @classmethod
+    def is_meeting(cls, filename: str) -> bool:
+        """会議ファイル名かどうか（HHMM 付き）"""
+        return bool(_MEETING_RE.match(filename))
+
+    @property
+    def is_meeting_file(self) -> bool:
+        return len(self.datetime_str) == 12
+
+    # --- 派生ファイル名 ---
+
+    @property
+    def filename(self) -> str:
+        """transcript-YYYYMMDDHHMM[@name].txt"""
+        suffix = f"@{self.meeting_name}" if self.meeting_name else ""
+        return f"transcript-{self.datetime_str}{suffix}.txt"
+
+    @property
+    def summary_filename(self) -> str:
+        """summary-YYYYMMDDHHMM[@name].md"""
+        suffix = f"@{self.meeting_name}" if self.meeting_name else ""
+        return f"summary-{self.datetime_str}{suffix}.md"
+
+    def translation_filename(self, lang: str) -> str:
+        """transcript-YYYYMMDDHHMM[@name]-{lang}.txt"""
+        suffix = f"@{self.meeting_name}" if self.meeting_name else ""
+        return f"transcript-{self.datetime_str}{suffix}-{lang}.txt"
+
+    # --- stem ---
+
+    @property
+    def stem(self) -> str:
+        """transcript-YYYYMMDDHHMM[@name]（拡張子なし）"""
+        suffix = f"@{self.meeting_name}" if self.meeting_name else ""
+        return f"transcript-{self.datetime_str}{suffix}"
+
+    @property
+    def datetime_stem(self) -> str:
+        """transcript-YYYYMMDDHHMM（@name なし・拡張子なし）"""
+        return f"transcript-{self.datetime_str}"
+
+    @property
+    def summary_stem(self) -> str:
+        """summary-YYYYMMDDHHMM[@name]（拡張子なし）"""
+        suffix = f"@{self.meeting_name}" if self.meeting_name else ""
+        return f"summary-{self.datetime_str}{suffix}"
+
+    # --- 会議グループ ---
+
+    @property
+    def meeting_group(self) -> str | None:
+        """会議ペイン用グループ名。日次ファイルは None、名前なし会議は 'ad-hoc'。"""
+        if not self.is_meeting_file:
+            return None
+        return self.meeting_name or "ad-hoc"
+
+    # --- 変換 ---
+
+    def with_name(self, new_name: str | None) -> "TranscriptName":
+        """会議名だけ変えた新しい TranscriptName を返す"""
+        return TranscriptName(self.datetime_str, new_name or None)
