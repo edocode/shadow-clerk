@@ -158,16 +158,17 @@ class _RecorderCommandMixin:
         """会議終了時に自動で議事録を生成する"""
         basename = os.path.basename(transcript_path)
         tn = TranscriptName.parse(basename)
-        summary_name = tn.summary_filename if tn else basename.replace("transcript-", "summary-").replace(".txt", ".md")
-        summary_path = os.path.join(self._output_dir, summary_name)
+        if tn is None:
+            logger.warning("_auto_summarize: TranscriptName パース失敗: %s", basename)
+            return
+        summary_path = os.path.join(self._output_dir, tn.summary_filename)
 
         # summary_source に応じてソースファイルを切り替え
         config = load_config()
         source_path = transcript_path
         if config.get("summary_source") == "translate":
             lang = config.get("translate_language", "ja")
-            tr_name = tn.translation_filename(lang) if tn else basename.replace(".txt", f"-{lang}.txt")
-            tr_path = os.path.join(os.path.dirname(transcript_path), tr_name)
+            tr_path = os.path.join(os.path.dirname(transcript_path), tn.translation_filename(lang))
             if os.path.exists(tr_path):
                 source_path = tr_path
                 logger.info("summary_source=translate: 翻訳ファイル使用: %s", tr_name)

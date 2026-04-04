@@ -68,13 +68,14 @@ class _DashboardHandlerOps:
         if timestamps:
             config = load_config()
             lang = config.get("translate_language", "ja")
-            tr_name = os.path.basename(t_path).replace(".txt", f"-{lang}.txt")
-            tr_path = os.path.join(os.path.dirname(t_path), tr_name)
-            if os.path.exists(tr_path):
-                self._remove_lines_from_file_by_ts(tr_path, timestamps)
-                tr_key = ("translation", tr_path)
-                if self.file_watcher and tr_key in self.file_watcher._file_offsets:
-                    self.file_watcher._file_offsets[tr_key] = self._get_file_size(tr_path)
+            _tn = TranscriptName.parse(os.path.basename(t_path))
+            if _tn:
+                tr_path = os.path.join(os.path.dirname(t_path), _tn.translation_filename(lang))
+                if os.path.exists(tr_path):
+                    self._remove_lines_from_file_by_ts(tr_path, timestamps)
+                    tr_key = ("translation", tr_path)
+                    if self.file_watcher and tr_key in self.file_watcher._file_offsets:
+                        self.file_watcher._file_offsets[tr_key] = self._get_file_size(tr_path)
 
         # FileWatcher のオフセットをリセット
         t_key = ("transcript", t_path)
@@ -136,12 +137,14 @@ class _DashboardHandlerOps:
                         pass
 
         # 3. summary ファイル削除
-        summary_name = tn.summary_filename if tn else base.replace("transcript-", "summary-").replace(".txt", ".md")
-        summary_path = os.path.join(output_dir, summary_name)
-        if os.path.exists(summary_path):
+        if tn:
+            summary_path = os.path.join(output_dir, tn.summary_filename)
+        else:
+            summary_path = None
+        if summary_path and os.path.exists(summary_path):
             try:
                 os.remove(summary_path)
-                deleted.append(summary_name)
+                deleted.append(os.path.basename(summary_path))
             except OSError:
                 pass
 
@@ -259,11 +262,11 @@ class _DashboardHandlerOps:
             # 翻訳ファイルも同様に処理
             config = load_config()
             lang = config.get("translate_language", "ja")
-            tr_name = os.path.basename(t_path).replace(".txt", f"-{lang}.txt")
-            tr_path = os.path.join(output_dir, tr_name)
-            meeting_tr_name = meeting_name.replace(".txt", f"-{lang}.txt")
-            meeting_tr_path = os.path.join(output_dir, meeting_tr_name)
-            if os.path.exists(tr_path):
+            _src_tn = TranscriptName.parse(os.path.basename(t_path))
+            _mtg_tn = TranscriptName.parse(meeting_name)
+            tr_path = os.path.join(output_dir, _src_tn.translation_filename(lang)) if _src_tn else None
+            meeting_tr_path = os.path.join(output_dir, _mtg_tn.translation_filename(lang)) if _mtg_tn else None
+            if tr_path and os.path.exists(tr_path):
                 self._extract_translation_lines(
                     tr_path, meeting_tr_path, start_ts, end_ts,
                     is_new=(target == "new"),
@@ -271,6 +274,8 @@ class _DashboardHandlerOps:
 
         # FileWatcher オフセットリセット
         for ftype, fpath in [("transcript", t_path), ("translation", tr_path)]:
+            if fpath is None:
+                continue
             fkey = (ftype, fpath)
             if self.file_watcher and fkey in self.file_watcher._file_offsets:
                 self.file_watcher._file_offsets[fkey] = self._get_file_size(fpath)
@@ -535,8 +540,7 @@ class _DashboardHandlerOps:
                     errors.append(str(e))
 
         # 旧 datetime_stem に一致するファイルを収集してリネーム
-        dt_stem = old_tn.datetime_stem  # "transcript-YYYYMMDDHHMM"
-        old_pattern = re.compile(r'^' + re.escape(dt_stem) + r'(?:@[^.]+)?')
+        old_pattern = old_tn.related_file_pattern
         try:
             all_files = os.listdir(output_dir)
         except OSError:
