@@ -77,7 +77,7 @@ _HTML_TEMPLATE = (
     "        </div>\n"
     "        <div style=\"display:flex;gap:3px;margin-bottom:4px\">\n"
     "          <input id=\"srQuery\" type=\"text\" placeholder=\"{{i18n:dash.search_query}}\" style=\"flex:1\" onkeydown=\"if(event.key==='Enter')doSearch()\">\n"
-    "          <button onclick=\"doSearch()\" style=\"font-size:11px;padding:2px 6px\">{{i18n:dash.search_btn}}</button>\n"
+    "          <button onclick=\"doSearch()\" style=\"font-size:11px;padding:2px 6px;white-space:nowrap\">{{i18n:dash.search_btn}}</button>\n"
     "        </div>\n"
     "        <div style=\"display:flex;gap:6px;flex-wrap:wrap\">\n"
     "          <label><input type=\"radio\" name=\"srType\" value=\"all\" checked>{{i18n:dash.search_type_all}}</label>\n"
