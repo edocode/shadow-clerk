@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """shadow-clerk ユーティリティ — データディレクトリ操作 + プロセス管理"""
-
+from __future__ import annotations
 import importlib.resources
 import json
 import os
@@ -11,12 +11,13 @@ import sys
 import time
 
 from shadow_clerk import DATA_DIR, CONFIG_FILE, get_data_dir, get_skill_dir
+from shadow_clerk._transcript_name import TranscriptName
 
 # config.yaml から output_directory を読む
 OUTPUT_DIR = DATA_DIR
 
 
-def _read_output_directory():
+def _read_output_directory() -> None:
     """config.yaml の output_directory を読んで OUTPUT_DIR を返す"""
     global OUTPUT_DIR
     if os.path.isfile(CONFIG_FILE):
@@ -34,7 +35,7 @@ def _read_output_directory():
 _read_output_directory()
 
 
-def resolve_path(name):
+def resolve_path(name: str) -> str:
     """ファイル名に応じてディレクトリを解決する"""
     if name.startswith("transcript-") or name.startswith("summary-"):
         return os.path.join(OUTPUT_DIR, name)
@@ -44,7 +45,7 @@ def resolve_path(name):
 # --- サブコマンド実装 ---
 
 
-def cmd_read(args):
+def cmd_read(args: list[str]) -> None:
     path = resolve_path(args[0])
     try:
         with open(path) as f:
@@ -53,7 +54,7 @@ def cmd_read(args):
         pass
 
 
-def cmd_read_from(args):
+def cmd_read_from(args: list[str]) -> None:
     path = resolve_path(args[0])
     offset = int(args[1])
     try:
@@ -65,13 +66,13 @@ def cmd_read_from(args):
         pass
 
 
-def cmd_write(args):
+def cmd_write(args: list[str]) -> None:
     path = resolve_path(args[0])
     with open(path, "w") as f:
         f.write(args[1] + "\n")
 
 
-def cmd_append(args):
+def cmd_append(args: list[str]) -> None:
     path = resolve_path(args[0])
     if len(args) >= 3 and args[1] == "-f":
         with open(args[2]) as src, open(path, "a") as dst:
@@ -84,7 +85,7 @@ def cmd_append(args):
             f.write(sys.stdin.read())
 
 
-def cmd_lines(args):
+def cmd_lines(args: list[str]) -> None:
     path = resolve_path(args[0])
     try:
         with open(path) as f:
@@ -94,7 +95,7 @@ def cmd_lines(args):
         print(0)
 
 
-def cmd_size(args):
+def cmd_size(args: list[str]) -> None:
     path = resolve_path(args[0])
     try:
         print(os.path.getsize(path))
@@ -102,7 +103,7 @@ def cmd_size(args):
         pass
 
 
-def cmd_mtime(args):
+def cmd_mtime(args: list[str]) -> None:
     path = resolve_path(args[0])
     try:
         st = os.stat(path)
@@ -115,12 +116,12 @@ def cmd_mtime(args):
         pass
 
 
-def cmd_exists(args):
+def cmd_exists(args: list[str]) -> None:
     path = resolve_path(args[0])
     print("yes" if os.path.isfile(path) else "no")
 
 
-def cmd_ls(args):
+def cmd_ls(args: list[str]) -> None:
     try:
         result = subprocess.run(["ls", "-la", DATA_DIR + "/"], capture_output=True, text=True)
         sys.stdout.write(result.stdout)
@@ -136,7 +137,7 @@ def cmd_ls(args):
             pass
 
 
-def cmd_command(args):
+def cmd_command(args: list[str]) -> None:
     cmd_text = " ".join(args)
     with open(os.path.join(DATA_DIR, ".clerk_command"), "w") as f:
         f.write(cmd_text)
@@ -145,7 +146,7 @@ def cmd_command(args):
 PID_FILE = os.path.join(DATA_DIR, "daemon.pid")
 
 
-def _read_pid():
+def _read_pid() -> int | None:
     """PID ファイルから PID を読み取る。ファイルがなければ None"""
     try:
         with open(PID_FILE) as f:
@@ -154,7 +155,7 @@ def _read_pid():
         return None
 
 
-def _is_pid_alive(pid):
+def _is_pid_alive(pid: int) -> bool:
     """プロセスが存在するか"""
     try:
         os.kill(pid, 0)
@@ -163,17 +164,17 @@ def _is_pid_alive(pid):
         return False
 
 
-def _is_recorder_running():
+def _is_recorder_running() -> bool:
     """clerk-daemon プロセスが動作中か"""
     pid = _read_pid()
     return bool(pid and _is_pid_alive(pid))
 
 
-def cmd_recorder_status(args):
+def cmd_recorder_status(args: list[str]) -> None:
     print("running" if _is_recorder_running() else "stopped")
 
 
-def cmd_read_config(args):
+def cmd_read_config(args: list[str]) -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
     if os.path.isfile(CONFIG_FILE):
         with open(CONFIG_FILE) as f:
@@ -201,12 +202,12 @@ ui_language: ja"""
             sys.stdout.write(f.read())
 
 
-def cmd_write_config(args):
+def cmd_write_config(args: list[str]) -> None:
     with open(CONFIG_FILE, "w") as f:
         f.write(sys.stdin.read())
 
 
-def cmd_write_config_value(args):
+def cmd_write_config_value(args: list[str]) -> None:
     """YAML を読み込み、指定キーを更新して書き戻す"""
     key = args[0]
     value_str = args[1]
@@ -249,11 +250,11 @@ def cmd_write_config_value(args):
         f.writelines(new_lines)
 
 
-def cmd_path(args):
+def cmd_path(args: list[str]) -> None:
     print(shutil.which("clerk-util") or os.path.abspath(__file__))
 
 
-def cmd_poll_command(args):
+def cmd_poll_command(args: list[str]) -> None:
     """
     .clerk_command を interval 秒ごとにチェックし、
     コマンドがあればその内容を stdout に出力して終了。
@@ -307,7 +308,7 @@ def cmd_poll_command(args):
         time.sleep(interval)
 
 
-def _exec_clerk_daemon(args: list[str]):
+def _exec_clerk_daemon(args: list[str]) -> None:
     """同じ環境の clerk-daemon を exec する"""
     # 1. sys.executable と同じディレクトリ (venv 内)
     for base in (pathlib.Path(sys.executable).parent,
@@ -319,12 +320,12 @@ def _exec_clerk_daemon(args: list[str]):
     os.execvp("clerk-daemon", ["clerk-daemon"] + args)
 
 
-def cmd_start(args):
+def cmd_start(args: list[str]) -> None:
     """clerk-daemon [opts] を exec"""
     _exec_clerk_daemon(list(args))
 
 
-def cmd_stop(args):
+def cmd_stop(args: list[str]) -> None:
     """clerk-daemon プロセスに SIGTERM 送信"""
     import signal as _signal
     pid = _read_pid()
@@ -334,7 +335,7 @@ def cmd_stop(args):
         subprocess.run(["pkill", "-f", "clerk-daemon|clerk_daemon"])
 
 
-def cmd_restart(args):
+def cmd_restart(args: list[str]) -> None:
     """clerk-daemon を停止 → 待機 → 起動"""
     # 停止
     if _is_recorder_running():
@@ -356,12 +357,12 @@ def cmd_restart(args):
     _exec_clerk_daemon(list(args))
 
 
-def cmd_run_llm(args):
+def cmd_run_llm(args: list[str]) -> None:
     """python -m shadow_clerk.llm_client <args...> を exec"""
     os.execvp(sys.executable, [sys.executable, "-m", "shadow_clerk.llm_client"] + list(args))
 
 
-def cmd_summarize(args):
+def cmd_summarize(args: list[str]) -> None:
     """clerk-util summarize [YYYYMMDD|YYYYMMDDHHMM|transcript-*.txt] [--mode full|update]
 
     日付またはファイル名からファイルを自動解決し、llm_client summarize を実行する。
@@ -369,7 +370,6 @@ def cmd_summarize(args):
     --mode 省略時は full。
     """
     import datetime
-    import re
 
     # 引数パース
     date_str = None
@@ -385,25 +385,28 @@ def cmd_summarize(args):
         else:
             i += 1
 
-    # transcript-YYYYMMDD.txt 形式のファイル名から日付を抽出
-    if date_str and re.match(r"transcript-\d+\.txt$", date_str):
-        date_str = date_str.replace("transcript-", "").replace(".txt", "")
+    # transcript-*.txt 形式のファイル名 → TranscriptName で解析
+    if date_str and (tn := TranscriptName.parse(date_str)):
+        pass
+    elif date_str:
+        tn = TranscriptName.from_date_str(date_str)
+    else:
+        tn = None
 
     # 日付が未指定の場合: .clerk_session → 今日の日付
-    if date_str is None:
+    if tn is None:
         session_file = os.path.join(DATA_DIR, ".clerk_session")
         if os.path.isfile(session_file):
             with open(session_file) as f:
                 session_name = f.read().strip()
             if session_name:
-                # transcript-YYYYMMDDHHMM.txt → YYYYMMDDHHMM
-                date_str = session_name.replace("transcript-", "").replace(".txt", "")
-        if date_str is None:
-            date_str = datetime.datetime.now().strftime("%Y%m%d")
+                tn = TranscriptName.parse(os.path.basename(session_name))
+        if tn is None:
+            tn = TranscriptName(datetime.datetime.now().strftime("%Y%m%d"))
 
     # ファイルパス解決
-    transcript_name = f"transcript-{date_str}.txt"
-    summary_name = f"summary-{date_str}.md"
+    transcript_name = tn.filename
+    summary_name = tn.summary_filename
     transcript_path = os.path.join(OUTPUT_DIR, transcript_name)
     summary_path = os.path.join(OUTPUT_DIR, summary_name)
 
@@ -416,7 +419,7 @@ def cmd_summarize(args):
         summary_source = config.get("summary_source", "transcript")
         if summary_source == "translate":
             translate_lang = config.get("translate_language", "en")
-            translation_name = f"transcript-{date_str}-{translate_lang}.txt"
+            translation_name = tn.translation_filename(translate_lang)
             translation_path = os.path.join(OUTPUT_DIR, translation_name)
             if os.path.isfile(translation_path):
                 source_path = translation_path
@@ -460,7 +463,7 @@ def cmd_summarize(args):
     sys.exit(result.returncode)
 
 
-def cmd_claude_setup(args):
+def cmd_claude_setup(args: list[str]) -> None:
     """Claude Code skill として登録する"""
     # 言語オプションの解析
     lang = args[0] if args else None
@@ -507,7 +510,7 @@ def cmd_claude_setup(args):
     _register_permissions(clerk_util_path)
 
 
-def _register_permissions(clerk_util_path):
+def _register_permissions(clerk_util_path: str) -> None:
     """~/.claude/settings.local.json に clerk-util の permission を追加する"""
     settings_path = os.path.expanduser("~/.claude/settings.local.json")
 
@@ -548,7 +551,7 @@ def _register_permissions(clerk_util_path):
         print("permissions は既に登録済みです。")
 
 
-def cmd_gcal_auth(args):
+def cmd_gcal_auth(args: list[str]) -> None:
     """Google Calendar OAuth 認証フローを実行してトークンを保存する"""
     if not args:
         print("Usage: clerk-util gcal-auth <credentials.json> [token_file]", file=sys.stderr)
@@ -573,7 +576,7 @@ def cmd_gcal_auth(args):
     print(f"config を更新しました: gcal_integration=true, gcal_credentials_file={abs_creds}")
 
 
-def cmd_help(args):
+def cmd_help(args: list[str]) -> None:
     print("clerk-util — shadow-clerk ユーティリティ")
     print()
     print("Usage: clerk-util <subcommand> [args]")
@@ -638,7 +641,7 @@ COMMANDS = {
 }
 
 
-def main():
+def main() -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
 
     if len(sys.argv) < 2:

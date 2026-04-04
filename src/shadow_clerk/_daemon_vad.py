@@ -1,4 +1,5 @@
 """Shadow-clerk daemon: VAD セグメンテーション"""
+from __future__ import annotations
 import logging
 import numpy as np
 import webrtcvad
@@ -13,11 +14,11 @@ logger = logging.getLogger("shadow-clerk")
 class VADSegmenter:
     """webrtcvad を使った音声セグメンテーション"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.vad = webrtcvad.Vad(VAD_MODE)
         self.reset()
 
-    def reset(self):
+    def reset(self) -> None:
         self.in_speech = False
         self.speech_frame_count = 0
         self.silence_frame_count = 0

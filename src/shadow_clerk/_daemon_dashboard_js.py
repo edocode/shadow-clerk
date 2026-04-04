@@ -3,7 +3,14 @@
 # JavaScript content extracted from _HTML_TEMPLATE (between <script> and </script> tags)
 _JS_TEMPLATE = """\
 /*I18N_JSON*/
+/* --- TranscriptName 構築ヘルパー（regex なし・fileInfo を使用） --- */
+const TN={
+  filename(dt,name){return 'transcript-'+dt+(name?'@'+name:'')+'.txt';},
+  summaryFilename(dt,name){return 'summary-'+dt+(name?'@'+name:'')+'.md';},
+};
+let fileInfo={}; // /api/files の file_info をキャッシュ
 let curFile='', activeFile='';
+let leftTab='dates'; // 左ペインのアクティブタブ
 let meetingActive=false, translating=false, muteMic=false, muteMonitor=false, pttActive=false;
 let audioBackend='';
 let panelMode=0; // 0=T|R, 1=T, 2=R
@@ -109,15 +116,15 @@ async function doBulkDel(){
 /* --- File delete modal --- */
 function openFileDelModal(){
   if(!curFile)return;
+  const fi=fileInfo[curFile];
   const stem=curFile.replace(/\\.txt$/,'');
-  const date=stem.replace('transcript-','');
   const files=[curFile];
   const sel=document.getElementById('fsel');
   for(const opt of sel.options){
     const v=opt.value;
     if(v!==curFile && v.startsWith(stem+'-') && v.endsWith('.txt'))files.push(v);
   }
-  files.push('summary-'+date+'.md');
+  if(fi?.summary)files.push(fi.summary);
   files.push(curFile+'.translate_offset');
   const list=document.getElementById('fileDelList');
   list.innerHTML='';
@@ -155,7 +162,7 @@ function openExtractModal(){
   const eSel=document.getElementById('extractExistingSel');
   eSel.innerHTML='';
   Array.from(fsel.options).forEach(o=>{
-    if(o.value&&/^transcript-\\d{12}\\.txt$/.test(o.value)){
+    if(o.value&&fileInfo[o.value]?.meeting_group!=null){
       const opt=document.createElement('option');opt.value=o.value;opt.textContent=o.value;eSel.appendChild(opt);
     }
   });
@@ -216,14 +223,19 @@ function updateTranslateBtn(active){
     btn.className='pri';
   }
 }
+function _curFileArg(){
+  const fi=fileInfo[curFile];
+  return fi?(fi.dt+(fi.name?'@'+fi.name:'')):'';
+}
 async function togTranslate(){
   if(translating){cmd('translate_stop');updateTranslateBtn(false);return;}
-  cmd('translate_start');updateTranslateBtn(true);
+  const dateArg=curFile&&curFile!==activeFile?_curFileArg():'';
+  cmd('translate_start'+(dateArg?' '+dateArg:''));updateTranslateBtn(true);
 }
 async function regenTranslate(){
   if(!confirm(I18N['dash.translate_regen_confirm']))return;
-  const m=curFile.match(/transcript-(\d{8,12})/);
-  cmd('translate_regenerate'+(m?' '+m[1]:''));
+  const dateArg=_curFileArg();
+  cmd('translate_regenerate'+(dateArg?' '+dateArg:''));
   updateTranslateBtn(true);
 }
 
@@ -348,16 +360,50 @@ es.addEventListener('interim_clear',e=>{
   const itp=document.getElementById('itp');
   if(itp)itp.innerHTML='';
 });
+function _todayYestStr(){
+  const nd=new Date();
+  const fd=d=>`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+  const yd=new Date(nd);yd.setDate(yd.getDate()-1);
+  return [fd(nd),fd(yd)];
+}
 async function loadFiles(){
   try{const r=await fetch('/api/files'),d=await r.json(),s=document.getElementById('fsel'),p=s.value;
   s.innerHTML='';activeFile=d.active||'';
-  d.files.forEach(f=>{const o=document.createElement('option');o.value=f;
-    const fm=f.replace(/^transcript-/,'').replace(/\.txt$/,'')
-      .replace(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})/,'$1-$2-$3 $4:$5');
-    o.textContent=fm+(f===d.active?' ★':'');s.appendChild(o);});
-  s.value=(p&&d.files.includes(p))?p:(d.active||'');curFile=s.value;
+  fileInfo=d.file_info||{};
   meetingGroups=d.groups||{};
-  renderMtgPane();}catch(e){}
+  // ヘッダー fsel: 今日・前日 + アクティブ + 直前の選択ファイルのみ表示
+  const [tod,yes]=_todayYestStr();
+  const shown=new Set(d.files.filter(f=>{
+    const dt=fileInfo[f]?.dt||'';
+    return dt.startsWith(tod)||dt.startsWith(yes)||f===d.active||f===p;
+  }));
+  d.files.forEach(f=>{
+    if(!shown.has(f))return;
+    const o=document.createElement('option');o.value=f;
+    o.textContent=(fileInfo[f]?.label||f)+(f===d.active?' ★':'');s.appendChild(o);
+  });
+  s.value=(p&&shown.has(p))?p:(d.active||'');curFile=s.value;
+  populateYearSelect();
+  if(leftTab==='meetings') renderMtgPane();
+  else if(leftTab==='dates') renderDatePane();
+  }catch(e){}
+}
+function populateYearSelect(){
+  const sel=document.getElementById('srYear');if(!sel)return;
+  const cur=sel.value;
+  const years=[...new Set(Object.values(fileInfo).map(fi=>(fi.dt||'').substring(0,4)).filter(Boolean))].sort().reverse();
+  sel.innerHTML=`<option value="">${I18N['dash.search_year']||'年'}</option>`;
+  years.forEach(y=>{const o=document.createElement('option');o.value=y;o.textContent=y;sel.appendChild(o);});
+  if(cur)sel.value=cur;
+}
+function initSearchSelects(){
+  const mo=document.getElementById('srMonth');
+  const dy=document.getElementById('srDay');
+  const hr=document.getElementById('srHour');
+  if(!mo||!dy||!hr)return;
+  for(let i=1;i<=12;i++){const o=document.createElement('option');o.value=String(i).padStart(2,'0');o.textContent=String(i).padStart(2,'0');mo.appendChild(o);}
+  for(let i=1;i<=31;i++){const o=document.createElement('option');o.value=String(i).padStart(2,'0');o.textContent=String(i).padStart(2,'0');dy.appendChild(o);}
+  for(let i=0;i<=23;i++){const o=document.createElement('option');o.value=String(i).padStart(2,'0');o.textContent=String(i).padStart(2,'0');hr.appendChild(o);}
 }
 function togMtgPane(){
   const p=document.getElementById('pnlM');if(!p)return;
@@ -366,6 +412,89 @@ function togMtgPane(){
   if(ch)ch.innerHTML=collapsed?'&#x25BA;':'&#x25C4;';
 }
 
+/* --- 左ペイン タブ切替 --- */
+function switchLeftTab(tab){
+  leftTab=tab;
+  ['dates','meetings','search'].forEach(t=>{
+    const id=t.charAt(0).toUpperCase()+t.slice(1);
+    const btn=document.getElementById('tab'+id);
+    let pane;
+    if(t==='dates') pane=document.getElementById('datePane');
+    else if(t==='meetings') pane=document.getElementById('mtgContent');
+    else pane=document.getElementById('searchPane');
+    if(t===tab){
+      if(btn) btn.classList.add('active');
+      if(pane) pane.style.display=(t==='meetings')?'flex':'';
+    }else{
+      if(btn) btn.classList.remove('active');
+      if(pane) pane.style.display='none';
+    }
+  });
+  if(tab==='dates') renderDatePane();
+  else if(tab==='meetings') renderMtgPane();
+}
+function renderDatePane(){
+  const dp=document.getElementById('datePane');if(!dp)return;
+  const files=Object.entries(fileInfo)
+    .filter(([,fi])=>fi.meeting_group===null)
+    .sort((a,b)=>b[0].localeCompare(a[0]));
+  if(!files.length){
+    dp.innerHTML=`<div style="color:var(--muted);font-size:12px;padding:8px">${esc(I18N['dash.dates_empty']||'No daily transcripts.')}</div>`;
+    return;
+  }
+  dp.innerHTML=files.map(([f,fi])=>
+    `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}">${esc(fi.label||f)}</div>`
+  ).join('');
+}
+/* --- 検索 --- */
+async function doSearch(){
+  const year=document.getElementById('srYear').value.trim();
+  const month=document.getElementById('srMonth').value.trim();
+  const day=document.getElementById('srDay').value.trim();
+  const hour=document.getElementById('srHour').value.trim();
+  const query=document.getElementById('srQuery').value.trim();
+  const type=(document.querySelector('input[name="srType"]:checked')||{}).value||'all';
+  const p=new URLSearchParams();
+  if(year)p.set('year',year);if(month)p.set('month',month);
+  if(day)p.set('day',day);if(hour)p.set('hour',hour);
+  if(query)p.set('query',query);p.set('type',type);
+  const res=document.getElementById('searchResults');
+  res.innerHTML=`<div style="color:var(--muted);font-size:12px;padding:8px">${esc(I18N['dash.loading']||'...')}</div>`;
+  try{
+    const d=await(await fetch('/api/search?'+p.toString())).json();
+    renderSearchResults(d.results||[]);
+  }catch(e){res.innerHTML='';}
+}
+function renderSearchResults(results){
+  const res=document.getElementById('searchResults');
+  if(!results.length){
+    res.innerHTML=`<div style="color:var(--muted);font-size:12px;padding:8px">${esc(I18N['dash.search_empty']||'No results.')}</div>`;
+    return;
+  }
+  const typeLabel={transcript:'T',translation:'R',summary:'S'};
+  res.innerHTML=results.map(r=>{
+    const tl=r.type&&r.type!=='transcript'?(typeLabel[r.type]||r.type):'';
+    return `<div class="sr-item" onclick="openSearchResult('${escAttr(r.file)}',${r.line||0},'${escAttr(r.type||'')}')" title="${escAttr(r.text||'')}">`
+      +`<span class="sr-display">${esc(r.display||r.file)}</span>`
+      +(tl?`<span class="sr-type">${esc(tl)}</span>`:'')
+      +`</div>`;
+  }).join('');
+}
+function openSearchResult(file,line,type){
+  const fsel=document.getElementById('fsel');fsel.value=file;onSel();
+  if(line>0){
+    const panelId=type==='translation'?'rp':'tp';
+    setTimeout(()=>{
+      const el=document.getElementById(panelId);
+      const lns=el?el.querySelectorAll('.ln'):[];
+      if(lns.length>=line){
+        lns[line-1].scrollIntoView({block:'center'});
+        lns[line-1].style.outline='1px solid var(--accent)';
+        setTimeout(()=>{if(lns[line-1])lns[line-1].style.outline='';},2000);
+      }
+    },400);
+  }
+}
 function renderMtgPane(){
   const mp=document.getElementById('mp');if(!mp)return;
   if(curGroup===null){
@@ -392,9 +521,7 @@ function renderMtgPane(){
     document.getElementById('btnRenameMtgGroup').style.display=curGroup==='ad-hoc'?'none':'';
     const files=(meetingGroups[curGroup]||[]);
     mp.innerHTML=files.map(f=>{
-      const raw=f.replace(/^transcript-/,'').replace(/@.+$/,'').replace(/\.txt$/,'');
-      const lm=raw.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/);
-      const label=lm?`${lm[1]}-${lm[2]}-${lm[3]} ${lm[4]}:${lm[5]}`:raw;
+      const label=fileInfo[f]?.meeting_label||f;
       return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}">${esc(label)}</div>`;
     }).join('');
   }
@@ -402,7 +529,13 @@ function renderMtgPane(){
 function selectMtgGroup(name){curGroup=name;renderMtgPane();}
 function clearMtgGroup(){curGroup=null;renderMtgPane();return false;}
 function selectMtgFile(file){
-  const fsel=document.getElementById('fsel');fsel.value=file;onSel();_updateRenameMtgBtn();
+  const fsel=document.getElementById('fsel');
+  if(!Array.from(fsel.options).some(o=>o.value===file)){
+    const o=document.createElement('option');o.value=file;
+    o.textContent=(fileInfo[file]?.label||file)+(file===activeFile?' ★':'');
+    fsel.appendChild(o);
+  }
+  fsel.value=file;onSel();_updateRenameMtgBtn();
 }
 async function loadT(file){
   try{const u=file?'/api/transcript?file='+encodeURIComponent(file):'/api/transcript';
@@ -437,7 +570,7 @@ es.addEventListener('alert',e=>{
   const d=JSON.parse(e.data);if(d.message){alert(d.message);}
 });
 function hideResp(){document.getElementById('resp').classList.remove('show');}
-loadFiles();loadT('');loadR('');loadLogs();setInterval(loadFiles,10000);
+initSearchSelects();switchLeftTab('dates');loadFiles();loadT('');loadR('');loadLogs();setInterval(loadFiles,10000);
 const LANG_OPTS=['ja','en','zh','ko','fr','de','es','pt','ru'];
 const CFG_FIELDS=[
   {type:'section',label:I18N['cfg.section.general']},
@@ -725,7 +858,7 @@ async function doRenameMtgGroup(){
   if(meetingGroups[newName])selectMtgGroup(newName);
   setTimeout(closeRenameMtgGroup,800);
 }
-function _isMeetingFile(f){return f&&/^transcript-\d{12}/.test(f);}
+function _isMeetingFile(f){return f&&fileInfo[f]?.meeting_group!=null;}
 function _updateRenameMtgBtn(){
   const btn=document.getElementById('btnRenameMtg');
   if(btn)btn.style.display=_isMeetingFile(curFile)?'':'none';
@@ -733,8 +866,7 @@ function _updateRenameMtgBtn(){
 function openRenameMtg(){
   if(!_isMeetingFile(curFile))return;
   // 現在のファイル名から会議名を抽出
-  const m=curFile.match(/^transcript-\d{12}(?:@(.+))?\.txt$/);
-  const curName=m&&m[1]?m[1]:'';
+  const curName=fileInfo[curFile]?.name||'';
   document.getElementById('renameMtgCurrent').textContent=curFile;
   // 既存グループのドロップダウンを構築
   const sel=document.getElementById('renameMtgSel');
@@ -756,10 +888,8 @@ function onRenameMtgSel(val){
   _updateRenameMtgPreview(val||document.getElementById('renameMtgInput').value);
 }
 function _updateRenameMtgPreview(name){
-  const m=curFile.match(/^(transcript-\d{12})/);if(!m)return;
-  const stem=m[1];
-  const suffix=name?'@'+name:'';
-  document.getElementById('renameMtgPreview').textContent='→ '+stem+suffix+'.txt';
+  const fi=fileInfo[curFile];if(!fi)return;
+  document.getElementById('renameMtgPreview').textContent='→ '+TN.filename(fi.dt,name||null);
 }
 function closeRenameMtg(){document.getElementById('renameMtgModal').classList.remove('open');}
 async function doRenameMtg(){
