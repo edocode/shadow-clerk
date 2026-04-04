@@ -7,6 +7,7 @@ let curFile='', activeFile='';
 let meetingActive=false, translating=false, muteMic=false, muteMonitor=false, pttActive=false;
 let audioBackend='';
 let panelMode=0; // 0=T|R, 1=T, 2=R
+let meetingGroups={}, curGroup=null; // 会議グループ管理
 const as={tp:true,rp:true,logc:true};
 ['tp','rp','logc'].forEach(id=>{
   document.getElementById(id).addEventListener('scroll',function(){
@@ -300,6 +301,7 @@ async function fetchStatus(){
     if(d.ptt!==undefined)updatePTT(d.ptt);
     const ai=document.getElementById('asrInfo');
     if(ai&&d.asr_backend){ai.textContent=d.asr_backend==='whisper'?'Whisper: '+d.asr_model_id:d.asr_backend;}
+    if(d.gcal_enabled){const b=document.getElementById('btnGcal');if(b)b.style.display='';}
   }catch(e){}
 }
 const es=new EventSource('/api/events');
@@ -350,8 +352,57 @@ async function loadFiles(){
   try{const r=await fetch('/api/files'),d=await r.json(),s=document.getElementById('fsel'),p=s.value;
   s.innerHTML='';activeFile=d.active||'';
   d.files.forEach(f=>{const o=document.createElement('option');o.value=f;
-    o.textContent=f+(f===d.active?' ★':'');s.appendChild(o);});
-  s.value=(p&&d.files.includes(p))?p:(d.active||'');curFile=s.value;}catch(e){}
+    const fm=f.replace(/^transcript-/,'').replace(/\.txt$/,'')
+      .replace(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})/,'$1-$2-$3 $4:$5');
+    o.textContent=fm+(f===d.active?' ★':'');s.appendChild(o);});
+  s.value=(p&&d.files.includes(p))?p:(d.active||'');curFile=s.value;
+  meetingGroups=d.groups||{};
+  renderMtgPane();}catch(e){}
+}
+function togMtgPane(){
+  const p=document.getElementById('pnlM');if(!p)return;
+  const collapsed=p.classList.toggle('collapsed');
+  const ch=document.getElementById('mtgChevron');
+  if(ch)ch.innerHTML=collapsed?'&#x25BA;':'&#x25C4;';
+}
+
+function renderMtgPane(){
+  const mp=document.getElementById('mp');if(!mp)return;
+  if(curGroup===null){
+    // グループ一覧を表示
+    document.getElementById('mtgBack').style.display='none';
+    document.getElementById('mtgGroupLabel').style.display='none';
+    document.getElementById('mtgListLabel').style.display='';
+    document.getElementById('btnRenameMtgGroup').style.display='none';
+    const order=Object.keys(meetingGroups).sort((a,b)=>a==='ad-hoc'?-1:b==='ad-hoc'?1:a.localeCompare(b));
+    if(!order.length){mp.innerHTML=`<div style="color:var(--muted);font-size:12px;padding:8px">${esc(I18N['dash.meetings_empty']||'No meetings yet.')}</div>`;return;}
+    mp.innerHTML=order.map(name=>{
+      const cnt=meetingGroups[name].length;
+      const icon=name==='ad-hoc'?'📁':'📂';
+      return `<div class="mg-item" onclick="selectMtgGroup('${escAttr(name)}')">`
+        +`<span class="mg-name">${icon} ${esc(name)}</span>`
+        +`<span class="mg-cnt">${cnt}</span></div>`;
+    }).join('');
+  }else{
+    // グループ内のファイル一覧を表示
+    document.getElementById('mtgBack').style.display='';
+    document.getElementById('mtgGroupLabel').textContent=curGroup;
+    document.getElementById('mtgGroupLabel').style.display='';
+    document.getElementById('mtgListLabel').style.display='none';
+    document.getElementById('btnRenameMtgGroup').style.display=curGroup==='ad-hoc'?'none':'';
+    const files=(meetingGroups[curGroup]||[]);
+    mp.innerHTML=files.map(f=>{
+      const raw=f.replace(/^transcript-/,'').replace(/@.+$/,'').replace(/\.txt$/,'');
+      const lm=raw.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/);
+      const label=lm?`${lm[1]}-${lm[2]}-${lm[3]} ${lm[4]}:${lm[5]}`:raw;
+      return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}">${esc(label)}</div>`;
+    }).join('');
+  }
+}
+function selectMtgGroup(name){curGroup=name;renderMtgPane();}
+function clearMtgGroup(){curGroup=null;renderMtgPane();return false;}
+function selectMtgFile(file){
+  const fsel=document.getElementById('fsel');fsel.value=file;onSel();_updateRenameMtgBtn();
 }
 async function loadT(file){
   try{const u=file?'/api/transcript?file='+encodeURIComponent(file):'/api/transcript';
@@ -371,7 +422,7 @@ async function loadLogs(){
     el.insertAdjacentHTML('beforeend','<div class="ll '+c+'">'+esc(l)+'</div>');});
   el.scrollTop=el.scrollHeight;}catch(e){}
 }
-function onSel(){deselectAll();curFile=document.getElementById('fsel').value;loadT(curFile);loadR(curFile);}
+function onSel(){deselectAll();curFile=document.getElementById('fsel').value;loadT(curFile);loadR(curFile);renderMtgPane();_updateRenameMtgBtn();}
 function goActive(){if(!activeFile)return;const s=document.getElementById('fsel');s.value=activeFile;onSel();}
 async function cmd(c){try{await fetch('/api/command',{method:'POST',
   headers:{'Content-Type':'application/json'},body:JSON.stringify({command:c})});}catch(e){}}
@@ -424,6 +475,12 @@ const CFG_FIELDS=[
   {key:'api_endpoint',label:I18N['cfg.api_endpoint'],type:'text',ph:'https://...'},
   {key:'api_model',label:I18N['cfg.api_model'],type:'api_model'},
   {key:'api_key_env',label:I18N['cfg.api_key_env'],type:'text',ph:'SHADOW_CLERK_API_KEY'},
+  {type:'section',label:I18N['cfg.section.gcal']},
+  {key:'gcal_integration',label:I18N['cfg.gcal_integration'],type:'bool'},
+  {key:'gcal_credentials_file',label:I18N['cfg.gcal_credentials_file'],type:'text',ph:I18N['cfg.gcal_credentials_file_ph']},
+  {key:'gcal_calendar_id',label:I18N['cfg.gcal_calendar_id'],type:'text',ph:'primary'},
+  {key:'gcal_buffer_minutes',label:I18N['cfg.gcal_buffer_minutes'],type:'select',num:true,opts:['0','1','2','3','5','10']},
+  {key:'gcal_end_buffer_minutes',label:I18N['cfg.gcal_end_buffer_minutes'],type:'select',num:true,opts:['0','1','2','3','5']},
 ];
 let cfgData={};
 async function openCfg(){
@@ -498,6 +555,8 @@ async function saveCfg(){
     const el=document.getElementById('cfg_'+f.key);if(!el)return;
     if(f.type==='bool'){d[f.key]=el.value==='true';}
     else if(f.type==='json'){try{d[f.key]=JSON.parse(el.value);}catch(e){d[f.key]=cfgData[f.key];}}
+    else if(f.type==='number'){const n=parseInt(el.value,10);d[f.key]=isNaN(n)?cfgData[f.key]:n;}
+    else if(f.type==='select'&&f.num){const sv=el.value;const n=parseInt(sv,10);d[f.key]=isNaN(n)?null:n;}
     else if(f.type==='select'){const sv=el.value;d[f.key]=(sv===''||(sv==='auto'&&f.key==='default_language'))?null:sv;}
     else{const v=el.value.trim();d[f.key]=(v===''||v==='null')?null:v;}
   });
@@ -631,6 +690,94 @@ async function saveCustomCmds(){
     setTimeout(()=>s.style.display='none',2000);
   }catch(e){}
 }
+function openRenameMtgGroup(){
+  if(!curGroup||curGroup==='ad-hoc')return;
+  const inp=document.getElementById('renameMtgGroupInput');
+  inp.value=curGroup;
+  const cnt=(meetingGroups[curGroup]||[]).length;
+  document.getElementById('renameMtgGroupPreview').textContent=
+    (I18N['dash.rename_group_preview']||'{n} files will be renamed').replace('{n}',cnt);
+  document.getElementById('renameMtgGroupSaved').style.display='none';
+  document.getElementById('renameMtgGroupModal').classList.add('open');
+  inp.focus();inp.select();
+}
+function closeRenameMtgGroup(){document.getElementById('renameMtgGroupModal').classList.remove('open');}
+async function doRenameMtgGroup(){
+  const newName=document.getElementById('renameMtgGroupInput').value.trim();
+  if(!newName||newName===curGroup){closeRenameMtgGroup();return;}
+  const files=meetingGroups[curGroup]||[];
+  let renamed=0;
+  for(const f of files){
+    try{
+      const r=await fetch('/api/transcript/rename-meeting',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({file:f,name:newName})});
+      const d=await r.json();
+      if(d.status==='ok')renamed++;
+    }catch(e){}
+  }
+  const saved=document.getElementById('renameMtgGroupSaved');
+  saved.style.display='inline';
+  const prevGroup=curGroup;
+  curGroup=newName;
+  await loadFiles();
+  // 新グループに切り替え
+  if(meetingGroups[newName])selectMtgGroup(newName);
+  setTimeout(closeRenameMtgGroup,800);
+}
+function _isMeetingFile(f){return f&&/^transcript-\d{12}/.test(f);}
+function _updateRenameMtgBtn(){
+  const btn=document.getElementById('btnRenameMtg');
+  if(btn)btn.style.display=_isMeetingFile(curFile)?'':'none';
+}
+function openRenameMtg(){
+  if(!_isMeetingFile(curFile))return;
+  // 現在のファイル名から会議名を抽出
+  const m=curFile.match(/^transcript-\d{12}(?:@(.+))?\.txt$/);
+  const curName=m&&m[1]?m[1]:'';
+  document.getElementById('renameMtgCurrent').textContent=curFile;
+  // 既存グループのドロップダウンを構築
+  const sel=document.getElementById('renameMtgSel');
+  sel.innerHTML='<option value="">— '+( I18N['dash.rename_meeting_new']||'新規入力')+' —</option>';
+  Object.keys(meetingGroups).sort((a,b)=>a==='ad-hoc'?-1:b==='ad-hoc'?1:a.localeCompare(b)).forEach(n=>{
+    const o=document.createElement('option');o.value=n;o.textContent=n;
+    if(n===curName)o.selected=true;
+    sel.appendChild(o);
+  });
+  const inp=document.getElementById('renameMtgInput');
+  inp.value=curName;
+  _updateRenameMtgPreview(curName);
+  document.getElementById('renameMtgSaved').style.display='none';
+  document.getElementById('renameMtgModal').classList.add('open');
+  inp.focus();
+}
+function onRenameMtgSel(val){
+  if(val)document.getElementById('renameMtgInput').value=val;
+  _updateRenameMtgPreview(val||document.getElementById('renameMtgInput').value);
+}
+function _updateRenameMtgPreview(name){
+  const m=curFile.match(/^(transcript-\d{12})/);if(!m)return;
+  const stem=m[1];
+  const suffix=name?'@'+name:'';
+  document.getElementById('renameMtgPreview').textContent='→ '+stem+suffix+'.txt';
+}
+function closeRenameMtg(){document.getElementById('renameMtgModal').classList.remove('open');}
+async function doRenameMtg(){
+  const name=document.getElementById('renameMtgInput').value.trim();
+  try{
+    const r=await fetch('/api/transcript/rename-meeting',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({file:curFile,name})});
+    const d=await r.json();
+    if(d.status!=='ok'){alert(d.message||'Error');return;}
+    const saved=document.getElementById('renameMtgSaved');
+    saved.style.display='inline';setTimeout(()=>saved.style.display='none',2000);
+    curFile=d.new_file;
+    await loadFiles();
+    loadT(curFile);loadR(curFile);
+    setTimeout(closeRenameMtg,800);
+  }catch(e){alert('Error: '+e.message);}
+}
 function openHelp(){
   document.getElementById('helpContent').textContent=I18N['dash.help_body'];
   const lang=cfgData&&cfgData.ui_language||'en';
@@ -638,4 +785,32 @@ function openHelp(){
   document.getElementById('helpModal').classList.add('open');
 }
 function closeHelp(){document.getElementById('helpModal').classList.remove('open');}
+async function openGcal(){
+  const body=document.getElementById('gcalBody');
+  body.textContent=I18N['dash.loading']||'...';
+  document.getElementById('gcalModal').classList.add('open');
+  try{
+    const d=await(await fetch('/api/gcal-events')).json();
+    if(!d.enabled){body.textContent=I18N['dash.gcal_disabled']||'Google Calendar integration is not enabled.';return;}
+    if(!d.events||d.events.length===0){body.textContent=I18N['dash.gcal_no_events']||'No upcoming events.';return;}
+    const now=new Date();
+    const rows=d.events.map(ev=>{
+      const start=ev.start?new Date(ev.start):null;
+      const end=ev.end?new Date(ev.end):null;
+      const fmt=dt=>dt?dt.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';
+      const fmtDate=dt=>dt?dt.toLocaleDateString([],{month:'numeric',day:'numeric'}):'';
+      const isToday=dt=>dt&&dt.toDateString()===now.toDateString();
+      const dateStr=start?(isToday(start)?'':fmtDate(start)+' '):'';
+      const status=ev.status==='started'?'🔴':ev.status==='ended'?'✅':'🔵';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">`
+        +`<span style="font-size:16px">${status}</span>`
+        +`<div style="flex:1;min-width:0">`
+        +`<div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ev.summary)}</div>`
+        +`<div style="font-size:11px;color:var(--muted)">${dateStr}${fmt(start)} – ${fmt(end)}</div>`
+        +`</div></div>`;
+    }).join('');
+    body.innerHTML=rows;
+  }catch(e){body.textContent='Error: '+e.message;}
+}
+function closeGcal(){document.getElementById('gcalModal').classList.remove('open');}
 """

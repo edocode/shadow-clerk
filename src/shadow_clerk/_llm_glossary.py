@@ -76,20 +76,23 @@ def load_glossary(lang: str) -> str:
 
     # reading → target_term のマッピングも追加（同言語翻訳・誤認識修正用）
     # reading と target_term が異なる場合のみ
-    # reading の長さ降順でソート（長いreadingを優先してLLMが正確にマッチできるように）
+    # reading はカンマ区切りで複数指定可能。長さ降順でソート（長いreadingを優先）
     reading_pairs_raw = []  # (reading_len, entry)
     if reading_idx is not None:
         for row_line in data_lines[1:]:
             cols = row_line.split("\t")
             target_term = cols[target_idx].strip() if target_idx < len(cols) else ""
-            reading = cols[reading_idx].strip() if reading_idx < len(cols) else ""
-            if not target_term or not reading or reading == target_term:
+            reading_raw = cols[reading_idx].strip() if reading_idx < len(cols) else ""
+            if not target_term or not reading_raw:
                 continue
             note = cols[note_idx].strip() if note_idx is not None and note_idx < len(cols) else ""
-            entry = f"reading「{reading}」→ {target_term}"
-            if note:
-                entry += f" ({note})"
-            reading_pairs_raw.append((len(reading), entry))
+            for reading in [r.strip() for r in reading_raw.split(",") if r.strip()]:
+                if reading == target_term:
+                    continue
+                entry = f"reading「{reading}」→ {target_term}"
+                if note:
+                    entry += f" ({note})"
+                reading_pairs_raw.append((len(reading), entry))
     reading_pairs = [e for _, e in sorted(reading_pairs_raw, key=lambda x: x[0], reverse=True)]
 
     if not pairs and not reading_pairs:
@@ -150,14 +153,18 @@ def load_glossary_replacements(lang: str | None = None) -> list[tuple[str, str]]
     pairs = []
     for row_line in data_lines[1:]:
         cols = row_line.split("\t")
-        reading = cols[reading_idx].strip() if reading_idx < len(cols) else ""
-        if not reading:
+        reading_raw = cols[reading_idx].strip() if reading_idx < len(cols) else ""
+        if not reading_raw:
             continue
         for col_idx, _ in target_cols:
             target_val = cols[col_idx].strip() if col_idx < len(cols) else ""
-            if not target_val or target_val == reading:
+            if not target_val:
                 continue
-            pairs.append((reading, target_val))
+            # reading はカンマ区切りで複数指定可能
+            for reading in [r.strip() for r in reading_raw.split(",") if r.strip()]:
+                if target_val == reading:
+                    continue
+                pairs.append((reading, target_val))
 
     # reading の長さ降順でソート（長いreadingを先に置換して部分マッチを防ぐ）
     return sorted(pairs, key=lambda x: len(x[0]), reverse=True)

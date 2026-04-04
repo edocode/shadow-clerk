@@ -157,6 +157,22 @@ STRINGS = {
         "dash.extract_meeting_error": "会議切り出しに失敗しました",
         "dash.extract_meeting_no_lines": "選択範囲に行がありません",
         "dash.selected_count": "{count}件選択",
+        "dash.meetings": "会議",
+        "dash.meetings_back": "一覧へ",
+        "dash.meetings_empty": "会議記録はありません",
+        "dash.rename_group_title": "会議名を変更",
+        "dash.rename_group_new": "新しい会議名",
+        "dash.rename_group_preview": "{n} 件のファイルがリネームされます",
+        "dash.rename_meeting_title": "会議に紐付ける",
+        "dash.rename_meeting_existing": "既存の会議から選ぶ",
+        "dash.rename_meeting_new": "新しい会議名",
+        "dash.rename_meeting_placeholder": "会議名を入力（空欄で ad-hoc）",
+        "dash.rename_meeting_apply": "適用",
+        "dash.gcal_events": "Google Calendar",
+        "dash.gcal_events_title": "Google Calendar 予定",
+        "dash.gcal_disabled": "Google Calendar 連携は無効です。",
+        "dash.gcal_no_events": "直近の予定はありません。",
+        "dash.loading": "読み込み中...",
         "dash.help": "ヘルプ",
         "dash.help_title": "ヘルプ",
         "dash.help_body": (
@@ -196,6 +212,7 @@ STRINGS = {
         "cfg.section.translation": "翻訳",
         "cfg.section.summary": "要約",
         "cfg.section.api": "LLM / API",
+        "cfg.section.gcal": "Google Calendar 連携",
 
         # --- cfg.* : 設定モーダルフィールド ---
         "cfg.translate_language": "翻訳先言語",
@@ -233,6 +250,12 @@ STRINGS = {
         "cfg.japanese_asr_model": "日本語ASRモデル",
         "cfg.kotoba_whisper_model": "Kotoba-Whisper モデル",
         "cfg.interim_japanese_asr_model": "中間 日本語ASRモデル",
+        "cfg.gcal_integration": "Google Calendar 連携を有効にする",
+        "cfg.gcal_credentials_file": "credentials.json パス",
+        "cfg.gcal_credentials_file_ph": "~/.local/share/shadow-clerk/credentials.json",
+        "cfg.gcal_calendar_id": "カレンダーID",
+        "cfg.gcal_buffer_minutes": "開始バッファ（分）",
+        "cfg.gcal_end_buffer_minutes": "終了バッファ（分）",
 
         # --- llm.* : LLM プロンプト ---
         "llm.translate_system": (
@@ -499,6 +522,22 @@ STRINGS = {
         "dash.extract_meeting_error": "Failed to extract meeting",
         "dash.extract_meeting_no_lines": "No lines in selected range",
         "dash.selected_count": "{count} selected",
+        "dash.meetings": "Meetings",
+        "dash.meetings_back": "Back to list",
+        "dash.meetings_empty": "No meetings yet.",
+        "dash.rename_group_title": "Rename Meeting",
+        "dash.rename_group_new": "New meeting name",
+        "dash.rename_group_preview": "{n} files will be renamed",
+        "dash.rename_meeting_title": "Assign to Meeting",
+        "dash.rename_meeting_existing": "Select existing meeting",
+        "dash.rename_meeting_new": "New meeting name",
+        "dash.rename_meeting_placeholder": "Enter name (blank = ad-hoc)",
+        "dash.rename_meeting_apply": "Apply",
+        "dash.gcal_events": "Google Calendar",
+        "dash.gcal_events_title": "Google Calendar Events",
+        "dash.gcal_disabled": "Google Calendar integration is not enabled.",
+        "dash.gcal_no_events": "No upcoming events.",
+        "dash.loading": "Loading...",
         "dash.help": "Help",
         "dash.help_title": "Help",
         "dash.help_body": (
@@ -538,6 +577,7 @@ STRINGS = {
         "cfg.section.translation": "Translation",
         "cfg.section.summary": "Summary",
         "cfg.section.api": "LLM / API",
+        "cfg.section.gcal": "Google Calendar Integration",
 
         # --- cfg.* ---
         "cfg.translate_language": "Translation Language",
@@ -575,6 +615,12 @@ STRINGS = {
         "cfg.japanese_asr_model": "Japanese ASR Model",
         "cfg.kotoba_whisper_model": "Kotoba-Whisper Model",
         "cfg.interim_japanese_asr_model": "Interim Japanese ASR Model",
+        "cfg.gcal_integration": "Enable Google Calendar Integration",
+        "cfg.gcal_credentials_file": "credentials.json Path",
+        "cfg.gcal_credentials_file_ph": "~/.local/share/shadow-clerk/credentials.json",
+        "cfg.gcal_calendar_id": "Calendar ID",
+        "cfg.gcal_buffer_minutes": "Start Buffer (minutes)",
+        "cfg.gcal_end_buffer_minutes": "End Buffer (minutes)",
 
         # --- llm.* ---
         "llm.translate_system": (

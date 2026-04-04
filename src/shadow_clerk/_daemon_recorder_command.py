@@ -27,6 +27,18 @@ from shadow_clerk._daemon_config import load_config, get_translation_provider, _
 logger = logging.getLogger("shadow-clerk")
 
 
+def _sanitize_meeting_name(name: str) -> str:
+    """会議名をファイル名に使用できる形式にエスケープする"""
+    # ファイル名に使えない文字を除去
+    name = re.sub(r'[/\\:*?"<>|\x00-\x1f]', '', name)
+    # @ は区切り文字と衝突するため除去
+    name = name.replace('@', '')
+    # 連続空白を _ に置換、前後トリム
+    name = re.sub(r'\s+', '_', name.strip())
+    # 末尾の _ を除去、長さ制限
+    return name[:50].rstrip('_')
+
+
 class _RecorderCommandMixin:
     """コマンド処理・キーリスナー ミックスイン"""
 
@@ -358,8 +370,17 @@ class _RecorderCommandMixin:
 
         elif cmd.startswith("start_meeting"):
             parts = cmd.split(None, 1)
+            if len(parts) > 1:
+                meeting_name = _sanitize_meeting_name(parts[1])
+            else:
+                # 名前なし: 進行中の gcal イベントがあればその名前を自動割り当て
+                gcal = getattr(self, "gcal_monitor", None)
+                meeting_name = gcal.get_ongoing_event_name() if gcal else ""
+                if meeting_name:
+                    logger.info("gcal 進行中イベントを会議名に割り当て: %s", meeting_name)
             now = datetime.datetime.now()
-            filename = now.strftime("transcript-%Y%m%d%H%M.txt")
+            name_suffix = f"@{meeting_name}" if meeting_name else ""
+            filename = now.strftime(f"transcript-%Y%m%d%H%M{name_suffix}.txt")
             with self.transcript_lock:
                 self.output_path = os.path.join(self._output_dir, filename)
                 marker = f"--- 会議開始 {now.strftime('%Y-%m-%d %H:%M')} ---\n"

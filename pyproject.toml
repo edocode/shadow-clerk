@@ -25,6 +25,10 @@ reazonspeech = [
     "sherpa-onnx>=1.12.28",
     "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr",
 ]
+gcal = [
+    "google-auth-oauthlib>=1.0.0",
+    "google-api-python-client>=2.0.0",
+]
 
 [project.scripts]
 clerk-daemon = "shadow_clerk.clerk_daemon:main"

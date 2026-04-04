@@ -495,6 +495,92 @@ class _DashboardHandlerOps:
         self.end_headers()
         self.wfile.write(body)
 
+    def _rename_meeting(self):
+        """POST /api/transcript/rename-meeting
+        { file: "transcript-YYYYMMDDHHMM[@old].txt", name: "新会議名" }
+        transcript / translation(s) / summary / offset ファイルを一括リネームする。
+        name が空文字の場合は ad-hoc 扱い（@suffix なし）。
+        """
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            data = json.loads(self.rfile.read(length))
+            file_param = os.path.basename(data.get("file", ""))
+            new_name = data.get("name", "").strip()
+        except (json.JSONDecodeError, ValueError):
+            self.send_error(400)
+            return
+
+        # meeting ファイル（HHMM 付き）のみ対象
+        import re as _re
+        m = _re.match(r'^(transcript-\d{12})(?:@.+)?(\.txt)$', file_param)
+        if not m:
+            self._send_json({"status": "error", "message": "Not a meeting file"})
+            return
+
+        stem = m.group(1)  # "transcript-YYYYMMDDHHMM"
+        output_dir = self.recorder._output_dir
+
+        # 新ファイル名のベース (@ なしなら ad-hoc 扱い、名前あれば @name)
+        new_suffix = f"@{new_name}" if new_name else ""
+        new_stem = f"{stem}{new_suffix}"
+
+        renamed = []
+        errors = []
+
+        def _rename(src_name, dst_name):
+            src = os.path.join(output_dir, src_name)
+            dst = os.path.join(output_dir, dst_name)
+            if os.path.exists(src):
+                try:
+                    os.rename(src, dst)
+                    renamed.append((src_name, dst_name))
+                except OSError as e:
+                    errors.append(str(e))
+
+        # 旧 stem に一致するファイルを収集してリネーム
+        old_pattern = _re.compile(
+            r'^' + _re.escape(stem) + r'(?:@[^.]+)?'
+        )
+        try:
+            all_files = os.listdir(output_dir)
+        except OSError:
+            all_files = []
+
+        for fname in all_files:
+            if not old_pattern.match(fname):
+                continue
+            # transcript-YYYYMMDDHHMM[@old].txt
+            # transcript-YYYYMMDDHHMM[@old]-ja.txt  (翻訳)
+            # transcript-YYYYMMDDHHMM[@old].txt.translate_offset
+            # summary-YYYYMMDDHHMM[@old].md
+            rest = old_pattern.sub('', fname)  # e.g. ".txt", "-ja.txt", ".md"
+            if fname.startswith("transcript-"):
+                new_fname = new_stem + rest
+            elif fname.startswith("summary-"):
+                sum_stem = stem.replace("transcript-", "summary-")
+                new_sum_stem = new_stem.replace("transcript-", "summary-")
+                new_fname = new_sum_stem + rest
+            else:
+                continue
+            if fname != new_fname:
+                _rename(fname, new_fname)
+
+        if errors:
+            self._send_json({"status": "error", "message": "; ".join(errors)})
+            return
+
+        new_transcript = f"{new_stem}.txt"
+        logger.info("会議リネーム: %s → %s (%d files)", file_param, new_transcript, len(renamed))
+        self._send_json({"status": "ok", "new_file": new_transcript, "renamed": len(renamed)})
+
+    def _serve_gcal_events(self):
+        """GET /api/gcal-events — Google Calendar の直近イベント一覧を返す"""
+        monitor = self.__class__.gcal_monitor
+        if monitor is None:
+            self._send_json({"enabled": False, "events": []})
+            return
+        self._send_json({"enabled": True, "events": monitor.get_upcoming_events()})
+
     def _save_glossary(self):
         try:
             length = int(self.headers.get("Content-Length", 0))

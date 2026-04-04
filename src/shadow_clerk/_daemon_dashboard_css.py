@@ -119,6 +119,34 @@ main {
 .panel.hidden { display:none; }
 #logp.collapsed #logc { display:none; }
 #logp.collapsed { height:auto; }
+#pnlM { position:relative; overflow:visible; flex:0 0 180px; min-width:0; transition:flex-basis .15s; }
+#pnlM.collapsed { flex:0 0 0; }
+#pnlM.collapsed #mtgPh, #pnlM.collapsed #mp { display:none; }
+#pnlM .ph { font-size:12px; min-width:0; }
+#pnlM .pc { padding:6px 8px; font-family:inherit; }
+#mtgChevron {
+  position:absolute; right:-14px; top:50%; transform:translateY(-50%);
+  z-index:10; width:14px; height:44px;
+  background:var(--btn); border:1px solid var(--border);
+  border-radius:0 6px 6px 0; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  color:var(--muted); font-size:10px; padding:0;
+}
+#mtgChevron:hover { background:var(--btn-h); color:var(--text); }
+.mg-item {
+  padding:7px 8px; cursor:pointer; border-radius:4px;
+  margin-bottom:2px; display:flex; justify-content:space-between; align-items:center;
+}
+.mg-item:hover { background:var(--btn-h); }
+.mg-name { font-weight:600; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+.mg-cnt { font-size:11px; color:var(--muted); flex-shrink:0; margin-left:4px; }
+.mg-file {
+  padding:5px 8px; cursor:pointer; font-size:11px; border-radius:4px;
+  margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  color:var(--muted);
+}
+.mg-file:hover { background:var(--btn-h); color:var(--text); }
+.mg-file.active { color:var(--accent); background:rgba(88,166,255,.1); }
 .modal-overlay {
   display:none; position:fixed; inset:0; background:rgba(0,0,0,.6);
   z-index:100; justify-content:center; align-items:center;

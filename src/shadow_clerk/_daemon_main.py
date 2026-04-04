@@ -179,7 +179,25 @@ def main():
         return
 
     recorder = Recorder(args)
-    recorder.run()
+
+    # Google Calendar 連携モニター
+    gcal_monitor = None
+    if config.get("gcal_integration"):
+        try:
+            from shadow_clerk.gcal_monitor import GCalMonitor
+            from shadow_clerk._daemon_dashboard_handler import DashboardHandler
+            gcal_monitor = GCalMonitor(config, recorder=recorder)
+            gcal_monitor.start()
+            DashboardHandler.gcal_monitor = gcal_monitor
+            recorder.gcal_monitor = gcal_monitor
+        except Exception as e:
+            logger.warning("Google Calendar モニター起動失敗: %s", e)
+
+    try:
+        recorder.run()
+    finally:
+        if gcal_monitor:
+            gcal_monitor.stop()
 
 
 if __name__ == "__main__":

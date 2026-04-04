@@ -22,6 +22,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
     recorder = None
     log_buffer = None
     file_watcher = None
+    gcal_monitor = None
 
     def log_message(self, format, *args):
         pass  # suppress default request logging
@@ -50,6 +51,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_summary()
         elif path == "/api/models":
             self._serve_models()
+        elif path == "/api/gcal-events":
+            self._serve_gcal_events()
         else:
             self.send_error(404)
 
@@ -71,6 +74,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._delete_transcript_file()
         elif path == "/api/transcript/extract-meeting":
             self._extract_meeting()
+        elif path == "/api/transcript/rename-meeting":
+            self._rename_meeting()
         else:
             self.send_error(404)
 
@@ -142,6 +147,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             "ptt": self.recorder._command_mode,
             "asr_backend": self.recorder.transcriber._backend,
             "asr_model_id": self.recorder.transcriber._loaded_model_id or self.recorder.transcriber.model_size,
+            "gcal_enabled": self.__class__.gcal_monitor is not None,
         })
 
     def _serve_files(self):
@@ -154,9 +160,20 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
                     files.append(f)
         except OSError:
             pass
+        # 会議グループを構築:
+        #   transcript-YYYYMMDDHHMM@name.txt → name グループ
+        #   transcript-YYYYMMDDHHMM.txt      → "ad-hoc" グループ
+        #   transcript-YYYYMMDD.txt          → グループ対象外
+        groups: dict[str, list[str]] = {}
+        for f in files:
+            m = re.match(r'^transcript-\d{12}(?:@(.+))?\.txt$', f)
+            if m:
+                name = m.group(1) if m.group(1) else "ad-hoc"
+                groups.setdefault(name, []).append(f)
         self._send_json({
             "files": files,
             "active": os.path.basename(self.recorder.output_path),
+            "groups": groups,
         })
 
     def _serve_transcript(self):

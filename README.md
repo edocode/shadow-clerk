@@ -45,6 +45,7 @@ cd shadow-clerk
 | Basic | `uv tool install -e .` |
 | + ReazonSpeech | `uv tool install -e ".[reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 | + Spell check | `uv tool install -e ".[spell-check]"` |
+| + Google Calendar | `uv tool install -e ".[gcal]"` |
 | + Both | `uv tool install -e ".[spell-check,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 
 > **Note:** `uv tool install` maintains a single environment per tool. When reinstalling with different extras, use `--force` — without it, `uv tool install` reports "already installed" and does not add the extra. Only the extras specified in the command are included; previously installed extras are removed.
@@ -56,6 +57,7 @@ cd shadow-clerk
 | Basic | `uv sync` |
 | + ReazonSpeech | `uv sync --extra reazonspeech` |
 | + Spell check | `uv sync --extra spell-check` |
+| + Google Calendar | `uv sync --extra gcal` |
 | + Both | `uv sync --extra spell-check --extra reazonspeech` |
 
 This is all you need for transcription. The following optional extras are available:
@@ -100,6 +102,31 @@ spell_check_model: mbyhphat/t5-japanese-typo-correction  # default
 ```
 
 The spell check model is auto-downloaded on first use. It corrects Japanese speech recognition typos before sending text to LibreTranslate.
+
+### Optional: Google Calendar integration
+
+Automatically starts and ends meeting sessions based on your Google Calendar schedule. Requires the `gcal` extra:
+
+```bash
+uv tool install -e ".[gcal]"
+# or for development:
+uv sync --extra gcal
+```
+
+Then authenticate and configure:
+
+```bash
+# One-time OAuth setup (opens browser)
+clerk-util gcal-auth ~/credentials.json
+
+# Enable in config
+clerk-util write-config-value gcal_integration true
+clerk-util write-config-value gcal_credentials_file ~/credentials.json
+```
+
+When enabled, clerk-daemon polls Google Calendar every 60 seconds. Events automatically trigger `start_meeting` / `end_meeting`, creating transcript files named `transcript-YYYYMMDDHHMM@EventTitle.txt`.
+
+See [docs/google-calendar-setup.md](docs/google-calendar-setup.md) for full setup instructions including how to obtain `credentials.json` from Google Cloud Console.
 
 Add the following options if you need translation or summarization.
 
@@ -406,10 +433,13 @@ shadow-clerk/                          # Repository
 ~/.local/share/shadow-clerk/           # Runtime data
   transcript-YYYYMMDD.txt              # Transcription output (date-based)
   transcript-YYYYMMDDHHMM.txt          # Meeting session transcript
+  transcript-YYYYMMDDHHMM@Title.txt    # Meeting session transcript (with event title)
   transcript-YYYYMMDD-<lang>.txt       # Translation output
   summary-YYYYMMDD.md                  # Meeting minutes (corresponds to transcript)
+  summary-YYYYMMDDHHMM@Title.md        # Meeting minutes (named session)
   glossary.txt                         # Glossary (TSV: translation terms & reading-based text replacement)
   config.yaml                          # Configuration file
+  gcal_token.json                      # Google Calendar OAuth token (created by gcal-auth)
 ```
 
 ## Troubleshooting

@@ -548,6 +548,31 @@ def _register_permissions(clerk_util_path):
         print("permissions は既に登録済みです。")
 
 
+def cmd_gcal_auth(args):
+    """Google Calendar OAuth 認証フローを実行してトークンを保存する"""
+    if not args:
+        print("Usage: clerk-util gcal-auth <credentials.json> [token_file]", file=sys.stderr)
+        print("  credentials.json: Google Cloud Console でダウンロードした OAuth 2.0 クライアント認証情報", file=sys.stderr)
+        sys.exit(1)
+    credentials_file = args[0]
+    token_file = args[1] if len(args) > 1 else None
+    try:
+        from shadow_clerk.gcal_monitor import run_auth
+        run_auth(credentials_file, token_file)
+    except ImportError:
+        print("エラー: google-auth-oauthlib が見つかりません。", file=sys.stderr)
+        print("  uv sync --extra gcal", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"認証エラー: {e}", file=sys.stderr)
+        sys.exit(1)
+    # 認証成功後に config を自動更新
+    abs_creds = os.path.abspath(credentials_file)
+    cmd_write_config_value(["gcal_integration", "true"])
+    cmd_write_config_value(["gcal_credentials_file", abs_creds])
+    print(f"config を更新しました: gcal_integration=true, gcal_credentials_file={abs_creds}")
+
+
 def cmd_help(args):
     print("clerk-util — shadow-clerk ユーティリティ")
     print()
@@ -580,6 +605,7 @@ def cmd_help(args):
     print()
     print("Setup subcommands:")
     print("  claude-setup [lang]  Claude Code skill として登録 (lang: ja, en, ...)")
+    print("  gcal-auth <credentials.json> [token_file]  Google Calendar OAuth 認証")
     print()
     print(f"Data directory: {DATA_DIR}")
 
@@ -607,6 +633,7 @@ COMMANDS = {
     "run-llm": cmd_run_llm,
     "summarize": cmd_summarize,
     "claude-setup": cmd_claude_setup,
+    "gcal-auth": cmd_gcal_auth,
     "help": cmd_help,
 }
 

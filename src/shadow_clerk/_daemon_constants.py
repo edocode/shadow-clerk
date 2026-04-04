@@ -68,6 +68,13 @@ DEFAULT_CONFIG = {
     "japanese_asr_model": "default",
     "kotoba_whisper_model": "kotoba-tech/kotoba-whisper-v2.0-faster",
     "interim_japanese_asr_model": "default",
+    # Google Calendar 連携
+    "gcal_integration": False,
+    "gcal_credentials_file": None,   # OAuth credentials.json のパス
+    "gcal_token_file": None,         # 認証済みトークンの保存先 (default: DATA_DIR/gcal_token.json)
+    "gcal_calendar_id": "primary",
+    "gcal_buffer_minutes": 2,        # 開始 N 分前に start_meeting を送信
+    "gcal_end_buffer_minutes": 1,    # 終了 N 分後に end_meeting を送信
 }
 
 # コマンド・セッションファイル
