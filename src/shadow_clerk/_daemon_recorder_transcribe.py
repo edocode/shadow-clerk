@@ -29,7 +29,7 @@ from shadow_clerk._daemon_constants import (
     pynput_keyboard, _HAS_PYNPUT, evdev, _ecodes, _HAS_EVDEV,
 )
 from shadow_clerk._daemon_config import load_config, get_translation_provider
-from shadow_clerk._daemon_audio import detect_backend, find_monitor_device_sd
+
 from shadow_clerk._daemon_vad import VADSegmenter
 from shadow_clerk._daemon_transcriber import Transcriber, GlossaryReplacer
 from shadow_clerk._daemon_dashboard import LogBuffer, FileWatcher, DashboardHandler

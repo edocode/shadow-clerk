@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime
+import os
 from dataclasses import dataclass
 
 from shadow_clerk._transcript_name import TranscriptName
@@ -28,7 +29,6 @@ class MeetingSession:
     @classmethod
     def start(cls, file_path: str, started_at: datetime.datetime | None = None) -> MeetingSession:
         """ファイルパスから MeetingSession（開始状態）を生成する。"""
-        import os
         name = TranscriptName.parse(os.path.basename(file_path))
         if name is None:
             raise ValueError(f"transcript ファイル名として解釈できません: {file_path!r}")
