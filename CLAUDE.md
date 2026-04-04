@@ -54,6 +54,7 @@ make dupcheck                    # Duplicate code detection (pylint R0801)
 - Use `@dataclass(frozen=True)` for value objects; `Enum` for constrained string types (Speaker, Language, etc.)
 - Prefer value objects over raw strings/dicts for domain concepts: `TranscriptLine`, `MeetingSession`, `Summary`, `Translation`
 - Do not pass raw `dict` or `str` across layer boundaries when a value object exists for that concept
+- When casting (e.g. `int(x)`, `str(x)`) or regex extraction appears in business logic, treat it as a signal to introduce a value object or entity that encapsulates the parsing/validation
 
 ### i18n
 - All user-facing strings go through `i18n.py` with `t()` function
