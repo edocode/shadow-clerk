@@ -159,16 +159,27 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
                     files.append(f)
         except OSError:
             pass
-        # 会議グループを構築（HHMM 付きファイルのみ）
+        # 会議グループと file_info を構築
         groups: dict[str, list[str]] = {}
+        file_info: dict[str, dict] = {}
         for f in files:
             tn = TranscriptName.parse(f)
-            if tn and tn.meeting_group is not None:
-                groups.setdefault(tn.meeting_group, []).append(f)
+            if tn:
+                file_info[f] = {
+                    "label": tn.label,
+                    "meeting_label": tn.meeting_label,
+                    "meeting_group": tn.meeting_group,
+                    "summary": tn.summary_filename,
+                    "dt": tn.datetime_str,
+                    "name": tn.meeting_name,
+                }
+                if tn.meeting_group is not None:
+                    groups.setdefault(tn.meeting_group, []).append(f)
         self._send_json({
             "files": files,
             "active": os.path.basename(self.recorder.output_path),
             "groups": groups,
+            "file_info": file_info,
         })
 
     def _serve_transcript(self):

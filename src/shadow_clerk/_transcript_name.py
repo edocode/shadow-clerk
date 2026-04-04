@@ -101,6 +101,27 @@ class TranscriptName:
         suffix = f"@{self.meeting_name}" if self.meeting_name else ""
         return f"summary-{self.datetime_str}{suffix}"
 
+    # --- 表示ラベル ---
+
+    def _fmt_datetime(self) -> str:
+        dt = self.datetime_str
+        if len(dt) >= 12:
+            return f"{dt[:4]}-{dt[4:6]}-{dt[6:8]} {dt[8:10]}:{dt[10:12]}"
+        if len(dt) >= 8:
+            return f"{dt[:4]}-{dt[4:6]}-{dt[6:8]}"
+        return dt
+
+    @property
+    def label(self) -> str:
+        """ファイルセレクター用: "YYYY-MM-DD HH:MM@name" or "YYYY-MM-DD" """
+        dt = self._fmt_datetime()
+        return f"{dt}@{self.meeting_name}" if self.meeting_name else dt
+
+    @property
+    def meeting_label(self) -> str:
+        """会議ペイン用: "YYYY-MM-DD HH:MM"（名前なし）"""
+        return self._fmt_datetime()
+
     # --- 会議グループ ---
 
     @property

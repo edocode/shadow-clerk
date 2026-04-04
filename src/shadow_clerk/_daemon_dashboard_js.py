@@ -3,25 +3,12 @@
 # JavaScript content extracted from _HTML_TEMPLATE (between <script> and </script> tags)
 _JS_TEMPLATE = """\
 /*I18N_JSON*/
-/* --- TranscriptName ヘルパー --- */
+/* --- TranscriptName 構築ヘルパー（regex なし・fileInfo を使用） --- */
 const TN={
-  FILE_RE:/^transcript-(\\d{8,12})(?:@([^.]+))?\\.txt$/,
-  MEETING_RE:/^transcript-(\\d{12})(?:@([^.]+))?\\.txt$/,
-  isTranscript(f){return TN.FILE_RE.test(f);},
-  isMeeting(f){return TN.MEETING_RE.test(f);},
-  parse(f){const m=f.match(TN.FILE_RE);if(!m)return null;return{dt:m[1],name:m[2]||null};},
   filename(dt,name){return 'transcript-'+dt+(name?'@'+name:'')+'.txt';},
   summaryFilename(dt,name){return 'summary-'+dt+(name?'@'+name:'')+'.md';},
-  translationFilename(dt,name,lang){return 'transcript-'+dt+(name?'@'+name:'')+'-'+lang+'.txt';},
-  meetingGroup(f){const p=TN.parse(f);if(!p||p.dt.length<12)return null;return p.name||'ad-hoc';},
-  fmtDatetime(dt){
-    if(dt.length>=12)return dt.slice(0,4)+'-'+dt.slice(4,6)+'-'+dt.slice(6,8)+' '+dt.slice(8,10)+':'+dt.slice(10,12);
-    if(dt.length>=8)return dt.slice(0,4)+'-'+dt.slice(4,6)+'-'+dt.slice(6,8);
-    return dt;
-  },
-  label(f){const p=TN.parse(f);if(!p)return f;return TN.fmtDatetime(p.dt)+(p.name?'@'+p.name:'');},
-  meetingLabel(f){const p=TN.parse(f);if(!p)return f;return TN.fmtDatetime(p.dt);},
 };
+let fileInfo={}; // /api/files の file_info をキャッシュ
 let curFile='', activeFile='';
 let meetingActive=false, translating=false, muteMic=false, muteMonitor=false, pttActive=false;
 let audioBackend='';
@@ -128,7 +115,7 @@ async function doBulkDel(){
 /* --- File delete modal --- */
 function openFileDelModal(){
   if(!curFile)return;
-  const p=TN.parse(curFile);
+  const fi=fileInfo[curFile];
   const stem=curFile.replace(/\\.txt$/,'');
   const files=[curFile];
   const sel=document.getElementById('fsel');
@@ -136,7 +123,7 @@ function openFileDelModal(){
     const v=opt.value;
     if(v!==curFile && v.startsWith(stem+'-') && v.endsWith('.txt'))files.push(v);
   }
-  if(p)files.push(TN.summaryFilename(p.dt,p.name));
+  if(fi?.summary)files.push(fi.summary);
   files.push(curFile+'.translate_offset');
   const list=document.getElementById('fileDelList');
   list.innerHTML='';
@@ -174,7 +161,7 @@ function openExtractModal(){
   const eSel=document.getElementById('extractExistingSel');
   eSel.innerHTML='';
   Array.from(fsel.options).forEach(o=>{
-    if(o.value&&TN.isMeeting(o.value)){
+    if(o.value&&fileInfo[o.value]?.meeting_group!=null){
       const opt=document.createElement('option');opt.value=o.value;opt.textContent=o.value;eSel.appendChild(opt);
     }
   });
@@ -241,8 +228,9 @@ async function togTranslate(){
 }
 async function regenTranslate(){
   if(!confirm(I18N['dash.translate_regen_confirm']))return;
-  const p=TN.parse(curFile);
-  cmd('translate_regenerate'+(p?' '+p.dt+(p.name?'@'+p.name:''):''));
+  const fi=fileInfo[curFile];
+  const dateArg=fi?(fi.dt+(fi.name?'@'+fi.name:'')):'';
+  cmd('translate_regenerate'+(dateArg?' '+dateArg:''));
   updateTranslateBtn(true);
 }
 
@@ -370,8 +358,9 @@ es.addEventListener('interim_clear',e=>{
 async function loadFiles(){
   try{const r=await fetch('/api/files'),d=await r.json(),s=document.getElementById('fsel'),p=s.value;
   s.innerHTML='';activeFile=d.active||'';
+  fileInfo=d.file_info||{};
   d.files.forEach(f=>{const o=document.createElement('option');o.value=f;
-    o.textContent=TN.label(f)+(f===d.active?' ★':'');s.appendChild(o);});
+    o.textContent=(fileInfo[f]?.label||f)+(f===d.active?' ★':'');s.appendChild(o);});
   s.value=(p&&d.files.includes(p))?p:(d.active||'');curFile=s.value;
   meetingGroups=d.groups||{};
   renderMtgPane();}catch(e){}
@@ -409,7 +398,7 @@ function renderMtgPane(){
     document.getElementById('btnRenameMtgGroup').style.display=curGroup==='ad-hoc'?'none':'';
     const files=(meetingGroups[curGroup]||[]);
     mp.innerHTML=files.map(f=>{
-      const label=TN.meetingLabel(f);
+      const label=fileInfo[f]?.meeting_label||f;
       return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}">${esc(label)}</div>`;
     }).join('');
   }
@@ -740,7 +729,7 @@ async function doRenameMtgGroup(){
   if(meetingGroups[newName])selectMtgGroup(newName);
   setTimeout(closeRenameMtgGroup,800);
 }
-function _isMeetingFile(f){return f&&TN.isMeeting(f);}
+function _isMeetingFile(f){return f&&fileInfo[f]?.meeting_group!=null;}
 function _updateRenameMtgBtn(){
   const btn=document.getElementById('btnRenameMtg');
   if(btn)btn.style.display=_isMeetingFile(curFile)?'':'none';
@@ -748,8 +737,7 @@ function _updateRenameMtgBtn(){
 function openRenameMtg(){
   if(!_isMeetingFile(curFile))return;
   // 現在のファイル名から会議名を抽出
-  const _p=TN.parse(curFile);
-  const curName=_p&&_p.name?_p.name:'';
+  const curName=fileInfo[curFile]?.name||'';
   document.getElementById('renameMtgCurrent').textContent=curFile;
   // 既存グループのドロップダウンを構築
   const sel=document.getElementById('renameMtgSel');
@@ -771,8 +759,8 @@ function onRenameMtgSel(val){
   _updateRenameMtgPreview(val||document.getElementById('renameMtgInput').value);
 }
 function _updateRenameMtgPreview(name){
-  const p=TN.parse(curFile);if(!p)return;
-  document.getElementById('renameMtgPreview').textContent='→ '+TN.filename(p.dt,name||null);
+  const fi=fileInfo[curFile];if(!fi)return;
+  document.getElementById('renameMtgPreview').textContent='→ '+TN.filename(fi.dt,name||null);
 }
 function closeRenameMtg(){document.getElementById('renameMtgModal').classList.remove('open');}
 async function doRenameMtg(){
