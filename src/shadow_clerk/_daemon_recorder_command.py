@@ -1,5 +1,6 @@
 """Shadow-clerk daemon: レコーダーコマンド・キーリスナー ミックスイン"""
 # pylint: disable=duplicate-code  # 各モジュールで必要な optional import ブロックは共通形だが抽象化不可
+from __future__ import annotations
 import datetime
 import json
 import logging
@@ -149,7 +150,7 @@ class _RecorderCommandMixin:
                         {"message": t("dash.alert_cmd_fail", text=text.strip())},
                         ensure_ascii=False))
 
-    def _auto_summarize(self, transcript_path: str):
+    def _auto_summarize(self, transcript_path: str) -> None:
         """会議終了時に自動で議事録を生成する"""
         basename = os.path.basename(transcript_path)
         tn = TranscriptName.parse(basename)
@@ -157,13 +158,15 @@ class _RecorderCommandMixin:
             logger.warning("_auto_summarize: TranscriptName パース失敗: %s", basename)
             return
         summary_path = os.path.join(self._output_dir, tn.summary_filename)
+        summary_name = tn.summary_filename
 
         # summary_source に応じてソースファイルを切り替え
         config = load_config()
         source_path = transcript_path
         if config.get("summary_source") == "translate":
             lang = config.get("translate_language", "ja")
-            tr_path = os.path.join(os.path.dirname(transcript_path), tn.translation_filename(lang))
+            tr_name = tn.translation_filename(lang)
+            tr_path = os.path.join(os.path.dirname(transcript_path), tr_name)
             if os.path.exists(tr_path):
                 source_path = tr_path
                 logger.info("summary_source=translate: 翻訳ファイル使用: %s", tr_name)
@@ -218,8 +221,9 @@ class _RecorderCommandMixin:
         }
         return key_map.get(key_name)
 
-    def _key_listener_thread(self):
+    def _key_listener_thread(self) -> None:
         """pynput でグローバルキー監視を行うスレッド"""
+        from typing import Any
         target_key = self._resolve_pynput_key(self._voice_command_key)
         if target_key is None:
             logger.warning("voice_command_key '%s' を解決できません", self._voice_command_key)
@@ -227,13 +231,13 @@ class _RecorderCommandMixin:
 
         logger.info("キーリスナー開始: %s", self._voice_command_key)
 
-        def on_press(key):
+        def on_press(key: Any) -> None:
             if key == target_key:
                 self._command_mode = True
                 logger.info("コマンドモード ON (%s pressed)", self._voice_command_key)
                 print(t("rec.ptt_on", vkey=self._voice_command_key))
 
-        def on_release(key):
+        def on_release(key: Any) -> None:
             if key == target_key:
                 self._command_mode = False
                 self._command_mode_release_time = time.time()
@@ -340,6 +344,31 @@ class _RecorderCommandMixin:
                 except Exception:
                     pass
 
+    def _resolve_translate_target(self, date_arg: str) -> str | None:
+        """date_arg が指定されていれば transcript パスに解決。空なら None（→ self.output_path を使用）。"""
+        if not date_arg.strip():
+            return None
+        path = os.path.join(self._output_dir, TranscriptName.from_date_str(date_arg.strip()).filename)
+        logger.info("翻訳対象ファイル指定: %s", os.path.basename(path))
+        return path
+
+    def _launch_translate_thread(self, target: str | None, reset_offset: bool) -> None:
+        """翻訳スレッドを起動する。reset_offset=True の場合はオフセットをリセットする。"""
+        transcript = target or self.output_path
+        if reset_offset:
+            offset_file = self._translate_offset_file(transcript)
+            with open(offset_file, "w", encoding="utf-8") as f:
+                f.write("0")
+        # 過去ファイル指定なら one-shot、現在ファイルなら継続ループ
+        loop_target = target if target != self.output_path else None
+        self._translate_stop_event.clear()
+        self._translate_thread = threading.Thread(
+            target=self._translate_loop, args=(loop_target,),
+            name="translate-loop", daemon=True)
+        self._translate_thread.start()
+        logger.info("翻訳スレッド起動: target=%s, reset_offset=%s",
+                    os.path.basename(transcript), reset_offset)
+
     def _broadcast_asr_status(self):
         """ASRバックエンド/モデル変更をSSEで通知"""
         if hasattr(self, "_file_watcher"):
@@ -440,22 +469,20 @@ class _RecorderCommandMixin:
             logger.info("モデル変更完了: %s", model_size)
             print(t("rec.model_changed", model=model_size))
 
-        elif cmd == "translate_start":
+        elif cmd == "translate_start" or cmd.startswith("translate_start "):
+            parts = cmd.split(None, 1)
+            target = self._resolve_translate_target(parts[1] if len(parts) > 1 else "")
             config = load_config()
             provider = get_translation_provider(config)
             if provider in ("api", "libretranslate"):
                 if self._translate_thread and self._translate_thread.is_alive():
                     logger.info("翻訳ループは既に動作中 (provider=%s)", provider)
                 else:
-                    logger.info("翻訳開始: provider=%s", provider)
-                    self._translate_stop_event.clear()
-                    self._translate_thread = threading.Thread(
-                        target=self._translate_loop, name="translate-loop", daemon=True)
-                    self._translate_thread.start()
+                    self._launch_translate_thread(target, reset_offset=False)
             else:
                 self._translating_external = True
                 with open(COMMAND_FILE, "w", encoding="utf-8") as f:
-                    f.write("translate_start")
+                    f.write(cmd)
                 logger.info("翻訳開始: provider=claude (.clerk_command 経由)")
             print(t("rec.translate_start"))
 
@@ -472,44 +499,21 @@ class _RecorderCommandMixin:
                 logger.info("翻訳停止: provider=claude (.clerk_command 経由)")
             print(t("rec.translate_stop"))
 
-
         elif cmd.startswith("translate_regenerate"):
-            # 翻訳中なら停止
-            if self._translate_thread and self._translate_thread.is_alive():
-                self._translate_stop_event.set()
-                self._translate_thread.join(timeout=10)
-                self._translate_thread = None
-
-            config = load_config()
-            lang = config.get("translate_language", "ja")
-            # 引数で日時部分が指定されていればそのファイルを対象にする
             parts = cmd.split(None, 1)
-            if len(parts) > 1 and parts[1].strip():
-                date_part = parts[1].strip()
-                transcript = os.path.join(self._output_dir, TranscriptName.from_date_str(date_part).filename)
-            else:
-                transcript = self.output_path
-
-            # オフセットリセット（翻訳ファイルは _translate_loop 側で上書き）
-            offset_file = self._translate_offset_file(transcript)
-            with open(offset_file, "w", encoding="utf-8") as f:
-                f.write("0")
+            target = self._resolve_translate_target(parts[1] if len(parts) > 1 else "")
+            config = load_config()
             provider = get_translation_provider(config)
-            tr_basename = os.path.basename(transcript)
-            logger.info("翻訳再生成: provider=%s, file=%s, offset リセット", provider, tr_basename)
-
-            # provider に応じて翻訳を再開
+            logger.info("翻訳再生成: provider=%s, file=%s, offset リセット",
+                        provider, os.path.basename(target or self.output_path))
             if provider in ("api", "libretranslate"):
-                self._translate_stop_event.clear()
-                # 過去ファイルは one-shot、現在ファイルはループ
-                target = transcript if transcript != self.output_path else None
-                self._translate_thread = threading.Thread(
-                    target=self._translate_loop, args=(target,),
-                    name="translate-loop", daemon=True)
-                self._translate_thread.start()
+                if self._translate_thread and self._translate_thread.is_alive():
+                    self._translate_stop_event.set()
+                    self._translate_thread.join(timeout=10)
+                    self._translate_thread = None
+                self._launch_translate_thread(target, reset_offset=True)
             else:
                 self._translating_external = True
-                # ファイル情報を含めてコマンドを転送（subagent が拾う）
                 with open(COMMAND_FILE, "w", encoding="utf-8") as f:
                     f.write(cmd)
                 logger.info("翻訳再生成: provider=claude (.clerk_command 経由)")

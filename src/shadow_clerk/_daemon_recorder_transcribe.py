@@ -1,5 +1,6 @@
 """Shadow-clerk daemon: レコーダー文字起こし・翻訳・実行ループ ミックスイン"""
 # pylint: disable=duplicate-code  # 各モジュールで必要な optional import ブロックは共通形だが抽象化不可
+from __future__ import annotations
 import json
 import logging
 import os
@@ -568,7 +569,7 @@ class _RecorderTranscribeMixin:
                     # API エラー時はクライアントをリセットして再接続を試みる
                     client = None
 
-    def run(self):
+    def run(self) -> None:
         """メイン実行"""
         self._setup_signal_handlers()
 

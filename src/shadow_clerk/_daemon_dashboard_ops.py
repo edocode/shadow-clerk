@@ -1,6 +1,6 @@
 """Shadow-clerk daemon: ダッシュボード ファイル操作・設定エンドポイント"""
 # pylint: disable=duplicate-code  # 各モジュールで必要な optional import ブロックは共通形だが抽象化不可
-
+from __future__ import annotations
 import collections
 import json
 import logging
@@ -310,7 +310,7 @@ class _DashboardHandlerOps:
         data_lines.extend(new_lines)
 
         # タイムスタンプでソート（タイムスタンプなし行はそのまま末尾）
-        def sort_key(line):
+        def sort_key(line: str) -> str:
             m = ts_pattern.match(line)
             return m.group(1) if m else "9999"
 
@@ -353,7 +353,7 @@ class _DashboardHandlerOps:
                 existing = f.readlines()
             merged = existing + extracted
 
-            def sort_key(line):
+            def sort_key(line: str) -> str:
                 m = ts_pattern.match(line)
                 return m.group(1) if m else "9999"
             merged.sort(key=sort_key)

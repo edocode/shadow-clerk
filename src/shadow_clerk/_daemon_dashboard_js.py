@@ -222,14 +222,18 @@ function updateTranslateBtn(active){
     btn.className='pri';
   }
 }
+function _curFileArg(){
+  const fi=fileInfo[curFile];
+  return fi?(fi.dt+(fi.name?'@'+fi.name:'')):'';
+}
 async function togTranslate(){
   if(translating){cmd('translate_stop');updateTranslateBtn(false);return;}
-  cmd('translate_start');updateTranslateBtn(true);
+  const dateArg=curFile&&curFile!==activeFile?_curFileArg():'';
+  cmd('translate_start'+(dateArg?' '+dateArg:''));updateTranslateBtn(true);
 }
 async function regenTranslate(){
   if(!confirm(I18N['dash.translate_regen_confirm']))return;
-  const fi=fileInfo[curFile];
-  const dateArg=fi?(fi.dt+(fi.name?'@'+fi.name:'')):'';
+  const dateArg=_curFileArg();
   cmd('translate_regenerate'+(dateArg?' '+dateArg:''));
   updateTranslateBtn(true);
 }

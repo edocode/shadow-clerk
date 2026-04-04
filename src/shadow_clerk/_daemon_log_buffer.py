@@ -1,11 +1,12 @@
 """Shadow-clerk daemon: ログバッファ・ファイルウォッチャー"""
-
+from __future__ import annotations
 import collections
 import json
 import logging
 import os
 import queue
 import threading
+from typing import Any
 from shadow_clerk import DATA_DIR, CONFIG_FILE
 from shadow_clerk._daemon_constants import (
     COMMAND_FILE, SESSION_FILE,
@@ -18,29 +19,29 @@ logger = logging.getLogger("shadow-clerk")
 class LogBuffer(logging.Handler):
     """ログ用の循環バッファ（メモリ内でログ行を保持）"""
 
-    def __init__(self, maxlen=500):
+    def __init__(self, maxlen: int = 500) -> None:
         super().__init__()
-        self._buf = collections.deque(maxlen=maxlen)
+        self._buf: collections.deque[tuple[int, str]] = collections.deque(maxlen=maxlen)
         self._seq = 0
         self._buf_lock = threading.Lock()
 
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord) -> None:
         line = self.format(record)
         with self._buf_lock:
             self._buf.append((self._seq, line))
             self._seq += 1
 
     @property
-    def counter(self):
+    def counter(self) -> int:
         with self._buf_lock:
             return self._seq
 
-    def get_lines(self, n=100):
+    def get_lines(self, n: int = 100) -> list[str]:
         with self._buf_lock:
             items = list(self._buf)
         return [line for _, line in items[-n:]]
 
-    def get_new_lines(self, since):
+    def get_new_lines(self, since: int) -> tuple[list[str], int]:
         with self._buf_lock:
             items = list(self._buf)
             seq = self._seq
@@ -50,34 +51,34 @@ class LogBuffer(logging.Handler):
 class FileWatcher(threading.Thread):
     """ファイル監視 + SSE ブロードキャスト"""
 
-    def __init__(self, recorder, log_buffer):
+    def __init__(self, recorder: Any, log_buffer: LogBuffer) -> None:
         super().__init__(name="file-watcher", daemon=True)
         self._recorder = recorder
         self._log_buffer = log_buffer
-        self._clients = []
+        self._clients: list[queue.Queue[tuple[str, str]]] = []
         self._clients_lock = threading.Lock()
-        self._file_offsets = {}
-        self._mtimes = {}
+        self._file_offsets: dict[tuple[str, str], int] = {}
+        self._mtimes: dict[str, float] = {}
         self._log_counter = 0
-        self._last_status = None
-        self._last_ptt = None
+        self._last_status: bool | None = None
+        self._last_ptt: bool | None = None
 
-    def add_client(self):
-        q = queue.Queue()
+    def add_client(self) -> queue.Queue[tuple[str, str]]:
+        q: queue.Queue[tuple[str, str]] = queue.Queue()
         running = not self._recorder.stop_event.is_set()
         q.put(("recorder_status", json.dumps({"running": running})))
         with self._clients_lock:
             self._clients.append(q)
         return q
 
-    def remove_client(self, q):
+    def remove_client(self, q: queue.Queue[tuple[str, str]]) -> None:
         with self._clients_lock:
             try:
                 self._clients.remove(q)
             except ValueError:
                 pass
 
-    def _broadcast(self, event, data):
+    def _broadcast(self, event: str, data: str) -> None:
         with self._clients_lock:
             for q in self._clients:
                 try:
@@ -85,19 +86,19 @@ class FileWatcher(threading.Thread):
                 except Exception:
                     pass
 
-    def _get_size(self, path):
+    def _get_size(self, path: str) -> int:
         try:
             return os.path.getsize(path)
         except OSError:
             return 0
 
-    def _get_mtime(self, path):
+    def _get_mtime(self, path: str) -> float:
         try:
             return os.path.getmtime(path)
         except OSError:
             return 0
 
-    def _read_diff(self, path, old_size):
+    def _read_diff(self, path: str, old_size: int) -> tuple[str | None, int]:
         try:
             new_size = os.path.getsize(path)
             if new_size <= old_size:
@@ -109,7 +110,7 @@ class FileWatcher(threading.Thread):
         except OSError:
             return None, 0
 
-    def run(self):
+    def run(self) -> None:
         t_path = self._recorder.output_path
         self._file_offsets[("transcript", t_path)] = self._get_size(t_path)
         self._log_counter = self._log_buffer.counter

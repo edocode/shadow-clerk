@@ -1,4 +1,5 @@
 """shadow-clerk LLM client: 設定・API クライアント"""
+from __future__ import annotations
 import logging
 import os
 import sys
@@ -16,7 +17,7 @@ logger = logging.getLogger("llm-client")
 ENV_FILE = os.path.join(DATA_DIR, ".env")
 
 
-def load_dotenv():
+def load_dotenv() -> None:
     """データディレクトリの .env ファイルから環境変数を読み込む。
 
     既に設定済みの環境変数は上書きしない。

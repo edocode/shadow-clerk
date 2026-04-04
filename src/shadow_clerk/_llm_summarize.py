@@ -1,4 +1,5 @@
 """shadow-clerk LLM client: サマリー生成"""
+from __future__ import annotations
 import argparse
 import logging
 import os
@@ -44,7 +45,7 @@ def _get_summary_format():
     return t("llm.summary_format")
 
 
-def summarize(args: argparse.Namespace):
+def summarize(args: argparse.Namespace) -> None:
     """transcript から議事録を生成する。"""
     config = load_config()
     client, model = get_api_client(config)
@@ -114,8 +115,8 @@ def _estimate_tokens(text: str) -> int:
 def _split_transcript_lines(transcript: str, max_tokens: int) -> list[str]:
     """transcript を行単位でチャンクに分割する。各チャンクが max_tokens 以下になるように。"""
     lines = transcript.split("\n")
-    chunks = []
-    current_chunk = []
+    chunks: list[str] = []
+    current_chunk: list[str] = []
     current_tokens = 0
 
     for line in lines:

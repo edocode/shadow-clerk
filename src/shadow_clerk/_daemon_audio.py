@@ -1,4 +1,5 @@
 """Shadow-clerk daemon: 音声バックエンド"""
+from __future__ import annotations
 import logging
 import queue
 import shutil
@@ -16,7 +17,7 @@ class AudioBackend:
     def detect_monitor_source(self) -> str | None:
         raise NotImplementedError
 
-    def list_devices(self):
+    def list_devices(self) -> None:
         raise NotImplementedError
 
 
@@ -48,7 +49,7 @@ class PipeWireBackend(AudioBackend):
         logger.debug("PipeWire: wpctl からノード ID を取得できませんでした。PulseAudio にフォールバックします。")
         return None
 
-    def list_devices(self):
+    def list_devices(self) -> None:
         print(t("rec.pipewire_devices"))
         if shutil.which("wpctl"):
             try:
@@ -79,7 +80,7 @@ class PipeWireBackend(AudioBackend):
         print(t("rec.pw_unavailable"))
 
     def start_monitor_capture(self, target: str, audio_queue: queue.Queue,
-                              stop_event: threading.Event):
+                              stop_event: threading.Event) -> None:
         """pw-record でモニターソースをキャプチャ"""
         cmd = [
             "pw-record", "--target", target,
@@ -90,6 +91,7 @@ class PipeWireBackend(AudioBackend):
         ]
         logger.info("PipeWire monitor capture: %s", " ".join(cmd))
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        assert proc.stdout is not None and proc.stderr is not None
         try:
             while not stop_event.is_set():
                 data = proc.stdout.read(FRAME_SIZE * 2)
@@ -129,7 +131,7 @@ class PulseAudioBackend(AudioBackend):
             pass
         return None
 
-    def list_devices(self):
+    def list_devices(self) -> None:
         print(t("rec.pulseaudio_sources"))
         try:
             result = subprocess.run(
@@ -144,7 +146,7 @@ class PulseAudioBackend(AudioBackend):
             print(t("rec.pa_unavailable"))
 
     def start_monitor_capture(self, source: str, audio_queue: queue.Queue,
-                              stop_event: threading.Event):
+                              stop_event: threading.Event) -> None:
         """parec でモニターソースをキャプチャ"""
         cmd = [
             "parec",
@@ -155,6 +157,7 @@ class PulseAudioBackend(AudioBackend):
         ]
         logger.info("PulseAudio monitor capture: %s", " ".join(cmd))
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        assert proc.stdout is not None and proc.stderr is not None
         try:
             while not stop_event.is_set():
                 data = proc.stdout.read(FRAME_SIZE * 2)
@@ -273,7 +276,7 @@ def find_monitor_device_sd() -> int | None:
     return candidates[0][0]
 
 
-def list_all_devices(backend_name: str, backend: AudioBackend | None):
+def list_all_devices(backend_name: str, backend: AudioBackend | None) -> None:
     """全デバイス一覧表示"""
     import sounddevice as sd
     print(t("rec.sounddevice_devices"))

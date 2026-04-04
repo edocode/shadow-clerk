@@ -1,5 +1,7 @@
 """Shadow-clerk daemon: エントリーポイント"""
+from __future__ import annotations
 import argparse
+from typing import Any
 import atexit
 import logging
 import os
@@ -43,7 +45,7 @@ def _remove_pid_file():
         pass
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Shadow-clerk: Web会議の音声を録音・文字起こし",
     )
@@ -181,7 +183,7 @@ def main():
     recorder = Recorder(args)
 
     # Google Calendar 連携モニター
-    gcal_monitor = None
+    gcal_monitor: Any = None
     if config.get("gcal_integration"):
         try:
             from shadow_clerk.gcal_monitor import GCalMonitor
@@ -189,7 +191,7 @@ def main():
             gcal_monitor = GCalMonitor(config, recorder=recorder)
             gcal_monitor.start()
             DashboardHandler.gcal_monitor = gcal_monitor
-            recorder.gcal_monitor = gcal_monitor
+            recorder.gcal_monitor = gcal_monitor  # type: ignore[attr-defined]
         except Exception as e:
             logger.warning("Google Calendar モニター起動失敗: %s", e)
 

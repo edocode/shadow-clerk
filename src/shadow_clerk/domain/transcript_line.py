@@ -26,7 +26,7 @@ class TranscriptLine:
 
     def format(self) -> str:
         """ファイル書き込み用文字列（末尾改行あり）を返す。"""
-        return f"[{self.timestamp}] [{self.speaker}] {self.text}\n"
+        return f"[{self.timestamp}] [{self.speaker.value}] {self.text}\n"
 
     @classmethod
     def parse(cls, line: str) -> TranscriptLine | None:
