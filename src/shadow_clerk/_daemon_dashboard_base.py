@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import queue
+import re
 import threading
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
