@@ -1,6 +1,7 @@
 """Shadow-clerk daemon: ダッシュボード HTTP ハンドラー（ルーティング・基本エンドポイント）"""
-
+from __future__ import annotations
 import json
+from typing import Any
 import logging
 import os
 import queue
@@ -20,15 +21,15 @@ logger = logging.getLogger("shadow-clerk")
 class _DashboardHandlerBase(BaseHTTPRequestHandler):
     """ダッシュボード HTTP ハンドラー（ルーティング・基本エンドポイント）"""
 
-    recorder = None
-    log_buffer = None
-    file_watcher = None
-    gcal_monitor = None
+    recorder: Any = None
+    log_buffer: Any = None
+    file_watcher: Any = None
+    gcal_monitor: Any = None
 
-    def log_message(self, format, *args):
+    def log_message(self, format: str, *args: object) -> None:
         pass  # suppress default request logging
 
-    def do_GET(self):
+    def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/":
             self._serve_html()
@@ -57,7 +58,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
-    def do_POST(self):
+    def do_POST(self) -> None:
         path = urlparse(self.path).path
         if path == "/api/command":
             self._handle_command()
@@ -247,7 +248,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         logger.info("ダッシュボードからコマンド: %s", cmd)
         self._send_json({"status": "ok", "command": cmd})
 
-    def _get_summary_path(self, transcript_path: str = None) -> str:
+    def _get_summary_path(self, transcript_path: str | None = None) -> str:
         """transcript パスから summary パスを導出する"""
         if transcript_path is None:
             transcript_path = self.recorder.output_path

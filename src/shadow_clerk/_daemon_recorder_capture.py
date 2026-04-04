@@ -1,5 +1,7 @@
 """Shadow-clerk daemon: レコーダー音声キャプチャ・VAD ミックスイン"""
 # pylint: disable=duplicate-code  # 各モジュールで必要な optional import ブロックは共通形だが抽象化不可
+from __future__ import annotations
+import argparse
 import datetime
 import logging
 import os
@@ -9,25 +11,17 @@ import threading
 import time
 import numpy as np
 from shadow_clerk import DATA_DIR
-from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import (
     SAMPLE_RATE, FRAME_SIZE, CHANNELS, DTYPE,
-    COMMAND_FILE, SESSION_FILE, GLOSSARY_FILE,
-    VOICE_CMD_PREFIX, VOICE_CMD_SUFFIX, VOICE_COMMANDS,
+    SESSION_FILE,
     build_wake_word_patterns,
-    pynput_keyboard, _HAS_PYNPUT, evdev, _ecodes, _HAS_EVDEV,
+    _HAS_PYNPUT, _HAS_EVDEV,
 )
-from shadow_clerk._daemon_config import load_config, get_translation_provider, _builtin_command_descs
+from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_audio import detect_backend, find_monitor_device_sd, PulseAudioBackend
 from shadow_clerk._daemon_vad import VADSegmenter
 from shadow_clerk._daemon_transcriber import Transcriber, GlossaryReplacer
-from shadow_clerk._daemon_dashboard import LogBuffer, FileWatcher, DashboardHandler
-
-try:
-    from shadow_clerk.llm_client import get_api_client, load_glossary, load_glossary_replacements, load_dotenv as llm_load_dotenv, _spell_check
-    _HAS_LLM_CLIENT = True
-except ImportError:
-    _HAS_LLM_CLIENT = False
+from shadow_clerk.domain import MeetingSession
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -35,7 +29,7 @@ logger = logging.getLogger("shadow-clerk")
 class _RecorderCaptureMixin:
     """音声キャプチャ・VAD ミックスイン"""
 
-    def __init__(self, args):
+    def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
         self.stop_event = threading.Event()
         self.mic_queue: queue.Queue = queue.Queue()
@@ -117,6 +111,9 @@ class _RecorderCaptureMixin:
         self.mute_mic = False
         self.mute_monitor = False
 
+        # 会議セッション（進行中は MeetingSession、それ以外は None）
+        self.current_session: MeetingSession | None = None
+
         # 翻訳ループ
         self._translate_stop_event = threading.Event()
         self._translate_thread: threading.Thread | None = None
@@ -130,23 +127,25 @@ class _RecorderCaptureMixin:
         filename = datetime.datetime.now().strftime("transcript-%Y%m%d.txt")
         return os.path.join(self._output_dir, filename)
 
-    def _setup_signal_handlers(self):
+    def _setup_signal_handlers(self) -> None:
         import signal
+        import types
 
-        def handler(signum, frame):
+        def handler(signum: int, frame: types.FrameType | None) -> None:
             logger.info("シグナル受信 (%s)、終了処理中...", signal.Signals(signum).name)
             self.stop_event.set()
 
         signal.signal(signal.SIGINT, handler)
         signal.signal(signal.SIGTERM, handler)
 
-    def _mic_capture_thread(self):
+    def _mic_capture_thread(self) -> None:
         """マイク音声キャプチャスレッド"""
+        from typing import Any
         import sounddevice as sd
         mic_device = self.args.mic
         logger.info("マイクキャプチャ開始 (device=%s)", mic_device)
 
-        def callback(indata, frames, time_info, status):
+        def callback(indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
             if status:
                 logger.warning("マイク status: %s", status)
             self.mic_queue.put(indata[:, 0].copy().astype(np.int16))
@@ -169,7 +168,7 @@ class _RecorderCaptureMixin:
             logger.error("マイクキャプチャエラー: %s", e)
             self.use_mic = False
 
-    def _monitor_capture_thread(self):
+    def _monitor_capture_thread(self) -> None:
         """モニター音声キャプチャスレッド"""
         import sounddevice as sd
         # sounddevice でモニターデバイスを探す
@@ -225,11 +224,12 @@ class _RecorderCaptureMixin:
         logger.warning("モニターソースが見つかりません。マイクのみで録音します。")
         self.use_monitor = False
 
-    def _monitor_capture_sounddevice(self, device) -> bool:
+    def _monitor_capture_sounddevice(self, device: int) -> bool:
         """sounddevice でモニターデバイスをキャプチャ。成功なら True、失敗なら False。"""
+        from typing import Any
         import sounddevice as sd
 
-        def callback(indata, frames, time_info, status):
+        def callback(indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
             if status:
                 logger.warning("モニター status: %s", status)
             self.monitor_queue.put(indata[:, 0].copy().astype(np.int16))

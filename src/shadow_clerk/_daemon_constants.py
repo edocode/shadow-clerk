@@ -158,7 +158,7 @@ def build_wake_word_patterns(wake_word: str | None) -> tuple[re.Pattern, re.Patt
     None/空文字の場合は絶対にマッチしないパターンを返す。
     """
     if not wake_word or not wake_word.strip():
-        wake_word = DEFAULT_CONFIG["wake_word"]
+        wake_word = str(DEFAULT_CONFIG["wake_word"])
     pat = _KNOWN_WAKE_PATTERNS.get(wake_word)
     if pat is None:
         pat = _generate_katakana_pattern(wake_word)
@@ -169,7 +169,7 @@ def build_wake_word_patterns(wake_word: str | None) -> tuple[re.Pattern, re.Patt
 
 # デフォルトパターン（後方互換）
 VOICE_CMD_PREFIX, VOICE_CMD_SUFFIX = build_wake_word_patterns(
-    DEFAULT_CONFIG["wake_word"]
+    str(DEFAULT_CONFIG["wake_word"])
 )
 VOICE_COMMANDS = [
     (re.compile(r"(言語設定なし|unset\s*language)", re.IGNORECASE), "unset_language"),

@@ -6,12 +6,14 @@
 依存: google-auth-oauthlib, google-api-python-client
   uv sync --extra gcal
 """
+from __future__ import annotations
 import datetime
 import logging
 import os
 import re
 import threading
 import time
+from typing import Any
 
 from shadow_clerk import DATA_DIR
 from shadow_clerk._daemon_constants import COMMAND_FILE
@@ -87,12 +89,11 @@ def _parse_event_time(event_time: dict) -> datetime.datetime | None:
         dt_str = event_time["dateTime"]
         # タイムゾーンオフセットを除去して UTC naive にする
         try:
-            import email.utils
             dt = datetime.datetime.fromisoformat(dt_str)
             # offset-aware → UTC naive
             if dt.tzinfo is not None:
-                dt = dt.utctimetuple()
-                dt = datetime.datetime(*dt[:6])
+                st = dt.utctimetuple()
+                dt = datetime.datetime(st[0], st[1], st[2], st[3], st[4], st[5])
             return dt
         except ValueError:
             return None
@@ -102,7 +103,7 @@ def _parse_event_time(event_time: dict) -> datetime.datetime | None:
 class GCalMonitor:
     """Google Calendar を定期ポーリングして meeting コマンドを自動送信するスレッド"""
 
-    def __init__(self, config: dict, recorder=None):
+    def __init__(self, config: dict[str, Any], recorder: Any = None) -> None:
         self._config = config
         self._recorder = recorder
         self._stop_event = threading.Event()
@@ -130,7 +131,7 @@ class GCalMonitor:
                 return _sanitize_name(event.get("summary", "meeting"))
         return None
 
-    def start(self):
+    def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
         self._stop_event.clear()
@@ -140,7 +141,7 @@ class GCalMonitor:
         self._thread.start()
         logger.info("Google Calendar モニター起動")
 
-    def stop(self):
+    def stop(self) -> None:
         self._stop_event.set()
         if self._thread:
             self._thread.join(timeout=5)
@@ -211,8 +212,8 @@ class GCalMonitor:
             }
             for e in events
             if (
-                _parse_event_time(e.get("end", {})) is None  # 終日イベント
-                or _parse_event_time(e.get("end", {})) >= now_utc  # 進行中 or 未来
+                (end_t := _parse_event_time(e.get("end", {}))) is None  # 終日イベント
+                or end_t >= now_utc  # 進行中 or 未来
                 or e.get("id", "") in self._processed  # 処理済み（ended など）
             )
         ]
@@ -261,7 +262,7 @@ class GCalMonitor:
         }
 
 
-def run_auth(credentials_file: str, token_file: str | None = None):
+def run_auth(credentials_file: str, token_file: str | None = None) -> Any:
     """OAuth 認証フローを実行してトークンを保存する (clerk-util gcal-auth 用)"""
     token_file = token_file or os.path.join(DATA_DIR, "gcal_token.json")
     credentials_file = os.path.expanduser(credentials_file)

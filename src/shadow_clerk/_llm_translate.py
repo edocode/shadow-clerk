@@ -1,4 +1,5 @@
 """shadow-clerk LLM client: 翻訳"""
+from __future__ import annotations
 import argparse
 import json
 import logging
@@ -111,7 +112,7 @@ def _spell_check(texts: list[str], model_name: str) -> list[str]:
 
 # --- translate サブコマンド ---
 
-def translate(args: argparse.Namespace):
+def translate(args: argparse.Namespace) -> None:
     """transcript を翻訳して stdout に出力する。"""
     config = load_config()
     provider = get_translation_provider(config)
@@ -157,8 +158,8 @@ def translate(args: argparse.Namespace):
 
     # 行をパースして翻訳対象を特定
     input_lines = lines.splitlines()
-    translatable = []
-    line_map = []  # (index, prefix, text) or (index, None, original_line)
+    translatable: list[tuple[int, str]] = []
+    line_map: list[tuple[int, str | None, str]] = []  # (index, prefix, text) or (index, None, original_line)
 
     for i, line in enumerate(input_lines):
         stripped = line.strip()

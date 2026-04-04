@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """shadow-clerk LLM client: OpenAI Compatible API による翻訳・Summary 生成"""
+from __future__ import annotations
 import argparse
 import json
 import logging
@@ -29,7 +30,7 @@ logger = logging.getLogger("llm-client")
 # --- query サブコマンド ---
 
 
-def query(args: argparse.Namespace):
+def query(args: argparse.Namespace) -> None:
     """LLM に自由形式のクエリを投げて結果を stdout に出力する。"""
     config = load_config()
     client, model = get_api_client(config)
@@ -51,7 +52,7 @@ def query(args: argparse.Namespace):
 # --- match-command サブコマンド ---
 
 
-def match_command(args: argparse.Namespace):
+def match_command(args: argparse.Namespace) -> None:
     """stdin から JSON を読み取り、音声テキストに最も近いコマンドを LLM で推測する。"""
     config = load_config()
     client, model = get_api_client(config)
@@ -112,7 +113,7 @@ def match_command(args: argparse.Namespace):
 # --- spell-check サブコマンド ---
 
 
-def spell_check_cmd(args: argparse.Namespace):
+def spell_check_cmd(args: argparse.Namespace) -> None:
     """stdin からテキストを読み取り、誤字訂正して stdout に出力する。"""
     config = load_config()
     model_name = config.get("spell_check_model", "mbyhphat/t5-japanese-typo-correction")
@@ -127,7 +128,7 @@ def spell_check_cmd(args: argparse.Namespace):
 # --- CLI ---
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="shadow-clerk LLM client: OpenAI Compatible API による翻訳・Summary 生成",
     )

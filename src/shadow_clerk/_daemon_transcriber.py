@@ -1,8 +1,9 @@
 """Shadow-clerk daemon: 用語置換・文字起こし"""
-
+from __future__ import annotations
 import logging
 import os
 import re
+from typing import Any
 import numpy as np
 from shadow_clerk._daemon_constants import GLOSSARY_FILE, SAMPLE_RATE
 from shadow_clerk._daemon_config import load_config
@@ -19,7 +20,7 @@ logger = logging.getLogger("shadow-clerk")
 class GlossaryReplacer:
     """glossary.txt の reading → 言語列 によるテキスト置換。ファイル変更時・言語変更時は自動再読み込み。"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._path = GLOSSARY_FILE
         self._replacements: list[tuple[str, str]] = []
         self._mtime: float | None = None
@@ -60,14 +61,14 @@ class Transcriber:
                  beam_size: int = 5, compute_type: str = "int8",
                  device: str = "cpu",
                  ja_asr_config_key: str = "japanese_asr_model",
-                 label: str = "main"):
+                 label: str = "main") -> None:
         self.model_size = model_size
         self.language = language
         self.initial_prompt = initial_prompt
         self.beam_size = beam_size
         self.compute_type = compute_type
         self.device = device
-        self.model = None
+        self.model: Any = None
         self._loaded_model_id: str | None = None
         self._backend: str = "whisper"  # "whisper" or "reazonspeech-k2"
         self._ja_asr_config_key = ja_asr_config_key
@@ -85,7 +86,7 @@ class Transcriber:
                 return ("reazonspeech-k2", "reazonspeech-k2")
         return ("whisper", self.model_size)
 
-    def load_model(self):
+    def load_model(self) -> None:
         backend, model_id = self._resolve_model_id()
         if self.model is not None and self._loaded_model_id == model_id and self._backend == backend:
             return
@@ -119,14 +120,14 @@ class Transcriber:
         self._loaded_model_id = model_id
         logger.info("[%s] モデル読み込み完了: %s", self._label, model_id)
 
-    def reload_model(self, model_size: str):
+    def reload_model(self, model_size: str) -> None:
         self.model_size = model_size
         self.model = None
         self._loaded_model_id = None
         self._backend = "whisper"
         self.load_model()
 
-    def ensure_model_for_language(self):
+    def ensure_model_for_language(self) -> None:
         if self.model is None:
             return
         backend, model_id = self._resolve_model_id()
@@ -150,6 +151,7 @@ class Transcriber:
         """音声セグメントを文字起こし"""
         if self.model is None:
             self.load_model()
+        assert self.model is not None
         if self._backend == "reazonspeech-k2":
             return self._transcribe_k2(audio)
         return self._transcribe_whisper(audio)
