@@ -155,7 +155,7 @@ function openExtractModal(){
   const eSel=document.getElementById('extractExistingSel');
   eSel.innerHTML='';
   Array.from(fsel.options).forEach(o=>{
-    if(o.value&&/^transcript-\\d{12}\\.txt$/.test(o.value)){
+    if(o.value&&/^transcript-\\d{12}(?:@[^.]+)?\\.txt$/.test(o.value)){
       const opt=document.createElement('option');opt.value=o.value;opt.textContent=o.value;eSel.appendChild(opt);
     }
   });
