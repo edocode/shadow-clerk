@@ -344,6 +344,31 @@ class _RecorderCommandMixin:
                 except Exception:
                     pass
 
+    def _resolve_translate_target(self, date_arg: str) -> str | None:
+        """date_arg が指定されていれば transcript パスに解決。空なら None（→ self.output_path を使用）。"""
+        if not date_arg.strip():
+            return None
+        path = os.path.join(self._output_dir, TranscriptName.from_date_str(date_arg.strip()).filename)
+        logger.info("翻訳対象ファイル指定: %s", os.path.basename(path))
+        return path
+
+    def _launch_translate_thread(self, target: str | None, reset_offset: bool) -> None:
+        """翻訳スレッドを起動する。reset_offset=True の場合はオフセットをリセットする。"""
+        transcript = target or self.output_path
+        if reset_offset:
+            offset_file = self._translate_offset_file(transcript)
+            with open(offset_file, "w", encoding="utf-8") as f:
+                f.write("0")
+        # 過去ファイル指定なら one-shot、現在ファイルなら継続ループ
+        loop_target = target if target != self.output_path else None
+        self._translate_stop_event.clear()
+        self._translate_thread = threading.Thread(
+            target=self._translate_loop, args=(loop_target,),
+            name="translate-loop", daemon=True)
+        self._translate_thread.start()
+        logger.info("翻訳スレッド起動: target=%s, reset_offset=%s",
+                    os.path.basename(transcript), reset_offset)
+
     def _broadcast_asr_status(self):
         """ASRバックエンド/モデル変更をSSEで通知"""
         if hasattr(self, "_file_watcher"):
@@ -445,30 +470,19 @@ class _RecorderCommandMixin:
             print(t("rec.model_changed", model=model_size))
 
         elif cmd == "translate_start" or cmd.startswith("translate_start "):
+            parts = cmd.split(None, 1)
+            target = self._resolve_translate_target(parts[1] if len(parts) > 1 else "")
             config = load_config()
             provider = get_translation_provider(config)
-            # 引数でファイルが指定されていればそのファイルを対象にする
-            parts = cmd.split(None, 1)
-            target_transcript: str | None = None
-            if len(parts) > 1 and parts[1].strip():
-                date_part = parts[1].strip()
-                target_transcript = os.path.join(
-                    self._output_dir, TranscriptName.from_date_str(date_part).filename)
-                logger.info("翻訳対象ファイル指定: %s", os.path.basename(target_transcript))
             if provider in ("api", "libretranslate"):
                 if self._translate_thread and self._translate_thread.is_alive():
                     logger.info("翻訳ループは既に動作中 (provider=%s)", provider)
                 else:
-                    logger.info("翻訳開始: provider=%s", provider)
-                    self._translate_stop_event.clear()
-                    self._translate_thread = threading.Thread(
-                        target=self._translate_loop, args=(target_transcript,),
-                        name="translate-loop", daemon=True)
-                    self._translate_thread.start()
+                    self._launch_translate_thread(target, reset_offset=False)
             else:
                 self._translating_external = True
                 with open(COMMAND_FILE, "w", encoding="utf-8") as f:
-                    f.write(cmd)  # ファイル引数も含めて転送
+                    f.write(cmd)
                 logger.info("翻訳開始: provider=claude (.clerk_command 経由)")
             print(t("rec.translate_start"))
 
@@ -485,44 +499,21 @@ class _RecorderCommandMixin:
                 logger.info("翻訳停止: provider=claude (.clerk_command 経由)")
             print(t("rec.translate_stop"))
 
-
         elif cmd.startswith("translate_regenerate"):
-            # 翻訳中なら停止
-            if self._translate_thread and self._translate_thread.is_alive():
-                self._translate_stop_event.set()
-                self._translate_thread.join(timeout=10)
-                self._translate_thread = None
-
-            config = load_config()
-            lang = config.get("translate_language", "ja")
-            # 引数で日時部分が指定されていればそのファイルを対象にする
             parts = cmd.split(None, 1)
-            if len(parts) > 1 and parts[1].strip():
-                date_part = parts[1].strip()
-                transcript = os.path.join(self._output_dir, TranscriptName.from_date_str(date_part).filename)
-            else:
-                transcript = self.output_path
-
-            # オフセットリセット（翻訳ファイルは _translate_loop 側で上書き）
-            offset_file = self._translate_offset_file(transcript)
-            with open(offset_file, "w", encoding="utf-8") as f:
-                f.write("0")
+            target = self._resolve_translate_target(parts[1] if len(parts) > 1 else "")
+            config = load_config()
             provider = get_translation_provider(config)
-            tr_basename = os.path.basename(transcript)
-            logger.info("翻訳再生成: provider=%s, file=%s, offset リセット", provider, tr_basename)
-
-            # provider に応じて翻訳を再開
+            logger.info("翻訳再生成: provider=%s, file=%s, offset リセット",
+                        provider, os.path.basename(target or self.output_path))
             if provider in ("api", "libretranslate"):
-                self._translate_stop_event.clear()
-                # 過去ファイルは one-shot、現在ファイルはループ
-                target = transcript if transcript != self.output_path else None
-                self._translate_thread = threading.Thread(
-                    target=self._translate_loop, args=(target,),
-                    name="translate-loop", daemon=True)
-                self._translate_thread.start()
+                if self._translate_thread and self._translate_thread.is_alive():
+                    self._translate_stop_event.set()
+                    self._translate_thread.join(timeout=10)
+                    self._translate_thread = None
+                self._launch_translate_thread(target, reset_offset=True)
             else:
                 self._translating_external = True
-                # ファイル情報を含めてコマンドを転送（subagent が拾う）
                 with open(COMMAND_FILE, "w", encoding="utf-8") as f:
                     f.write(cmd)
                 logger.info("翻訳再生成: provider=claude (.clerk_command 経由)")
