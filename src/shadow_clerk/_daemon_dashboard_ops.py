@@ -1,4 +1,5 @@
 """Shadow-clerk daemon: ダッシュボード ファイル操作・設定エンドポイント"""
+# pylint: disable=duplicate-code  # 各モジュールで必要な optional import ブロックは共通形だが抽象化不可
 
 import collections
 import json

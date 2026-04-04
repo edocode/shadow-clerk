@@ -3,17 +3,17 @@ import logging
 import os
 import sys
 
-import yaml
 from openai import OpenAI
 
-from shadow_clerk import DATA_DIR, CONFIG_FILE
+from shadow_clerk import DATA_DIR
 from shadow_clerk.i18n import t
+from shadow_clerk._daemon_constants import DEFAULT_CONFIG, GLOSSARY_FILE
+from shadow_clerk._daemon_config import load_config, get_translation_provider
 
 logger = logging.getLogger("llm-client")
 
 # --- データディレクトリ ---
 ENV_FILE = os.path.join(DATA_DIR, ".env")
-GLOSSARY_FILE = os.path.join(DATA_DIR, "glossary.txt")
 
 
 def load_dotenv():
@@ -43,47 +43,6 @@ def load_dotenv():
                     os.environ[key] = value
     except Exception as e:
         print(t("err.dotenv_load_fail", error=e), file=sys.stderr)
-
-
-DEFAULT_CONFIG = {
-    "translate_language": "ja",
-    "auto_translate": False,
-    "auto_summary": False,
-    "default_language": None,
-    "default_model": "small",
-    "output_directory": None,
-    "llm_provider": "claude",
-    "api_endpoint": None,
-    "api_model": None,
-    "api_key_env": "SHADOW_CLERK_API_KEY",
-    "custom_commands": [],
-    "initial_prompt": None,
-    "voice_command_key": "f23",
-    "wake_word": "シェルク",
-    "ui_language": "ja",
-    "translation_provider": None,
-    "libretranslate_endpoint": None,
-    "libretranslate_api_key": None,
-    "libretranslate_spell_check": False,
-    "spell_check_model": "mbyhphat/t5-japanese-typo-correction",
-    "summary_source": "transcript",
-    "summary_length": "half",
-}
-
-
-def load_config() -> dict:
-    """config.yaml を読み込む。ファイルがなければデフォルト値を返す。"""
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                user_config = yaml.safe_load(f)
-            if isinstance(user_config, dict):
-                merged = dict(DEFAULT_CONFIG)
-                merged.update(user_config)
-                return merged
-        except Exception as e:
-            print(t("err.config_load_fail", error=e), file=sys.stderr)
-    return dict(DEFAULT_CONFIG)
 
 
 def resolve_path(filename: str, config: dict) -> str:
@@ -133,11 +92,3 @@ def get_api_client(config: dict) -> tuple[OpenAI, str]:
                  endpoint, model, api_key[:8] if len(api_key) > 8 else "***")
     client = OpenAI(base_url=endpoint, api_key=api_key)
     return client, model
-
-
-def get_translation_provider(config: dict) -> str:
-    """翻訳プロバイダーを返す。translation_provider が未設定なら llm_provider にフォールバック。"""
-    provider = config.get("translation_provider")
-    if provider:
-        return provider
-    return config.get("llm_provider", "claude")
