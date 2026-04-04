@@ -18,6 +18,9 @@ uv run clerk-util                # Utility commands (dev)
 
 # Syntax check (no test suite)
 uv run python -m py_compile src/shadow_clerk/<file>.py
+
+# Post-implementation checks (run after any non-trivial change)
+make dupcheck                    # Duplicate code detection (pylint R0801)
 ```
 
 ## Coding Conventions
@@ -29,6 +32,9 @@ uv run python -m py_compile src/shadow_clerk/<file>.py
 - **DRY Principle**: Extract and reuse common logic, but avoid over-abstraction
 - **Check existing utilities**: Before creating new helpers, verify no equivalent exists in existing modules
 - **Post-implementation verification**: Cross-check with original requirements after implementation
+- **Duplicate check**: Run `make dupcheck` after implementation to detect copy-paste duplication
+- **Dead code removal**: After implementation, scan for unused imports, unreachable branches, and dead variables — delete them
+- **Keep code compact**: Avoid redundant comments, unnecessary intermediate variables, and speculative abstractions. If it fits in one expression, don't split it. Prefer removing code over leaving it disabled or commented out
 - Do what was asked; nothing more, nothing less
 - Minimize new file creation; prefer editing existing files
 
@@ -43,9 +49,11 @@ uv run python -m py_compile src/shadow_clerk/<file>.py
 - Entry points: `clerk-daemon` (recording/transcription daemon), `clerk-util` (data directory operations & process management)
 
 ### Domain Model (DDD)
+- Design and implement domain concepts following DDD principles
 - Value objects go in `domain/` subpackage (`src/shadow_clerk/domain/`)
 - Use `@dataclass(frozen=True)` for value objects; `Enum` for constrained string types (Speaker, Language, etc.)
 - Prefer value objects over raw strings/dicts for domain concepts: `TranscriptLine`, `MeetingSession`, `Summary`, `Translation`
+- Do not pass raw `dict` or `str` across layer boundaries when a value object exists for that concept
 
 ### i18n
 - All user-facing strings go through `i18n.py` with `t()` function
