@@ -87,7 +87,6 @@ def _parse_event_time(event_time: dict) -> datetime.datetime | None:
         dt_str = event_time["dateTime"]
         # タイムゾーンオフセットを除去して UTC naive にする
         try:
-            import email.utils
             dt = datetime.datetime.fromisoformat(dt_str)
             # offset-aware → UTC naive
             if dt.tzinfo is not None:

@@ -1,6 +1,5 @@
 """Shadow-clerk daemon: レコーダー文字起こし・翻訳・実行ループ ミックスイン"""
 # pylint: disable=duplicate-code  # 各モジュールで必要な optional import ブロックは共通形だが抽象化不可
-import datetime
 import json
 import logging
 import os
@@ -9,13 +8,11 @@ import re
 import subprocess
 import sys
 import threading
-import time
 import urllib.request
 from http.server import ThreadingHTTPServer
-import numpy as np
 
 try:
-    from shadow_clerk.llm_client import get_api_client, load_glossary, load_glossary_replacements, load_dotenv as llm_load_dotenv, _spell_check
+    from shadow_clerk.llm_client import get_api_client, load_glossary, load_dotenv as llm_load_dotenv, _spell_check
     _HAS_LLM_CLIENT = True
 except ImportError:
     _HAS_LLM_CLIENT = False
@@ -23,15 +20,13 @@ except ImportError:
 from shadow_clerk import DATA_DIR
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import (
-    SAMPLE_RATE, FRAME_SIZE, CHANNELS, DTYPE,
-    COMMAND_FILE, SESSION_FILE, GLOSSARY_FILE,
-    VOICE_CMD_PREFIX, VOICE_CMD_SUFFIX, VOICE_COMMANDS,
-    pynput_keyboard, _HAS_PYNPUT, evdev, _ecodes, _HAS_EVDEV,
+    SAMPLE_RATE, COMMAND_FILE, SESSION_FILE,
+    _HAS_PYNPUT, evdev, _HAS_EVDEV,
 )
 from shadow_clerk._daemon_config import load_config, get_translation_provider
 
 from shadow_clerk._daemon_vad import VADSegmenter
-from shadow_clerk._daemon_transcriber import Transcriber, GlossaryReplacer
+from shadow_clerk._daemon_transcriber import Transcriber
 from shadow_clerk._daemon_dashboard import LogBuffer, FileWatcher, DashboardHandler
 from shadow_clerk.domain import Speaker, TranscriptLine, Translation
 from shadow_clerk._transcript_name import TranscriptName

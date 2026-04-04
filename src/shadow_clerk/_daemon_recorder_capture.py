@@ -9,26 +9,17 @@ import threading
 import time
 import numpy as np
 from shadow_clerk import DATA_DIR
-from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import (
     SAMPLE_RATE, FRAME_SIZE, CHANNELS, DTYPE,
-    COMMAND_FILE, SESSION_FILE, GLOSSARY_FILE,
-    VOICE_CMD_PREFIX, VOICE_CMD_SUFFIX, VOICE_COMMANDS,
+    SESSION_FILE,
     build_wake_word_patterns,
-    pynput_keyboard, _HAS_PYNPUT, evdev, _ecodes, _HAS_EVDEV,
+    _HAS_PYNPUT, _HAS_EVDEV,
 )
-from shadow_clerk._daemon_config import load_config, get_translation_provider, _builtin_command_descs
+from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_audio import detect_backend, find_monitor_device_sd, PulseAudioBackend
 from shadow_clerk._daemon_vad import VADSegmenter
 from shadow_clerk._daemon_transcriber import Transcriber, GlossaryReplacer
-from shadow_clerk._daemon_dashboard import LogBuffer, FileWatcher, DashboardHandler
 from shadow_clerk.domain import MeetingSession
-
-try:
-    from shadow_clerk.llm_client import get_api_client, load_glossary, load_glossary_replacements, load_dotenv as llm_load_dotenv, _spell_check
-    _HAS_LLM_CLIENT = True
-except ImportError:
-    _HAS_LLM_CLIENT = False
 
 logger = logging.getLogger("shadow-clerk")
 

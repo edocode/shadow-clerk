@@ -10,17 +10,11 @@ import sys
 import threading
 import time
 
-try:
-    from shadow_clerk.llm_client import get_api_client, load_glossary, load_glossary_replacements, load_dotenv as llm_load_dotenv, _spell_check
-    _HAS_LLM_CLIENT = True
-except ImportError:
-    _HAS_LLM_CLIENT = False
-
 from shadow_clerk.i18n import t
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain import MeetingSession
 from shadow_clerk._daemon_constants import (
-    SAMPLE_RATE, COMMAND_FILE, SESSION_FILE, GLOSSARY_FILE,
+    COMMAND_FILE, SESSION_FILE,
     VOICE_CMD_PREFIX, VOICE_CMD_SUFFIX, VOICE_COMMANDS,
     build_wake_word_patterns,
     pynput_keyboard, _HAS_PYNPUT, evdev, _ecodes, _HAS_EVDEV,
