@@ -149,10 +149,7 @@ function _dtPlusDays(dateStr,n){
   d.setDate(d.getDate()+n);
   return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
 }
-function _mtgLabel(f){
-  const fi=fileInfo[f];if(!fi)return f;
-  return fi.meeting_label+(fi.name?` @${fi.name}`:'');
-}
+
 function openExtractModal(){
   const sel=getSelectedLines();if(sel.length!==2)return;
   const ts0=sel[0].dataset.ts||'';const ts1=sel[1].dataset.ts||'';
@@ -175,7 +172,7 @@ function openExtractModal(){
     const fi=fileInfo[f];
     if(fi?.meeting_group==null)return;
     if(near&&!near.has((fi.dt||'').substring(0,8)))return;
-    const opt=document.createElement('option');opt.value=f;opt.textContent=_mtgLabel(f);eSel.appendChild(opt);
+    const opt=document.createElement('option');opt.value=f;opt.textContent=(fileInfo[f]?.label||f);eSel.appendChild(opt);
   });
   // 既存グループ名 select
   const gSel=document.getElementById('extractGroupSel');
@@ -411,7 +408,7 @@ async function loadFiles(){
   d.files.forEach(f=>{
     if(!shown.has(f))return;
     const o=document.createElement('option');o.value=f;
-    o.textContent=_mtgLabel(f)+(f===d.active?' ★':'');s.appendChild(o);
+    o.textContent=(fileInfo[f]?.label||f)+(f===d.active?' ★':'');s.appendChild(o);
   });
   s.value=(p&&shown.has(p))?p:(d.active||'');curFile=s.value;
   populateYearSelect();
@@ -474,7 +471,7 @@ function renderDatePane(){
     return;
   }
   dp.innerHTML=files.map(([f])=>
-    `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}">${esc(_mtgLabel(f))}</div>`
+    `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}">${esc((fileInfo[f]?.label||f))}</div>`
   ).join('');
 }
 /* --- 検索 --- */
@@ -552,7 +549,7 @@ function renderMtgPane(){
     document.getElementById('btnRenameMtgGroup').style.display=curGroup==='ad-hoc'?'none':'';
     const files=(meetingGroups[curGroup]||[]);
     mp.innerHTML=files.map(f=>{
-      return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}">${esc(_mtgLabel(f))}</div>`;
+      return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}">${esc((fileInfo[f]?.label||f))}</div>`;
     }).join('');
   }
 }
@@ -568,7 +565,7 @@ function selectMtgFile(file){
     .forEach(f=>{
       if(existing.has(f))return;
       const o=document.createElement('option');o.value=f;
-      o.textContent=_mtgLabel(f)+(f===activeFile?' ★':'');
+      o.textContent=(fileInfo[f]?.label||f)+(f===activeFile?' ★':'');
       fsel.appendChild(o);
     });
   fsel.value=file;onSel();_updateRenameMtgBtn();

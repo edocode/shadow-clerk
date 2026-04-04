@@ -114,9 +114,9 @@ class TranscriptName:
 
     @property
     def label(self) -> str:
-        """ファイルセレクター用: "YYYY-MM-DD HH:MM@name" or "YYYY-MM-DD" """
+        """ファイルセレクター用: "YYYY-MM-DD HH:MM @name" or "YYYY-MM-DD HH:MM" or "YYYY-MM-DD" """
         dt = self._fmt_datetime()
-        return f"{dt}@{self.meeting_name}" if self.meeting_name else dt
+        return f"{dt} @{self.meeting_name}" if self.meeting_name else dt
 
     @property
     def meeting_label(self) -> str:
