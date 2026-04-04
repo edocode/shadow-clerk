@@ -11,6 +11,7 @@ import sys
 import time
 
 from shadow_clerk import DATA_DIR, CONFIG_FILE, get_data_dir, get_skill_dir
+from shadow_clerk._transcript_name import TranscriptName
 
 # config.yaml から output_directory を読む
 OUTPUT_DIR = DATA_DIR
@@ -385,25 +386,28 @@ def cmd_summarize(args):
         else:
             i += 1
 
-    # transcript-YYYYMMDD.txt 形式のファイル名から日付を抽出
-    if date_str and re.match(r"transcript-\d+\.txt$", date_str):
-        date_str = date_str.replace("transcript-", "").replace(".txt", "")
+    # transcript-*.txt 形式のファイル名 → TranscriptName で解析
+    if date_str and (tn := TranscriptName.parse(date_str)):
+        pass
+    elif date_str:
+        tn = TranscriptName.from_date_str(date_str)
+    else:
+        tn = None
 
     # 日付が未指定の場合: .clerk_session → 今日の日付
-    if date_str is None:
+    if tn is None:
         session_file = os.path.join(DATA_DIR, ".clerk_session")
         if os.path.isfile(session_file):
             with open(session_file) as f:
                 session_name = f.read().strip()
             if session_name:
-                # transcript-YYYYMMDDHHMM.txt → YYYYMMDDHHMM
-                date_str = session_name.replace("transcript-", "").replace(".txt", "")
-        if date_str is None:
-            date_str = datetime.datetime.now().strftime("%Y%m%d")
+                tn = TranscriptName.parse(os.path.basename(session_name))
+        if tn is None:
+            tn = TranscriptName(datetime.datetime.now().strftime("%Y%m%d"))
 
     # ファイルパス解決
-    transcript_name = f"transcript-{date_str}.txt"
-    summary_name = f"summary-{date_str}.md"
+    transcript_name = tn.filename
+    summary_name = tn.summary_filename
     transcript_path = os.path.join(OUTPUT_DIR, transcript_name)
     summary_path = os.path.join(OUTPUT_DIR, summary_name)
 
@@ -416,7 +420,7 @@ def cmd_summarize(args):
         summary_source = config.get("summary_source", "transcript")
         if summary_source == "translate":
             translate_lang = config.get("translate_language", "en")
-            translation_name = f"transcript-{date_str}-{translate_lang}.txt"
+            translation_name = tn.translation_filename(translate_lang)
             translation_path = os.path.join(OUTPUT_DIR, translation_name)
             if os.path.isfile(translation_path):
                 source_path = translation_path

@@ -45,8 +45,9 @@ cd shadow-clerk
 | Basic | `uv tool install -e .` |
 | + ReazonSpeech | `uv tool install -e ".[reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 | + Spell check | `uv tool install -e ".[spell-check]"` |
+| + Both (ReazonSpeech + Spell check) | `uv tool install -e ".[spell-check,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 | + Google Calendar | `uv tool install -e ".[gcal]"` |
-| + Both | `uv tool install -e ".[spell-check,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| All | `uv tool install -e ".[spell-check,gcal,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 
 > **Note:** `uv tool install` maintains a single environment per tool. When reinstalling with different extras, use `--force` — without it, `uv tool install` reports "already installed" and does not add the extra. Only the extras specified in the command are included; previously installed extras are removed.
 
@@ -57,8 +58,9 @@ cd shadow-clerk
 | Basic | `uv sync` |
 | + ReazonSpeech | `uv sync --extra reazonspeech` |
 | + Spell check | `uv sync --extra spell-check` |
+| + Both (ReazonSpeech + Spell check) | `uv sync --extra spell-check --extra reazonspeech` |
 | + Google Calendar | `uv sync --extra gcal` |
-| + Both | `uv sync --extra spell-check --extra reazonspeech` |
+| All | `uv sync --extra spell-check --extra gcal --extra reazonspeech` |
 
 This is all you need for transcription. The following optional extras are available:
 

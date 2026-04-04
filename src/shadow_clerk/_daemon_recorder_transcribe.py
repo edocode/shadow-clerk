@@ -1,4 +1,5 @@
 """Shadow-clerk daemon: レコーダー文字起こし・翻訳・実行ループ ミックスイン"""
+# pylint: disable=duplicate-code  # 各モジュールで必要な optional import ブロックは共通形だが抽象化不可
 import datetime
 import json
 import logging

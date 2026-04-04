@@ -1,4 +1,5 @@
 """Shadow-clerk daemon: レコーダーコマンド・キーリスナー ミックスイン"""
+# pylint: disable=duplicate-code  # 各モジュールで必要な optional import ブロックは共通形だが抽象化不可
 import datetime
 import json
 import logging
@@ -16,6 +17,7 @@ except ImportError:
     _HAS_LLM_CLIENT = False
 
 from shadow_clerk.i18n import t
+from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk._daemon_constants import (
     SAMPLE_RATE, COMMAND_FILE, SESSION_FILE, GLOSSARY_FILE,
     VOICE_CMD_PREFIX, VOICE_CMD_SUFFIX, VOICE_COMMANDS,
@@ -155,16 +157,18 @@ class _RecorderCommandMixin:
     def _auto_summarize(self, transcript_path: str):
         """会議終了時に自動で議事録を生成する"""
         basename = os.path.basename(transcript_path)
-        summary_name = basename.replace("transcript-", "summary-").replace(".txt", ".md")
-        summary_path = os.path.join(self._output_dir, summary_name)
+        tn = TranscriptName.parse(basename)
+        if tn is None:
+            logger.warning("_auto_summarize: TranscriptName パース失敗: %s", basename)
+            return
+        summary_path = os.path.join(self._output_dir, tn.summary_filename)
 
         # summary_source に応じてソースファイルを切り替え
         config = load_config()
         source_path = transcript_path
         if config.get("summary_source") == "translate":
             lang = config.get("translate_language", "ja")
-            tr_name = basename.replace(".txt", f"-{lang}.txt")
-            tr_path = os.path.join(os.path.dirname(transcript_path), tr_name)
+            tr_path = os.path.join(os.path.dirname(transcript_path), tn.translation_filename(lang))
             if os.path.exists(tr_path):
                 source_path = tr_path
                 logger.info("summary_source=translate: 翻訳ファイル使用: %s", tr_name)
@@ -480,7 +484,7 @@ class _RecorderCommandMixin:
             parts = cmd.split(None, 1)
             if len(parts) > 1 and parts[1].strip():
                 date_part = parts[1].strip()
-                transcript = os.path.join(self._output_dir, f"transcript-{date_part}.txt")
+                transcript = os.path.join(self._output_dir, TranscriptName.from_date_str(date_part).filename)
             else:
                 transcript = self.output_path
 

@@ -1,4 +1,5 @@
 """Shadow-clerk daemon: ダッシュボード ファイル操作・設定エンドポイント"""
+# pylint: disable=duplicate-code  # 各モジュールで必要な optional import ブロックは共通形だが抽象化不可
 
 import collections
 import json
@@ -12,6 +13,7 @@ import yaml
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import GLOSSARY_FILE, DEFAULT_CONFIG
 from shadow_clerk._daemon_config import load_config
+from shadow_clerk._transcript_name import TranscriptName
 
 try:
     from shadow_clerk.llm_client import load_dotenv as llm_load_dotenv
@@ -66,13 +68,14 @@ class _DashboardHandlerOps:
         if timestamps:
             config = load_config()
             lang = config.get("translate_language", "ja")
-            tr_name = os.path.basename(t_path).replace(".txt", f"-{lang}.txt")
-            tr_path = os.path.join(os.path.dirname(t_path), tr_name)
-            if os.path.exists(tr_path):
-                self._remove_lines_from_file_by_ts(tr_path, timestamps)
-                tr_key = ("translation", tr_path)
-                if self.file_watcher and tr_key in self.file_watcher._file_offsets:
-                    self.file_watcher._file_offsets[tr_key] = self._get_file_size(tr_path)
+            _tn = TranscriptName.parse(os.path.basename(t_path))
+            if _tn:
+                tr_path = os.path.join(os.path.dirname(t_path), _tn.translation_filename(lang))
+                if os.path.exists(tr_path):
+                    self._remove_lines_from_file_by_ts(tr_path, timestamps)
+                    tr_key = ("translation", tr_path)
+                    if self.file_watcher and tr_key in self.file_watcher._file_offsets:
+                        self.file_watcher._file_offsets[tr_key] = self._get_file_size(tr_path)
 
         # FileWatcher のオフセットをリセット
         t_key = ("transcript", t_path)
@@ -119,28 +122,29 @@ class _DashboardHandlerOps:
             self._send_json({"status": "error", "message": t("dash.delete_error")})
             return
 
-        # 日付部分を抽出 (transcript-YYYYMMDD.txt → YYYYMMDD, transcript-YYYYMMDDHHMM.txt → YYYYMMDDHHMM)
         base = os.path.basename(t_path)
-        stem = base.rsplit(".", 1)[0]  # transcript-YYYYMMDD
+        tn = TranscriptName.parse(base)
 
-        # 2. 全翻訳ファイル (transcript-YYYYMMDD-*.txt) を削除
-        for f in os.listdir(output_dir):
-            if f.startswith(stem + "-") and f.endswith(".txt"):
-                fp = os.path.join(output_dir, f)
-                try:
-                    os.remove(fp)
-                    deleted.append(f)
-                except OSError:
-                    pass
+        # 2. 全翻訳ファイル (transcript-YYYYMMDD[@name]-*.txt) を削除
+        if tn:
+            for f in os.listdir(output_dir):
+                if f.startswith(tn.stem + "-") and f.endswith(".txt"):
+                    fp = os.path.join(output_dir, f)
+                    try:
+                        os.remove(fp)
+                        deleted.append(f)
+                    except OSError:
+                        pass
 
-        # 3. summary ファイル削除 (summary-YYYYMMDD.md or summary-YYYYMMDDHHMM.md)
-        date_part = stem.replace("transcript-", "")
-        summary_name = f"summary-{date_part}.md"
-        summary_path = os.path.join(output_dir, summary_name)
-        if os.path.exists(summary_path):
+        # 3. summary ファイル削除
+        if tn:
+            summary_path = os.path.join(output_dir, tn.summary_filename)
+        else:
+            summary_path = None
+        if summary_path and os.path.exists(summary_path):
             try:
                 os.remove(summary_path)
-                deleted.append(summary_name)
+                deleted.append(os.path.basename(summary_path))
             except OSError:
                 pass
 
@@ -154,14 +158,15 @@ class _DashboardHandlerOps:
                 pass
 
         # 5. FileWatcher オフセットから当該エントリ削除
+        trans_prefix = os.path.join(output_dir, tn.stem + "-") if tn else None
         if self.file_watcher:
             keys_to_remove = [k for k in self.file_watcher._file_offsets
-                              if k[1] == t_path or k[1].startswith(os.path.join(output_dir, stem + "-"))]
+                              if k[1] == t_path or (trans_prefix and k[1].startswith(trans_prefix))]
             for k in keys_to_remove:
                 del self.file_watcher._file_offsets[k]
             # mtime キャッシュもクリア
             keys_to_remove_mt = [k for k in self.file_watcher._mtimes
-                                 if k == t_path or k.startswith(os.path.join(output_dir, stem + "-"))]
+                                 if k == t_path or (trans_prefix and k.startswith(trans_prefix))]
             for k in keys_to_remove_mt:
                 del self.file_watcher._mtimes[k]
 
@@ -219,9 +224,8 @@ class _DashboardHandlerOps:
 
             # 会議ファイル名の決定
             if target == "new":
-                # transcript-YYYYMMDDHHMM.txt 形式
                 meeting_ts = start_ts.replace("-", "").replace(" ", "").replace(":", "")[:12]
-                meeting_name = f"transcript-{meeting_ts}.txt"
+                meeting_name = TranscriptName(meeting_ts).filename
                 meeting_path = os.path.join(output_dir, meeting_name)
                 # 会議開始/終了マーカー付きで作成
                 with open(meeting_path, "w", encoding="utf-8") as f:
@@ -258,11 +262,11 @@ class _DashboardHandlerOps:
             # 翻訳ファイルも同様に処理
             config = load_config()
             lang = config.get("translate_language", "ja")
-            tr_name = os.path.basename(t_path).replace(".txt", f"-{lang}.txt")
-            tr_path = os.path.join(output_dir, tr_name)
-            meeting_tr_name = meeting_name.replace(".txt", f"-{lang}.txt")
-            meeting_tr_path = os.path.join(output_dir, meeting_tr_name)
-            if os.path.exists(tr_path):
+            _src_tn = TranscriptName.parse(os.path.basename(t_path))
+            _mtg_tn = TranscriptName.parse(meeting_name)
+            tr_path = os.path.join(output_dir, _src_tn.translation_filename(lang)) if _src_tn else None
+            meeting_tr_path = os.path.join(output_dir, _mtg_tn.translation_filename(lang)) if _mtg_tn else None
+            if tr_path and os.path.exists(tr_path):
                 self._extract_translation_lines(
                     tr_path, meeting_tr_path, start_ts, end_ts,
                     is_new=(target == "new"),
@@ -270,6 +274,8 @@ class _DashboardHandlerOps:
 
         # FileWatcher オフセットリセット
         for ftype, fpath in [("transcript", t_path), ("translation", tr_path)]:
+            if fpath is None:
+                continue
             fkey = (ftype, fpath)
             if self.file_watcher and fkey in self.file_watcher._file_offsets:
                 self.file_watcher._file_offsets[fkey] = self._get_file_size(fpath)
@@ -511,18 +517,14 @@ class _DashboardHandlerOps:
             return
 
         # meeting ファイル（HHMM 付き）のみ対象
-        import re as _re
-        m = _re.match(r'^(transcript-\d{12})(?:@.+)?(\.txt)$', file_param)
-        if not m:
+        old_tn = TranscriptName.parse(file_param)
+        if not old_tn or not old_tn.is_meeting_file:
             self._send_json({"status": "error", "message": "Not a meeting file"})
             return
 
-        stem = m.group(1)  # "transcript-YYYYMMDDHHMM"
         output_dir = self.recorder._output_dir
-
-        # 新ファイル名のベース (@ なしなら ad-hoc 扱い、名前あれば @name)
-        new_suffix = f"@{new_name}" if new_name else ""
-        new_stem = f"{stem}{new_suffix}"
+        new_tn = old_tn.with_name(new_name or None)
+        new_stem = new_tn.stem
 
         renamed = []
         errors = []
@@ -537,10 +539,8 @@ class _DashboardHandlerOps:
                 except OSError as e:
                     errors.append(str(e))
 
-        # 旧 stem に一致するファイルを収集してリネーム
-        old_pattern = _re.compile(
-            r'^' + _re.escape(stem) + r'(?:@[^.]+)?'
-        )
+        # 旧 datetime_stem に一致するファイルを収集してリネーム
+        old_pattern = old_tn.related_file_pattern
         try:
             all_files = os.listdir(output_dir)
         except OSError:
@@ -553,13 +553,11 @@ class _DashboardHandlerOps:
             # transcript-YYYYMMDDHHMM[@old]-ja.txt  (翻訳)
             # transcript-YYYYMMDDHHMM[@old].txt.translate_offset
             # summary-YYYYMMDDHHMM[@old].md
-            rest = old_pattern.sub('', fname)  # e.g. ".txt", "-ja.txt", ".md"
+            rest = old_pattern.sub('', fname)
             if fname.startswith("transcript-"):
                 new_fname = new_stem + rest
             elif fname.startswith("summary-"):
-                sum_stem = stem.replace("transcript-", "summary-")
-                new_sum_stem = new_stem.replace("transcript-", "summary-")
-                new_fname = new_sum_stem + rest
+                new_fname = new_tn.summary_stem + rest
             else:
                 continue
             if fname != new_fname:
@@ -569,7 +567,7 @@ class _DashboardHandlerOps:
             self._send_json({"status": "error", "message": "; ".join(errors)})
             return
 
-        new_transcript = f"{new_stem}.txt"
+        new_transcript = new_tn.filename
         logger.info("会議リネーム: %s → %s (%d files)", file_param, new_transcript, len(renamed))
         self._send_json({"status": "ok", "new_file": new_transcript, "renamed": len(renamed)})
 
