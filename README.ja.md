@@ -45,7 +45,9 @@ cd shadow-clerk
 | 基本 | `uv tool install -e .` |
 | + ReazonSpeech | `uv tool install -e ".[reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 | + スペルチェック | `uv tool install -e ".[spell-check]"` |
-| + 両方 | `uv tool install -e ".[spell-check,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| + 両方 (ReazonSpeech + スペルチェック) | `uv tool install -e ".[spell-check,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| + Google Calendar | `uv tool install -e ".[gcal]"` |
+| すべて | `uv tool install -e ".[spell-check,gcal,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 
 > **注意:** `uv tool install` はツールごとに1つの環境を管理します。異なる extras で再インストールする場合は `--force` を付けてください。`--force` なしでは「already installed」と表示され、extra が追加されません。指定した extras のみが含まれ、以前の extras は削除されます。
 
@@ -56,7 +58,9 @@ cd shadow-clerk
 | 基本 | `uv sync` |
 | + ReazonSpeech | `uv sync --extra reazonspeech` |
 | + スペルチェック | `uv sync --extra spell-check` |
-| + 両方 | `uv sync --extra spell-check --extra reazonspeech` |
+| + 両方 (ReazonSpeech + スペルチェック) | `uv sync --extra spell-check --extra reazonspeech` |
+| + Google Calendar | `uv sync --extra gcal` |
+| すべて | `uv sync --extra spell-check --extra gcal --extra reazonspeech` |
 
 これだけで文字起こし機能が使える。以下のオプション extras も利用可能:
 
@@ -100,6 +104,31 @@ spell_check_model: mbyhphat/t5-japanese-typo-correction  # デフォルト
 ```
 
 誤字訂正モデルは初回使用時に自動ダウンロードされる。音声認識の誤字を補正してから LibreTranslate に送信する。
+
+### オプション: Google Calendar 連携
+
+Google カレンダーのスケジュールに基づいて会議セッションを自動開始・終了する。`gcal` extra が必要:
+
+```bash
+uv tool install -e ".[gcal]"
+# 開発用:
+uv sync --extra gcal
+```
+
+認証と設定:
+
+```bash
+# 初回のみ OAuth 認証（ブラウザが開く）
+clerk-util gcal-auth ~/credentials.json
+
+# config を有効化（gcal-auth 成功時に自動設定される）
+clerk-util write-config-value gcal_integration true
+clerk-util write-config-value gcal_credentials_file ~/credentials.json
+```
+
+有効にすると、clerk-daemon が 60 秒ごとに Google カレンダーをポーリングする。予定時刻に `start_meeting` / `end_meeting` が自動送信され、`transcript-YYYYMMDDHHMM@予定タイトル.txt` として記録される。
+
+`credentials.json` の取得方法は [docs/google-calendar-setup.md](docs/google-calendar-setup.md) を参照。
 
 翻訳・要約が必要な場合は以下のオプションを追加する。
 
@@ -407,12 +436,13 @@ shadow-clerk/                          # リポジトリ
 
 ~/.local/share/shadow-clerk/           # ランタイムデータ
   transcript-YYYYMMDD.txt              # 文字起こし結果（日付ベース）
-  transcript-YYYYMMDDHHMM.txt          # 会議セッション用
+  transcript-YYYYMMDDHHMM.txt          # 会議セッション用（ad-hoc）
+  transcript-YYYYMMDDHHMM@会議名.txt   # 会議セッション用（カレンダー連携 or 名前付き）
   transcript-YYYYMMDD-<lang>.txt       # 翻訳結果
   summary-YYYYMMDD.md                  # 議事録（transcript に対応）
   glossary.txt                         # 用語集 (TSV: 翻訳用語 & reading ベースのテキスト置換)
-  glossary.txt                         # 翻訳用語集 (TSV)
   config.yaml                          # 設定ファイル
+  gcal_token.json                      # Google Calendar OAuth トークン（gcal-auth で生成）
 ```
 
 ## トラブルシューティング
