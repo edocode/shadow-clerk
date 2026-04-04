@@ -482,7 +482,7 @@ function renderSearchResults(results){
   }).join('');
 }
 function openSearchResult(file,line,type){
-  const fsel=document.getElementById('fsel');fsel.value=file;onSel();
+  selectMtgFile(file); // fsel への追加 + onSel() を一括処理
   if(line>0){
     const panelId=type==='translation'?'rp':'tp';
     setTimeout(()=>{
