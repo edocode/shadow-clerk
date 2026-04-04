@@ -164,14 +164,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         groups: dict[str, list[str]] = {}
         file_info: dict[str, dict] = {}
         for f, tn in transcript_file_names:
-            file_info[f] = {
-                "label": tn.label,
-                "meeting_label": tn.meeting_label,
-                "meeting_group": tn.meeting_group,
-                "summary": tn.summary_filename,
-                "dt": tn.datetime_str,
-                "name": tn.meeting_name,
-            }
+            file_info[f] = tn.file_info()
             if tn.meeting_group is not None:
                 groups.setdefault(tn.meeting_group, []).append(f)
         self._send_json({
@@ -209,14 +202,20 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             tn = TranscriptName.parse(file_param)
             if tn:
                 tr_name = tn.translation_filename(lang)
-            else:
+            elif TranscriptName.parse_translation(file_param) is not None:
                 # 既に翻訳ファイル名の場合はそのまま使用
                 tr_name = file_param
+            else:
+                self._send_json({"file": "", "lines": []})
+                return
             filepath = os.path.join(self.recorder._output_dir, tr_name)
         else:
             basename = os.path.basename(self.recorder.output_path)
             tn = TranscriptName.parse(basename)
-            tr_name = tn.translation_filename(lang) if tn else basename.replace(".txt", f"-{lang}.txt")
+            if tn is None:
+                self._send_json({"file": "", "lines": []})
+                return
+            tr_name = tn.translation_filename(lang)
             filepath = os.path.join(self.recorder._output_dir, tr_name)
         lines = []
         try:
@@ -254,8 +253,9 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             transcript_path = self.recorder.output_path
         basename = os.path.basename(transcript_path)
         tn = TranscriptName.parse(basename)
-        summary_name = tn.summary_filename if tn else basename.replace("transcript-", "summary-").replace(".txt", ".md")
-        return os.path.join(self.recorder._output_dir, summary_name)
+        if tn is None:
+            return os.path.join(self.recorder._output_dir, basename)
+        return os.path.join(self.recorder._output_dir, tn.summary_filename)
 
     def _serve_summary(self):
         """GET /api/summary — summary ファイルの内容を返す"""
@@ -264,8 +264,10 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         if file_param:
             file_param = os.path.basename(file_param)
             tn = TranscriptName.parse(file_param)
-            summary_name = tn.summary_filename if tn else file_param.replace("transcript-", "summary-").replace(".txt", ".md")
-            summary_path = os.path.join(self.recorder._output_dir, summary_name)
+            if tn is None:
+                self._send_json({"summary": "", "summary_file": ""})
+                return
+            summary_path = os.path.join(self.recorder._output_dir, tn.summary_filename)
         else:
             summary_path = self._get_summary_path()
         summary_name = os.path.basename(summary_path)

@@ -13,6 +13,8 @@ import re
 _FILE_RE = re.compile(r'^transcript-(\d{8,12})(?:@([^.]+))?\.txt$')
 # 会議ファイルにのみマッチ（HHMM あり）
 _MEETING_RE = re.compile(r'^transcript-(\d{12})(?:@([^.]+))?\.txt$')
+# 翻訳ファイルにマッチ: transcript-YYYYMMDDHHMM[@name]-{lang}.txt
+_TRANSLATION_RE = re.compile(r'^transcript-(\d{8,12})(?:@([^.]+))?-([a-z]{2,10})\.txt$')
 
 
 class TranscriptName:
@@ -35,6 +37,14 @@ class TranscriptName:
         if not m:
             return None
         return cls(m.group(1), m.group(2) or None)
+
+    @classmethod
+    def parse_translation(cls, filename: str) -> "tuple[TranscriptName, str] | None":
+        """翻訳ファイル名から (TranscriptName, lang) を生成。マッチしなければ None。"""
+        m = _TRANSLATION_RE.match(filename)
+        if not m:
+            return None
+        return cls(m.group(1), m.group(2) or None), m.group(3)
 
     @classmethod
     def from_date_str(cls, date_str: str) -> "TranscriptName":
@@ -120,6 +130,25 @@ class TranscriptName:
         return self.meeting_name or "ad-hoc"
 
     # --- 変換 ---
+
+    @property
+    def related_file_pattern(self) -> "re.Pattern[str]":
+        """同タイムスタンプの関連ファイル（翻訳・summary・offset等）にマッチするパターン。
+
+        transcript-YYYYMMDDHHMM[@任意の名前] で始まるファイルを対象とする。
+        """
+        return re.compile(r'^' + re.escape(self.datetime_stem) + r'(?:@[^.]+)?')
+
+    def file_info(self) -> dict:
+        """ダッシュボード /api/files レスポンス用の file_info dict を返す"""
+        return {
+            "label": self.label,
+            "meeting_label": self.meeting_label,
+            "meeting_group": self.meeting_group,
+            "summary": self.summary_filename,
+            "dt": self.datetime_str,
+            "name": self.meeting_name,
+        }
 
     def with_name(self, new_name: str | None) -> "TranscriptName":
         """会議名だけ変えた新しい TranscriptName を返す"""
