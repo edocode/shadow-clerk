@@ -55,6 +55,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_models()
         elif path == "/api/gcal-events":
             self._serve_gcal_events()
+        elif path == "/api/search":
+            self._serve_search()
         else:
             self.send_error(404)
 

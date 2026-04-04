@@ -10,6 +10,7 @@ const TN={
 };
 let fileInfo={}; // /api/files の file_info をキャッシュ
 let curFile='', activeFile='';
+let leftTab='dates'; // 左ペインのアクティブタブ
 let meetingActive=false, translating=false, muteMic=false, muteMonitor=false, pttActive=false;
 let audioBackend='';
 let panelMode=0; // 0=T|R, 1=T, 2=R
@@ -367,7 +368,9 @@ async function loadFiles(){
     o.textContent=(fileInfo[f]?.label||f)+(f===d.active?' ★':'');s.appendChild(o);});
   s.value=(p&&d.files.includes(p))?p:(d.active||'');curFile=s.value;
   meetingGroups=d.groups||{};
-  renderMtgPane();}catch(e){}
+  if(leftTab==='meetings') renderMtgPane();
+  else if(leftTab==='dates') renderDatePane();
+  }catch(e){}
 }
 function togMtgPane(){
   const p=document.getElementById('pnlM');if(!p)return;
@@ -376,6 +379,89 @@ function togMtgPane(){
   if(ch)ch.innerHTML=collapsed?'&#x25BA;':'&#x25C4;';
 }
 
+/* --- 左ペイン タブ切替 --- */
+function switchLeftTab(tab){
+  leftTab=tab;
+  ['dates','meetings','search'].forEach(t=>{
+    const id=t.charAt(0).toUpperCase()+t.slice(1);
+    const btn=document.getElementById('tab'+id);
+    let pane;
+    if(t==='dates') pane=document.getElementById('datePane');
+    else if(t==='meetings') pane=document.getElementById('mtgContent');
+    else pane=document.getElementById('searchPane');
+    if(t===tab){
+      if(btn) btn.classList.add('active');
+      if(pane) pane.style.display=(t==='meetings')?'flex':'';
+    }else{
+      if(btn) btn.classList.remove('active');
+      if(pane) pane.style.display='none';
+    }
+  });
+  if(tab==='dates') renderDatePane();
+  else if(tab==='meetings') renderMtgPane();
+}
+function renderDatePane(){
+  const dp=document.getElementById('datePane');if(!dp)return;
+  const files=Object.entries(fileInfo)
+    .filter(([,fi])=>fi.meeting_group===null)
+    .sort((a,b)=>b[0].localeCompare(a[0]));
+  if(!files.length){
+    dp.innerHTML=`<div style="color:var(--muted);font-size:12px;padding:8px">${esc(I18N['dash.dates_empty']||'No daily transcripts.')}</div>`;
+    return;
+  }
+  dp.innerHTML=files.map(([f,fi])=>
+    `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}">${esc(fi.label||f)}</div>`
+  ).join('');
+}
+/* --- 検索 --- */
+async function doSearch(){
+  const year=document.getElementById('srYear').value.trim();
+  const month=document.getElementById('srMonth').value.trim();
+  const day=document.getElementById('srDay').value.trim();
+  const hour=document.getElementById('srHour').value.trim();
+  const query=document.getElementById('srQuery').value.trim();
+  const type=(document.querySelector('input[name="srType"]:checked')||{}).value||'all';
+  const p=new URLSearchParams();
+  if(year)p.set('year',year);if(month)p.set('month',month);
+  if(day)p.set('day',day);if(hour)p.set('hour',hour);
+  if(query)p.set('query',query);p.set('type',type);
+  const res=document.getElementById('searchResults');
+  res.innerHTML=`<div style="color:var(--muted);font-size:12px;padding:8px">${esc(I18N['dash.loading']||'...')}</div>`;
+  try{
+    const d=await(await fetch('/api/search?'+p.toString())).json();
+    renderSearchResults(d.results||[]);
+  }catch(e){res.innerHTML='';}
+}
+function renderSearchResults(results){
+  const res=document.getElementById('searchResults');
+  if(!results.length){
+    res.innerHTML=`<div style="color:var(--muted);font-size:12px;padding:8px">${esc(I18N['dash.search_empty']||'No results.')}</div>`;
+    return;
+  }
+  const typeLabel={transcript:'T',translation:'R',summary:'S'};
+  res.innerHTML=results.map(r=>{
+    const tl=r.type&&r.type!=='transcript'?(typeLabel[r.type]||r.type):'';
+    return `<div class="sr-item" onclick="openSearchResult('${escAttr(r.file)}',${r.line||0},'${escAttr(r.type||'')}')" title="${escAttr(r.text||'')}">`
+      +`<span class="sr-display">${esc(r.display||r.file)}</span>`
+      +(tl?`<span class="sr-type">${esc(tl)}</span>`:'')
+      +`</div>`;
+  }).join('');
+}
+function openSearchResult(file,line,type){
+  const fsel=document.getElementById('fsel');fsel.value=file;onSel();
+  if(line>0){
+    const panelId=type==='translation'?'rp':'tp';
+    setTimeout(()=>{
+      const el=document.getElementById(panelId);
+      const lns=el?el.querySelectorAll('.ln'):[];
+      if(lns.length>=line){
+        lns[line-1].scrollIntoView({block:'center'});
+        lns[line-1].style.outline='1px solid var(--accent)';
+        setTimeout(()=>{if(lns[line-1])lns[line-1].style.outline='';},2000);
+      }
+    },400);
+  }
+}
 function renderMtgPane(){
   const mp=document.getElementById('mp');if(!mp)return;
   if(curGroup===null){
@@ -445,7 +531,7 @@ es.addEventListener('alert',e=>{
   const d=JSON.parse(e.data);if(d.message){alert(d.message);}
 });
 function hideResp(){document.getElementById('resp').classList.remove('show');}
-loadFiles();loadT('');loadR('');loadLogs();setInterval(loadFiles,10000);
+switchLeftTab('dates');loadFiles();loadT('');loadR('');loadLogs();setInterval(loadFiles,10000);
 const LANG_OPTS=['ja','en','zh','ko','fr','de','es','pt','ru'];
 const CFG_FIELDS=[
   {type:'section',label:I18N['cfg.section.general']},

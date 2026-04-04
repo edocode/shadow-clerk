@@ -8,6 +8,7 @@ import os
 import re
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 import yaml
 from shadow_clerk.i18n import t
@@ -524,7 +525,6 @@ class _DashboardHandlerOps:
 
         output_dir = self.recorder._output_dir
         new_tn = old_tn.with_name(new_name or None)
-        new_stem = new_tn.stem
 
         renamed = []
         errors = []
@@ -539,29 +539,8 @@ class _DashboardHandlerOps:
                 except OSError as e:
                     errors.append(str(e))
 
-        # 旧 datetime_stem に一致するファイルを収集してリネーム
-        old_pattern = old_tn.related_file_pattern
-        try:
-            all_files = os.listdir(output_dir)
-        except OSError:
-            all_files = []
-
-        for fname in all_files:
-            if not old_pattern.match(fname):
-                continue
-            # transcript-YYYYMMDDHHMM[@old].txt
-            # transcript-YYYYMMDDHHMM[@old]-ja.txt  (翻訳)
-            # transcript-YYYYMMDDHHMM[@old].txt.translate_offset
-            # summary-YYYYMMDDHHMM[@old].md
-            rest = old_pattern.sub('', fname)
-            if fname.startswith("transcript-"):
-                new_fname = new_stem + rest
-            elif fname.startswith("summary-"):
-                new_fname = new_tn.summary_stem + rest
-            else:
-                continue
-            if fname != new_fname:
-                _rename(fname, new_fname)
+        for old_fname, new_fname in old_tn.rename_plan(new_tn, output_dir):
+            _rename(old_fname, new_fname)
 
         if errors:
             self._send_json({"status": "error", "message": "; ".join(errors)})
@@ -590,3 +569,104 @@ class _DashboardHandlerOps:
             f.write(body)
         logger.info("ダッシュボードから用語集を保存")
         self._send_json({"status": "ok"})
+
+    def _serve_search(self) -> None:
+        """GET /api/search — transcript/translation/summary 全文検索"""
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+
+        def _p(key: str) -> str:
+            return qs.get(key, [""])[0].strip()
+
+        year = _p("year")
+        month = _p("month").zfill(2) if _p("month") else ""
+        day = _p("day").zfill(2) if _p("day") else ""
+        hour = _p("hour").zfill(2) if _p("hour") else ""
+        query = _p("query").lower()
+        search_type = _p("type") or "all"
+
+        if not query and not (year or month or day or hour):
+            self._send_json({"results": []})
+            return
+
+        output_dir = self.recorder._output_dir
+        try:
+            all_files = sorted(os.listdir(output_dir), reverse=True)
+        except OSError:
+            self._send_json({"results": []})
+            return
+
+        results: list[dict] = []
+
+        for f in all_files:
+            tn = TranscriptName.parse(f)
+            if tn is None:
+                continue
+            dt = tn.datetime_str
+            if year and not dt.startswith(year):
+                continue
+            if month and dt[4:6] != month:
+                continue
+            if day and dt[6:8] != day:
+                continue
+            if hour and (len(dt) < 10 or dt[8:10] != hour):
+                continue
+
+            if not query:
+                # 日付フィルタのみ: ファイル単位で1件返す
+                results.append({
+                    "file": f,
+                    "line": 0,
+                    "type": "transcript",
+                    "display": _fmt_search_display(tn, 0),
+                    "text": "",
+                })
+                continue
+
+            # テキスト検索対象ファイルを列挙
+            to_search: list[tuple[str, str]] = []
+            if search_type in ("transcript", "all"):
+                to_search.append(("transcript", f))
+            if search_type in ("translation", "all"):
+                stem = tn.stem
+                for sf in all_files:
+                    if re.match(r"^" + re.escape(stem) + r"-[a-z]{2,10}\.txt$", sf):
+                        to_search.append(("translation", sf))
+                        break
+            if search_type in ("summary", "all"):
+                to_search.append(("summary", tn.summary_filename))
+
+            for ftype, fname in to_search:
+                fpath = os.path.join(output_dir, fname)
+                if not os.path.exists(fpath):
+                    continue
+                try:
+                    with open(fpath, "r", encoding="utf-8") as fp:
+                        for lineno, line in enumerate(fp, 1):
+                            if query in line.lower():
+                                results.append({
+                                    "file": f,
+                                    "line": lineno,
+                                    "type": ftype,
+                                    "display": _fmt_search_display(tn, lineno),
+                                    "text": line.strip()[:120],
+                                })
+                                if len(results) >= 200:
+                                    break
+                except OSError:
+                    continue
+            if len(results) >= 200:
+                break
+
+        self._send_json({"results": results})
+
+
+def _fmt_search_display(tn: TranscriptName, lineno: int) -> str:
+    """検索結果の表示文字列を生成: YYYY-MM-DD[ HH:MM][ @name][ L{n}]"""
+    dt = tn.datetime_str
+    if len(dt) >= 12:
+        date_part = f"{dt[:4]}-{dt[4:6]}-{dt[6:8]} {dt[8:10]}:{dt[10:12]}"
+    else:
+        date_part = f"{dt[:4]}-{dt[4:6]}-{dt[6:8]}"
+    if tn.meeting_name:
+        date_part += f" @{tn.meeting_name}"
+    return f"{date_part} L{lineno}" if lineno > 0 else date_part

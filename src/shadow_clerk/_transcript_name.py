@@ -7,6 +7,9 @@ transcript ファイル名のパース・構築・派生を一元管理する。
   transcript-YYYYMMDDHHMM.txt           会議ファイル（名前なし = ad-hoc）
   transcript-YYYYMMDDHHMM@name.txt      会議ファイル（名前付き）
 """
+from __future__ import annotations
+
+import os
 import re
 
 # 全 transcript ファイルにマッチ（日次 + 会議）
@@ -150,6 +153,33 @@ class TranscriptName:
             "name": self.meeting_name,
         }
 
-    def with_name(self, new_name: str | None) -> "TranscriptName":
+    def with_name(self, new_name: str | None) -> TranscriptName:
         """会議名だけ変えた新しい TranscriptName を返す"""
         return TranscriptName(self.datetime_str, new_name or None)
+
+    def rename_plan(self, new_tn: TranscriptName, directory: str) -> list[tuple[str, str]]:
+        """ディレクトリ内の関連ファイルを検索し (old_name, new_name) ペアを返す。
+
+        対象:
+          transcript-YYYYMMDDHHMM[@old].txt
+          transcript-YYYYMMDDHHMM[@old]-{lang}.txt  (翻訳)
+          transcript-YYYYMMDDHHMM[@old].txt.translate_offset
+          summary-YYYYMMDDHHMM[@old].md
+        """
+        tr_pat = self.related_file_pattern
+        sum_pat = re.compile(r'^summary-' + re.escape(self.datetime_str) + r'(?:@[^.]+)?')
+        try:
+            all_files = os.listdir(directory)
+        except OSError:
+            return []
+        pairs: list[tuple[str, str]] = []
+        for fname in all_files:
+            if tr_pat.match(fname):
+                new_fname = new_tn.stem + tr_pat.sub('', fname)
+            elif sum_pat.match(fname):
+                new_fname = new_tn.summary_stem + sum_pat.sub('', fname)
+            else:
+                continue
+            if fname != new_fname:
+                pairs.append((fname, new_fname))
+        return pairs
