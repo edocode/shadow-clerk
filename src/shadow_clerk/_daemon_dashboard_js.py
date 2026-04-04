@@ -144,6 +144,15 @@ async function doFileDel(){
   }catch(e){alert(I18N['dash.delete_error']||'Failed to delete');}
 }
 /* --- Extract meeting modal --- */
+function _dtPlusDays(dateStr,n){
+  const d=new Date(dateStr.substring(0,4)+'-'+dateStr.substring(4,6)+'-'+dateStr.substring(6,8));
+  d.setDate(d.getDate()+n);
+  return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+}
+function _mtgLabel(f){
+  const fi=fileInfo[f];if(!fi)return f;
+  return fi.meeting_label+(fi.name?` @${fi.name}`:'');
+}
 function openExtractModal(){
   const sel=getSelectedLines();if(sel.length!==2)return;
   const ts0=sel[0].dataset.ts||'';const ts1=sel[1].dataset.ts||'';
@@ -157,22 +166,40 @@ function openExtractModal(){
   allLns.forEach(ln=>{const t=ln.dataset.ts;if(t>=startTs&&t<=endTs)cnt++;});
   document.getElementById('extractLineCount').textContent=
     (I18N['dash.extract_meeting_lines']||'{count} lines selected').replace('{count}',cnt);
-  // 既存会議ファイルドロップダウン
-  const fsel=document.getElementById('fsel');
+  // 既存会議ファイル: 現在ファイルの日付 ±1日の範囲
+  const curDt=(fileInfo[curFile]?.dt||'').substring(0,8);
+  const near=curDt?new Set([curDt,_dtPlusDays(curDt,-1),_dtPlusDays(curDt,1)]):null;
   const eSel=document.getElementById('extractExistingSel');
   eSel.innerHTML='';
-  Array.from(fsel.options).forEach(o=>{
-    if(o.value&&fileInfo[o.value]?.meeting_group!=null){
-      const opt=document.createElement('option');opt.value=o.value;opt.textContent=o.value;eSel.appendChild(opt);
-    }
+  Object.keys(fileInfo).sort().reverse().forEach(f=>{
+    const fi=fileInfo[f];
+    if(fi?.meeting_group==null)return;
+    if(near&&!near.has((fi.dt||'').substring(0,8)))return;
+    const opt=document.createElement('option');opt.value=f;opt.textContent=_mtgLabel(f);eSel.appendChild(opt);
+  });
+  // 既存グループ名 select
+  const gSel=document.getElementById('extractGroupSel');
+  gSel.innerHTML='';
+  Object.keys(meetingGroups).filter(g=>g!=='ad-hoc').sort().forEach(g=>{
+    const opt=document.createElement('option');opt.value=g;opt.textContent=g;gSel.appendChild(opt);
   });
   // ラジオ初期化
   document.querySelector('input[name="extractTarget"][value="new"]').checked=true;
-  eSel.disabled=true;
-  document.querySelectorAll('input[name="extractTarget"]').forEach(r=>{
-    r.onchange=()=>{eSel.disabled=(r.value!=='existing'||!r.checked);};
+  document.querySelector('input[name="extractNewType"][value="adhoc"]').checked=true;
+  _updateExtractControls();
+  document.querySelectorAll('input[name="extractTarget"],input[name="extractNewType"]').forEach(r=>{
+    r.onchange=_updateExtractControls;
   });
   document.getElementById('extractModal').classList.add('open');
+}
+function _updateExtractControls(){
+  const targetVal=(document.querySelector('input[name="extractTarget"]:checked')||{}).value;
+  const newTypeVal=(document.querySelector('input[name="extractNewType"]:checked')||{}).value;
+  const isNew=targetVal==='new';
+  document.getElementById('extractNewOpts').style.display=isNew?'':'none';
+  document.getElementById('extractExistingSel').disabled=targetVal!=='existing';
+  document.getElementById('extractGroupSel').disabled=!(isNew&&newTypeVal==='group');
+  document.getElementById('extractNameInput').disabled=!(isNew&&newTypeVal==='newname');
 }
 function closeExtractModal(){document.getElementById('extractModal').classList.remove('open');}
 async function doExtractMeeting(){
@@ -180,16 +207,19 @@ async function doExtractMeeting(){
   const ts0=sel[0].dataset.ts||'';const ts1=sel[1].dataset.ts||'';
   const startTs=ts0<ts1?ts0:ts1;const endTs=ts0<ts1?ts1:ts0;
   const file=document.getElementById('tf').textContent;
-  const rad=document.querySelector('input[name="extractTarget"]:checked');
-  let target='new';
-  if(rad&&rad.value==='existing'){
-    const eSel=document.getElementById('extractExistingSel');
-    target=eSel.value||'new';
+  const targetVal=(document.querySelector('input[name="extractTarget"]:checked')||{}).value||'new';
+  let target='new',name='';
+  if(targetVal==='existing'){
+    target=document.getElementById('extractExistingSel').value||'new';
+  }else{
+    const newTypeVal=(document.querySelector('input[name="extractNewType"]:checked')||{}).value||'adhoc';
+    if(newTypeVal==='group') name=document.getElementById('extractGroupSel').value||'';
+    else if(newTypeVal==='newname') name=document.getElementById('extractNameInput').value.trim()||'';
   }
   try{
     const r=await fetch('/api/transcript/extract-meeting',{method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({file:file,start_ts:startTs,end_ts:endTs,target:target})});
+      body:JSON.stringify({file:file,start_ts:startTs,end_ts:endTs,target:target,name:name})});
     const d=await r.json();
     if(d.status==='ok'){
       deselectAll();closeExtractModal();

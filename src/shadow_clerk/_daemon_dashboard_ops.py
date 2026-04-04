@@ -187,6 +187,7 @@ class _DashboardHandlerOps:
             start_ts = data.get("start_ts", "")
             end_ts = data.get("end_ts", "")
             target = data.get("target", "new")
+            name = (data.get("name") or "").strip()
         except (json.JSONDecodeError, ValueError):
             self.send_error(400)
             return
@@ -226,7 +227,7 @@ class _DashboardHandlerOps:
             # 会議ファイル名の決定
             if target == "new":
                 meeting_ts = start_ts.replace("-", "").replace(" ", "").replace(":", "")[:12]
-                meeting_name = TranscriptName(meeting_ts).filename
+                meeting_name = TranscriptName(meeting_ts, name or None).filename
                 meeting_path = os.path.join(output_dir, meeting_name)
                 # 会議開始/終了マーカー付きで作成
                 with open(meeting_path, "w", encoding="utf-8") as f:
