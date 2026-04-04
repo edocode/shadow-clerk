@@ -33,6 +33,7 @@ from shadow_clerk._daemon_audio import detect_backend, find_monitor_device_sd
 from shadow_clerk._daemon_vad import VADSegmenter
 from shadow_clerk._daemon_transcriber import Transcriber, GlossaryReplacer
 from shadow_clerk._daemon_dashboard import LogBuffer, FileWatcher, DashboardHandler
+from shadow_clerk.domain import Speaker, TranscriptLine
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -225,7 +226,7 @@ class _RecorderTranscribeMixin:
         return False
 
     @staticmethod
-    def _should_skip_response(text: str, file_speaker: str, last_speaker: str | None) -> bool:
+    def _should_skip_response(text: str, file_speaker: Speaker, last_speaker: Speaker | None) -> bool:
         """「はい」「いいえ」などの相手にたいする応答のみの発話を、直前が同じ話者の場合スキップ"""
         s = text.strip()
         if s not in ("はい", "いいえ", "ああ", "うん", "はー", "ひー", "ふー", "へー", "ほー", "あー", "いー", "うー", "えー", "おー"):
@@ -241,11 +242,9 @@ class _RecorderTranscribeMixin:
         logger.info("文字起こしスレッド開始")
         self.transcriber.load_model()
 
-        # ファイル書き込み用ラベル（データフォーマット固定）
-        file_labels = {"mic": "自分", "monitor": "相手"}
         # ターミナル表示用ラベル（i18n 対応）
         display_labels = {"mic": t("speaker.mic"), "monitor": t("speaker.monitor")}
-        last_file_speaker = None  # 直前に書き込んだ話者（はい/いいえフィルタ用）
+        last_file_speaker: Speaker | None = None  # 直前に書き込んだ話者（はい/いいえフィルタ用）
 
         while not self.stop_event.is_set():
             try:
@@ -311,7 +310,7 @@ class _RecorderTranscribeMixin:
                         self.output_path = new_path
 
                 text = self.word_replacer.apply(text, self.transcriber.language)
-                file_speaker = file_labels.get(source, source)
+                file_speaker = Speaker.from_source(source)
 
                 # ノイズフィルタ: 短い感嘆語（「あっ」「ピッ」等）
                 if self._is_noise_text(text):
@@ -322,10 +321,10 @@ class _RecorderTranscribeMixin:
                     logger.debug("応答フィルタ: %r (speaker=%s) をスキップ", text.strip(), file_speaker)
                     continue
 
-                file_line = f"[{timestamp}] [{file_speaker}] {text}\n"
+                tl = TranscriptLine(timestamp=timestamp, speaker=file_speaker, text=text)
                 with self.transcript_lock:
                     with open(self.output_path, "a", encoding="utf-8") as f:
-                        f.write(file_line)
+                        f.write(tl.format())
                         f.flush()
                 last_file_speaker = file_speaker
                 display_line = f"[{timestamp}] [{display_speaker}] {text}"
@@ -341,7 +340,7 @@ class _RecorderTranscribeMixin:
         while not self.transcribe_queue.empty():
             try:
                 segment, timestamp, source, _ = self.transcribe_queue.get_nowait()
-                file_speaker = file_labels.get(source, source)
+                file_speaker = Speaker.from_source(source)
                 display_speaker = display_labels.get(source, source)
                 text = self.transcriber.transcribe(segment)
                 if text.strip():
@@ -350,10 +349,10 @@ class _RecorderTranscribeMixin:
                         continue
                     if self._should_skip_response(text, file_speaker, last_file_speaker):
                         continue
-                    file_line = f"[{timestamp}] [{file_speaker}] {text}\n"
+                    tl = TranscriptLine(timestamp=timestamp, speaker=file_speaker, text=text)
                     with self.transcript_lock:
                         with open(self.output_path, "a", encoding="utf-8") as f:
-                            f.write(file_line)
+                            f.write(tl.format())
                             f.flush()
                     last_file_speaker = file_speaker
                     display_line = f"[{timestamp}] [{display_speaker}] {text}"
