@@ -371,11 +371,12 @@ async function loadFiles(){
   s.innerHTML='';activeFile=d.active||'';
   fileInfo=d.file_info||{};
   meetingGroups=d.groups||{};
-  // ヘッダー fsel: 今日・前日 + アクティブ + 直前の選択ファイルのみ表示
+  // ヘッダー fsel: 今日・前日 + アクティブ + 直前選択ファイルと同じ日のファイル
   const [tod,yes]=_todayYestStr();
+  const prevDt=(p?(d.file_info[p]?.dt||''):'').substring(0,8);
   const shown=new Set(d.files.filter(f=>{
     const dt=fileInfo[f]?.dt||'';
-    return dt.startsWith(tod)||dt.startsWith(yes)||f===d.active||f===p;
+    return dt.startsWith(tod)||dt.startsWith(yes)||f===d.active||(prevDt&&dt.startsWith(prevDt));
   }));
   d.files.forEach(f=>{
     if(!shown.has(f))return;
@@ -530,11 +531,17 @@ function selectMtgGroup(name){curGroup=name;renderMtgPane();}
 function clearMtgGroup(){curGroup=null;renderMtgPane();return false;}
 function selectMtgFile(file){
   const fsel=document.getElementById('fsel');
-  if(!Array.from(fsel.options).some(o=>o.value===file)){
-    const o=document.createElement('option');o.value=file;
-    o.textContent=(fileInfo[file]?.label||file)+(file===activeFile?' ★':'');
-    fsel.appendChild(o);
-  }
+  // 選んだファイルと同じ日付のファイルをまとめて fsel に追加
+  const selDt=(fileInfo[file]?.dt||'').substring(0,8);
+  const existing=new Set(Array.from(fsel.options).map(o=>o.value));
+  Object.keys(fileInfo)
+    .filter(f=>selDt?(fileInfo[f]?.dt||'').startsWith(selDt):f===file)
+    .forEach(f=>{
+      if(existing.has(f))return;
+      const o=document.createElement('option');o.value=f;
+      o.textContent=(fileInfo[f]?.label||f)+(f===activeFile?' ★':'');
+      fsel.appendChild(o);
+    });
   fsel.value=file;onSel();_updateRenameMtgBtn();
 }
 async function loadT(file){
