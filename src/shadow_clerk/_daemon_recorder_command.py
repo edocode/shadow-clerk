@@ -1,6 +1,7 @@
 """Shadow-clerk daemon: レコーダーコマンド・キーリスナー ミックスイン"""
 # pylint: disable=duplicate-code  # 各モジュールで必要な optional import ブロックは共通形だが抽象化不可
 from __future__ import annotations
+from typing import Any
 import datetime
 import json
 import logging
@@ -40,7 +41,7 @@ def _sanitize_meeting_name(name: str) -> str:
 class _RecorderCommandMixin:
     """コマンド処理・キーリスナー ミックスイン"""
 
-    def _init_wake_word_patterns(self):
+    def _init_wake_word_patterns(self) -> None:
         """config の wake_word からコマンド検出パターンを初期化"""
         wake_word = (load_config().get("wake_word") or "").strip() or "シェルク"
         self._wake_prefix, self._wake_suffix = build_wake_word_patterns(wake_word)
@@ -81,7 +82,7 @@ class _RecorderCommandMixin:
             commands.append(pattern.pattern)
         return commands
 
-    def _spell_and_match(self, text: str, timestamp: str = "", display_speaker: str = ""):
+    def _spell_and_match(self, text: str, timestamp: str = "", display_speaker: str = "") -> None:
         """spell-check で誤字訂正してからパターンマッチを実行する"""
         corrected = text
         try:
@@ -108,7 +109,7 @@ class _RecorderCommandMixin:
             logger.info("音声コマンド不一致 (PTT+spell): '%s' (訂正後: '%s')", text, corrected)
             print(t("rec.voice_cmd_fail", text=text, confidence=0))
 
-    def _llm_match_and_execute(self, text: str):
+    def _llm_match_and_execute(self, text: str) -> None:
         """LLM にコマンドマッチングを依頼し、confidence が高ければ実行する"""
         commands = self._get_command_list()
         payload = json.dumps({"text": text, "commands": commands}, ensure_ascii=False)
@@ -206,7 +207,7 @@ class _RecorderCommandMixin:
         except Exception as e:
             logger.warning("自動要約エラー: %s", e)
 
-    def _resolve_pynput_key(self, key_name: str):
+    def _resolve_pynput_key(self, key_name: str) -> Any | None:
         """config の voice_command_key 文字列を pynput のキーオブジェクトに変換"""
         if not _HAS_PYNPUT:
             return None
@@ -279,7 +280,7 @@ class _RecorderCommandMixin:
                 pass
         return devices
 
-    def _key_listener_thread_evdev(self):
+    def _key_listener_thread_evdev(self) -> None:
         """evdev でグローバルキー監視を行うスレッド (Wayland 対応)"""
         import select
 
@@ -369,7 +370,7 @@ class _RecorderCommandMixin:
         logger.info("翻訳スレッド起動: target=%s, reset_offset=%s",
                     os.path.basename(transcript), reset_offset)
 
-    def _broadcast_asr_status(self):
+    def _broadcast_asr_status(self) -> None:
         """ASRバックエンド/モデル変更をSSEで通知"""
         if hasattr(self, "_file_watcher"):
             self._file_watcher._broadcast("asr_status", json.dumps({
@@ -377,7 +378,7 @@ class _RecorderCommandMixin:
                 "asr_model_id": self.transcriber._loaded_model_id or self.transcriber.model_size,
             }))
 
-    def _execute_command(self, cmd: str):
+    def _execute_command(self, cmd: str) -> None:
         """コマンド文字列をパースして実行"""
         cmd = cmd.strip()
         if not cmd:
