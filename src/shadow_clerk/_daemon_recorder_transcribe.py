@@ -38,7 +38,7 @@ logger = logging.getLogger("shadow-clerk")
 class _RecorderTranscribeMixin:
     """文字起こし・翻訳・実行ループ ミックスイン"""
 
-    def _llm_query(self, text: str):
+    def _llm_query(self, text: str) -> None:
         """LLM にクエリを投げて結果を表示・保存する（バックグラウンド実行）"""
         config = load_config()
         if config.get("llm_provider") == "claude":
@@ -63,7 +63,7 @@ class _RecorderTranscribeMixin:
                 logger.error("LLM クエリエラー: %s", result.stderr.strip())
                 return
             if answer:
-                print(f"[LLM] {answer}")
+                logger.info("[LLM] %s", answer)
                 with open(response_file, "w", encoding="utf-8") as f:
                     f.write(answer)
                 logger.info("LLM 回答を .clerk_response に保存")
@@ -80,7 +80,7 @@ class _RecorderTranscribeMixin:
         """
         return transcript_path + ".translate_offset"
 
-    def _translate_loop(self, target_transcript: str | None = None):
+    def _translate_loop(self, target_transcript: str | None = None) -> None:
         """翻訳ループスレッド (llm_provider: api 用)
 
         target_transcript が指定されている場合、そのファイルを一括翻訳して終了する。
@@ -163,7 +163,7 @@ class _RecorderTranscribeMixin:
 
         logger.info("翻訳ループ終了")
 
-    def _command_watch_thread(self):
+    def _command_watch_thread(self) -> None:
         """コマンドファイルをポーリングして実行するスレッド"""
         logger.info("コマンド監視スレッド開始")
         while not self.stop_event.is_set():
@@ -244,7 +244,7 @@ class _RecorderTranscribeMixin:
         # 直前が同じ話者 or 不明 → スキップ
         return True
 
-    def _transcribe_thread(self):
+    def _transcribe_thread(self) -> None:
         """文字起こしスレッド"""
         logger.info("文字起こしスレッド開始")
         self.transcriber.load_model()
@@ -367,7 +367,7 @@ class _RecorderTranscribeMixin:
             except queue.Empty:
                 break
 
-    def _interim_transcribe_thread(self):
+    def _interim_transcribe_thread(self) -> None:
         """中間文字起こしスレッド（interim_transcription 有効時のみモデルをロード）"""
         display_labels = {"mic": t("speaker.mic"), "monitor": t("speaker.monitor")}
         interim_transcriber = None
@@ -432,7 +432,7 @@ class _RecorderTranscribeMixin:
             except Exception as e:
                 logger.debug("中間文字起こしエラー: %s", e)
 
-    def _interim_translate_thread(self):
+    def _interim_translate_thread(self) -> None:
         """リアルタイム interim 翻訳スレッド
 
         claude provider の場合は Claude Code に依頼できないため、

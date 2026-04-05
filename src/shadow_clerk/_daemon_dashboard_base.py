@@ -83,7 +83,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
-    def _send_json(self, data):
+    def _send_json(self, data: Any) -> None:
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -91,7 +91,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _serve_html(self):
+    def _serve_html(self) -> None:
         from shadow_clerk import i18n as _i18n
         _i18n.init()  # re-read config for ui_language changes
         html = _HTML_TEMPLATE
@@ -104,7 +104,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _serve_sse(self):
+    def _serve_sse(self) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
@@ -126,7 +126,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         finally:
             self.file_watcher.remove_client(client_q)
 
-    def _serve_status(self):
+    def _serve_status(self) -> None:
         session = ""
         try:
             with open(SESSION_FILE, "r", encoding="utf-8") as f:
@@ -154,7 +154,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             "gcal_enabled": self.__class__.gcal_monitor is not None,
         })
 
-    def _serve_files(self):
+    def _serve_files(self) -> None:
         output_dir = self.recorder._output_dir
         transcript_file_names: list[tuple[str, TranscriptName]] = []
         try:
@@ -177,7 +177,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             "file_info": file_info,
         })
 
-    def _serve_transcript(self):
+    def _serve_transcript(self) -> None:
         params = parse_qs(urlparse(self.path).query)
         file_param = params.get("file", [None])[0]
         if file_param:
@@ -195,7 +195,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         self._send_json({
             "file": os.path.basename(filepath), "lines": lines})
 
-    def _serve_translation(self):
+    def _serve_translation(self) -> None:
         params = parse_qs(urlparse(self.path).query)
         file_param = params.get("file", [None])[0]
         config = load_config()
@@ -230,10 +230,10 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         self._send_json({
             "file": os.path.basename(filepath), "lines": lines})
 
-    def _serve_logs(self):
+    def _serve_logs(self) -> None:
         self._send_json({"lines": self.log_buffer.get_lines(100)})
 
-    def _handle_command(self):
+    def _handle_command(self) -> None:
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length)
@@ -260,7 +260,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             return os.path.join(self.recorder._output_dir, basename)
         return os.path.join(self.recorder._output_dir, tn.summary_filename)
 
-    def _serve_summary(self):
+    def _serve_summary(self) -> None:
         """GET /api/summary — summary ファイルの内容を返す"""
         params = parse_qs(urlparse(self.path).query)
         file_param = params.get("file", [None])[0]
@@ -281,7 +281,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         except FileNotFoundError:
             self._send_json({"file": summary_name, "content": ""})
 
-    def _generate_summary(self):
+    def _generate_summary(self) -> None:
         """POST /api/summary — 要約生成をトリガーする"""
         try:
             length = int(self.headers.get("Content-Length", 0))
@@ -315,7 +315,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
                 f.write(f"generate_summary_full {transcript_name}")
             self._send_json({"status": "ok", "message": t("dash.summary_generation_started")})
 
-    def _notify_summary_done(self):
+    def _notify_summary_done(self) -> None:
         """POST /api/summary/notify — 外部プロセスからの要約完了通知"""
         try:
             length = int(self.headers.get("Content-Length", 0))

@@ -28,7 +28,7 @@ logger = logging.getLogger("shadow-clerk")
 class _DashboardHandlerOps:
     """ダッシュボード ファイル操作・設定エンドポイント（ミックスイン）"""
 
-    def _delete_transcript_line(self):
+    def _delete_transcript_line(self) -> None:
         """POST /api/transcript/delete — transcript 行を削除（対応する翻訳行も削除）
         {line, file} (単一行・後方互換) と {lines: [...], file} (複数行) の両方を受付
         """
@@ -94,7 +94,7 @@ class _DashboardHandlerOps:
 
         self._send_json({"status": "ok"})
 
-    def _delete_transcript_file(self):
+    def _delete_transcript_file(self) -> None:
         """POST /api/transcript/delete-file — transcript ファイルと関連ファイルを一括削除"""
         try:
             length = int(self.headers.get("Content-Length", 0))
@@ -177,7 +177,7 @@ class _DashboardHandlerOps:
 
         self._send_json({"status": "ok", "deleted": deleted})
 
-    def _extract_meeting(self):
+    def _extract_meeting(self) -> None:
         """POST /api/transcript/extract-meeting — タイムスタンプ範囲の行を会議ファイルへ移動"""
         try:
             length = int(self.headers.get("Content-Length", 0))
@@ -298,7 +298,7 @@ class _DashboardHandlerOps:
         })
 
     @staticmethod
-    def _merge_meeting_lines(existing, new_lines):
+    def _merge_meeting_lines(existing: list[str], new_lines: list[str]) -> list[str]:
         """既存会議ファイルの行と新しい行をタイムスタンプ順でマージ。マーカー行は保持。"""
         ts_pattern = re.compile(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]")
         marker_re = re.compile(r"^---\s.*\s---\s*$")
@@ -325,7 +325,7 @@ class _DashboardHandlerOps:
         return result
 
     @staticmethod
-    def _extract_translation_lines(tr_path, meeting_tr_path, start_ts, end_ts, is_new=True):
+    def _extract_translation_lines(tr_path: str, meeting_tr_path: str, start_ts: str, end_ts: str, is_new: bool = True) -> None:
         """翻訳ファイルから対応行を会議翻訳ファイルへ移動/マージ"""
         ts_pattern = re.compile(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]")
         try:
@@ -378,7 +378,7 @@ class _DashboardHandlerOps:
             raise
 
     @staticmethod
-    def _remove_lines_from_file(path, raw_lines):
+    def _remove_lines_from_file(path: str, raw_lines: list[str]) -> bool:
         """ファイルから完全一致する行を各1件ずつ削除する"""
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -401,7 +401,7 @@ class _DashboardHandlerOps:
             return False
 
     @staticmethod
-    def _remove_lines_from_file_by_ts(path, timestamps):
+    def _remove_lines_from_file_by_ts(path: str, timestamps: list[str]) -> bool:
         """ファイルからタイムスタンプ前方一致する行を各1件ずつ削除する"""
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -426,17 +426,17 @@ class _DashboardHandlerOps:
             return False
 
     @staticmethod
-    def _get_file_size(path):
+    def _get_file_size(path: str) -> int:
         """ファイルサイズを返す（存在しない場合は0）"""
         try:
             return os.path.getsize(path)
         except OSError:
             return 0
 
-    def _serve_config(self):
+    def _serve_config(self) -> None:
         self._send_json(load_config())
 
-    def _serve_models(self):
+    def _serve_models(self) -> None:
         """GET /api/models — api_endpoint から利用可能なモデル一覧を取得"""
         config = load_config()
         endpoint = config.get("api_endpoint")
@@ -464,7 +464,7 @@ class _DashboardHandlerOps:
             logger.warning("モデル一覧取得失敗: %s", e)
             self._send_json({"models": [], "error": str(e)})
 
-    def _save_config(self):
+    def _save_config(self) -> None:
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length)
@@ -489,7 +489,7 @@ class _DashboardHandlerOps:
         logger.info("ダッシュボードから設定変更")
         self._send_json(config)
 
-    def _serve_glossary(self):
+    def _serve_glossary(self) -> None:
         content = ""
         try:
             with open(GLOSSARY_FILE, "r", encoding="utf-8") as f:
@@ -503,7 +503,7 @@ class _DashboardHandlerOps:
         self.end_headers()
         self.wfile.write(body)
 
-    def _rename_meeting(self):
+    def _rename_meeting(self) -> None:
         """POST /api/transcript/rename-meeting
         { file: "transcript-YYYYMMDDHHMM[@old].txt", name: "新会議名" }
         transcript / translation(s) / summary / offset ファイルを一括リネームする。
@@ -559,7 +559,7 @@ class _DashboardHandlerOps:
             return
         self._send_json({"enabled": True, "events": monitor.get_upcoming_events()})
 
-    def _save_glossary(self):
+    def _save_glossary(self) -> None:
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length).decode("utf-8")

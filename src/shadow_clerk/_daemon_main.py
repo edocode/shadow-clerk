@@ -16,7 +16,7 @@ from shadow_clerk._daemon_recorder import Recorder
 logger = logging.getLogger("shadow-clerk")
 
 
-def _daemonize():
+def _daemonize() -> None:
     """ダブルフォークでデーモン化"""
     pid = os.fork()
     if pid > 0:
@@ -33,12 +33,12 @@ def _daemonize():
     os.close(devnull)
 
 
-def _write_pid_file():
+def _write_pid_file() -> None:
     with open(PID_FILE, "w") as f:
         f.write(str(os.getpid()))
 
 
-def _remove_pid_file():
+def _remove_pid_file() -> None:
     try:
         os.unlink(PID_FILE)
     except FileNotFoundError:

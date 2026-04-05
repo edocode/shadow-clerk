@@ -31,7 +31,7 @@ def _get_length_instruction(config: dict) -> str:
     return t(key) or ""
 
 
-def _get_summary_format():
+def _get_summary_format() -> str:
     """summary_template.md があればそちらを優先、なければ i18n デフォルトを使用"""
     template_path = os.path.join(DATA_DIR, "summary_template.md")
     try:
@@ -137,7 +137,7 @@ def _split_transcript_lines(transcript: str, max_tokens: int) -> list[str]:
 _PROMPT_OVERHEAD_TOKENS = 2000
 
 
-def _summarize_full(client: OpenAI, model: str, transcript: str):
+def _summarize_full(client: OpenAI, model: str, transcript: str) -> str | None:
     """transcript 全文から議事録を生成する。長い場合はチャンク分割で段階的に要約。"""
     summary_format = _get_summary_format()
 
@@ -164,7 +164,7 @@ def _summarize_full(client: OpenAI, model: str, transcript: str):
         return summary
 
 
-def _summarize_full_single(client: OpenAI, model: str, transcript: str, summary_format: str):
+def _summarize_full_single(client: OpenAI, model: str, transcript: str, summary_format: str) -> str | None:
     """transcript 全文から議事録を生成する（単一リクエスト）。"""
     config = load_config()
     length_instruction = _get_length_instruction(config)
@@ -197,7 +197,7 @@ def _summarize_full_single(client: OpenAI, model: str, transcript: str, summary_
 
 def _summarize_update(
     client: OpenAI, model: str, transcript: str, existing_summary: str
-):
+) -> str | None:
     """既存の summary を踏まえて差分 transcript から議事録を更新する。長い場合はチャンク分割。"""
     summary_format = _get_summary_format()
 
@@ -223,7 +223,7 @@ def _summarize_update(
 
 def _summarize_update_single(
     client: OpenAI, model: str, transcript: str, existing_summary: str, summary_format: str
-):
+) -> str | None:
     """既存の summary を踏まえて差分 transcript から議事録を更新する（単一リクエスト）。"""
     config = load_config()
     length_instruction = _get_length_instruction(config)
