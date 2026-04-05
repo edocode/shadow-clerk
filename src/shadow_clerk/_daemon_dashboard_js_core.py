@@ -1,6 +1,6 @@
 """Shadow-clerk daemon: ダッシュボード JavaScript (part A)"""
 
-_JS_TEMPLATE_A = """\
+_JS_TEMPLATE_CORE = """\
 /*I18N_JSON*/
 /* --- TranscriptName 構築ヘルパー（regex なし・fileInfo を使用） --- */
 const TN={

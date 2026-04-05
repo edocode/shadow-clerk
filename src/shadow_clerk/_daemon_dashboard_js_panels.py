@@ -1,6 +1,6 @@
 """Shadow-clerk daemon: ダッシュボード JavaScript (part B)"""
 
-_JS_TEMPLATE_B = """\
+_JS_TEMPLATE_PANELS = """\
 /* --- 検索 --- */
 async function doSearch(){
   const year=document.getElementById('srYear').value.trim();
