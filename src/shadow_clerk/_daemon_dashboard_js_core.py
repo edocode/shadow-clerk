@@ -53,8 +53,8 @@ function onSelChange(){
   if(n>0){
     bar.classList.add('show');
     cnt.textContent=(I18N['dash.selected_count']||'{count} selected').replace('{count}',n);
-    btnExt.style.display=(n===2)?'':'none';
-  }else{bar.classList.remove('show');btnExt.style.display='none';}
+  }else{bar.classList.remove('show');}
+  btnExt.style.display=(n===0||n===2)?'':'none';
 }
 function deselectAll(){
   document.querySelectorAll('#tp .ln-cb:checked').forEach(cb=>{cb.checked=false;});
@@ -150,43 +150,61 @@ function _dtPlusDays(dateStr,n){
 }
 
 function openExtractModal(){
-  const sel=getSelectedLines();if(sel.length!==2)return;
-  const ts0=sel[0].dataset.ts||'';const ts1=sel[1].dataset.ts||'';
-  if(!ts0||!ts1)return;
-  const startTs=ts0<ts1?ts0:ts1;const endTs=ts0<ts1?ts1:ts0;
-  document.getElementById('extractRange').textContent=
-    (I18N['dash.extract_meeting_range']||'Range: {start} - {end}').replace('{start}',startTs).replace('{end}',endTs);
-  // タイムスタンプ範囲内の行数カウント
-  const allLns=document.querySelectorAll('#tp .ln[data-ts]');
-  let cnt=0;
-  allLns.forEach(ln=>{const t=ln.dataset.ts;if(t>=startTs&&t<=endTs)cnt++;});
-  document.getElementById('extractLineCount').textContent=
-    (I18N['dash.extract_meeting_lines']||'{count} lines selected').replace('{count}',cnt);
-  // 既存会議ファイル: 現在ファイルの日付 ±1日の範囲
-  const curDt=(fileInfo[curFile]?.dt||'').substring(0,8);
-  const near=curDt?new Set([curDt,_dtPlusDays(curDt,-1),_dtPlusDays(curDt,1)]):null;
-  const eSel=document.getElementById('extractExistingSel');
-  eSel.innerHTML='';
-  Object.keys(fileInfo).sort().reverse().forEach(f=>{
-    const fi=fileInfo[f];
-    if(fi?.meeting_group==null)return;
-    if(near&&!near.has((fi.dt||'').substring(0,8)))return;
-    const opt=document.createElement('option');opt.value=f;opt.textContent=(fileInfo[f]?.label||f);eSel.appendChild(opt);
-  });
-  // 既存グループ名 select
-  const gSel=document.getElementById('extractGroupSel');
-  gSel.innerHTML='';
-  Object.keys(meetingGroups).filter(g=>g!=='ad-hoc').sort().forEach(g=>{
-    const opt=document.createElement('option');opt.value=g;opt.textContent=g;gSel.appendChild(opt);
-  });
-  // ラジオ初期化
-  document.querySelector('input[name="extractTarget"][value="new"]').checked=true;
-  document.querySelector('input[name="extractNewType"][value="adhoc"]').checked=true;
-  _updateExtractControls();
-  document.querySelectorAll('input[name="extractTarget"],input[name="extractNewType"]').forEach(r=>{
-    r.onchange=_updateExtractControls;
-  });
+  const sel=getSelectedLines();const n=sel.length;
+  if(n!==0&&n!==2)return;
+  const has2=(n===2);
+  // 2行選択時のみ表示する選択肢
+  document.getElementById('lblSplitRange').style.display=has2?'':'none';
+  document.getElementById('lblExtractRange').style.display=has2?'':'none';
+  // デフォルトモードの設定
+  const defaultMode=has2?'splitRange':'splitAll';
+  const modeRadio=document.querySelector(`input[name="extractMode"][value="${defaultMode}"]`);
+  if(modeRadio)modeRadio.checked=true;
+  if(has2){
+    const ts0=sel[0].dataset.ts||'';const ts1=sel[1].dataset.ts||'';
+    if(!ts0||!ts1)return;
+    const startTs=ts0<ts1?ts0:ts1;const endTs=ts0<ts1?ts1:ts0;
+    document.getElementById('extractRange').textContent=
+      (I18N['dash.extract_meeting_range']||'Range: {start} - {end}').replace('{start}',startTs).replace('{end}',endTs);
+    const allLns=document.querySelectorAll('#tp .ln[data-ts]');
+    let cnt=0;
+    allLns.forEach(ln=>{const t=ln.dataset.ts;if(t>=startTs&&t<=endTs)cnt++;});
+    document.getElementById('extractLineCount').textContent=
+      (I18N['dash.extract_meeting_lines']||'{count} lines selected').replace('{count}',cnt);
+    // 既存会議ファイル: 現在ファイルの日付 ±1日の範囲
+    const curDt=(fileInfo[curFile]?.dt||'').substring(0,8);
+    const near=curDt?new Set([curDt,_dtPlusDays(curDt,-1),_dtPlusDays(curDt,1)]):null;
+    const eSel=document.getElementById('extractExistingSel');
+    eSel.innerHTML='';
+    Object.keys(fileInfo).sort().reverse().forEach(f=>{
+      const fi=fileInfo[f];
+      if(fi?.meeting_group==null)return;
+      if(near&&!near.has((fi.dt||'').substring(0,8)))return;
+      const opt=document.createElement('option');opt.value=f;opt.textContent=(fileInfo[f]?.label||f);eSel.appendChild(opt);
+    });
+    // 既存グループ名 select
+    const gSel=document.getElementById('extractGroupSel');
+    gSel.innerHTML='';
+    Object.keys(meetingGroups).filter(g=>g!=='ad-hoc').sort().forEach(g=>{
+      const opt=document.createElement('option');opt.value=g;opt.textContent=g;gSel.appendChild(opt);
+    });
+    document.querySelector('input[name="extractTarget"][value="new"]').checked=true;
+    document.querySelector('input[name="extractNewType"][value="adhoc"]').checked=true;
+    document.querySelectorAll('input[name="extractTarget"],input[name="extractNewType"]').forEach(r=>{
+      r.onchange=_updateExtractControls;
+    });
+  }
+  document.querySelectorAll('input[name="extractMode"]').forEach(r=>{r.onchange=_updateExtractMode;});
+  _updateExtractMode();
   document.getElementById('extractModal').classList.add('open');
+}
+function _updateExtractMode(){
+  const modeVal=(document.querySelector('input[name="extractMode"]:checked')||{}).value||'splitAll';
+  const isSplitRange=modeVal==='splitRange';
+  const isExtractRange=modeVal==='extractRange';
+  document.getElementById('extractRangeInfo').style.display=(isSplitRange||isExtractRange)?'':'none';
+  document.getElementById('extractTargetOpts').style.display=isExtractRange?'':'none';
+  if(isExtractRange)_updateExtractControls();
 }
 function _updateExtractControls(){
   const targetVal=(document.querySelector('input[name="extractTarget"]:checked')||{}).value;
@@ -199,10 +217,34 @@ function _updateExtractControls(){
 }
 function closeExtractModal(){document.getElementById('extractModal').classList.remove('open');}
 async function doExtractMeeting(){
+  const modeVal=(document.querySelector('input[name="extractMode"]:checked')||{}).value||'splitAll';
+  const file=document.getElementById('tf').textContent;
+  if(modeVal==='splitAll'||modeVal==='splitRange'){
+    const minEl=document.getElementById(modeVal==='splitAll'?'splitAllMin':'splitRangeMin');
+    const minSilence=parseInt(minEl.value)||1;
+    const body={file,min_silence_minutes:minSilence};
+    if(modeVal==='splitRange'){
+      const sel=getSelectedLines();
+      const ts0=sel[0].dataset.ts||'';const ts1=sel[1].dataset.ts||'';
+      body.start_ts=ts0<ts1?ts0:ts1;body.end_ts=ts0<ts1?ts1:ts0;
+    }
+    try{
+      const r=await fetch('/api/transcript/split-by-silence',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(body)});
+      const d=await r.json();
+      if(d.status==='ok'){
+        deselectAll();closeExtractModal();
+        loadFiles();loadT(curFile);loadR(curFile);
+        if(d.message)alert(d.message);
+      }else{alert(d.message||I18N['dash.extract_split_error']||'Failed');}
+    }catch(e){alert(I18N['dash.extract_split_error']||'Failed');}
+    return;
+  }
+  // extractRange モード（既存の切り出し処理）
   const sel=getSelectedLines();if(sel.length!==2)return;
   const ts0=sel[0].dataset.ts||'';const ts1=sel[1].dataset.ts||'';
   const startTs=ts0<ts1?ts0:ts1;const endTs=ts0<ts1?ts1:ts0;
-  const file=document.getElementById('tf').textContent;
   const targetVal=(document.querySelector('input[name="extractTarget"]:checked')||{}).value||'new';
   let target='new',name='';
   if(targetVal==='existing'){
@@ -215,7 +257,7 @@ async function doExtractMeeting(){
   try{
     const r=await fetch('/api/transcript/extract-meeting',{method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({file:file,start_ts:startTs,end_ts:endTs,target:target,name:name})});
+      body:JSON.stringify({file,start_ts:startTs,end_ts:endTs,target,name})});
     const d=await r.json();
     if(d.status==='ok'){
       deselectAll();closeExtractModal();

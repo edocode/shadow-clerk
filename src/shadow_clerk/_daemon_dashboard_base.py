@@ -78,6 +78,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._delete_transcript_file()
         elif path == "/api/transcript/extract-meeting":
             self._extract_meeting()
+        elif path == "/api/transcript/split-by-silence":
+            self._split_by_silence()
         elif path == "/api/transcript/rename-meeting":
             self._rename_meeting()
         else:

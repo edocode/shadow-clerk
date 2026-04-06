@@ -377,6 +377,122 @@ class _DashboardHandlerOps:
                 pass
             raise
 
+    def _split_by_silence(self) -> None:
+        """POST /api/transcript/split-by-silence — 沈黙期間で transcript を会議ファイルに分割"""
+        from datetime import datetime
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length)
+            data = json.loads(body)
+            file_param = data.get("file", "")
+            min_silence_minutes = float(data.get("min_silence_minutes", 1))
+            start_ts = data.get("start_ts", "")
+            end_ts = data.get("end_ts", "")
+        except (json.JSONDecodeError, ValueError):
+            self.send_error(400)
+            return
+        if not file_param or min_silence_minutes <= 0:
+            self.send_error(400)
+            return
+
+        output_dir = self.recorder._output_dir
+        t_path = os.path.join(output_dir, os.path.basename(file_param))
+        if not os.path.exists(t_path):
+            self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
+            return
+
+        min_silence_sec = min_silence_minutes * 60
+        ts_pattern = re.compile(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]")
+
+        with self.recorder.transcript_lock:
+            try:
+                with open(t_path, "r", encoding="utf-8") as f:
+                    all_lines = f.readlines()
+            except OSError:
+                self._send_json({"status": "error", "message": t("dash.extract_split_error")})
+                return
+
+            # 対象範囲のフィルタリング（範囲指定なしは全行が対象）
+            if start_ts and end_ts:
+                target_lines = [l for l in all_lines if (m := ts_pattern.match(l)) and start_ts <= m.group(1) <= end_ts]
+                remaining_lines = [l for l in all_lines if not (ts_pattern.match(l) and start_ts <= ts_pattern.match(l).group(1) <= end_ts)]
+            else:
+                target_lines = all_lines
+                remaining_lines = []
+
+            # 沈黙期間でセグメントに分割
+            segments: list[list[str]] = []
+            current_segment: list[str] = []
+            last_dt: datetime | None = None
+
+            for line in target_lines:
+                m = ts_pattern.match(line)
+                if m:
+                    dt = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
+                    if last_dt is not None and (dt - last_dt).total_seconds() >= min_silence_sec:
+                        if current_segment:
+                            segments.append(current_segment)
+                        current_segment = []
+                    current_segment.append(line)
+                    last_dt = dt
+                else:
+                    current_segment.append(line)
+
+            if current_segment:
+                segments.append(current_segment)
+
+            if len(segments) < 2:
+                self._send_json({"status": "error", "message": t("dash.extract_split_no_segments")})
+                return
+
+            # 各セグメントを会議ファイルとして作成
+            config = load_config()
+            lang = config.get("translate_language", "ja")
+            _src_tn = TranscriptName.parse(os.path.basename(t_path))
+            created: list[str] = []
+
+            for seg in segments:
+                first_ts = next((ts_pattern.match(l).group(1) for l in seg if ts_pattern.match(l)), None)
+                if not first_ts:
+                    continue
+                meeting_ts = first_ts.replace("-", "").replace(" ", "").replace(":", "")[:12]
+                meeting_name = TranscriptName(meeting_ts, None).filename
+                meeting_path = os.path.join(output_dir, meeting_name)
+                with open(meeting_path, "w", encoding="utf-8") as f:
+                    f.write("--- meeting start ---\n")
+                    f.writelines(seg)
+                    f.write("--- meeting end ---\n")
+                created.append(meeting_name)
+
+            # 元ファイルから分割済み行を削除（一時ファイル→rename で安全に書き戻し）
+            tmp_fd, tmp_path = tempfile.mkstemp(dir=output_dir, prefix=".transcript-", suffix=".tmp")
+            try:
+                with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                    f.writelines(remaining_lines)
+                os.replace(tmp_path, t_path)
+            except BaseException:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
+
+            # 翻訳ファイルを各セグメントのタイムスタンプ範囲で分割
+            tr_path = os.path.join(output_dir, _src_tn.translation_filename(lang)) if _src_tn else None
+            if tr_path and os.path.exists(tr_path):
+                for meeting_name, seg in zip(created, segments):
+                    seg_ts_list = [ts_pattern.match(l).group(1) for l in seg if ts_pattern.match(l)]
+                    if not seg_ts_list:
+                        continue
+                    _mtg_tn = TranscriptName.parse(meeting_name)
+                    meeting_tr_path = os.path.join(output_dir, _mtg_tn.translation_filename(lang)) if _mtg_tn else None
+                    self._extract_translation_lines(tr_path, meeting_tr_path, min(seg_ts_list), max(seg_ts_list), is_new=True)
+
+        self._send_json({
+            "status": "ok",
+            "message": t("dash.extract_split_success", count=len(created)),
+        })
+
     @staticmethod
     def _remove_lines_from_file(path: str, raw_lines: list[str]) -> bool:
         """ファイルから完全一致する行を各1件ずつ削除する"""
