@@ -116,6 +116,13 @@ async function doBulkDel(){
 function openFileDelModal(){
   if(!curFile)return;
   const fi=fileInfo[curFile];
+  const isMtg=_isMeetingFile(curFile);
+  const mergeOpt=document.getElementById('fileDelMergeOpt');
+  mergeOpt.style.display=isMtg?'':'none';
+  if(isMtg){
+    const r=document.querySelector('input[name="fileDelMode"][value="merge"]');
+    if(r)r.checked=true;
+  }
   const stem=curFile.replace(/\\.txt$/,'');
   const files=[curFile];
   const sel=document.getElementById('fsel');
@@ -133,14 +140,17 @@ function openFileDelModal(){
 function closeFileDelModal(){document.getElementById('fileDelModal').classList.remove('open');}
 async function doFileDel(){
   if(!curFile)return;
+  const mode=(document.querySelector('input[name="fileDelMode"]:checked')?.value)||'delete';
+  const url=(_isMeetingFile(curFile)&&mode==='merge')?'/api/transcript/merge-to-daily':'/api/transcript/delete-file';
+  const errKey=mode==='merge'?'dash.merge_to_daily_error':'dash.delete_error';
   try{
-    const r=await fetch('/api/transcript/delete-file',{method:'POST',
+    const r=await fetch(url,{method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({file:curFile})});
     const d=await r.json();
     if(d.status==='ok'){closeFileDelModal();loadFiles();}
-    else{alert(I18N['dash.delete_error']||'Failed to delete');}
-  }catch(e){alert(I18N['dash.delete_error']||'Failed to delete');}
+    else{alert(I18N[errKey]||d.message||'Error');}
+  }catch(e){alert(I18N[errKey]||'Error');}
 }
 /* --- Extract meeting modal --- */
 function _dtPlusDays(dateStr,n){

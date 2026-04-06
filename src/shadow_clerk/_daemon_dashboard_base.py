@@ -82,6 +82,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._split_by_silence()
         elif path == "/api/transcript/rename-meeting":
             self._rename_meeting()
+        elif path == "/api/transcript/merge-to-daily":
+            self._merge_meeting_to_daily()
         else:
             self.send_error(404)
 
