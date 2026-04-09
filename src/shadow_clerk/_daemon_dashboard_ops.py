@@ -7,13 +7,14 @@ import logging
 import os
 import re
 import tempfile
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
 import yaml
 from shadow_clerk.i18n import t
-from shadow_clerk._daemon_constants import GLOSSARY_FILE, DEFAULT_CONFIG
-from shadow_clerk._daemon_config import load_config
+from shadow_clerk._daemon_constants import COMMAND_FILE, GLOSSARY_FILE, DEFAULT_CONFIG
+from shadow_clerk._daemon_config import load_config, get_translation_provider
 from shadow_clerk._transcript_name import TranscriptName
 
 try:
@@ -91,6 +92,12 @@ class _DashboardHandlerOps:
                     f.write(str(self._get_file_size(t_path)))
             except OSError:
                 pass
+
+        # transcript がマーカー行・空行のみになった場合は関連ファイルごと削除
+        cleaned = self._check_and_cleanup_empty_transcript(t_path)
+        if cleaned:
+            self._send_json({"status": "ok", "deleted": cleaned})
+            return
 
         self._send_json({"status": "ok"})
 
@@ -363,10 +370,20 @@ class _DashboardHandlerOps:
                 except OSError:
                     pass
 
-        self._send_json({
+        # 元ファイルがマーカー行・空行のみになった場合は関連ファイルごと削除
+        source_deleted = self._check_and_cleanup_empty_transcript(t_path)
+
+        # 自動要約・翻訳トリガー
+        self._trigger_auto_jobs_for_meetings(
+            [meeting_path], is_new=(target == "new"))
+
+        resp: dict = {
             "status": "ok",
             "message": t("dash.extract_meeting_success", name=meeting_name),
-        })
+        }
+        if source_deleted:
+            resp["source_deleted"] = source_deleted
+        self._send_json(resp)
 
     @staticmethod
     def _merge_meeting_lines(existing: list[str], new_lines: list[str]) -> list[str]:
@@ -607,10 +624,20 @@ class _DashboardHandlerOps:
                     meeting_tr_path = os.path.join(output_dir, _mtg_tn.translation_filename(lang)) if _mtg_tn else None
                     self._extract_translation_lines(tr_path, meeting_tr_path, min(seg_ts_list), max(seg_ts_list), is_new=True)
 
-        self._send_json({
+        # 元ファイルがマーカー行・空行のみになった場合は関連ファイルごと削除
+        source_deleted = self._check_and_cleanup_empty_transcript(t_path)
+
+        # 自動要約・翻訳トリガー
+        created_paths = [os.path.join(output_dir, name) for name in created]
+        self._trigger_auto_jobs_for_meetings(created_paths, is_new=True)
+
+        resp: dict = {
             "status": "ok",
             "message": t("dash.extract_split_success", count=len(created)),
-        })
+        }
+        if source_deleted:
+            resp["source_deleted"] = source_deleted
+        self._send_json(resp)
 
     @staticmethod
     def _remove_lines_from_file(path: str, raw_lines: list[str]) -> bool:
@@ -667,6 +694,81 @@ class _DashboardHandlerOps:
             return os.path.getsize(path)
         except OSError:
             return 0
+
+    @staticmethod
+    def _is_only_markers(lines: list[str]) -> bool:
+        """行リストが空またはマーカー行・空行のみか判定"""
+        marker_re = re.compile(r"^---\s.*\s---\s*$")
+        return all(marker_re.match(line.strip()) or not line.strip() for line in lines)
+
+    def _check_and_cleanup_empty_transcript(self, t_path: str) -> list[str]:
+        """transcript が空またはマーカー行のみの場合、関連ファイルごと削除。削除ファイル名リスト返却。"""
+        if not os.path.exists(t_path):
+            return []
+        try:
+            with open(t_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except OSError:
+            return []
+        if not self._is_only_markers(lines):
+            return []
+        tn = TranscriptName.parse(os.path.basename(t_path))
+        return self._cleanup_transcript_files(t_path, tn)
+
+    def _trigger_auto_jobs_for_meetings(
+        self, meeting_paths: list[str], *, is_new: bool,
+    ) -> None:
+        """会議ファイルに対して自動要約・翻訳をバックグラウンドで起動。
+
+        is_new=True: 新規切り出し → auto_summary / auto_translate 設定に従う
+        is_new=False: 既存会議へのマージ → 既存サマリー/翻訳ファイルがあれば更新
+        """
+        config = load_config()
+        llm_prov = config.get("llm_provider", "claude")
+        trans_prov = get_translation_provider(config)
+        lang = config.get("translate_language", "ja")
+
+        jobs: list[tuple[str, bool, bool]] = []  # (path, do_summary, do_translate)
+        for mp in meeting_paths:
+            _tn = TranscriptName.parse(os.path.basename(mp))
+            if not _tn:
+                continue
+            output_dir = os.path.dirname(mp)
+            if is_new:
+                do_summary = bool(config.get("auto_summary"))
+                do_translate = bool(config.get("auto_translate"))
+            else:
+                do_summary = os.path.exists(os.path.join(output_dir, _tn.summary_filename))
+                do_translate = os.path.exists(
+                    os.path.join(output_dir, _tn.translation_filename(lang)))
+            if do_summary or do_translate:
+                jobs.append((mp, do_summary, do_translate))
+
+        if not jobs:
+            return
+
+        def _worker() -> None:
+            for mp, do_summary, do_translate in jobs:
+                # 翻訳を先に実行（summary_source=translate の場合に必要）
+                if do_translate and trans_prov in ("api", "libretranslate"):
+                    try:
+                        with open(mp + ".translate_offset", "w", encoding="utf-8") as f:
+                            f.write("0")
+                    except OSError:
+                        pass
+                    self.recorder._translate_loop(mp)
+                if do_summary:
+                    if llm_prov == "api":
+                        self.recorder._auto_summarize(mp)
+                    else:
+                        try:
+                            with open(COMMAND_FILE, "w", encoding="utf-8") as f:
+                                f.write(f"generate_summary {os.path.basename(mp)}")
+                        except OSError:
+                            pass
+
+        logger.info("自動ジョブ起動: %d 件 (is_new=%s)", len(jobs), is_new)
+        threading.Thread(target=_worker, name="auto-jobs", daemon=True).start()
 
     def _serve_config(self) -> None:
         self._send_json(load_config())
