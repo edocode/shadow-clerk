@@ -76,7 +76,8 @@ function renderMtgPane(){
     document.getElementById('btnRenameMtgGroup').style.display=curGroup==='ad-hoc'?'none':'';
     const files=(meetingGroups[curGroup]||[]);
     mp.innerHTML=files.map(f=>{
-      return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}">${esc((fileInfo[f]?.label||f))}</div>`;
+      const fi=fileInfo[f];
+      return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}"><span class="mg-file-label">${esc((fi?.label||f))}</span>${_badges(fi)}</div>`;
     }).join('');
   }
 }
@@ -115,7 +116,7 @@ async function loadLogs(){
     el.insertAdjacentHTML('beforeend','<div class="ll '+c+'">'+esc(l)+'</div>');});
   el.scrollTop=el.scrollHeight;}catch(e){}
 }
-function onSel(){deselectAll();curFile=document.getElementById('fsel').value;loadT(curFile);loadR(curFile);renderMtgPane();_updateRenameMtgBtn();}
+function onSel(){deselectAll();curFile=document.getElementById('fsel').value;loadT(curFile);loadR(curFile);loadS(curFile);renderMtgPane();_updateRenameMtgBtn();}
 function goActive(){if(!activeFile)return;const s=document.getElementById('fsel');s.value=activeFile;onSel();}
 async function cmd(c){try{await fetch('/api/command',{method:'POST',
   headers:{'Content-Type':'application/json'},body:JSON.stringify({command:c})});}catch(e){}}
@@ -127,10 +128,10 @@ es.addEventListener('response',e=>{
     document.getElementById('resp').classList.add('show');}
 });
 es.addEventListener('alert',e=>{
-  const d=JSON.parse(e.data);if(d.message){alert(d.message);}
+  const d=JSON.parse(e.data);if(d.message){alert(d.message);loadS(curFile);}
 });
 function hideResp(){document.getElementById('resp').classList.remove('show');}
-initSearchSelects();switchLeftTab('dates');loadFiles();loadT('');loadR('');loadLogs();setInterval(loadFiles,10000);
+initSearchSelects();switchLeftTab('dates');loadFiles();loadT('');loadR('');loadS('');loadLogs();setInterval(loadFiles,10000);
 const LANG_OPTS=['ja','en','zh','ko','fr','de','es','pt','ru'];
 const CFG_FIELDS=[
   {type:'section',label:I18N['cfg.section.general']},
@@ -327,21 +328,32 @@ async function saveGlossary(){
     setTimeout(()=>s.style.display='none',2000);
   }catch(e){}
 }
+async function loadS(file){
+  const el=document.getElementById('sp');if(!el)return;
+  const f=file?'?file='+encodeURIComponent(file):'';
+  try{
+    const d=await(await fetch('/api/summary'+f)).json();
+    document.getElementById('sf').textContent=d.file||'';
+    if(d.content){
+      el.innerHTML='<div class="summary-body">'+esc(d.content)+'</div>';
+    }else{
+      el.innerHTML='<div class="summary-empty"><div style="color:var(--muted);margin-bottom:8px">'+esc(I18N['dash.no_summary']||'No summary.')+'</div>'
+        +'<button class="pri" onclick="genSummary()">'+esc(I18N['dash.summary']||'Summary')+'</button></div>';
+    }
+  }catch(e){el.innerHTML='';}
+}
 async function genSummary(){
   const f=curFile||undefined;
   const b=f?JSON.stringify({file:f}):'{}';
   try{await fetch('/api/summary',{method:'POST',headers:{'Content-Type':'application/json'},body:b});
-    alert(I18N['dash.summary_started']);}catch(e){}
-}
-async function viewSummary(){
-  const f=curFile?'?file='+encodeURIComponent(curFile):'';
-  try{const d=await(await fetch('/api/summary'+f)).json();
-    document.getElementById('summaryTitle').textContent=I18N['dash.summary_prefix']+(d.file||'');
-    document.getElementById('summaryContent').textContent=d.content||I18N['dash.no_summary'];
-    document.getElementById('summaryModal').classList.add('open');
+    const el=document.getElementById('sp');
+    if(el)el.innerHTML='<div class="summary-empty"><div style="color:var(--muted)">'+esc(I18N['dash.summary_started']||'Generating...')+'</div></div>';
   }catch(e){}
 }
-function closeSummary(){document.getElementById('summaryModal').classList.remove('open');}
+async function regenSummary(){
+  if(!confirm(I18N['dash.summary_regen_confirm']))return;
+  await genSummary();
+}
 function customCmdAddRow(pattern,action){
   const tb=document.getElementById('customCmdBody');
   const tr=document.createElement('tr');

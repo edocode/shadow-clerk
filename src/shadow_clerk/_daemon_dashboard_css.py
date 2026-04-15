@@ -117,6 +117,8 @@ main {
 .toggle.unavail { color:#e44; opacity:1; position:relative; cursor:help; }
 .toggle.unavail::after { content:'\U0001f6ab'; position:absolute; top:-2px; right:-4px; font-size:9px; }
 .panel.hidden { display:none; }
+.summary-body { white-space:pre-wrap; font-size:12px; line-height:1.7; }
+.summary-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; }
 #logp.collapsed #logc { display:none; }
 #logp.collapsed { height:auto; }
 #pnlM { position:relative; overflow:visible; flex:0 0 180px; min-width:0; transition:flex-basis .15s; }
@@ -149,6 +151,18 @@ main {
   color:var(--muted); font-size:10px; padding:0;
 }
 #mtgChevron:hover { background:var(--btn-h); color:var(--text); }
+#pnlS { position:relative; overflow:visible; }
+#pnlS.collapsed { flex:0 0 0; }
+#pnlS.collapsed .ph, #pnlS.collapsed .pc { display:none !important; }
+#sumChevron {
+  position:absolute; left:-14px; top:50%; transform:translateY(-50%);
+  z-index:10; width:14px; height:44px;
+  background:var(--btn); border:1px solid var(--border);
+  border-radius:6px 0 0 6px; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  color:var(--muted); font-size:10px; padding:0;
+}
+#sumChevron:hover { background:var(--btn-h); color:var(--text); }
 .mg-item {
   padding:7px 8px; cursor:pointer; border-radius:4px;
   margin-bottom:2px; display:flex; justify-content:space-between; align-items:center;
@@ -159,8 +173,14 @@ main {
 .mg-file {
   padding:5px 8px; cursor:pointer; font-size:11px; border-radius:4px;
   margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  color:var(--muted);
+  color:var(--muted); display:flex; align-items:center; gap:3px;
 }
+.mg-file-label { flex:1; overflow:hidden; text-overflow:ellipsis; }
+.badge-t, .badge-s {
+  font-size:9px; font-weight:700; padding:0 3px; border-radius:3px; flex-shrink:0; line-height:15px;
+}
+.badge-t { color:var(--accent); border:1px solid var(--accent); }
+.badge-s { color:var(--green); border:1px solid var(--green); }
 .mg-file:hover { background:var(--btn-h); color:var(--text); }
 .mg-file.active { color:var(--accent); background:rgba(88,166,255,.1); }
 .modal-overlay {

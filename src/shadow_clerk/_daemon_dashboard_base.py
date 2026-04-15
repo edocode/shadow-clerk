@@ -162,16 +162,23 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         output_dir = self.recorder._output_dir
         transcript_file_names: list[tuple[str, TranscriptName]] = []
         try:
-            for f in sorted(os.listdir(output_dir), reverse=True):
-                if (tn := TranscriptName.parse(f)) is not None:
-                    transcript_file_names.append((f, tn))
+            all_files = set(os.listdir(output_dir))
         except OSError:
-            pass
+            all_files = set()
+        for f in sorted(all_files, reverse=True):
+            if (tn := TranscriptName.parse(f)) is not None:
+                transcript_file_names.append((f, tn))
+        # 翻訳言語を取得
+        config = load_config()
+        lang = config.get("translate_language", "ja")
         # 会議グループと file_info を構築
         groups: dict[str, list[str]] = {}
         file_info: dict[str, dict] = {}
         for f, tn in transcript_file_names:
-            file_info[f] = tn.file_info()
+            info = tn.file_info()
+            info["has_translation"] = tn.translation_filename(lang) in all_files
+            info["has_summary"] = tn.summary_filename in all_files
+            file_info[f] = info
             if tn.meeting_group is not None:
                 groups.setdefault(tn.meeting_group, []).append(f)
         self._send_json({

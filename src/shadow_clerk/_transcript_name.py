@@ -35,7 +35,14 @@ class TranscriptName:
 
     @classmethod
     def parse(cls, filename: str) -> "TranscriptName | None":
-        """ファイル名から TranscriptName を生成。マッチしなければ None。"""
+        """ファイル名から TranscriptName を生成。マッチしなければ None。
+
+        翻訳ファイル (transcript-...-{lang}.txt) は除外する。
+        名前付き会議の翻訳ファイル `transcript-...@name-{lang}.txt` は
+        `_FILE_RE` にもマッチしてしまうため、先に翻訳パターンで判定する。
+        """
+        if _TRANSLATION_RE.match(filename):
+            return None
         m = _FILE_RE.match(filename)
         if not m:
             return None

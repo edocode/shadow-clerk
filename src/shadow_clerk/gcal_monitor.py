@@ -198,10 +198,14 @@ class GCalMonitor:
     def _poll(self, service, calendar_id: str, buffer_min: int, end_buffer_min: int):
         now_utc = datetime.datetime.utcnow()
         next_poll = now_utc + datetime.timedelta(seconds=_POLL_INTERVAL)
-        events = _fetch_events(service, calendar_id, now_utc)
+        # 本日の全予定を表示するため time_max を今日の終わり（UTC翌日0時）まで拡張
+        today_start_utc = datetime.datetime(now_utc.year, now_utc.month, now_utc.day)
+        end_of_today_utc = today_start_utc + datetime.timedelta(days=1)
+        lookahead_minutes = max(120, int((end_of_today_utc - now_utc).total_seconds() / 60))
+        events = _fetch_events(service, calendar_id, now_utc, lookahead_minutes)
 
         # ダッシュボード向けキャッシュ更新
-        # 進行中・未来・処理済みのイベントのみ保持（昨日終了した未処理イベントは除外）
+        # 本日の全イベント（開始済み含む）＋未来・処理済みを保持
         self._last_events = [
             {
                 "id": e.get("id", ""),
@@ -215,6 +219,10 @@ class GCalMonitor:
                 (end_t := _parse_event_time(e.get("end", {}))) is None  # 終日イベント
                 or end_t >= now_utc  # 進行中 or 未来
                 or e.get("id", "") in self._processed  # 処理済み（ended など）
+                or (  # 本日開始済みの過去イベント
+                    (st := _parse_event_time(e.get("start", {}))) is not None
+                    and st >= today_start_utc
+                )
             )
         ]
 

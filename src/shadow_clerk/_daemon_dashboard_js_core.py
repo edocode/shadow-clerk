@@ -14,8 +14,8 @@ let meetingActive=false, translating=false, muteMic=false, muteMonitor=false, pt
 let audioBackend='';
 let panelMode=0; // 0=T|R, 1=T, 2=R
 let meetingGroups={}, curGroup=null; // 会議グループ管理
-const as={tp:true,rp:true,logc:true};
-['tp','rp','logc'].forEach(id=>{
+const as={tp:true,rp:true,sp:true,logc:true};
+['tp','rp','sp','logc'].forEach(id=>{
   document.getElementById(id).addEventListener('scroll',function(){
     as[id]=this.scrollTop+this.clientHeight>=this.scrollHeight-30;
   });
@@ -366,7 +366,7 @@ function togPTT(){
   cmd(pttActive?'ptt_on':'ptt_off');
   updatePTT(pttActive);
 }
-/* --- Panel cycling (T|R -> T -> R) --- */
+/* --- Panel cycling (T|R -> T -> R) --- S は sumChevron で個別に開閉 */
 function cyclePanel(){
   panelMode=(panelMode+1)%3;
   const t=document.getElementById('pnlT'),r=document.getElementById('pnlR'),btn=document.getElementById('togTR');
@@ -490,6 +490,12 @@ function togMtgPane(){
   const ch=document.getElementById('mtgChevron');
   if(ch)ch.innerHTML=collapsed?'&#x25BA;':'&#x25C4;';
 }
+function togSumPane(){
+  const p=document.getElementById('pnlS');if(!p)return;
+  const collapsed=p.classList.toggle('collapsed');
+  const ch=document.getElementById('sumChevron');
+  if(ch)ch.innerHTML=collapsed?'&#x25C4;':'&#x25BA;';
+}
 
 /* --- 左ペイン タブ切替 --- */
 function switchLeftTab(tab){
@@ -512,6 +518,12 @@ function switchLeftTab(tab){
   if(tab==='dates') renderDatePane();
   else if(tab==='meetings') renderMtgPane();
 }
+function _badges(fi){
+  let b='';
+  if(fi?.has_translation)b+='<span class="badge-t">T</span>';
+  if(fi?.has_summary)b+='<span class="badge-s">S</span>';
+  return b;
+}
 function renderDatePane(){
   const dp=document.getElementById('datePane');if(!dp)return;
   const files=Object.entries(fileInfo)
@@ -521,8 +533,9 @@ function renderDatePane(){
     dp.innerHTML=`<div style="color:var(--muted);font-size:12px;padding:8px">${esc(I18N['dash.dates_empty']||'No daily transcripts.')}</div>`;
     return;
   }
-  dp.innerHTML=files.map(([f])=>
-    `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}">${esc((fileInfo[f]?.label||f))}</div>`
-  ).join('');
+  dp.innerHTML=files.map(([f])=>{
+    const fi=fileInfo[f];
+    return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}"><span class="mg-file-label">${esc((fi?.label||f))}</span>${_badges(fi)}</div>`;
+  }).join('');
 }
 """
