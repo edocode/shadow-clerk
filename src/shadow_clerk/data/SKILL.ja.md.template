@@ -13,8 +13,7 @@ shadow-clerk
 - summary ファイル（`summary-YYYYMMDD.md`、セッション用 `summary-YYYYMMDDHHMM.md`）
 - 翻訳ファイル（`transcript-YYYYMMDD-ja.txt` 等）
 - `config.yaml`（設定ファイル）
-- `words.txt`
-- `glossary.txt`（用語集）
+- `glossary.txt`（用語集 + 読み置換)
 - `.clerk_session`、`.clerk_command`
 - `.transcript_offset`、`.translate_offset`
 
@@ -281,26 +280,25 @@ shadow-clerk — Web会議 議事録アシスタント
 （重要な発言や補足情報）
 ```
 
-### words.txt（単語置換リスト）
-- TSV 形式（`間違い<TAB>正しい語`）で音声認識のよくある誤認識を定義する
-- clerk-daemon が文字起こしテキストを transcript に保存する際に自動適用する
-- ファイルが変更された場合は自動で再読み込みされる
-- `#` で始まる行はコメントとして無視される
-
-### glossary.txt（用語集）
-- TSV 形式（タブ区切り）で多言語対応の用語集を定義する
-- 1行目はヘッダー行で言語コード（`ja`, `en` 等）を記載する。最後の列が `note` の場合は補足情報列として扱う
+### glossary.txt（用語集 + 読み置換)
+- TSV 形式（タブ区切り）で用語集を定義する
+- 1行目はヘッダー行。言語コード（`ja`, `en` 等)と、特殊列として `reading`（音声認識の読み)、`note`（補足)を含めることができる
 - 2行目以降に各言語に対応する用語を記載する
 - `#` で始まる行はコメント、空行は無視される
-- 翻訳時に用語集の語を参考にして訳語を統一する
+- **2通りの用途で使われる:**
+  1. **機械置換**: `reading` 列の値が ASR 出力に現れたら対応する言語列の値に置換する（例: `エーアイ → AI`)。長さ降順で照合(長い reading を優先)し、部分マッチの誤置換を防ぐ。clerk-daemon が transcript 保存前に適用
+  2. **LLM ヒント**: 翻訳・要約時にプロンプトに渡して訳語を統一する
+- ファイルが変更された場合は自動で再読み込みされる
 - ファイルが存在しない場合はエラーなく通常動作する
 
 例:
 ```
-ja	en	note
-スプリント	sprint
-スタンドアップ	standup	朝会のこと
-Aether	Aether	社内プロジェクト名（翻訳しない）
+reading	ja	en	note
+エーアイ	AI	AI
+オープンエーアイ	OpenAI	OpenAI
+	スプリント	sprint
+	スタンドアップ	standup	朝会のこと
+	Aether	Aether	社内プロジェクト名（翻訳しない）
 ```
 
 ### summary ファイル名の導出ルール

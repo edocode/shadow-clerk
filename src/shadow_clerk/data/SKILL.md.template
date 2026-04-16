@@ -13,8 +13,7 @@ The data directory is `{data_dir}`. The following files are stored there:
 - Summary files (`summary-YYYYMMDD.md`, session `summary-YYYYMMDDHHMM.md`)
 - Translation files (`transcript-YYYYMMDD-ja.txt`, etc.)
 - `config.yaml` (configuration file)
-- `words.txt`
-- `glossary.txt` (glossary)
+- `glossary.txt` (glossary + reading-based replacement)
 - `.clerk_session`, `.clerk_command`
 - `.transcript_offset`
 - Per-file translate offset files (`<transcript>.translate_offset`, e.g., `transcript-20260301.txt.translate_offset`)
@@ -275,26 +274,25 @@ Display the list of added entries after completion.
 (Important statements and supplementary information)
 ```
 
-### words.txt (Word Replacement List)
-- TSV format (`incorrect<TAB>correct`) defining common speech recognition errors
-- clerk-daemon automatically applies replacements when saving transcription text to transcript
-- Automatically reloaded when the file is modified
-- Lines starting with `#` are treated as comments
-
-### glossary.txt (Glossary)
-- TSV format (tab-separated) multilingual glossary
-- First line is a header with language codes (`ja`, `en`, etc.). If the last column is `note`, it's treated as a notes column
-- Second line onwards contains terms in each language
+### glossary.txt (Glossary + Reading-based Replacement)
+- TSV format (tab-separated)
+- First line is a header. Columns can be language codes (`ja`, `en`, ...) and special columns `reading` (pronunciation for ASR) and `note` (annotation)
+- Second line onwards contains terms
 - Lines starting with `#` are comments, empty lines are ignored
-- Used during translation to maintain consistent terminology
+- **Used in two ways:**
+  1. **Mechanical replacement**: when the value in the `reading` column appears in ASR output, replace it with the target language column value (e.g. `エーアイ → AI`). Applied in descending length order (longest reading first) to avoid partial-match misreplacement. clerk-daemon applies this before saving transcript
+  2. **LLM hint**: passed into translation/summary prompts to unify terminology
+- Automatically reloaded when the file is modified
 - Operates normally if the file doesn't exist
 
 Example:
 ```
-ja	en	note
-スプリント	sprint
-スタンドアップ	standup	Daily standup meeting
-Aether	Aether	Internal project name (do not translate)
+reading	ja	en	note
+エーアイ	AI	AI
+オープンエーアイ	OpenAI	OpenAI
+	スプリント	sprint
+	スタンドアップ	standup	Daily standup meeting
+	Aether	Aether	Internal project name (do not translate)
 ```
 
 ### Summary filename derivation rules

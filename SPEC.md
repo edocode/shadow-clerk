@@ -16,24 +16,26 @@ Python スクリプト。常駐してリアルタイムに文字起こしを行�
 - **文字起こし**: faster-whisper（CPU, int8）。モデルサイズは tiny/base/small/medium/large-v3 から選択
 - **出力**: タイムスタンプ・スピーカーラベル付きで transcript ファイルに追記
   - デフォルト: `transcript-YYYYMMDD.txt`（日付が変わったら自動で新ファイルに切り替え）
-  - 会議セッション中: `transcript-YYYYMMDDHHMM.txt`
+  - 会議セッション中: `transcript-YYYYMMDDHHMM.txt` または `transcript-YYYYMMDDHHMM@<会議名>.txt`（会議名付き、Google Calendar 連携時や rename 時）
+  - 翻訳ファイル: `transcript-YYYYMMDD[HHMM][@name]-<lang>.txt`
   - 形式: `[YYYY-MM-DD HH:MM:SS] [自分/相手] テキスト`
-- **words.txt**: TSV 形式の単語置換リスト。音声認識のよくある誤認識を自動修正。ファイル変更時は自動再読み込み
+- **glossary.txt**: TSV 形式の用語集。`reading` 列を使って音声認識の誤認識を機械置換（長さ降順で適用）、LLM 翻訳・要約のヒントとしても使用。ファイル変更時は自動再読み込み
+- **音声認識モデル**: 日本語時は `japanese_asr_model` で `default` / `kotoba-whisper` / `reazonspeech-k2` から切替可能。中間認識（`interim_transcription: true` 時）用にも別系統（`interim_model`, `interim_japanese_asr_model`）
 - **コマンドインターフェース**: `.clerk_command` ファイル経由で以下を受付
   - `set_language <lang>` / `unset_language` — 言語切り替え
   - `set_model <size>` — Whisper モデル切り替え（ランタイム再ロード）
   - `start_meeting` / `end_meeting` — 会議セッション管理
   - `translate_start` / `translate_stop` — 翻訳ループ開始・停止（`llm_provider: api` 時は clerk-daemon が直接処理、`claude` 時は SKILL.md 向けにファイルを残す）
 - **音声コマンド**: マイク入力から音声コマンドを検出・実行。2つの方式がある:
-  - **Push-to-Talk（推奨）**: `voice_command_key`（デフォルト: Menu キー）を押しながら発話すると、プレフィックスなしでコマンドとして認識される。Whisper の「クラーク」誤認識問題を回避できる
-  - **プレフィックス方式（フォールバック）**: 「clerk」または「クラーク」に続けてコマンドを発話する
-  - 「クラーク、会議開始」/ "clerk, start meeting" — 会議セッション開始
-  - 「クラーク、会議終了」/ "clerk, end meeting" — 会議セッション終了
-  - 「クラーク、言語 日本語」/ "clerk, language ja" — 言語を日本語に切り替え
-  - 「クラーク、言語 英語」/ "clerk, language en" — 言語を英語に切り替え
-  - 「クラーク、言語設定なし」/ "clerk, unset language" — 言語を自動検出に戻す
-  - 「クラーク、翻訳開始」/ "clerk, start translation" — 翻訳ループを開始
-  - 「クラーク、翻訳停止」/ "clerk, stop translation" — 翻訳ループを停止
+  - **Push-to-Talk（推奨）**: `voice_command_key`（デフォルト: `f23` — xremap 等で物理キーに割り当て前提）を押しながら発話すると、ウェイクワードなしでコマンドとして認識される。離した後も 1.5 秒の猶予タイマーあり
+  - **ウェイクワード方式（フォールバック）**: `wake_word`（デフォルト: 「シェルク」）に続けてコマンドを発話する。設定値から濁点・半濁点・小書き・ひらがなのバリアントを自動生成する fuzzy マッチが効く
+  - 「シェルク、会議開始」/ "clerk, start meeting" — 会議セッション開始
+  - 「シェルク、会議終了」/ "clerk, end meeting" — 会議セッション終了
+  - 「シェルク、言語 日本語」/ "clerk, language ja" — 言語を日本語に切り替え
+  - 「シェルク、言語 英語」/ "clerk, language en" — 言語を英語に切り替え
+  - 「シェルク、言語設定なし」/ "clerk, unset language" — 言語を自動検出に戻す
+  - 「シェルク、翻訳開始」/ "clerk, start translation" — 翻訳ループを開始
+  - 「シェルク、翻訳停止」/ "clerk, stop translation" — 翻訳ループを停止
 - **カスタム音声コマンド**: config.yaml の `custom_commands` リストで独自コマンドを登録できる
   - `pattern`: 正規表現（IGNORECASE で適用）
   - `action`: シェルコマンド文字列（`subprocess.Popen(shell=True)` で実行）
@@ -72,10 +74,14 @@ Claude Code の Skill として動作。transcript を読み議事録生成・�
 - `translate <lang>` — stdin から transcript 行を受け取り翻訳して stdout に出力
   - タイムスタンプ・スピーカーラベル保持、マーカー行はそのまま
   - 音声認識の誤認識を文脈から補正してから翻訳
+  - `--file <path> --offset <bytes>` で差分読み込み対応
+  - プロバイダは `translation_provider` 設定で `libretranslate` / `api` を切替可能
 - `query <prompt>` — LLM に自由形式のクエリを投げて回答を stdout に出力
   - 音声コマンドの LLM フォールバックから呼び出される
 - `summarize --mode full --file <transcript>` — transcript 全文から議事録生成
 - `summarize --mode update --file <transcript> --existing <summary>` — 既存 summary を踏まえた差分更新
+- `match-command` — stdin から `{text, commands}` JSON を受け取り、音声テキストに最も近いコマンドを推測。`{command, confidence}` を出力
+- `spell-check` — stdin のテキストを誤字訂正して stdout に出力（`spell_check_model` 設定の transformers モデルを使用、主に LibreTranslate の前段処理向け）
 
 設定:
 - 起動時にデータディレクトリの `.env` ファイルを読み込み、環境変数にセットする（既存の環境変数は上書きしない）
@@ -88,7 +94,14 @@ Claude Code の Skill として動作。transcript を読み議事録生成・�
 Claude Code の permission パターンを `Bash(<clerk-util のフルパス> *)` の1行で済ませる。
 `config.yaml` の `output_directory` を自動参照し、`transcript-*`/`summary-*` ファイルは指定ディレクトリから解決する。
 
-サブコマンド: `read`, `read-from`, `write`, `append`, `lines`, `size`, `mtime`, `exists`, `ls`, `command`, `recorder-status`, `read-config`, `write-config`, `path`
+サブコマンド:
+- ファイル操作: `read`, `read-from`, `write`, `append`, `lines`, `size`, `mtime`, `exists`, `ls`, `path`
+- コマンド連携: `command`, `poll-command`, `recorder-status`
+- 設定: `read-config`, `write-config`, `write-config-value`
+- プロセス管理: `start`, `stop`, `restart`
+- LLM ラッパー: `run-llm`, `summarize`
+- セットアップ: `gcal-auth`（Google Calendar OAuth 認証）, `claude-setup`（Claude Code permission 設定）
+- その他: `help`
 
 ### モジュール D: Web ダッシュボード（clerk-daemon 内蔵）
 
@@ -97,16 +110,46 @@ clerk-daemon に統合された Web ダッシュボード。ブラウザから t
 - **サーバー**: Python 標準ライブラリの `ThreadingHTTPServer` + SSE（Server-Sent Events）
 - **ポート**: 8765（`--dashboard-port` で変更可能）
 - **有効化**: デフォルトで有効（`--no-dashboard` で無効化）
-- **エンドポイント**:
-  - `GET /` — ダッシュボード HTML
-  - `GET /api/events` — SSE イベントストリーム（transcript/translation/log/recorder_status/session/command/response/config）
-  - `GET /api/status` — recorder 状態 JSON
-  - `GET /api/files` — transcript ファイル一覧 + アクティブファイル
-  - `GET /api/transcript?file=xxx` — transcript の末尾 50 行
-  - `GET /api/translation?file=xxx` — 翻訳ファイルの末尾 50 行
-  - `GET /api/logs` — ログ末尾 100 行
-  - `POST /api/command` — コマンド送信（`.clerk_command` に書き込み）
-- **UI**: ダークテーマ、transcript/翻訳パネル（speaker 色分け）、ログパネル、コマンドボタン
+- **エンドポイント (GET)**:
+  - `/` — ダッシュボード HTML
+  - `/api/events` — SSE イベントストリーム（transcript/translation/log/recorder_status/session/command/response/config/interim/summary/gcal）
+  - `/api/status` — recorder 状態 JSON
+  - `/api/files` — transcript ファイル一覧 + アクティブファイル
+  - `/api/transcript?file=xxx` — transcript の末尾 N 行
+  - `/api/translation?file=xxx` — 翻訳ファイルの末尾 N 行
+  - `/api/summary?file=xxx` — 議事録ファイル内容
+  - `/api/logs` — ログ末尾 N 行
+  - `/api/config` — `config.yaml` を JSON で返却
+  - `/api/glossary` — 用語集（glossary.txt）を返却
+  - `/api/models` — 利用可能な ASR モデル一覧
+  - `/api/gcal-events` — Google Calendar イベント一覧（gcal_integration 有効時）
+  - `/api/search?q=...` — transcript の全文検索
+- **エンドポイント (POST)**:
+  - `/api/command` — コマンド送信（`.clerk_command` に書き込み）
+  - `/api/config` — 設定を更新（config.yaml に書き込み）
+  - `/api/glossary` — 用語集を更新
+  - `/api/summary` — 議事録を生成・更新
+  - `/api/summary/notify` — 議事録生成完了通知を SSE で配信
+  - `/api/transcript/delete` — 行削除
+  - `/api/transcript/delete-file` — ファイル削除
+  - `/api/transcript/extract-meeting` — 会議セッション部分を抽出して `@meeting-name` ファイルに切り出し
+  - `/api/transcript/split-by-silence` — 無音検出で分割
+  - `/api/transcript/rename-meeting` — 会議名変更（対応する translation/summary も追従）
+  - `/api/transcript/merge-to-daily` — 会議ファイルを日次ファイルにマージ
+- **UI**: ダークテーマ、transcript/翻訳/要約の3ペイン（speaker 色分け）、ログパネル、コマンドボタン、会議一覧・検索タブ
+
+### モジュール E: Google Calendar 連携（オプション、`gcal_monitor.py`）
+
+`gcal_integration: true` の場合、Google Calendar を監視してイベント開始/終了時刻に `start_meeting` / `end_meeting` を自動発火する。
+
+- 認証: OAuth 2.0（`clerk-util gcal-auth <credentials.json>` で初回認証、以降はトークンを `gcal_token.json` に保存して再利用）
+- スコープ: `https://www.googleapis.com/auth/calendar.readonly`（読み取り専用）
+- 監視対象: `gcal_calendar_id`（デフォルト `primary`）
+- 前後バッファ: `gcal_buffer_minutes`（開始 N 分前）/ `gcal_end_buffer_minutes`（終了 N 分後）
+- Transcript ファイル名に予定タイトルが `@meeting-name` として付与される
+- スレッドは `gcal-monitor`（daemon スレッド）
+
+依存: `google-auth-oauthlib`, `google-api-python-client`（`uv sync --extra gcal` で追加）
 
 ## アーキテクチャ図
 
@@ -119,7 +162,7 @@ graph TB
         vad["VAD Segmenter<br/>(webrtcvad)"]
         transcriber["Transcriber<br/>(faster-whisper)"]
         vcmd["Voice Command<br/>Detector"]
-        replacer["Word Replacer<br/>(words.txt)"]
+        replacer["Glossary Replacer<br/>(glossary.txt)"]
         cmdwatch["Command Watcher<br/>(.clerk_command)"]
         ptt["Key Listener<br/>(Push-to-Talk)"]
         translateloop["Translate Loop"]
@@ -142,7 +185,6 @@ graph TB
         config["config.yaml"]
         clkcmd[".clerk_command"]
         session[".clerk_session"]
-        words["words.txt"]
         glossary["glossary.txt"]
     end
 
@@ -259,7 +301,7 @@ sequenceDiagram
             Note right of Whisper: 音声コマンドの場合は<br/>ファイル書き込みをスキップ
         else 通常の発話
             Whisper->>WR: text
-            WR->>WR: words.txt で置換
+            WR->>WR: glossary.txt の reading 列で置換(長さ降順)
             WR-->>Whisper: corrected text
             Whisper->>File: append "[HH:MM:SS] [自分/相手] text"
             Whisper->>Whisper: print (ターミナル表示)
@@ -526,16 +568,18 @@ sequenceDiagram
 |---|---|
 | `transcript-YYYYMMDD.txt` | デフォルトの文字起こしファイル（日付ベース） |
 | `transcript-YYYYMMDDHHMM.txt` | 会議セッション用 transcript |
-| `transcript-YYYYMMDD-<lang>.txt` | 翻訳結果ファイル |
-| `summary-YYYYMMDD.md` | 議事録（transcript に対応） |
-| `summary-YYYYMMDDHHMM.md` | 会議セッション用議事録 |
-| `words.txt` | 単語置換リスト (TSV) |
+| `transcript-YYYYMMDDHHMM@<会議名>.txt` | 会議名付き transcript（Google Calendar 連携、rename 時） |
+| `transcript-*-<lang>.txt` | 翻訳結果ファイル（会議名含む対応: `transcript-YYYYMMDDHHMM@<会議名>-<lang>.txt`） |
+| `summary-YYYYMMDD.md` | 議事録（日次 transcript に対応） |
+| `summary-YYYYMMDDHHMM[@<会議名>].md` | 会議セッション用議事録 |
+| `glossary.txt` | 用語集 (TSV: reading/note/各言語列) — 用語置換 + LLM ヒントの両用 |
 | `.clerk_session` | アクティブな会議セッションのファイルパス |
 | `.clerk_command` | clerk-daemon へのコマンド（一時ファイル） |
-| `.transcript_offset` | 議事録生成用のバイトオフセット |
-| `.translate_offset` | 翻訳用のバイトオフセット |
+| `.transcript_offset` | 議事録生成用のバイトオフセット（グローバル） |
+| `<transcript>.translate_offset` | 翻訳用のバイトオフセット（ファイルごと） |
 | `config.yaml` | 設定ファイル |
 | `.clerk_response` | LLM フォールバックの回答（最新の1件） |
+| `gcal_token.json` | Google Calendar OAuth 認証トークン（`gcal_token_file` で変更可） |
 | `.env` | API キー等の環境変数（llm_client.py が読み込む） |
 
 ## 設定ファイル (config.yaml)
@@ -543,24 +587,61 @@ sequenceDiagram
 `~/.local/share/shadow-clerk/config.yaml` にユーザー設定を保存する。
 
 ```yaml
-# shadow-clerk 設定
-translate_language: ja        # 翻訳先言語 (ja/en/etc)
-auto_translate: false         # start meeting 時に自動翻訳を開始
-auto_summary: false           # end meeting 時に自動 summary 生成
-default_language: null        # clerk-daemon のデフォルト言語 (null=自動検出)
-default_model: small          # clerk-daemon のデフォルト Whisper モデル
-output_directory: null        # transcript 出力先ディレクトリ (null=データディレクトリ)
-llm_provider: claude          # 翻訳・Summary の LLM ("claude"=インライン / "api"=外部 API)
-api_endpoint: null            # OpenAI Compatible API の base URL
-api_model: null               # API モデル名 (gpt-4o, etc.)
-api_key_env: SHADOW_CLERK_API_KEY  # API キーを格納する環境変数名
+# shadow-clerk 設定 (実装の DEFAULT_CONFIG は _daemon_constants.py を参照)
+
+# --- 基本 ---
+translate_language: ja            # 翻訳先言語 (ja/en/etc)
+auto_translate: false             # start meeting 時に自動翻訳を開始
+auto_summary: false               # end meeting 時に自動 summary 生成
+default_language: null            # clerk-daemon のデフォルト言語 (null=自動検出)
+default_model: small              # デフォルト Whisper モデル (tiny/base/small/medium/large-v3)
+output_directory: null            # transcript 出力先ディレクトリ (null=データディレクトリ)
+ui_language: ja                   # UI言語 (ja/en) — ダッシュボード・ターミナル出力・LLMプロンプト
+
+# --- LLM / 翻訳プロバイダ ---
+llm_provider: claude              # 翻訳・Summary の LLM ("claude" / "api")
+translation_provider: null        # 翻訳の個別プロバイダ上書き (null / "libretranslate" / "api")
+api_endpoint: null                # OpenAI Compatible API の base URL
+api_model: null                   # API モデル名 (gpt-4o, etc.)
+api_key_env: SHADOW_CLERK_API_KEY # API キーを格納する環境変数名
+
+# --- LibreTranslate ---
+libretranslate_endpoint: null     # LibreTranslate のエンドポイント
+libretranslate_api_key: null      # (省略可)
+libretranslate_spell_check: false # 翻訳前に transformers でスペル訂正
+spell_check_model: <HF model>     # スペル訂正モデル (transformers)
+
+# --- 音声認識 (ASR) ---
+whisper_beam_size: 5              # Whisper beam size (1=高速, 5=高精度)
+whisper_compute_type: int8        # 計算精度 (int8/float16/float32)
+whisper_device: cpu               # デバイス (cpu/cuda)
+japanese_asr_model: default       # ja 時の ASR (default/kotoba-whisper/reazonspeech-k2)
+kotoba_whisper_model: <HF model>  # kotoba-whisper 時に使うモデル
+initial_prompt: null              # Whisper の initial_prompt
+
+# --- 中間文字起こし (確定前プレビュー) ---
+interim_transcription: false      # 有効/無効
+interim_model: base               # 中間認識用 Whisper モデル
+interim_japanese_asr_model: default  # 中間認識の ja 別モデル
+
+# --- 議事録 (summary) ---
+summary_source: transcript        # transcript / translation
+summary_length: half              # full / half / quarter (要約分量)
+summary_hiragana_step: true       # 要約前に漢字→ひらがな変換を挟む
+translation_hiragana_step: true   # 翻訳前に漢字→ひらがな変換を挟む
+
+# --- 音声コマンド / PTT / ウェイクワード ---
+voice_command_key: f23            # Push-to-Talk キー (null=無効, f23/menu/ctrl_r/alt_r/shift_r など)
+wake_word: シェルク                 # ウェイクワード (カタカナ、fuzzy パターン自動生成)
 custom_commands: []               # カスタム音声コマンド (pattern + action のリスト)
-initial_prompt: null              # Whisper の initial_prompt (音声認識のヒント語彙)
-voice_command_key: menu        # Push-to-Talk キー (null=無効, ctrl_r/ctrl_l/alt_r/alt_l/shift_r/shift_l)
-whisper_beam_size: 5           # Whisper beam size (1=高速, 5=高精度)
-whisper_compute_type: int8     # 計算精度 (int8/float16/float32)
-whisper_device: cpu            # デバイス (cpu/cuda)
-ui_language: ja                # UI言語 (ja/en) — ダッシュボード・ターミナル出力・LLMプロンプトの言語
+
+# --- Google Calendar 連携 ---
+gcal_integration: false           # 有効/無効
+gcal_credentials_file: null       # OAuth credentials.json のパス
+gcal_token_file: null             # 認証済みトークン保存先 (デフォルト: DATA_DIR/gcal_token.json)
+gcal_calendar_id: primary         # 監視対象カレンダー ID
+gcal_buffer_minutes: 2            # 開始 N 分前に start_meeting を送信
+gcal_end_buffer_minutes: 1        # 終了 N 分後に end_meeting を送信
 ```
 
 - clerk-daemon 起動時に config.yaml を読み込み、CLI 引数が未指定の場合のみ `default_model`、`default_language`、`output_directory` を適用する
@@ -569,7 +650,20 @@ ui_language: ja                # UI言語 (ja/en) — ダッシュボード・�
 
 ## 依存関係
 
-- Python 3.12+
-- faster-whisper, sounddevice, webrtcvad, numpy, pyyaml, openai, pynput
-- システム: libportaudio2, PipeWire or PulseAudio
-- pynput が未インストールの場合、Push-to-Talk は無効（警告ログを出力し、従来のプレフィックス方式のみで動作）
+### 必須
+- Python 3.11+
+- `faster-whisper`, `sounddevice`, `webrtcvad`, `numpy`, `pyyaml`, `openai`, `pynput`
+- システム: `libportaudio2`, PipeWire or PulseAudio
+
+### オプション (`uv sync --extra <name>`)
+- `spell-check`: `transformers`, `torch`, `sentencepiece` — LibreTranslate 前段のスペル訂正用
+- `reazonspeech`: `sherpa-onnx`, `reazonspeech-k2-asr` — 日本語 ASR 代替モデル
+- `gcal`: `google-auth-oauthlib`, `google-api-python-client` — Google Calendar 連携
+- `speaker-diarization`(未完): `speechbrain`, `torchaudio` — 話者分離(実験的、動作しない場合あり)
+
+### Wayland 環境
+- `evdev` が必要(X11 では `pynput` でPTTキーを捕まえられるが Wayland では動かないため、`evdev` による代替実装を追加)
+- `/dev/input/*` の読み取り権限: `sudo usermod -aG input $USER` が必要
+
+### フォールバック挙動
+- `pynput` / `evdev` のどちらも利用不可の場合、Push-to-Talk は無効になりウェイクワード方式のみで動作
