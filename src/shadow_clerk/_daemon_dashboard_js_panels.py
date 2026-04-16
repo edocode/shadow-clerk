@@ -128,7 +128,7 @@ es.addEventListener('response',e=>{
     document.getElementById('resp').classList.add('show');}
 });
 es.addEventListener('alert',e=>{
-  const d=JSON.parse(e.data);if(d.message){alert(d.message);loadS(curFile);}
+  const d=JSON.parse(e.data);if(d.message){alert(d.message);loadS(curFile);openSumPane();}
 });
 function hideResp(){document.getElementById('resp').classList.remove('show');}
 initSearchSelects();switchLeftTab('dates');loadFiles();if(!_hashFile()){loadT('');loadR('');loadS('');}loadLogs();setInterval(loadFiles,10000);

@@ -315,6 +315,7 @@ async function togTranslate(){
 }
 async function regenTranslate(){
   if(!confirm(I18N['dash.translate_regen_confirm']))return;
+  const el=document.getElementById('rp');if(el)el.innerHTML='';
   const dateArg=_curFileArg();
   cmd('translate_regenerate'+(dateArg?' '+dateArg:''));
   updateTranslateBtn(true);
@@ -501,6 +502,12 @@ function togSumPane(){
   const collapsed=p.classList.toggle('collapsed');
   const ch=document.getElementById('sumChevron');
   if(ch)ch.innerHTML=collapsed?'&#x25C4;':'&#x25BA;';
+}
+function openSumPane(){
+  const p=document.getElementById('pnlS');if(!p||!p.classList.contains('collapsed'))return;
+  p.classList.remove('collapsed');
+  const ch=document.getElementById('sumChevron');
+  if(ch)ch.innerHTML='&#x25BA;';
 }
 
 /* --- 左ペイン タブ切替 --- */

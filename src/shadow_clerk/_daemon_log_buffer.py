@@ -142,6 +142,10 @@ class FileWatcher(threading.Thread):
         key = ("translation", tr_path)
         if key not in self._file_offsets:
             self._file_offsets[key] = self._get_size(tr_path)
+        # ファイル縮小（再生成で上書き）時はオフセットをリセット
+        cur_size = self._get_size(tr_path)
+        if cur_size < self._file_offsets[key]:
+            self._file_offsets[key] = 0
         diff, new_size = self._read_diff(tr_path, self._file_offsets.get(key, 0))
         if diff:
             self._file_offsets[key] = new_size
