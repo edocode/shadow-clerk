@@ -379,22 +379,22 @@ STRINGS = {
             "  平仮名や中間ステップは絶対に出力しないでください。"
         ),
         "llm.summary_update_none": "(なし — 新規作成してください)",
-        "llm.summary_length_half": "\n【出力量】A4半枚程度（400〜500字）に収めて簡潔にまとめてください。",
-        "llm.summary_length_1page": "\n【出力量】A41枚程度（800〜1000字）でまとめてください。",
-        "llm.summary_length_2pages": "\n【出力量】A42枚程度（1600〜2000字）で詳細にまとめてください。各議題の議論内容を具体的に記述してください。",
+        "llm.summary_length_half": "\n【出力量】A4半枚（400字）以上でまとめてください。重要な内容があればそれ以上長くなっても構いません。",
+        "llm.summary_length_1page": "\n【出力量】A41枚（800字）以上でまとめてください。重要な内容があればそれ以上長くなっても構いません。",
+        "llm.summary_length_2pages": "\n【出力量】A42枚（1600字）以上で詳細にまとめてください。各議題の議論内容を具体的に記述してください。重要な内容があればそれ以上長くなっても構いません。",
         "llm.summary_length_3pages": (
-            "\n【出力量】A43枚程度（可能な限り2400字以上）で出力してください。"
+            "\n【出力量】A43枚（2400字）以上で出力してください。"
             "各議題について背景・議論の経緯・結論を丁寧に記述し、「詳細メモ」セクションでは重要な発言を具体的に記載してください。"
-            "短くまとめすぎないでください。"
+            "重要な内容を端折らず、必要に応じてさらに長くなっても構いません。"
         ),
         "llm.summary_length_4pages": (
-            "\n【出力量】A44枚程度（可能な限り3200字以上）で出力してください。"
+            "\n【出力量】A44枚（3200字）以上で出力してください。"
             "各議題について背景・議論の経緯・各参加者の意見・結論を漏れなく記述してください。"
             "「詳細メモ」セクションでは重要な発言を具体的に引用し、議論の流れが再現できるレベルで記載してください。"
-            "短くまとめすぎないでください。"
+            "重要な内容を端折らず、必要に応じてさらに長くなっても構いません。"
         ),
         "llm.summary_length_5pages": (
-            "\n【出力量】A45枚程度（可能な限り4000字以上）で出力してください。"
+            "\n【出力量】A45枚（4000字）以上で出力してください。"
             "各議題について背景・議論の経緯・各参加者の意見・結論・アクションアイテムを漏れなく記述してください。"
             "「詳細メモ」セクションでは重要な発言を具体的に引用し、議論の流れが再現できるレベルで詳細に記載してください。"
             "要約ではなく詳細な議事録として、会議に参加していない人が読んでも議論の全体像を把握できる分量で出力してください。"
@@ -774,23 +774,23 @@ STRINGS = {
         "llm.summary_hiragana_step": "",
         "llm.translation_hiragana_step": "",
         "llm.summary_update_none": "(None — please create new minutes)",
-        "llm.summary_length_half": "\n[OUTPUT LENGTH] Keep the summary brief, around half an A4 page (400-500 characters).",
-        "llm.summary_length_1page": "\n[OUTPUT LENGTH] Aim for approximately one A4 page (800-1000 characters).",
-        "llm.summary_length_2pages": "\n[OUTPUT LENGTH] Provide a detailed summary of approximately two A4 pages (1600-2000 characters). Describe each topic's discussion in detail.",
+        "llm.summary_length_half": "\n[OUTPUT LENGTH] At least half an A4 page (400+ characters). May be longer if important content warrants it.",
+        "llm.summary_length_1page": "\n[OUTPUT LENGTH] At least one A4 page (800+ characters). May be longer if important content warrants it.",
+        "llm.summary_length_2pages": "\n[OUTPUT LENGTH] At least two A4 pages (1600+ characters). Describe each topic's discussion in detail. May be longer if important content warrants it.",
         "llm.summary_length_3pages": (
-            "\n[OUTPUT LENGTH] Approximately three A4 pages (aim for at least 2400 characters when content allows)."
+            "\n[OUTPUT LENGTH] At least three A4 pages (2400+ characters)."
             " Describe each topic's background, discussion, and conclusions thoroughly."
             " In the Detailed Notes section, include specific quotes from key statements."
-            " Do not summarize too briefly."
+            " Do not omit important content — longer output is fine if needed."
         ),
         "llm.summary_length_4pages": (
-            "\n[OUTPUT LENGTH] Approximately four A4 pages (aim for at least 3200 characters when content allows)."
+            "\n[OUTPUT LENGTH] At least four A4 pages (3200+ characters)."
             " Describe each topic's background, discussion, each participant's opinions, and conclusions comprehensively."
             " In the Detailed Notes section, include specific quotes and capture the flow of discussion."
-            " Do not summarize too briefly."
+            " Do not omit important content — longer output is fine if needed."
         ),
         "llm.summary_length_5pages": (
-            "\n[OUTPUT LENGTH] Approximately five A4 pages (aim for at least 4000 characters when content allows)."
+            "\n[OUTPUT LENGTH] At least five A4 pages (4000+ characters)."
             " Describe each topic's background, discussion, each participant's opinions, conclusions, and action items comprehensively."
             " In the Detailed Notes section, include extensive specific quotes and capture the full flow of discussion."
             " Write as detailed minutes, not a summary — someone who did not attend should be able to fully understand the discussion."

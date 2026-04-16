@@ -31,12 +31,12 @@ def _get_length_instruction(config: dict) -> str:
     return t(key) or ""
 
 
-# summary_length → max_tokens (日本語 ~2 tokens/字 + マークダウン余裕)
+# summary_length → max_tokens (上限なし方針のため余裕を持たせる)
 _LENGTH_MAX_TOKENS: dict[str, int] = {
-    "half": 2048,
-    "1page": 4096,
-    "2pages": 8192,
-    "3pages": 12288,
+    "half": 4096,
+    "1page": 8192,
+    "2pages": 12288,
+    "3pages": 16384,
     "4pages": 16384,
     "5pages": 16384,
 }
