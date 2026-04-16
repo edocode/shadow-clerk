@@ -116,7 +116,7 @@ async function loadLogs(){
     el.insertAdjacentHTML('beforeend','<div class="ll '+c+'">'+esc(l)+'</div>');});
   el.scrollTop=el.scrollHeight;}catch(e){}
 }
-function onSel(){deselectAll();curFile=document.getElementById('fsel').value;loadT(curFile);loadR(curFile);loadS(curFile);renderMtgPane();_updateRenameMtgBtn();}
+function onSel(){deselectAll();curFile=document.getElementById('fsel').value;_setHashFile(curFile);loadT(curFile);loadR(curFile);loadS(curFile);renderMtgPane();_updateRenameMtgBtn();}
 function goActive(){if(!activeFile)return;const s=document.getElementById('fsel');s.value=activeFile;onSel();}
 async function cmd(c){try{await fetch('/api/command',{method:'POST',
   headers:{'Content-Type':'application/json'},body:JSON.stringify({command:c})});}catch(e){}}
@@ -131,7 +131,8 @@ es.addEventListener('alert',e=>{
   const d=JSON.parse(e.data);if(d.message){alert(d.message);loadS(curFile);}
 });
 function hideResp(){document.getElementById('resp').classList.remove('show');}
-initSearchSelects();switchLeftTab('dates');loadFiles();loadT('');loadR('');loadS('');loadLogs();setInterval(loadFiles,10000);
+initSearchSelects();switchLeftTab('dates');loadFiles();if(!_hashFile()){loadT('');loadR('');loadS('');}loadLogs();setInterval(loadFiles,10000);
+window.addEventListener('hashchange',()=>{const f=_hashFile();if(f&&fileInfo[f]&&f!==curFile)selectMtgFile(f);});
 const LANG_OPTS=['ja','en','zh','ko','fr','de','es','pt','ru'];
 const CFG_FIELDS=[
   {type:'section',label:I18N['cfg.section.general']},

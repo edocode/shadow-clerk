@@ -7,6 +7,9 @@ const TN={
   filename(dt,name){return 'transcript-'+dt+(name?'@'+name:'')+'.txt';},
   summaryFilename(dt,name){return 'summary-'+dt+(name?'@'+name:'')+'.md';},
 };
+/* --- URL ハッシュ同期（選択ファイル名を #filename で保持） --- */
+function _hashFile(){const h=location.hash.replace(/^#/,'');if(!h)return null;try{return decodeURIComponent(h);}catch(e){return h;}}
+function _setHashFile(f){const nh=f?('#'+encodeURIComponent(f)):'';if((location.hash||'')===nh)return;if(nh)history.replaceState(null,'',nh);else history.replaceState(null,'',location.pathname+location.search);}
 let fileInfo={}; // /api/files の file_info をキャッシュ
 let curFile='', activeFile='';
 let leftTab='dates'; // 左ペインのアクティブタブ
@@ -463,6 +466,9 @@ async function loadFiles(){
   });
   s.value=(p&&shown.has(p))?p:(d.active||'');curFile=s.value;
   populateYearSelect();
+  // URL ハッシュに指定があれば選択ファイルを復元
+  const hf=_hashFile();
+  if(hf&&fileInfo[hf]&&hf!==curFile)selectMtgFile(hf);
   if(leftTab==='meetings') renderMtgPane();
   else if(leftTab==='dates') renderDatePane();
   }catch(e){}
