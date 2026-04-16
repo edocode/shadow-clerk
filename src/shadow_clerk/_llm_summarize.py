@@ -31,6 +31,23 @@ def _get_length_instruction(config: dict) -> str:
     return t(key) or ""
 
 
+# summary_length → max_tokens (日本語 ~2 tokens/字 + マークダウン余裕)
+_LENGTH_MAX_TOKENS: dict[str, int] = {
+    "half": 2048,
+    "1page": 4096,
+    "2pages": 8192,
+    "3pages": 12288,
+    "4pages": 16384,
+    "5pages": 16384,
+}
+
+
+def _get_max_tokens(config: dict) -> int:
+    """summary_length に基づく max_tokens を返す"""
+    length = config.get("summary_length", "half")
+    return _LENGTH_MAX_TOKENS.get(length, 4096)
+
+
 def _get_summary_format() -> str:
     """summary_template.md があればそちらを優先、なければ i18n デフォルトを使用"""
     template_path = os.path.join(DATA_DIR, "summary_template.md")
@@ -168,6 +185,7 @@ def _summarize_full_single(client: OpenAI, model: str, transcript: str, summary_
     """transcript 全文から議事録を生成する（単一リクエスト）。"""
     config = load_config()
     length_instruction = _get_length_instruction(config)
+    max_tokens = _get_max_tokens(config)
     system_prompt = t("llm.summary_full_system", summary_format=summary_format,
                       length_instruction=length_instruction)
     default_lang = config.get("default_language")
@@ -177,7 +195,8 @@ def _summarize_full_single(client: OpenAI, model: str, transcript: str, summary_
 
     hiragana_step = _get_hiragana_step(config)
     user_content = t("llm.summary_full_user", transcript=transcript,
-                     summary_format=summary_format, hiragana_step=hiragana_step)
+                     summary_format=summary_format, hiragana_step=hiragana_step,
+                     length_instruction=length_instruction)
 
     response = client.chat.completions.create(
         model=model,
@@ -186,6 +205,7 @@ def _summarize_full_single(client: OpenAI, model: str, transcript: str, summary_
             {"role": "user", "content": user_content},
         ],
         temperature=0.3,
+        max_tokens=max_tokens,
     )
 
     result = response.choices[0].message.content
@@ -227,6 +247,7 @@ def _summarize_update_single(
     """既存の summary を踏まえて差分 transcript から議事録を更新する（単一リクエスト）。"""
     config = load_config()
     length_instruction = _get_length_instruction(config)
+    max_tokens = _get_max_tokens(config)
     system_prompt = t("llm.summary_update_system", summary_format=summary_format,
                       length_instruction=length_instruction)
     default_lang = config.get("default_language")
@@ -237,7 +258,8 @@ def _summarize_update_single(
     hiragana_step = _get_hiragana_step(config)
     existing = existing_summary if existing_summary else t("llm.summary_update_none")
     user_content = t("llm.summary_update_user", existing=existing, transcript=transcript,
-                     summary_format=summary_format, hiragana_step=hiragana_step)
+                     summary_format=summary_format, hiragana_step=hiragana_step,
+                     length_instruction=length_instruction)
 
     response = client.chat.completions.create(
         model=model,
@@ -246,6 +268,7 @@ def _summarize_update_single(
             {"role": "user", "content": user_content},
         ],
         temperature=0.3,
+        max_tokens=max_tokens,
     )
 
     result = response.choices[0].message.content
