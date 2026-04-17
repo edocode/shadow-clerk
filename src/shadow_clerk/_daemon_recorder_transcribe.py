@@ -219,16 +219,34 @@ class _RecorderTranscribeMixin:
     _KANA_START = re.compile(r"^[\u3041-\u3096\u30A1-\u30F6]")
     # 半濁音 + ン/ん パターン（「ピン」「プン」等の効果音）
     _HANDAKUON_N = re.compile(r"^[パピプペポぱぴぷぺぽ][ンん]$")
+    # 単独のかな/カナ（「あ」「い」「フ」等）
+    _SINGLE_KANA = re.compile(r"^[\u3041-\u3096\u30A1-\u30F6]$")
+    # 同じかなの繰り返し（「フフ」「ハハ」「ああ」等の笑い声・フィラー）
+    _REPEATED_KANA = re.compile(r"^([\u3041-\u3096\u30A1-\u30F6])\1+$")
+    # 短いフィラー語（「はあ」「ふう」等）
+    _SHORT_FILLERS = frozenset({
+        "はあ", "はぁ", "ハア", "ハァ",
+        "ふう", "ふぅ", "フウ", "フゥ",
+        "ほう", "ほぅ", "ホウ", "ホゥ",
+    })
+    # 末尾句読点（Whisper が付加することがある）
+    _TRAILING_PUNCT = re.compile(r"[。、！？\.,!?\s]+$")
 
     @staticmethod
     def _is_noise_text(text: str) -> bool:
-        """短いノイズ語（「あっ」「ピッ」「ピン」等）かどうか判定"""
-        s = text.strip()
+        """短いノイズ語（「あっ」「ピッ」「ピン」「フフ」「はあ」「あ」等）かどうか判定"""
+        s = _RecorderTranscribeMixin._TRAILING_PUNCT.sub("", text.strip())
         if len(s) > 3 or len(s) == 0:
             return False
         if _RecorderTranscribeMixin._KANA_START.match(s) and s[-1] in _RecorderTranscribeMixin._SMALL_KANA:
             return True
         if _RecorderTranscribeMixin._HANDAKUON_N.match(s):
+            return True
+        if _RecorderTranscribeMixin._SINGLE_KANA.match(s):
+            return True
+        if _RecorderTranscribeMixin._REPEATED_KANA.match(s):
+            return True
+        if s in _RecorderTranscribeMixin._SHORT_FILLERS:
             return True
         return False
 
