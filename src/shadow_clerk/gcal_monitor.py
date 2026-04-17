@@ -83,6 +83,33 @@ def _fetch_events(service, calendar_id: str, now: datetime.datetime, lookahead_m
     return result.get("items", [])
 
 
+def _extract_attendees(event: dict) -> list[str]:
+    """イベントから参加予定者（表示名）を抽出する。
+
+    - responseStatus == 'declined' は除外（明示的に辞退した人のみ）
+    - resource（会議室など）は除外
+    - 表示名優先、なければメールのローカル部のみ使用（@以降は記録しない）
+    - 重複は除去、元の順序を保持
+    """
+    result: list[str] = []
+    seen: set[str] = set()
+    for a in event.get("attendees", []) or []:
+        if a.get("responseStatus") == "declined":
+            continue
+        if a.get("resource"):
+            continue
+        name = (a.get("displayName") or "").strip()
+        if not name:
+            email = a.get("email") or ""
+            name = email.split("@", 1)[0] if "@" in email else email
+            name = name.strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        result.append(name)
+    return result
+
+
 def _parse_event_time(event_time: dict) -> datetime.datetime | None:
     """イベントの start/end 時刻を UTC-naive datetime に変換する"""
     if "dateTime" in event_time:
@@ -117,19 +144,32 @@ class GCalMonitor:
         """ダッシュボード向けに直近イベント情報を返す"""
         return self._last_events
 
-    def get_ongoing_event_name(self) -> str | None:
-        """現在時刻に進行中のイベントがあればサニタイズ済みの名前を返す。なければ None。"""
+    def _find_ongoing_event(self) -> dict | None:
+        """現在時刻に進行中のイベントを返す（_last_events から）。"""
         now_utc = datetime.datetime.utcnow()
         for event in self._last_events:
-            # _last_events の start/end は ISO 文字列
             try:
                 start_dt = _parse_event_time({"dateTime": event["start"]}) if "T" in event.get("start", "") else None
                 end_dt = _parse_event_time({"dateTime": event["end"]}) if "T" in event.get("end", "") else None
             except Exception:
                 continue
             if start_dt and end_dt and start_dt <= now_utc < end_dt:
-                return _sanitize_name(event.get("summary", "meeting"))
+                return event
         return None
+
+    def get_ongoing_event_name(self) -> str | None:
+        """現在時刻に進行中のイベントがあればサニタイズ済みの名前を返す。なければ None。"""
+        event = self._find_ongoing_event()
+        if event is None:
+            return None
+        return _sanitize_name(event.get("summary", "meeting"))
+
+    def get_ongoing_event_attendees(self) -> list[str]:
+        """現在進行中のイベントの参加予定者リストを返す。進行中イベントがなければ空リスト。"""
+        event = self._find_ongoing_event()
+        if event is None:
+            return []
+        return list(event.get("attendees") or [])
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -213,6 +253,7 @@ class GCalMonitor:
                 "start": e.get("start", {}).get("dateTime", e.get("start", {}).get("date", "")),
                 "end": e.get("end", {}).get("dateTime", e.get("end", {}).get("date", "")),
                 "status": self._processed.get(e.get("id", ""), "pending"),
+                "attendees": _extract_attendees(e),
             }
             for e in events
             if (

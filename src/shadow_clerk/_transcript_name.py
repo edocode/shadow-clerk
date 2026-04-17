@@ -85,6 +85,12 @@ class TranscriptName:
         suffix = f"@{self.meeting_name}" if self.meeting_name else ""
         return f"summary-{self.datetime_str}{suffix}.md"
 
+    @property
+    def attendees_filename(self) -> str:
+        """transcript-YYYYMMDDHHMM[@name].attendees.json"""
+        suffix = f"@{self.meeting_name}" if self.meeting_name else ""
+        return f"transcript-{self.datetime_str}{suffix}.attendees.json"
+
     def translation_filename(self, lang: str) -> str:
         """transcript-YYYYMMDDHHMM[@name]-{lang}.txt"""
         suffix = f"@{self.meeting_name}" if self.meeting_name else ""

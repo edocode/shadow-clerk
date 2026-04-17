@@ -203,6 +203,9 @@ STRINGS = {
         "dash.gcal_events_title": "Google Calendar 予定",
         "dash.gcal_disabled": "Google Calendar 連携は無効です。",
         "dash.gcal_no_events": "本日の予定はありません。",
+        "dash.attendees": "参加予定者",
+        "dash.attendees_empty": "（参加予定者の情報はありません）",
+        "dash.attendees_note": "※ 招待情報に基づくリストです。実際の出席者と異なる場合があります。",
         "dash.loading": "読み込み中...",
         "dash.help": "ヘルプ",
         "dash.help_title": "ヘルプ",
@@ -331,6 +334,7 @@ STRINGS = {
             "- 発言者名を無理に推測しないでください。transcript のスピーカーは「自分」と「相手」の2者しか区別できないため、具体的な個人名での発言の帰属は不正確になります。引用は「〜という意見があった」等の形式にしてください\n"
             "{hiragana_step}"
             "{length_instruction}"
+            "{attendees_block}"
             "\n"
             "【transcript】\n"
             "{transcript}"
@@ -356,6 +360,7 @@ STRINGS = {
             "- 発言者名を無理に推測しないでください。transcript のスピーカーは「自分」と「相手」の2者しか区別できないため、具体的な個人名での発言の帰属は不正確になります。引用は「〜という意見があった」等の形式にしてください\n"
             "{hiragana_step}"
             "{length_instruction}"
+            "{attendees_block}"
             "\n"
             "## 既存の議事録\n"
             "{existing}\n"
@@ -383,6 +388,14 @@ STRINGS = {
             "  平仮名や中間ステップは絶対に出力しないでください。"
         ),
         "llm.summary_update_none": "(なし — 新規作成してください)",
+        "llm.summary_attendees_block": (
+            "\n【参加予定者（Google Calendar より）】\n"
+            "{attendees}\n"
+            "※ 参加予定者リストは招待情報に基づくため、実際の出席者と異なる場合があります。"
+            "議事録内で発言者名を明示する必要がある場合でも、"
+            "誰が実際に発言したかは transcript だけでは判別できないことを踏まえ、"
+            "断定的な帰属は避けてください。"
+        ),
         "llm.summary_length_half": "\n【出力量】A4半枚（400字）以上でまとめてください。重要な内容があればそれ以上長くなっても構いません。",
         "llm.summary_length_1page": "\n【出力量】A41枚（800字）以上でまとめてください。重要な内容があればそれ以上長くなっても構いません。",
         "llm.summary_length_2pages": "\n【出力量】A42枚（1600字）以上で詳細にまとめてください。各議題の議論内容を具体的に記述してください。重要な内容があればそれ以上長くなっても構いません。",
@@ -617,6 +630,9 @@ STRINGS = {
         "dash.rename_meeting_apply": "Apply",
         "dash.gcal_events": "Google Calendar",
         "dash.gcal_events_title": "Google Calendar Events",
+        "dash.attendees": "Expected Attendees",
+        "dash.attendees_empty": "(No attendee information)",
+        "dash.attendees_note": "Note: Based on calendar invitations; may differ from actual attendance.",
         "dash.gcal_disabled": "Google Calendar integration is not enabled.",
         "dash.gcal_no_events": "No events today.",
         "dash.loading": "Loading...",
@@ -747,6 +763,7 @@ STRINGS = {
             "- Do not guess speaker names. The transcript only distinguishes 'self' and 'other', so attributing statements to specific individuals is unreliable. Use impersonal forms like 'it was suggested that...' instead\n"
             "{hiragana_step}"
             "{length_instruction}"
+            "{attendees_block}"
             "\n"
             "[TRANSCRIPT]\n"
             "{transcript}"
@@ -772,6 +789,7 @@ STRINGS = {
             "- Do not guess speaker names. The transcript only distinguishes 'self' and 'other', so attributing statements to specific individuals is unreliable. Use impersonal forms like 'it was suggested that...' instead\n"
             "{hiragana_step}"
             "{length_instruction}"
+            "{attendees_block}"
             "\n"
             "## Existing Meeting Minutes\n"
             "{existing}\n"
@@ -782,6 +800,13 @@ STRINGS = {
         "llm.summary_hiragana_step": "",
         "llm.translation_hiragana_step": "",
         "llm.summary_update_none": "(None — please create new minutes)",
+        "llm.summary_attendees_block": (
+            "\n[EXPECTED ATTENDEES (from Google Calendar)]\n"
+            "{attendees}\n"
+            "Note: this list is based on calendar invitations and may differ from actual attendance. "
+            "Even when attributing remarks, avoid definitive attribution since the transcript alone "
+            "cannot determine who actually spoke."
+        ),
         "llm.summary_length_half": "\n[OUTPUT LENGTH] At least half an A4 page (400+ characters). May be longer if important content warrants it.",
         "llm.summary_length_1page": "\n[OUTPUT LENGTH] At least one A4 page (800+ characters). May be longer if important content warrants it.",
         "llm.summary_length_2pages": "\n[OUTPUT LENGTH] At least two A4 pages (1600+ characters). Describe each topic's discussion in detail. May be longer if important content warrants it.",

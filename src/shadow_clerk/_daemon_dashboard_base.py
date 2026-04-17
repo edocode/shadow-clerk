@@ -55,6 +55,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_models()
         elif path == "/api/gcal-events":
             self._serve_gcal_events()
+        elif path == "/api/attendees":
+            self._serve_attendees()
         elif path == "/api/search":
             self._serve_search()
         else:
@@ -270,6 +272,28 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         if tn is None:
             return os.path.join(self.recorder._output_dir, basename)
         return os.path.join(self.recorder._output_dir, tn.summary_filename)
+
+    def _serve_attendees(self) -> None:
+        """GET /api/attendees?file=<transcript-filename>
+        指定した transcript ファイルの参加予定者リストを返す"""
+        params = parse_qs(urlparse(self.path).query)
+        file_param = params.get("file", [None])[0]
+        if not file_param:
+            self._send_json({"attendees": []})
+            return
+        tn = TranscriptName.parse(os.path.basename(file_param))
+        if tn is None:
+            self._send_json({"attendees": []})
+            return
+        path = os.path.join(self.recorder._output_dir, tn.attendees_filename)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            self._send_json({"attendees": []})
+            return
+        attendees = [a for a in (data.get("attendees") or []) if isinstance(a, str) and a.strip()]
+        self._send_json({"attendees": attendees})
 
     def _serve_summary(self) -> None:
         """GET /api/summary — summary ファイルの内容を返す"""

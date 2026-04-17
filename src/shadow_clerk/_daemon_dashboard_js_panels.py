@@ -329,16 +329,30 @@ async function saveGlossary(){
     setTimeout(()=>s.style.display='none',2000);
   }catch(e){}
 }
+function _renderAttendees(list){
+  if(!Array.isArray(list)||list.length===0)return '';
+  const label=I18N['dash.attendees']||'Attendees';
+  const note=I18N['dash.attendees_note']||'';
+  return '<div class="attendees-box" style="border:1px solid var(--border);border-radius:4px;padding:6px 8px;margin-bottom:8px;font-size:12px;background:var(--bg2,transparent)">'
+    +'<div style="font-weight:600;margin-bottom:2px">'+esc(label)+'</div>'
+    +'<div>'+list.map(esc).join(', ')+'</div>'
+    +(note?'<div style="font-size:11px;color:var(--muted);margin-top:2px">'+esc(note)+'</div>':'')
+    +'</div>';
+}
 async function loadS(file){
   const el=document.getElementById('sp');if(!el)return;
   const f=file?'?file='+encodeURIComponent(file):'';
   try{
-    const d=await(await fetch('/api/summary'+f)).json();
-    document.getElementById('sf').textContent=d.file||'';
-    if(d.content){
-      el.innerHTML='<div class="summary-body">'+esc(d.content)+'</div>';
+    const [sumD,attD]=await Promise.all([
+      fetch('/api/summary'+f).then(r=>r.json()),
+      file?fetch('/api/attendees?file='+encodeURIComponent(file)).then(r=>r.json()).catch(()=>({attendees:[]})):Promise.resolve({attendees:[]}),
+    ]);
+    document.getElementById('sf').textContent=sumD.file||'';
+    const attHtml=_renderAttendees(attD.attendees||[]);
+    if(sumD.content){
+      el.innerHTML=attHtml+'<div class="summary-body">'+esc(sumD.content)+'</div>';
     }else{
-      el.innerHTML='<div class="summary-empty"><div style="color:var(--muted);margin-bottom:8px">'+esc(I18N['dash.no_summary']||'No summary.')+'</div>'
+      el.innerHTML=attHtml+'<div class="summary-empty"><div style="color:var(--muted);margin-bottom:8px">'+esc(I18N['dash.no_summary']||'No summary.')+'</div>'
         +'<button class="pri" onclick="genSummary()">'+esc(I18N['dash.summary']||'Summary')+'</button></div>';
     }
   }catch(e){el.innerHTML='';}
@@ -505,11 +519,15 @@ async function openGcal(){
       const isToday=dt=>dt&&dt.toDateString()===now.toDateString();
       const dateStr=start?(isToday(start)?'':fmtDate(start)+' '):'';
       const status=ev.status==='started'?'🔴':ev.status==='ended'?'✅':'🔵';
-      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">`
+      const attendees=Array.isArray(ev.attendees)?ev.attendees:[];
+      const attLabel=I18N['dash.attendees']||'Attendees';
+      const attHtml=attendees.length?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${esc(attLabel)}: ${attendees.map(esc).join(', ')}</div>`:'';
+      return `<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">`
         +`<span style="font-size:16px">${status}</span>`
         +`<div style="flex:1;min-width:0">`
         +`<div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ev.summary)}</div>`
         +`<div style="font-size:11px;color:var(--muted)">${dateStr}${fmt(start)} – ${fmt(end)}</div>`
+        +attHtml
         +`</div></div>`;
     }).join('');
     body.innerHTML=rows;

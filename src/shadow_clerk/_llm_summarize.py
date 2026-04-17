@@ -1,6 +1,7 @@
 """shadow-clerk LLM client: サマリー生成"""
 from __future__ import annotations
 import argparse
+import json
 import logging
 import os
 import sys
@@ -15,6 +16,25 @@ from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain import Summary
 
 logger = logging.getLogger("llm-client")
+
+
+def _load_attendees_block(transcript_path: str) -> str:
+    """transcript ファイルと同ディレクトリの attendees.json を読み込み、
+    プロンプト埋め込み用の参加予定者ブロックを返す。無ければ空文字。"""
+    tn = TranscriptName.parse(os.path.basename(transcript_path))
+    if tn is None:
+        return ""
+    path = os.path.join(os.path.dirname(transcript_path), tn.attendees_filename)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return ""
+    attendees = [a for a in (data.get("attendees") or []) if isinstance(a, str) and a.strip()]
+    if not attendees:
+        return ""
+    formatted = "\n".join(f"- {name}" for name in attendees)
+    return t("llm.summary_attendees_block", attendees=formatted) or ""
 
 
 def _get_hiragana_step(config: dict) -> str:
@@ -84,8 +104,12 @@ def summarize(args: argparse.Namespace) -> None:
         print(t("err.transcript_empty"), file=sys.stderr)
         sys.exit(1)
 
+    attendees_block = _load_attendees_block(transcript_path)
+    if attendees_block:
+        logger.info("参加予定者情報を読み込み（プロンプトに付与）")
+
     if args.mode == "full":
-        result = _summarize_full(client, model, transcript)
+        result = _summarize_full(client, model, transcript, attendees_block)
     elif args.mode == "update":
         existing_summary = ""
         if args.existing:
@@ -97,7 +121,7 @@ def summarize(args: argparse.Namespace) -> None:
                     existing_summary = f.read()
             except FileNotFoundError:
                 pass
-        result = _summarize_update(client, model, transcript, existing_summary)
+        result = _summarize_update(client, model, transcript, existing_summary, attendees_block)
 
     if result:
         # Summary バリューオブジェクトとして扱う
@@ -154,18 +178,18 @@ def _split_transcript_lines(transcript: str, max_tokens: int) -> list[str]:
 _PROMPT_OVERHEAD_TOKENS = 2000
 
 
-def _summarize_full(client: OpenAI, model: str, transcript: str) -> str | None:
+def _summarize_full(client: OpenAI, model: str, transcript: str, attendees_block: str = "") -> str | None:
     """transcript 全文から議事録を生成する。長い場合はチャンク分割で段階的に要約。"""
     summary_format = _get_summary_format()
 
     # コンテキスト上限の概算（65536 に対して余裕を持たせる）
     max_context = 45000
     transcript_tokens = _estimate_tokens(transcript)
-    overhead = _PROMPT_OVERHEAD_TOKENS + _estimate_tokens(summary_format)
+    overhead = _PROMPT_OVERHEAD_TOKENS + _estimate_tokens(summary_format) + _estimate_tokens(attendees_block)
 
     if transcript_tokens + overhead <= max_context:
         # 1回で処理できる場合
-        return _summarize_full_single(client, model, transcript, summary_format)
+        return _summarize_full_single(client, model, transcript, summary_format, attendees_block)
     else:
         # チャンク分割: 各チャンクを update モードで段階的に要約
         # 既存 summary が蓄積されるため十分なマージンを確保 (8000 tokens)
@@ -175,13 +199,15 @@ def _summarize_full(client: OpenAI, model: str, transcript: str) -> str | None:
         summary = ""
         for i, chunk in enumerate(chunks):
             logger.info("チャンク %d/%d を要約中...", i + 1, len(chunks))
-            summary = _summarize_update_single(client, model, chunk, summary, summary_format)
+            summary = _summarize_update_single(client, model, chunk, summary, summary_format, attendees_block)
             if not summary:
                 return None
         return summary
 
 
-def _summarize_full_single(client: OpenAI, model: str, transcript: str, summary_format: str) -> str | None:
+def _summarize_full_single(
+    client: OpenAI, model: str, transcript: str, summary_format: str, attendees_block: str = ""
+) -> str | None:
     """transcript 全文から議事録を生成する（単一リクエスト）。"""
     config = load_config()
     length_instruction = _get_length_instruction(config)
@@ -196,7 +222,8 @@ def _summarize_full_single(client: OpenAI, model: str, transcript: str, summary_
     hiragana_step = _get_hiragana_step(config)
     user_content = t("llm.summary_full_user", transcript=transcript,
                      summary_format=summary_format, hiragana_step=hiragana_step,
-                     length_instruction=length_instruction)
+                     length_instruction=length_instruction,
+                     attendees_block=attendees_block)
 
     response = client.chat.completions.create(
         model=model,
@@ -216,33 +243,45 @@ def _summarize_full_single(client: OpenAI, model: str, transcript: str, summary_
 
 
 def _summarize_update(
-    client: OpenAI, model: str, transcript: str, existing_summary: str
+    client: OpenAI, model: str, transcript: str, existing_summary: str, attendees_block: str = ""
 ) -> str | None:
     """既存の summary を踏まえて差分 transcript から議事録を更新する。長い場合はチャンク分割。"""
     summary_format = _get_summary_format()
 
     max_context = 45000
     transcript_tokens = _estimate_tokens(transcript)
-    overhead = _PROMPT_OVERHEAD_TOKENS + _estimate_tokens(summary_format) + _estimate_tokens(existing_summary)
+    overhead = (
+        _PROMPT_OVERHEAD_TOKENS
+        + _estimate_tokens(summary_format)
+        + _estimate_tokens(existing_summary)
+        + _estimate_tokens(attendees_block)
+    )
 
     if transcript_tokens + overhead <= max_context:
-        return _summarize_update_single(client, model, transcript, existing_summary, summary_format)
+        return _summarize_update_single(client, model, transcript, existing_summary, summary_format, attendees_block)
     else:
         # 既存 summary が蓄積されるため十分なマージンを確保 (8000 tokens)
-        chunk_max = max_context - _PROMPT_OVERHEAD_TOKENS - _estimate_tokens(summary_format) - 8000
+        chunk_max = (
+            max_context
+            - _PROMPT_OVERHEAD_TOKENS
+            - _estimate_tokens(summary_format)
+            - _estimate_tokens(attendees_block)
+            - 8000
+        )
         chunks = _split_transcript_lines(transcript, chunk_max)
         logger.info("差分 transcript をチャンク分割: %d チャンク (概算 %d tokens)", len(chunks), transcript_tokens)
         summary = existing_summary
         for i, chunk in enumerate(chunks):
             logger.info("チャンク %d/%d を要約中...", i + 1, len(chunks))
-            summary = _summarize_update_single(client, model, chunk, summary, summary_format)
+            summary = _summarize_update_single(client, model, chunk, summary, summary_format, attendees_block)
             if not summary:
                 return None
         return summary
 
 
 def _summarize_update_single(
-    client: OpenAI, model: str, transcript: str, existing_summary: str, summary_format: str
+    client: OpenAI, model: str, transcript: str, existing_summary: str,
+    summary_format: str, attendees_block: str = "",
 ) -> str | None:
     """既存の summary を踏まえて差分 transcript から議事録を更新する（単一リクエスト）。"""
     config = load_config()
@@ -259,7 +298,8 @@ def _summarize_update_single(
     existing = existing_summary if existing_summary else t("llm.summary_update_none")
     user_content = t("llm.summary_update_user", existing=existing, transcript=transcript,
                      summary_format=summary_format, hiragana_step=hiragana_step,
-                     length_instruction=length_instruction)
+                     length_instruction=length_instruction,
+                     attendees_block=attendees_block)
 
     response = client.chat.completions.create(
         model=model,

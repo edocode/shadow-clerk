@@ -151,6 +151,23 @@ class _RecorderCommandMixin:
                         {"message": t("dash.alert_cmd_fail", text=text.strip())},
                         ensure_ascii=False))
 
+    def _save_attendees_for_session(self, transcript_path: str) -> None:
+        """gcal 連携が有効かつ進行中イベントがあれば、参加予定者を JSON で保存する。"""
+        gcal = getattr(self, "gcal_monitor", None)
+        attendees = gcal.get_ongoing_event_attendees() if gcal else []
+        if not attendees:
+            return
+        tn = TranscriptName.parse(os.path.basename(transcript_path))
+        if tn is None:
+            return
+        out_path = os.path.join(os.path.dirname(transcript_path), tn.attendees_filename)
+        try:
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump({"attendees": attendees}, f, ensure_ascii=False, indent=2)
+            logger.info("参加予定者を保存: %s (%d名)", out_path, len(attendees))
+        except OSError as e:
+            logger.warning("参加予定者の保存に失敗: %s", e)
+
     def _auto_summarize(self, transcript_path: str) -> None:
         """会議終了時に自動で議事録を生成する"""
         basename = os.path.basename(transcript_path)
@@ -420,6 +437,7 @@ class _RecorderCommandMixin:
                 f.write(self.output_path)
             logger.info("会議開始: %s", self.output_path)
             print(t("rec.meeting_start", path=self.output_path))
+            self._save_attendees_for_session(self.output_path)
 
         elif cmd == "end_meeting":
             marker = "--- 会議終了 ---\n"
