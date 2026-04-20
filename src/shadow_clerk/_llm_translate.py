@@ -242,6 +242,20 @@ def translate(args: argparse.Namespace) -> None:
         )
         logger.debug("translate: API request:\n%s", numbered_lines)
 
+        # 翻訳済みファイルから末尾 N 行をコンテキストとして読む
+        context_block = ""
+        context_file = getattr(args, "context_file", None)
+        context_lines_n = int(getattr(args, "context_lines", None) or 5)
+        if context_file and context_lines_n > 0:
+            try:
+                with open(context_file, "r", encoding="utf-8") as f:
+                    tail = f.readlines()[-context_lines_n:]
+                if tail:
+                    context_block = "[CONTEXT]\n" + "".join(tail).rstrip() + "\n[TRANSLATE]\n"
+                    logger.debug("translate: context %d lines from %s", len(tail), context_file)
+            except OSError:
+                pass
+
         # 入力テキストがターゲット言語と同じか判定 → 同言語なら誤変換修正モード
         sample_text = " ".join(text for _, text in translatable[:10])
         is_same_lang = _seems_target_language(sample_text, lang)
@@ -260,11 +274,13 @@ def translate(args: argparse.Namespace) -> None:
         if glossary_section:
             system_prompt += "\n" + glossary_section
 
+        user_content = context_block + numbered_lines
+
         response = client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": numbered_lines},
+                {"role": "user", "content": user_content},
             ],
             temperature=0.3,
         )

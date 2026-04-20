@@ -148,6 +148,12 @@ def main() -> None:
     translate_parser.add_argument(
         "--max-bytes", default=None, help="読み込み最大バイト数"
     )
+    translate_parser.add_argument(
+        "--context-file", default=None, help="コンテキストとして使う翻訳済みファイルパス"
+    )
+    translate_parser.add_argument(
+        "--context-lines", default="5", help="コンテキストとして渡す末尾行数（デフォルト: 5）"
+    )
 
     # query
     query_parser = subparsers.add_parser(

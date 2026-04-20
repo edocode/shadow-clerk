@@ -112,14 +112,22 @@ class _RecorderTranscribeMixin:
                     # チャンク分割: 大量テキストを一度に投げないよう制限
                     chunk_limit = 8000  # bytes
                     effective_size = min(size, offset + chunk_limit)
-                    result = subprocess.run(
-                        [sys.executable, "-m", "shadow_clerk.llm_client", "--verbose",
-                         "translate", lang, "--file", transcript, "--offset", str(offset),
-                         "--max-bytes", str(effective_size - offset)],
-                        capture_output=True, text=True, timeout=300,
+                    # 翻訳先ファイルパスを事前計算（コンテキスト渡しに使用）
+                    tn = TranscriptName.parse(os.path.basename(transcript))
+                    tr_path = (
+                        Translation(transcript_name=tn, language=lang, content="")
+                        .file_path(os.path.dirname(transcript))
+                        if tn else
+                        os.path.join(os.path.dirname(transcript),
+                                     os.path.basename(transcript).replace(".txt", f"-{lang}.txt"))
                     )
+                    cmd = [sys.executable, "-m", "shadow_clerk.llm_client", "--verbose",
+                           "translate", lang, "--file", transcript, "--offset", str(offset),
+                           "--max-bytes", str(effective_size - offset)]
+                    if os.path.exists(tr_path):
+                        cmd += ["--context-file", tr_path]
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
                     if result.returncode == 0 and result.stdout.strip():
-                        tn = TranscriptName.parse(os.path.basename(transcript))
                         translation = Translation(
                             transcript_name=tn,
                             language=lang,
@@ -127,9 +135,7 @@ class _RecorderTranscribeMixin:
                         ) if tn else None
                         tr_path = (
                             translation.file_path(os.path.dirname(transcript))
-                            if translation else
-                            os.path.join(os.path.dirname(transcript),
-                                         os.path.basename(transcript).replace(".txt", f"-{lang}.txt"))
+                            if translation else tr_path
                         )
                         tr_name = os.path.basename(tr_path)
                         mode = "w" if offset == 0 else "a"

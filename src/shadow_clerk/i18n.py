@@ -733,12 +733,10 @@ STRINGS = {
 
         # --- llm.* ---
         "llm.translate_system": (
-            "You are a translation assistant. Follow these rules to translate text into {lang}:\n"
+            "You are a translation assistant. Translate the following speech recognition transcript into {lang}.\n"
             "\n"
-            "1. Each line is given in 'number: text' format. Return results in the same 'number: translated text' format.\n"
-            "2. This is speech recognition transcript text. Correct obvious misrecognitions from context before translating.\n"
-            "3. If the glossary includes a 'reading' for a term, and the transcript contains a similar-sounding word, correct it to the proper term. Match readings from top to bottom in order.\n"
-            "4. Output only the number and translated text after the colon. No extra explanations.\n"
+            "1. Correct speech recognition errors from context, and apply glossary corrections if a reading matches (match top to bottom in order).\n"
+            "2. Translate each line into {lang} and return in 'number: translated text' format. Output only the translated lines, no extra explanations.\n"
             "{hiragana_step}"
         ),
         "llm.correct_system": (
