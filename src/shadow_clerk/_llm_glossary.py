@@ -245,12 +245,16 @@ TIMESTAMP_RE = re.compile(
 
 
 def _seems_target_language(text: str, lang: str) -> bool:
-    """テキストが対象言語らしいか簡易判定（未翻訳フォールバック防止用）"""
+    """テキストが対象言語かを langdetect で判定（フォールバック: CJK ヒューリスティック）"""
     if not text.strip():
         return True
-    has_cjk = any("\u3000" <= c <= "\u9fff" or "\uff00" <= c <= "\uffef" for c in text)
-    if lang in ("ja", "zh"):
-        return has_cjk
-    if lang in ("en", "de", "fr", "es", "pt", "it"):
-        return not has_cjk
-    return True
+    try:
+        from langdetect import detect
+        return detect(text) == lang
+    except Exception:
+        has_cjk = any("\u3000" <= c <= "\u9fff" or "\uff00" <= c <= "\uffef" for c in text)
+        if lang in ("ja", "zh"):
+            return has_cjk
+        if lang in ("en", "de", "fr", "es", "pt", "it"):
+            return not has_cjk
+        return True

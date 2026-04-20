@@ -15,6 +15,7 @@ Runs on Ubuntu + PipeWire / PulseAudio environments.
 | Translation (LibreTranslate) | LibreTranslate server | 2 | 4 | `translation_provider: libretranslate` |
 | Translation (OpenAI compatible API) | OpenAI compatible API | 3-5 | 2-5 | `translation_provider: api`, `api_endpoint`, `api_model` |
 | Translation (Claude) | Claude Code | 5 | 2 | `translation_provider: claude` |
+| Language detection (pre-translation) | langdetect (included) | — | — | Automatically detects source language to select correct prompt |
 | Summary (Claude) | Claude Code | 5 | 3 | `llm_provider: claude` |
 | Summary (OpenAI compatible API) | OpenAI compatible API | 3-5 | 2-5 | `llm_provider: api`, `api_endpoint`, `api_model` |
 | Voice commands (PTT) | None (built-in) | — | — | `voice_command_key` |

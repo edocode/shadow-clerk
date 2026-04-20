@@ -19,7 +19,7 @@ except ImportError:
     _HAS_LLM_CLIENT = False
 
 from shadow_clerk import DATA_DIR
-from shadow_clerk.i18n import t
+from shadow_clerk.i18n import t, nt
 from shadow_clerk._daemon_constants import (
     SAMPLE_RATE, COMMAND_FILE, SESSION_FILE,
     _HAS_PYNPUT, evdev, _HAS_EVDEV,
@@ -556,7 +556,7 @@ class _RecorderTranscribeMixin:
                         client, model = get_api_client(config)
 
                     glossary = load_glossary(lang)
-                    system_prompt = t("llm.translate_system", lang=lang, hiragana_step="")
+                    system_prompt = nt("llm.translate_system", lang=lang, hiragana_step="")
                     if glossary:
                         system_prompt += "\n" + glossary
 

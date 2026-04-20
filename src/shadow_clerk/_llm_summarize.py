@@ -9,7 +9,7 @@ import sys
 from openai import OpenAI
 
 from shadow_clerk import DATA_DIR
-from shadow_clerk.i18n import t
+from shadow_clerk.i18n import t, nt
 from shadow_clerk._llm_config import load_config, get_api_client, resolve_path
 from shadow_clerk._llm_glossary import load_glossary_for_summary
 from shadow_clerk._transcript_name import TranscriptName
@@ -34,13 +34,13 @@ def _load_attendees_block(transcript_path: str) -> str:
     if not attendees:
         return ""
     formatted = "\n".join(f"- {name}" for name in attendees)
-    return t("llm.summary_attendees_block", attendees=formatted) or ""
+    return nt("llm.summary_attendees_block", attendees=formatted) or ""
 
 
 def _get_hiragana_step(config: dict) -> str:
     """summary_hiragana_step が有効なら平仮名思考ステップのテキストを返す"""
     if config.get("summary_hiragana_step", True):
-        return t("llm.summary_hiragana_step") or ""
+        return nt("llm.summary_hiragana_step") or ""
     return ""
 
 
@@ -79,7 +79,7 @@ def _get_summary_format() -> str:
                 return content
     except FileNotFoundError:
         pass
-    return t("llm.summary_format")
+    return nt("llm.summary_format")
 
 
 def summarize(args: argparse.Namespace) -> None:
@@ -212,7 +212,7 @@ def _summarize_full_single(
     config = load_config()
     length_instruction = _get_length_instruction(config)
     max_tokens = _get_max_tokens(config)
-    system_prompt = t("llm.summary_full_system", summary_format=summary_format,
+    system_prompt = nt("llm.summary_full_system", summary_format=summary_format,
                       length_instruction=length_instruction)
     default_lang = config.get("default_language")
     glossary_text = load_glossary_for_summary(default_lang if default_lang != "auto" else None)
@@ -220,7 +220,7 @@ def _summarize_full_single(
         system_prompt += "\n\n" + glossary_text
 
     hiragana_step = _get_hiragana_step(config)
-    user_content = t("llm.summary_full_user", transcript=transcript,
+    user_content = nt("llm.summary_full_user", transcript=transcript,
                      summary_format=summary_format, hiragana_step=hiragana_step,
                      length_instruction=length_instruction,
                      attendees_block=attendees_block)
@@ -287,7 +287,7 @@ def _summarize_update_single(
     config = load_config()
     length_instruction = _get_length_instruction(config)
     max_tokens = _get_max_tokens(config)
-    system_prompt = t("llm.summary_update_system", summary_format=summary_format,
+    system_prompt = nt("llm.summary_update_system", summary_format=summary_format,
                       length_instruction=length_instruction)
     default_lang = config.get("default_language")
     glossary_text = load_glossary_for_summary(default_lang if default_lang != "auto" else None)
@@ -295,8 +295,8 @@ def _summarize_update_single(
         system_prompt += "\n\n" + glossary_text
 
     hiragana_step = _get_hiragana_step(config)
-    existing = existing_summary if existing_summary else t("llm.summary_update_none")
-    user_content = t("llm.summary_update_user", existing=existing, transcript=transcript,
+    existing = existing_summary if existing_summary else nt("llm.summary_update_none")
+    user_content = nt("llm.summary_update_user", existing=existing, transcript=transcript,
                      summary_format=summary_format, hiragana_step=hiragana_step,
                      length_instruction=length_instruction,
                      attendees_block=attendees_block)

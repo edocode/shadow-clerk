@@ -22,7 +22,7 @@ from shadow_clerk._llm_summarize import (  # noqa: F401
     _get_summary_format, summarize, _estimate_tokens, _split_transcript_lines,
     _summarize_full, _summarize_full_single, _summarize_update, _summarize_update_single,
 )
-from shadow_clerk.i18n import t
+from shadow_clerk.i18n import t, nt
 
 logger = logging.getLogger("llm-client")
 
@@ -38,7 +38,7 @@ def query(args: argparse.Namespace) -> None:
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": t("llm.query_system")},
+            {"role": "system", "content": nt("llm.query_system")},
             {"role": "user", "content": args.prompt},
         ],
         temperature=0.7,
@@ -74,7 +74,7 @@ def match_command(args: argparse.Namespace) -> None:
 
     commands_desc = "\n".join(f"- {c}" for c in commands)
 
-    system_prompt = t("llm.match_command_system", commands=commands_desc)
+    system_prompt = nt("llm.match_command_system", commands=commands_desc)
 
     response = client.chat.completions.create(
         model=model,

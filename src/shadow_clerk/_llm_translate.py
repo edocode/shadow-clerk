@@ -7,7 +7,7 @@ import os
 import re
 import sys
 
-from shadow_clerk.i18n import t
+from shadow_clerk.i18n import t, nt
 from shadow_clerk._llm_config import load_config, get_api_client, get_translation_provider, resolve_path
 from shadow_clerk._llm_glossary import load_glossary, MARKER_RE, TIMESTAMP_RE, _seems_target_language
 
@@ -249,12 +249,12 @@ def translate(args: argparse.Namespace) -> None:
         if is_same_lang:
             # 同言語: 誤変換修正に特化したプロンプト
             logger.debug("translate: same-language correction mode (lang=%s)", lang)
-            system_prompt = t("llm.correct_system")
+            system_prompt = nt("llm.correct_system")
         else:
             hiragana_step = ""
             if config.get("translation_hiragana_step", True):
-                hiragana_step = t("llm.translation_hiragana_step", lang=lang) or ""
-            system_prompt = t("llm.translate_system", lang=lang, hiragana_step=hiragana_step)
+                hiragana_step = nt("llm.translation_hiragana_step", lang=lang) or ""
+            system_prompt = nt("llm.translate_system", lang=lang, hiragana_step=hiragana_step)
 
         glossary_section = load_glossary(lang)
         if glossary_section:

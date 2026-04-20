@@ -11,3 +11,9 @@ uv.lock
 transcript*.txt
 summary.md
 skills/data/
+
+# generated slides (built by `make slides`)
+docs/slides.html
+docs/slides.pdf
+docs/slides.rendered.md
+docs/slides.rendered-*.svg

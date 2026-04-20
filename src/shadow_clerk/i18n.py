@@ -43,6 +43,18 @@ def t(key: str, **kwargs) -> str:
     return s
 
 
+def nt(key: str, **kwargs) -> str:
+    """常に英語文字列を返す（LLMプロンプト用・locale非依存）。フォールバック: en → ja → key"""
+    s = STRINGS.get("en", {}).get(key)
+    if s is None:
+        s = STRINGS.get("ja", {}).get(key)
+    if s is None:
+        return key
+    if kwargs:
+        return s.format(**kwargs)
+    return s
+
+
 def t_all() -> dict:
     """現在言語の全文字列 dict を返す（dashboard JS 注入用）"""
     merged = {}
@@ -297,9 +309,8 @@ STRINGS = {
             "\n"
             "1. 各行は「番号: テキスト」形式で与えられます。同じ「番号: 翻訳結果」形式で返してください。\n"
             "2. 音声認識の書き起こしテキストです。明らかな誤認識は文脈から推測して補正してから翻訳してください。\n"
-            "3. 翻訳先言語（{lang}）と同じ言語で書かれている行は翻訳不要ですが、音声認識の誤認識・typo があれば修正して出力してください。\n"
-            "4. 用語集にreadingが記載されている場合、音声認識結果にそのreadingと類似する語句があれば、対応する正しい用語に修正してください。上から順に優先的に照合してください。\n"
-            "5. 番号とコロンの後の翻訳テキストのみを出力してください。余計な説明は不要です。\n"
+            "3. 用語集にreadingが記載されている場合、音声認識結果にそのreadingと類似する語句があれば、対応する正しい用語に修正してください。上から順に優先的に照合してください。\n"
+            "4. 番号とコロンの後の翻訳テキストのみを出力してください。余計な説明は不要です。\n"
             "{hiragana_step}"
         ),
         "llm.correct_system": (
@@ -726,9 +737,8 @@ STRINGS = {
             "\n"
             "1. Each line is given in 'number: text' format. Return results in the same 'number: translated text' format.\n"
             "2. This is speech recognition transcript text. Correct obvious misrecognitions from context before translating.\n"
-            "3. Lines already in the target language ({lang}) do not need translation, but fix any speech recognition errors or typos.\n"
-            "4. If the glossary includes a 'reading' for a term, and the transcript contains a similar-sounding word, correct it to the proper term. Match readings from top to bottom in order.\n"
-            "5. Output only the number and translated text after the colon. No extra explanations.\n"
+            "3. If the glossary includes a 'reading' for a term, and the transcript contains a similar-sounding word, correct it to the proper term. Match readings from top to bottom in order.\n"
+            "4. Output only the number and translated text after the colon. No extra explanations.\n"
             "{hiragana_step}"
         ),
         "llm.correct_system": (

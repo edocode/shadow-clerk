@@ -15,6 +15,7 @@ Ubuntu + PipeWire / PulseAudio 環境で動作する。
 | 翻訳 (LibreTranslate) | LibreTranslate サーバー | 2 | 4 | `translation_provider: libretranslate` |
 | 翻訳 (OpenAI 互換 API) | OpenAI 互換 API | 3-5 | 2-5 | `translation_provider: api`, `api_endpoint`, `api_model` |
 | 翻訳 (Claude) | Claude Code | 5 | 2 | `translation_provider: claude` |
+| 言語検出（翻訳前） | langdetect（同梱） | — | — | 翻訳元言語を自動検出してプロンプトを切り替える |
 | 要約 (Claude) | Claude Code | 5 | 3 | `llm_provider: claude` |
 | 要約 (OpenAI 互換 API) | OpenAI 互換 API | 3-5 | 2-5 | `llm_provider: api`, `api_endpoint`, `api_model` |
 | 音声コマンド (PTT) | なし（組み込み） | — | — | `voice_command_key` |
