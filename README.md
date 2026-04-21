@@ -377,7 +377,8 @@ translation_provider: null    # Translation provider (null=use llm_provider, "cl
 api_endpoint: null            # OpenAI Compatible API base URL
 api_model: null               # API model name (gpt-4o, etc.)
 api_key_env: SHADOW_CLERK_API_KEY  # Environment variable name for API key
-summary_source: transcript    # Summary source ("transcript" or "translate")
+summary_source: null          # Summary source (null=auto: prefer translation if exists / "transcript" / "translate")
+summary_language: null        # Summary output language (null=fallback to ui_language / ja, en, zh, ...)
 libretranslate_endpoint: null     # LibreTranslate API URL (e.g. http://localhost:5000)
 libretranslate_api_key: null      # LibreTranslate API key (null if not required)
 libretranslate_spell_check: false # Spell check before LibreTranslate translation
@@ -409,12 +410,22 @@ Manage configuration from Claude Code:
 With `auto_translate: true`, translation starts automatically on `/shadow-clerk start meeting`.
 With `auto_summary: true`, meeting minutes are generated automatically on `/shadow-clerk end meeting`.
 
-### Summary from translation
+### Summary source selection
 
-By default, summaries are generated from the transcript. Set `summary_source: translate` to generate summaries from the translation file instead:
+When `summary_source` is unset (null/auto), the summary is generated from the translation file if one exists (falling back to the transcript if not). To pin the behavior explicitly:
 
 ```
-/shadow-clerk config set summary_source translate
+/shadow-clerk config set summary_source transcript   # always use transcript
+/shadow-clerk config set summary_source translate    # always use translation (fallback to transcript if missing)
+```
+
+### Summary language
+
+`summary_language` controls the output language of the summary. When unset (null), it falls back to `ui_language`:
+
+```
+/shadow-clerk config set summary_language en   # summarize in English
+/shadow-clerk config set summary_language ja   # summarize in Japanese
 ```
 
 ## File structure

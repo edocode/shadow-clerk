@@ -625,7 +625,8 @@ interim_model: base               # 中間認識用 Whisper モデル
 interim_japanese_asr_model: default  # 中間認識の ja 別モデル
 
 # --- 議事録 (summary) ---
-summary_source: transcript        # transcript / translation
+summary_source: null              # null=auto (translation があれば優先) / transcript / translate
+summary_language: null            # null=ui_language にフォールバック / ja / en / zh / ko / ...
 summary_length: half              # full / half / quarter (要約分量)
 summary_hiragana_step: true       # 要約前に漢字→ひらがな変換を挟む
 translation_hiragana_step: true   # 翻訳前に漢字→ひらがな変換を挟む

@@ -291,6 +291,7 @@ STRINGS = {
         "cfg.libretranslate_spell_check": "誤字訂正(LibreTranslate用)",
         "cfg.spell_check_model": "誤字訂正モデル",
         "cfg.summary_source": "要約ソース",
+        "cfg.summary_language": "要約の言語",
         "cfg.translation_hiragana_step": "平仮名思考ステップ",
         "cfg.summary_hiragana_step": "平仮名思考ステップ",
         "cfg.summary_length": "要約の長さ",
@@ -337,7 +338,7 @@ STRINGS = {
             "{summary_format}\n"
             "\n"
             "【注意事項】\n"
-            "- 日本語で作成してください\n"
+            "- {summary_language}で作成してください\n"
             "- transcript の各行は [YYYY-MM-DD HH:MM:SS] [スピーカー] テキスト 形式です\n"
             "- 音声認識による誤字・誤変換を文脈から推測して正しい表記に修正してください\n"
             "- 固有名詞や専門用語は前後の文脈から最も適切な表記を推定してください\n"
@@ -362,7 +363,7 @@ STRINGS = {
             "{summary_format}\n"
             "\n"
             "【注意事項】\n"
-            "- 日本語で作成してください\n"
+            "- {summary_language}で作成してください\n"
             "- 既存の議事録の内容は維持しつつ、新しい情報を追加・統合してください\n"
             "- transcript の各行は [YYYY-MM-DD HH:MM:SS] [スピーカー] テキスト 形式です\n"
             "- 音声認識による誤字・誤変換を文脈から推測して正しい表記に修正してください\n"
@@ -720,6 +721,7 @@ STRINGS = {
         "cfg.libretranslate_spell_check": "Spell Check (LibreTranslate)",
         "cfg.spell_check_model": "Spell Check Model",
         "cfg.summary_source": "Summary Source",
+        "cfg.summary_language": "Summary Language",
         "cfg.translation_hiragana_step": "Hiragana Thinking Step",
         "cfg.summary_hiragana_step": "Hiragana Thinking Step",
         "cfg.summary_length": "Summary Length",
@@ -764,7 +766,7 @@ STRINGS = {
             "{summary_format}\n"
             "\n"
             "[RULES]\n"
-            "- Write in English\n"
+            "- Write the entire output in {summary_language}. Translate the template's headings and labels (e.g. \"Meeting Minutes\", \"Date/Time\", \"Summary\") into {summary_language} while preserving the markdown structure (heading levels, bullet markers, code fences)\n"
             "- Each transcript line is in [YYYY-MM-DD HH:MM:SS] [Speaker] Text format\n"
             "- Fix speech recognition errors by inferring correct words from context\n"
             "- Infer the most appropriate spelling for proper nouns and technical terms\n"
@@ -789,7 +791,7 @@ STRINGS = {
             "{summary_format}\n"
             "\n"
             "[RULES]\n"
-            "- Write in English\n"
+            "- Write the entire output in {summary_language}. Translate the template's headings and labels (e.g. \"Meeting Minutes\", \"Date/Time\", \"Summary\") into {summary_language} while preserving the markdown structure (heading levels, bullet markers, code fences)\n"
             "- Maintain existing minutes content while adding/integrating new information\n"
             "- Each transcript line is in [YYYY-MM-DD HH:MM:SS] [Speaker] Text format\n"
             "- Fix speech recognition errors by inferring correct words from context\n"
@@ -839,8 +841,9 @@ STRINGS = {
             " Write as detailed minutes, not a summary — someone who did not attend should be able to fully understand the discussion."
         ),
         "llm.summary_format": (
-            "Follow this template structure exactly. Do not add, change, or omit any headings.\n"
-            "If a section has no content, write \"N/A\".\n"
+            "Follow this template structure exactly. Do not add or omit any headings.\n"
+            "Heading and label text (e.g. \"Meeting Minutes\", \"Date/Time\", \"Summary\") MUST be translated into the output language, but preserve the markdown structure (heading levels, bullets, indentation, code fences).\n"
+            "If a section has no content, write the output language's equivalent of \"N/A\".\n"
             "\n"
             "```\n"
             "# Meeting Minutes\n"

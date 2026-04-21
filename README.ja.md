@@ -379,7 +379,8 @@ translation_provider: null    # 翻訳プロバイダ (null=llm_provider を使�
 api_endpoint: null            # OpenAI Compatible API の base URL
 api_model: null               # API モデル名 (gpt-4o, etc.)
 api_key_env: SHADOW_CLERK_API_KEY  # API キーを格納する環境変数名
-summary_source: transcript    # 要約ソース ("transcript" or "translate")
+summary_source: null          # 要約ソース (null=auto: translationがあれば優先 / "transcript" / "translate")
+summary_language: null        # 要約の言語 (null=ui_language にフォールバック / ja, en, zh, ...)
 libretranslate_endpoint: null     # LibreTranslate API URL (例: http://localhost:5000)
 libretranslate_api_key: null      # LibreTranslate API キー (不要なら null)
 libretranslate_spell_check: false # LibreTranslate 翻訳前の誤字訂正
@@ -413,10 +414,20 @@ Claude Code から設定を操作:
 
 ### 翻訳ファイルからの要約生成
 
-デフォルトでは transcript から要約を生成する。`summary_source: translate` に設定すると、翻訳ファイルから要約を生成できる:
+`summary_source` が未指定 (null/auto) の場合、翻訳ファイルが存在すれば自動的にそれを要約ソースとして使う (なければ transcript にフォールバック)。明示的に挙動を固定したい場合:
 
 ```
-/shadow-clerk config set summary_source translate
+/shadow-clerk config set summary_source transcript   # 強制的に transcript
+/shadow-clerk config set summary_source translate    # 強制的に translation (無ければ transcript にフォールバック)
+```
+
+### 要約の言語
+
+`summary_language` で要約の出力言語を指定する。未指定 (null) の場合は `ui_language` をデフォルトとして使用:
+
+```
+/shadow-clerk config set summary_language en   # 英語で要約
+/shadow-clerk config set summary_language ja   # 日本語で要約
 ```
 
 ## ファイル構成

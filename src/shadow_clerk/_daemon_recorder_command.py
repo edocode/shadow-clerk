@@ -179,16 +179,21 @@ class _RecorderCommandMixin:
         summary_name = tn.summary_filename
 
         # summary_source に応じてソースファイルを切り替え
+        # - "transcript": 強制的に transcript
+        # - "translate":  強制的に translation（無ければ transcript にフォールバック）
+        # - None (未指定): translation があれば translation、無ければ transcript
         config = load_config()
         source_path = transcript_path
-        if config.get("summary_source") == "translate":
+        summary_source = config.get("summary_source")
+        if summary_source in ("translate", None):
             lang = config.get("translate_language", "ja")
             tr_name = tn.translation_filename(lang)
             tr_path = os.path.join(os.path.dirname(transcript_path), tr_name)
             if os.path.exists(tr_path):
                 source_path = tr_path
-                logger.info("summary_source=translate: 翻訳ファイル使用: %s", tr_name)
-            else:
+                logger.info("summary_source=%s: 翻訳ファイル使用: %s",
+                            summary_source or "auto", tr_name)
+            elif summary_source == "translate":
                 logger.warning("summary_source=translate: 翻訳ファイル未検出、transcript にフォールバック: %s", tr_name)
 
         # 既存 summary があれば --existing で渡す

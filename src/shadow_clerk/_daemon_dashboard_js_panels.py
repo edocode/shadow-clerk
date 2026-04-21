@@ -107,7 +107,11 @@ async function loadT(file){
 async function loadR(file){
   try{const u=file?'/api/translation?file='+encodeURIComponent(file):'/api/translation';
   const d=await(await fetch(u)).json(),el=document.getElementById('rp');el.innerHTML='';
-  d.lines.forEach(l=>el.insertAdjacentHTML('beforeend',fmtLine(l)));
+  if(d.translating&&!d.lines.length){
+    el.insertAdjacentHTML('beforeend','<div class="translating-msg">'+esc(I18N['dash.translating'])+'</div>');
+  }else{
+    d.lines.forEach(l=>el.insertAdjacentHTML('beforeend',fmtLine(l)));
+  }
   document.getElementById('rf').textContent=d.file;el.scrollTop=el.scrollHeight;}catch(e){}
 }
 async function loadLogs(){
@@ -162,7 +166,8 @@ const CFG_FIELDS=[
   {key:'translation_hiragana_step',label:I18N['cfg.translation_hiragana_step'],type:'bool',def:true},
   {type:'section',label:I18N['cfg.section.summary']},
   {key:'auto_summary',label:I18N['cfg.auto_summary'],type:'bool'},
-  {key:'summary_source',label:I18N['cfg.summary_source'],type:'select',opts:['transcript','translate']},
+  {key:'summary_source',label:I18N['cfg.summary_source'],type:'select',opts:['auto','transcript','translate']},
+  {key:'summary_language',label:I18N['cfg.summary_language'],type:'select',opts:['auto',...LANG_OPTS]},
   {key:'summary_hiragana_step',label:I18N['cfg.summary_hiragana_step'],type:'bool',def:true},
   {key:'summary_length',label:I18N['cfg.summary_length'],type:'select',opts:['half','1page','2pages','3pages','4pages','5pages']},
   {type:'section',label:I18N['cfg.section.api']},
@@ -252,7 +257,7 @@ async function saveCfg(){
     else if(f.type==='json'){try{d[f.key]=JSON.parse(el.value);}catch(e){d[f.key]=cfgData[f.key];}}
     else if(f.type==='number'){const n=parseInt(el.value,10);d[f.key]=isNaN(n)?cfgData[f.key]:n;}
     else if(f.type==='select'&&f.num){const sv=el.value;const n=parseInt(sv,10);d[f.key]=isNaN(n)?null:n;}
-    else if(f.type==='select'){const sv=el.value;d[f.key]=(sv===''||(sv==='auto'&&f.key==='default_language'))?null:sv;}
+    else if(f.type==='select'){const sv=el.value;const autoKeys=['default_language','summary_source','summary_language'];d[f.key]=(sv===''||(sv==='auto'&&autoKeys.includes(f.key)))?null:sv;}
     else{const v=el.value.trim();d[f.key]=(v===''||v==='null')?null:v;}
   });
   const langChanged=d.ui_language&&d.ui_language!==cfgData.ui_language;

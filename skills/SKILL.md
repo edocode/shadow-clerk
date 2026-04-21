@@ -62,8 +62,9 @@ No arguments, or `update`:
    - Example: `transcript-202602271430.txt` -> `summary-202602271430.md`
 6. Read config with `clerk-util read-config` and check `llm_provider` and `summary_source`
 7. Determine the source file for summary:
+   - If `summary_source: transcript`: use the transcript file as-is
    - If `summary_source: translate`: derive translation file name from transcript (`transcript-YYYYMMDD.txt` + `translate_language` → `transcript-YYYYMMDD-<lang>.txt`). If the translation file exists, use it as the source. If not, fall back to the transcript file (log a warning)
-   - Otherwise (default `summary_source: transcript`): use the transcript file as-is
+   - Otherwise (null / unset — auto): if the translation file exists, use it. Otherwise use the transcript file
 8. Generate minutes:
    - **`llm_provider: claude` (default)** — Use the diff text (from the determined source file) to update the minutes, incorporating existing summary if present (Claude generates inline)
    - **`llm_provider: api`** — Run `clerk-util run-llm summarize --mode update --file <source> --output <summary> --existing <summary>` to generate/save minutes. Omit `--existing` if no existing summary
@@ -75,8 +76,9 @@ No arguments, or `update`:
 3. Derive the summary filename from the transcript filename (`transcript-` -> `summary-`, `.txt` -> `.md`)
 4. Read config with `clerk-util read-config` and check `llm_provider` and `summary_source`
 5. Determine the source file for summary:
+   - If `summary_source: transcript`: use the transcript file as-is
    - If `summary_source: translate`: derive translation file name from transcript (`transcript-YYYYMMDD.txt` + `translate_language` → `transcript-YYYYMMDD-<lang>.txt`). If the translation file exists, use it as the source. If not, fall back to the transcript file (log a warning)
-   - Otherwise (default `summary_source: transcript`): use the transcript file as-is
+   - Otherwise (null / unset — auto): if the translation file exists, use it. Otherwise use the transcript file
 6. Generate minutes:
    - **`llm_provider: claude` (default)** — Generate minutes from the full content of the determined source file (Claude generates inline)
    - **`llm_provider: api`** — Run `clerk-util run-llm summarize --mode full --file <source> --output <summary>` to generate/save minutes

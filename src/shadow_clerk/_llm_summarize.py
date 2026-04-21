@@ -44,6 +44,19 @@ def _get_hiragana_step(config: dict) -> str:
     return ""
 
 
+_LANG_CODE_TO_NAME: dict[str, str] = {
+    "ja": "Japanese", "en": "English", "zh": "Chinese", "ko": "Korean",
+    "fr": "French", "de": "German", "es": "Spanish", "pt": "Portuguese", "ru": "Russian",
+}
+
+
+def _resolve_summary_language(config: dict) -> str:
+    """summary_language 設定を解決する。未指定なら ui_language にフォールバック。
+    プロンプト埋め込み用に言語名（例: "Japanese"）を返す。"""
+    code = config.get("summary_language") or config.get("ui_language") or "ja"
+    return _LANG_CODE_TO_NAME.get(code, code)
+
+
 def _get_length_instruction(config: dict) -> str:
     """summary_length 設定に応じた長さ指示テキストを返す"""
     length = config.get("summary_length", "half")
@@ -212,6 +225,7 @@ def _summarize_full_single(
     config = load_config()
     length_instruction = _get_length_instruction(config)
     max_tokens = _get_max_tokens(config)
+    summary_language = _resolve_summary_language(config)
     system_prompt = nt("llm.summary_full_system", summary_format=summary_format,
                       length_instruction=length_instruction)
     default_lang = config.get("default_language")
@@ -223,6 +237,7 @@ def _summarize_full_single(
     user_content = nt("llm.summary_full_user", transcript=transcript,
                      summary_format=summary_format, hiragana_step=hiragana_step,
                      length_instruction=length_instruction,
+                     summary_language=summary_language,
                      attendees_block=attendees_block)
 
     response = client.chat.completions.create(
@@ -287,6 +302,7 @@ def _summarize_update_single(
     config = load_config()
     length_instruction = _get_length_instruction(config)
     max_tokens = _get_max_tokens(config)
+    summary_language = _resolve_summary_language(config)
     system_prompt = nt("llm.summary_update_system", summary_format=summary_format,
                       length_instruction=length_instruction)
     default_lang = config.get("default_language")
@@ -299,6 +315,7 @@ def _summarize_update_single(
     user_content = nt("llm.summary_update_user", existing=existing, transcript=transcript,
                      summary_format=summary_format, hiragana_step=hiragana_step,
                      length_instruction=length_instruction,
+                     summary_language=summary_language,
                      attendees_block=attendees_block)
 
     response = client.chat.completions.create(

@@ -411,19 +411,22 @@ def cmd_summarize(args: list[str]) -> None:
     summary_path = os.path.join(OUTPUT_DIR, summary_name)
 
     # summary_source 設定をチェック
+    # - "transcript": 強制的に transcript
+    # - "translate":  強制的に translation（無ければ transcript にフォールバック）
+    # - None (未指定): translation があれば translation、無ければ transcript
     source_path = transcript_path
     if os.path.isfile(CONFIG_FILE):
         import yaml
         with open(CONFIG_FILE) as f:
             config = yaml.safe_load(f) or {}
-        summary_source = config.get("summary_source", "transcript")
-        if summary_source == "translate":
+        summary_source = config.get("summary_source")
+        if summary_source in ("translate", None):
             translate_lang = config.get("translate_language", "en")
             translation_name = tn.translation_filename(translate_lang)
             translation_path = os.path.join(OUTPUT_DIR, translation_name)
             if os.path.isfile(translation_path):
                 source_path = translation_path
-            else:
+            elif summary_source == "translate":
                 print(f"Warning: translation file not found ({translation_name}), falling back to transcript", file=sys.stderr)
 
     if not os.path.isfile(source_path):
