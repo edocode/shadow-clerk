@@ -240,8 +240,11 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             lines = [l.rstrip("\n") for l in all_lines]
         except OSError:
             pass
+        translating = (self.recorder._translate_thread is not None
+                       and self.recorder._translate_thread.is_alive()
+                       ) or self.recorder._translating_external
         self._send_json({
-            "file": os.path.basename(filepath), "lines": lines})
+            "file": os.path.basename(filepath), "lines": lines, "translating": translating})
 
     def _serve_logs(self) -> None:
         self._send_json({"lines": self.log_buffer.get_lines(100)})

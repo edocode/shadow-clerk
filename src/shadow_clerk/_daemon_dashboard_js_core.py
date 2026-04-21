@@ -404,7 +404,10 @@ es.addEventListener('transcript',e=>{
   if(!curFile||curFile===d.file){addLines('tp',d.diff,fmtTranscriptLine);document.getElementById('tf').textContent=d.file;}
 });
 es.addEventListener('translation',e=>{
-  const d=JSON.parse(e.data);addLines('rp',d.diff,fmtLine);document.getElementById('rf').textContent=d.file;
+  const d=JSON.parse(e.data);
+  const el=document.getElementById('rp');
+  const msg=el.querySelector('.translating-msg');if(msg)msg.remove();
+  addLines('rp',d.diff,fmtLine);document.getElementById('rf').textContent=d.file;
 });
 es.addEventListener('log',e=>{
   const d=JSON.parse(e.data);const el=document.getElementById('logc');

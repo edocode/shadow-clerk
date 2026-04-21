@@ -377,6 +377,17 @@ class _RecorderCommandMixin:
             offset_file = self._translate_offset_file(transcript)
             with open(offset_file, "w", encoding="utf-8") as f:
                 f.write("0")
+            # 翻訳ファイルも truncate して古い内容が混在しないようにする
+            config = load_config()
+            lang = config.get("translate_language", "ja")
+            tn = TranscriptName.parse(os.path.basename(transcript))
+            tr_name = tn.translation_filename(lang) if tn else os.path.basename(transcript).replace(".txt", f"-{lang}.txt")
+            tr_path = os.path.join(os.path.dirname(transcript), tr_name)
+            try:
+                open(tr_path, "w").close()
+                logger.debug("翻訳ファイル truncate: %s", tr_name)
+            except OSError:
+                pass
         # 過去ファイル指定なら one-shot、現在ファイルなら継続ループ
         loop_target = target if target != self.output_path else None
         self._translate_stop_event.clear()

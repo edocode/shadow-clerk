@@ -139,6 +139,14 @@ class FileWatcher(threading.Thread):
         lang = config.get("translate_language", "ja")
         tr_name = os.path.basename(t_path).replace(".txt", f"-{lang}.txt")
         tr_path = os.path.join(os.path.dirname(t_path), tr_name)
+        # 過去ファイルの one-shot 翻訳中は translate_target_path を優先して監視
+        target = getattr(self._recorder, "translate_target_path", None)
+        if target and target != t_path:
+            from shadow_clerk._transcript_name import TranscriptName as _TN
+            _tn = _TN.parse(os.path.basename(target))
+            if _tn:
+                tr_name = _tn.translation_filename(lang)
+                tr_path = os.path.join(os.path.dirname(target), tr_name)
         key = ("translation", tr_path)
         if key not in self._file_offsets:
             self._file_offsets[key] = self._get_size(tr_path)

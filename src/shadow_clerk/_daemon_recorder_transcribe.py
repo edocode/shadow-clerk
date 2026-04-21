@@ -92,80 +92,84 @@ class _RecorderTranscribeMixin:
         provider = get_translation_provider(config)
         logger.info("翻訳ループ開始: provider=%s, lang=%s%s", provider, lang,
                      f" (one-shot: {os.path.basename(target_transcript)})" if one_shot else "")
-
-        while not self.stop_event.is_set() and not self._translate_stop_event.is_set():
-            try:
-                transcript = target_transcript or self.output_path
-                offset_file = self._translate_offset_file(transcript)
+        if target_transcript:
+            self.translate_target_path = target_transcript
+        try:
+            while not self.stop_event.is_set() and not self._translate_stop_event.is_set():
                 try:
-                    with open(offset_file, "r", encoding="utf-8") as f:
-                        offset = int(f.read().strip())
-                except (OSError, ValueError):
-                    offset = 0
+                    transcript = target_transcript or self.output_path
+                    offset_file = self._translate_offset_file(transcript)
+                    try:
+                        with open(offset_file, "r", encoding="utf-8") as f:
+                            offset = int(f.read().strip())
+                    except (OSError, ValueError):
+                        offset = 0
 
-                try:
-                    size = os.path.getsize(transcript)
-                except OSError:
-                    size = 0
+                    try:
+                        size = os.path.getsize(transcript)
+                    except OSError:
+                        size = 0
 
-                if size > offset:
-                    # チャンク分割: 大量テキストを一度に投げないよう制限
-                    chunk_limit = 8000  # bytes
-                    effective_size = min(size, offset + chunk_limit)
-                    # 翻訳先ファイルパスを事前計算（コンテキスト渡しに使用）
-                    tn = TranscriptName.parse(os.path.basename(transcript))
-                    tr_path = (
-                        Translation(transcript_name=tn, language=lang, content="")
-                        .file_path(os.path.dirname(transcript))
-                        if tn else
-                        os.path.join(os.path.dirname(transcript),
-                                     os.path.basename(transcript).replace(".txt", f"-{lang}.txt"))
-                    )
-                    cmd = [sys.executable, "-m", "shadow_clerk.llm_client", "--verbose",
-                           "translate", lang, "--file", transcript, "--offset", str(offset),
-                           "--max-bytes", str(effective_size - offset)]
-                    if os.path.exists(tr_path):
-                        cmd += ["--context-file", tr_path]
-                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-                    if result.returncode == 0 and result.stdout.strip():
-                        translation = Translation(
-                            transcript_name=tn,
-                            language=lang,
-                            content=result.stdout,
-                        ) if tn else None
+                    if size > offset:
+                        # チャンク分割: 大量テキストを一度に投げないよう制限
+                        chunk_limit = 8000  # bytes
+                        effective_size = min(size, offset + chunk_limit)
+                        # 翻訳先ファイルパスを事前計算（コンテキスト渡しに使用）
+                        tn = TranscriptName.parse(os.path.basename(transcript))
                         tr_path = (
-                            translation.file_path(os.path.dirname(transcript))
-                            if translation else tr_path
+                            Translation(transcript_name=tn, language=lang, content="")
+                            .file_path(os.path.dirname(transcript))
+                            if tn else
+                            os.path.join(os.path.dirname(transcript),
+                                         os.path.basename(transcript).replace(".txt", f"-{lang}.txt"))
                         )
-                        tr_name = os.path.basename(tr_path)
-                        mode = "w" if offset == 0 else "a"
-                        with open(tr_path, mode, encoding="utf-8") as f:
-                            f.write(result.stdout)
-                        with open(offset_file, "w", encoding="utf-8") as f:
-                            f.write(str(effective_size))
-                        logger.info("翻訳完了: %d bytes → %s", effective_size - offset, tr_name)
-                        # one-shot: 全チャンク翻訳完了したら終了
-                        if one_shot and effective_size >= size:
-                            logger.info("one-shot 翻訳完了: %s", tr_name)
-                            return
-                    elif result.returncode != 0:
-                        logger.error("翻訳エラー: %s", result.stderr.strip()[:200])
-                        if one_shot:
-                            return
-                elif one_shot:
-                    # one-shot でサイズ変化なし → 翻訳対象なし
-                    logger.info("one-shot 翻訳: 対象テキストなし")
-                    return
-            except subprocess.TimeoutExpired:
-                logger.error("翻訳タイムアウト")
-                if one_shot:
-                    return
-            except Exception as e:
-                logger.error("翻訳ループエラー: %s", e)
-                if one_shot:
-                    return
+                        cmd = [sys.executable, "-m", "shadow_clerk.llm_client", "--verbose",
+                               "translate", lang, "--file", transcript, "--offset", str(offset),
+                               "--max-bytes", str(effective_size - offset)]
+                        if os.path.exists(tr_path):
+                            cmd += ["--context-file", tr_path]
+                        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                        if result.returncode == 0 and result.stdout.strip():
+                            translation = Translation(
+                                transcript_name=tn,
+                                language=lang,
+                                content=result.stdout,
+                            ) if tn else None
+                            tr_path = (
+                                translation.file_path(os.path.dirname(transcript))
+                                if translation else tr_path
+                            )
+                            tr_name = os.path.basename(tr_path)
+                            mode = "w" if offset == 0 else "a"
+                            with open(tr_path, mode, encoding="utf-8") as f:
+                                f.write(result.stdout)
+                            with open(offset_file, "w", encoding="utf-8") as f:
+                                f.write(str(effective_size))
+                            logger.info("翻訳完了: %d bytes → %s", effective_size - offset, tr_name)
+                            # one-shot: 全チャンク翻訳完了したら終了
+                            if one_shot and effective_size >= size:
+                                logger.info("one-shot 翻訳完了: %s", tr_name)
+                                return
+                        elif result.returncode != 0:
+                            logger.error("翻訳エラー: %s", result.stderr.strip()[:200])
+                            if one_shot:
+                                return
+                    elif one_shot:
+                        # one-shot でサイズ変化なし → 翻訳対象なし
+                        logger.info("one-shot 翻訳: 対象テキストなし")
+                        return
+                except subprocess.TimeoutExpired:
+                    logger.error("翻訳タイムアウト")
+                    if one_shot:
+                        return
+                except Exception as e:
+                    logger.error("翻訳ループエラー: %s", e)
+                    if one_shot:
+                        return
 
-            self._translate_stop_event.wait(timeout=5.0)
+                self._translate_stop_event.wait(timeout=5.0)
+        finally:
+            self.translate_target_path = None
 
         logger.info("翻訳ループ終了")
 
