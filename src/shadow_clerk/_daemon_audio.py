@@ -4,7 +4,9 @@ import logging
 import queue
 import shutil
 import subprocess
+import sys
 import threading
+from typing import Any
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import SAMPLE_RATE, CHANNELS, FRAME_SIZE
 
@@ -238,8 +240,58 @@ def _get_default_sink_name() -> str | None:
     return None
 
 
-def find_monitor_device_sd() -> int | None:
+def _find_monitor_device_wasapi() -> tuple[int, dict[str, Any]] | None:
+    """Windows WASAPI ループバック用デバイスを返す。
+
+    既定の再生デバイス(スピーカー/ヘッドホン)を loopback フラグ付き
+    InputStream として開けるよう、(デバイスID, extra_settings) を返す。
+    """
+    import sounddevice as sd
+    try:
+        hostapis = sd.query_hostapis()
+    except sd.PortAudioError as e:
+        logger.error("PortAudio ホストAPI取得失敗: %s", e)
+        return None
+    wasapi_idx = next(
+        (i for i, h in enumerate(hostapis) if h["name"] == "Windows WASAPI"),
+        None,
+    )
+    if wasapi_idx is None:
+        logger.warning("Windows WASAPI ホストAPIが見つかりません")
+        return None
+    default_out = hostapis[wasapi_idx].get("default_output_device")
+    if default_out is None or default_out < 0:
+        logger.warning("WASAPI 既定の出力デバイスが見つかりません")
+        return None
+    try:
+        settings = sd.WasapiSettings(loopback=True)
+    except AttributeError:
+        # 古い sounddevice では `WasapiSettings` 未提供
+        logger.error(
+            "sounddevice の WasapiSettings が利用できません。"
+            "sounddevice>=0.4.6 が必要です。"
+        )
+        return None
+    dev_info = sd.query_devices(default_out)
+    logger.debug(
+        "WASAPI loopback デバイス選択: #%d %s", default_out, dev_info["name"]
+    )
+    return default_out, {"extra_settings": settings}
+
+
+def find_monitor_device_sd() -> tuple[int, dict[str, Any]] | None:
     """sounddevice でモニターデバイスを検索
+
+    戻り値: (デバイスID, sd.InputStream に追加で渡す kwargs) または None。
+    Linux では追加 kwargs は空 dict。Windows では WASAPI loopback 設定を含む。
+    """
+    if sys.platform == "win32":
+        return _find_monitor_device_wasapi()
+    return _find_monitor_device_linux()
+
+
+def _find_monitor_device_linux() -> tuple[int, dict[str, Any]] | None:
+    """Linux (PipeWire/PulseAudio) でモニターデバイスを検索
 
     PipeWire: `.monitor` サフィックスを持つ入力デバイス
     PulseAudio: "Monitor of " プレフィックスを持つ入力デバイス
@@ -269,11 +321,11 @@ def find_monitor_device_sd() -> int | None:
         for idx, name in candidates:
             if name == expected_monitor:
                 logger.debug("デフォルト Sink のモニター選択: #%d %s", idx, name)
-                return idx
+                return idx, {}
 
     # 見つからなければ最初の候補
     logger.debug("デフォルト Sink 不明、最初の候補を選択: #%d %s", *candidates[0])
-    return candidates[0][0]
+    return candidates[0][0], {}
 
 
 def list_all_devices(backend_name: str, backend: AudioBackend | None) -> None:
@@ -287,7 +339,8 @@ def list_all_devices(backend_name: str, backend: AudioBackend | None) -> None:
 
     monitor_sd = find_monitor_device_sd()
     if monitor_sd is not None:
-        print(t("rec.auto_detect_sd", device=monitor_sd))
+        device_idx, _ = monitor_sd
+        print(t("rec.auto_detect_sd", device=device_idx))
 
     if backend:
         monitor = backend.detect_monitor_source()

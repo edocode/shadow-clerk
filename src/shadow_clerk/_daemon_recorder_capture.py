@@ -9,6 +9,7 @@ import queue
 import re
 import threading
 import time
+from typing import Any
 import numpy as np
 from shadow_clerk import DATA_DIR
 from shadow_clerk._daemon_constants import (
@@ -141,7 +142,6 @@ class _RecorderCaptureMixin:
 
     def _mic_capture_thread(self) -> None:
         """マイク音声キャプチャスレッド"""
-        from typing import Any
         import sounddevice as sd
         mic_device = self.args.mic
         logger.info("マイクキャプチャ開始 (device=%s)", mic_device)
@@ -174,13 +174,16 @@ class _RecorderCaptureMixin:
         import sounddevice as sd
         # sounddevice でモニターデバイスを探す
         monitor_device = self.args.monitor
+        monitor_extra: dict[str, Any] = {}
         if monitor_device is None:
-            monitor_device = find_monitor_device_sd()
+            found = find_monitor_device_sd()
+            if found is not None:
+                monitor_device, monitor_extra = found
 
         if monitor_device is not None:
             dev_info = sd.query_devices(monitor_device)
             logger.info("sounddevice monitor キャプチャ開始 (device=%s: %s)", monitor_device, dev_info["name"])
-            if self._monitor_capture_sounddevice(monitor_device):
+            if self._monitor_capture_sounddevice(monitor_device, monitor_extra):
                 return
             # sounddevice 失敗 → バックエンドにフォールバック
             logger.info("sounddevice 失敗、%s バックエンドにフォールバック", self.backend_name)
@@ -225,10 +228,15 @@ class _RecorderCaptureMixin:
         logger.warning("モニターソースが見つかりません。マイクのみで録音します。")
         self.use_monitor = False
 
-    def _monitor_capture_sounddevice(self, device: int) -> bool:
-        """sounddevice でモニターデバイスをキャプチャ。成功なら True、失敗なら False。"""
-        from typing import Any
+    def _monitor_capture_sounddevice(
+        self, device: int, extra: dict[str, Any] | None = None
+    ) -> bool:
+        """sounddevice でモニターデバイスをキャプチャ。成功なら True、失敗なら False。
+
+        extra: sd.InputStream に追加で渡す kwargs(WASAPI loopback 設定等)。
+        """
         import sounddevice as sd
+        extra = extra or {}
 
         def callback(indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
             if status:
@@ -247,6 +255,7 @@ class _RecorderCaptureMixin:
                         blocksize=FRAME_SIZE,
                         device=device,
                         callback=callback,
+                        **extra,
                     )
                     stream.start()
                 self.stop_event.wait()
