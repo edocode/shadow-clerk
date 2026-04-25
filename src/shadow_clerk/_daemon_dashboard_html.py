@@ -63,6 +63,7 @@ _HTML_TEMPLATE = (
     "          <button id=\"btnRenameMtgGroup\" class=\"toggle\" onclick=\"openRenameMtgGroup()\" style=\"display:none;font-size:11px;padding:1px 4px;flex-shrink:0\">&#x270f;</button>\n"
     "          <span id=\"mtgListLabel\">{{i18n:dash.meetings}}</span>\n"
     "        </span>\n"
+    "        <button id=\"btnMtgSort\" class=\"toggle\" onclick=\"togMtgSort()\" title=\"{{i18n:dash.sort_title}}\" style=\"font-size:11px;padding:1px 6px;flex-shrink:0\"></button>\n"
     "      </div>\n"
     "      <div class=\"pc\" id=\"mp\"></div>\n"
     "    </div>\n"

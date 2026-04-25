@@ -50,15 +50,39 @@ function openSearchResult(file,line,type){
     },400);
   }
 }
+let mtgSortMode=(function(){try{return localStorage.getItem('mtgSortMode')||'newest';}catch(e){return 'newest';}})();
+function _groupMaxDt(name){
+  const fs=meetingGroups[name]||[];
+  let m='';
+  for(const f of fs){const d=fileInfo[f]?.dt||'';if(d>m)m=d;}
+  return m;
+}
+function _updateMtgSortBtn(){
+  const b=document.getElementById('btnMtgSort');if(!b)return;
+  b.textContent=mtgSortMode==='abc'?(I18N['dash.sort_abc']||'ABC'):(I18N['dash.sort_newest']||'Newest');
+}
+function togMtgSort(){
+  mtgSortMode=mtgSortMode==='abc'?'newest':'abc';
+  try{localStorage.setItem('mtgSortMode',mtgSortMode);}catch(e){}
+  renderMtgPane();
+}
 function renderMtgPane(){
   const mp=document.getElementById('mp');if(!mp)return;
+  _updateMtgSortBtn();
   if(curGroup===null){
     // グループ一覧を表示
     document.getElementById('mtgBack').style.display='none';
     document.getElementById('mtgGroupLabel').style.display='none';
     document.getElementById('mtgListLabel').style.display='';
     document.getElementById('btnRenameMtgGroup').style.display='none';
-    const order=Object.keys(meetingGroups).sort((a,b)=>a==='ad-hoc'?-1:b==='ad-hoc'?1:a.localeCompare(b));
+    const order=Object.keys(meetingGroups).sort((a,b)=>{
+      if(a==='ad-hoc')return -1;if(b==='ad-hoc')return 1;
+      if(mtgSortMode==='newest'){
+        const da=_groupMaxDt(a),db=_groupMaxDt(b);
+        if(da!==db)return db.localeCompare(da);
+      }
+      return a.localeCompare(b);
+    });
     if(!order.length){mp.innerHTML=`<div style="color:var(--muted);font-size:12px;padding:8px">${esc(I18N['dash.meetings_empty']||'No meetings yet.')}</div>`;return;}
     mp.innerHTML=order.map(name=>{
       const cnt=meetingGroups[name].length;
@@ -74,7 +98,14 @@ function renderMtgPane(){
     document.getElementById('mtgGroupLabel').style.display='';
     document.getElementById('mtgListLabel').style.display='none';
     document.getElementById('btnRenameMtgGroup').style.display=curGroup==='ad-hoc'?'none':'';
-    const files=(meetingGroups[curGroup]||[]);
+    const files=(meetingGroups[curGroup]||[]).slice().sort((a,b)=>{
+      if(mtgSortMode==='abc'){
+        const la=(fileInfo[a]?.label||a),lb=(fileInfo[b]?.label||b);
+        const c=la.localeCompare(lb);if(c)return c;
+      }
+      const da=fileInfo[a]?.dt||'',db=fileInfo[b]?.dt||'';
+      return db.localeCompare(da);
+    });
     mp.innerHTML=files.map(f=>{
       const fi=fileInfo[f];
       return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}"><span class="mg-file-label">${esc((fi?.label||f))}</span>${_badges(fi)}</div>`;
