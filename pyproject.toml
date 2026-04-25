@@ -12,7 +12,7 @@ dependencies = [
     "pyyaml>=6.0",
     "openai>=1.0.0",
     "pynput>=1.7.6",
-    "evdev>=1.6.0",
+    "evdev>=1.6.0; sys_platform == 'linux'",
     "langdetect>=1.0.9",
 ]
 
