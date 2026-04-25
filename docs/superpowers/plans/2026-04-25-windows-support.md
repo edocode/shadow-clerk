@@ -128,6 +128,10 @@ git commit -m "Resolve data dir per platform (Windows: %APPDATA%)"
 
 ## Task 2: WASAPI monitor device lookup + signature change
 
+> **⚠️ Phase A1 のこのタスクは設計上の誤り(ハルシネーション)により廃棄。`WasapiSettings(loopback=True)` は実在しない API。**
+> **Phase A2 で `soundcard` パッケージベースの `WasapiSoundcardBackend` に作り直し済み。**
+> **詳細は設計書 §2.1 を参照。以下のステップは歴史的記録として残す。**
+
 **Files:**
 - Modify: `src/shadow_clerk/_daemon_audio.py:241-276` (rewrite `find_monitor_device_sd`)
 - Modify: `src/shadow_clerk/_daemon_audio.py:288-291` (call site in `list_all_devices`)

@@ -45,37 +45,27 @@ def get_data_dir() -> str:
 
 ### 2. 音声キャプチャ
 
-#### 2.1 モニターデバイス検出 (`_daemon_audio.py:find_monitor_device_sd`)
+#### 2.1 モニターデバイス検出・キャプチャ (`_daemon_audio.py`)
 
-現状は Linux の命名規則(`.monitor` サフィックス、`Monitor of ` プレフィックス)前提。Windows では WASAPI ループバックデバイスを別ロジックで探す。
+**Phase A1 での設計は誤り**: `sounddevice.WasapiSettings(loopback=True)` は実在しない API だった（ハルシネーション）。
 
-WASAPI loopback の動作モデル:
-- 通常の出力デバイス(スピーカー)を `WasapiSettings(loopback=True)` 付きで `InputStream` として開くと、その出力をキャプチャできる
-- 専用の「monitor」デバイスは存在せず、出力デバイス + loopback フラグの組み合わせで実現
-
-実装方針:
-- `find_monitor_device_sd()` を `sys.platform` で分岐
-- Windows 分岐: `sd.query_hostapis()` で WASAPI ホストAPIを特定し、その `default_output_device` インデックス(= Windows サウンド設定で既定の再生デバイス)を返す。loopback フラグは呼び出し側でセット
-- 戻り値は現状の `int | None` のまま(デバイスインデックス)
-- ただし Windows では「loopback フラグが必要」というシグナルを別経路で渡す必要があるため、戻り値を `tuple[int, dict] | None`(デバイスID と sounddevice の `extra_settings` 用 dict)に拡張する
+**Phase A2 実装**: `soundcard` パッケージ（pure Python、WASAPI loopback ネイティブ対応）を使う `WasapiSoundcardBackend` クラスを追加。
 
 ```python
-def find_monitor_device_sd() -> tuple[int, dict[str, Any]] | None:
-    """戻り値: (デバイスID, InputStreamに渡す追加kwargs) または None"""
-    if sys.platform == "win32":
-        return _find_monitor_device_wasapi()
-    return _find_monitor_device_linux()  # 既存ロジック
+class WasapiSoundcardBackend(AudioBackend):
+    # soundcard.default_speaker().recorder(samplerate=...) で loopback キャプチャ
+    # polling 方式: rec.record(numframes=FRAME_SIZE) → float32 → int16 に変換してキューに積む
 ```
 
-#### 2.2 モニターキャプチャの呼び出し (`_daemon_recorder_capture.py:_monitor_capture_sounddevice`)
+`detect_backend()` の Windows `auto` 検出に `WasapiSoundcardBackend` を追加。`find_monitor_device_sd()` は Windows では `None` を返すようにした（sounddevice によるデバイス検出は不要）。
 
-現状の `sd.InputStream(...)` 呼び出しに、`find_monitor_device_sd()` から受け取った追加 kwargs(`extra_settings=WasapiSettings(loopback=True)`)を渡せるように修正。Linux では空 dict なので無影響。
+#### 2.2 バックエンド検出 (`_daemon_audio.py:detect_backend`)
 
-#### 2.3 バックエンド検出 (`_daemon_audio.py:detect_backend`)
+Windows `auto`:
+1. `WasapiSoundcardBackend.is_available()` → True なら `"wasapi_soundcard", WasapiSoundcardBackend()`
+2. フォールバック: `"sounddevice", None`
 
-`PipeWireBackend.is_available()` / `PulseAudioBackend.is_available()` は `shutil.which("pw-cli")` 等で判定済み → Windows では自動的に False になり、`auto` 検出は `sounddevice` に落ちる。**変更不要**。
-
-ただし `preferred="pipewire"` 等が Windows で指定された場合に「PipeWire が利用できません」警告のみ出すのは挙動として正しいので維持。
+Linux `auto` は従来通り PipeWire → PulseAudio → sounddevice。
 
 ### 3. PTT入力
 

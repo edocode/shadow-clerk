@@ -263,8 +263,9 @@ def cmd_poll_command(args: list[str]) -> None:
     親プロセスが消滅した場合も自動終了する。
     """
     import signal
-    # SIGHUP で即終了（親シェル終了時）
-    signal.signal(signal.SIGHUP, lambda *_: sys.exit(0))
+    if sys.platform != "win32":
+        # SIGHUP で即終了（親シェル終了時）
+        signal.signal(signal.SIGHUP, lambda *_: sys.exit(0))
 
     interval = float(args[0])
     rest = args[1:]
@@ -310,14 +311,16 @@ def cmd_poll_command(args: list[str]) -> None:
 
 def _exec_clerk_daemon(args: list[str]) -> None:
     """同じ環境の clerk-daemon を exec する"""
-    # 1. sys.executable と同じディレクトリ (venv 内)
-    for base in (pathlib.Path(sys.executable).parent,
-                 pathlib.Path(sys.argv[0]).resolve().parent):
-        candidate = base / "clerk-daemon"
-        if candidate.exists():
-            os.execv(str(candidate), ["clerk-daemon"] + args)
-    # 2. フォールバック: PATH 検索
-    os.execvp("clerk-daemon", ["clerk-daemon"] + args)
+    # Windows では .exe 拡張子付きも探す
+    names = ("clerk-daemon.exe", "clerk-daemon") if sys.platform == "win32" else ("clerk-daemon",)
+    for base in (pathlib.Path(sys.executable).parent, pathlib.Path(sys.argv[0]).resolve().parent):
+        for name in names:
+            candidate = base / name
+            if candidate.exists():
+                os.execv(str(candidate), [str(candidate)] + args)
+    # PATH フォールバック: shutil.which は Windows で .exe を自動補完
+    exe = shutil.which("clerk-daemon") or "clerk-daemon"
+    os.execv(exe, [exe] + args)
 
 
 def cmd_start(args: list[str]) -> None:
@@ -357,12 +360,14 @@ def _terminate_pid(pid: int) -> None:
 
 
 def cmd_stop(args: list[str]) -> None:
-    """clerk-daemon プロセスに SIGTERM 送信"""
+    """clerk-daemon プロセスを停止 (Linux: SIGTERM, Windows: taskkill)"""
     pid = _read_pid()
     if pid and _is_pid_alive(pid):
         _terminate_pid(pid)
-    else:
+    elif sys.platform != "win32":
         subprocess.run(["pkill", "-f", "clerk-daemon|clerk_daemon"])
+    else:
+        print("warning: PIDファイルが見つかりません。実行中の clerk-daemon を特定できません。", file=sys.stderr)
 
 
 def cmd_restart(args: list[str]) -> None:
@@ -372,8 +377,10 @@ def cmd_restart(args: list[str]) -> None:
         pid = _read_pid()
         if pid and _is_pid_alive(pid):
             _terminate_pid(pid)
-        else:
+        elif sys.platform != "win32":
             subprocess.run(["pkill", "-f", "clerk-daemon|clerk_daemon"])
+        else:
+            print("warning: PIDファイルが見つかりません。実行中の clerk-daemon を特定できません。", file=sys.stderr)
         # 終了待機（最大10秒）
         for _ in range(20):
             time.sleep(0.5)

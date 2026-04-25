@@ -1,4 +1,5 @@
 """shadow-clerk: Web会議 議事録アシスタント"""
+from __future__ import annotations
 
 import os
 import sys

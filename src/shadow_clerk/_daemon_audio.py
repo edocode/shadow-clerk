@@ -191,10 +191,20 @@ def detect_backend(preferred: str = "auto") -> tuple[str, AudioBackend | None]:
         logger.warning("PulseAudio が利用できません、sounddevice にフォールバック")
         return "sounddevice", None
 
+    if preferred == "wasapi_soundcard":
+        if WasapiSoundcardBackend.is_available():
+            return "wasapi_soundcard", WasapiSoundcardBackend()
+        logger.warning("soundcard が利用できません、sounddevice にフォールバック")
+        return "sounddevice", None
+
     if preferred == "sounddevice":
         return "sounddevice", None
 
-    # auto: PipeWire → PulseAudio → sounddevice
+    # auto: Windows → WasapiSoundcardBackend / Linux → PipeWire → PulseAudio → sounddevice
+    if sys.platform == "win32":
+        if WasapiSoundcardBackend.is_available():
+            return "wasapi_soundcard", WasapiSoundcardBackend()
+        return "sounddevice", None
     if PipeWireBackend.is_available():
         return "pipewire", PipeWireBackend()
     if PulseAudioBackend.is_available():
@@ -240,53 +250,63 @@ def _get_default_sink_name() -> str | None:
     return None
 
 
-def _find_monitor_device_wasapi() -> tuple[int, dict[str, Any]] | None:
-    """Windows WASAPI ループバック用デバイスを返す。
+class WasapiSoundcardBackend(AudioBackend):
+    """Windows WASAPI ループバックバックエンド (soundcard パッケージ)"""
 
-    既定の再生デバイス(スピーカー/ヘッドホン)を loopback フラグ付き
-    InputStream として開けるよう、(デバイスID, extra_settings) を返す。
-    """
-    import sounddevice as sd
-    try:
-        hostapis = sd.query_hostapis()
-    except sd.PortAudioError as e:
-        logger.error("PortAudio ホストAPI取得失敗: %s", e)
-        return None
-    wasapi_idx = next(
-        (i for i, h in enumerate(hostapis) if h["name"] == "Windows WASAPI"),
-        None,
-    )
-    if wasapi_idx is None:
-        logger.warning("Windows WASAPI ホストAPIが見つかりません")
-        return None
-    default_out = hostapis[wasapi_idx].get("default_output_device")
-    if default_out is None or default_out < 0:
-        logger.warning("WASAPI 既定の出力デバイスが見つかりません")
-        return None
-    try:
-        settings = sd.WasapiSettings(loopback=True)
-    except AttributeError:
-        # 古い sounddevice では `WasapiSettings` 未提供
-        logger.error(
-            "sounddevice の WasapiSettings が利用できません。"
-            "sounddevice>=0.4.6 が必要です。"
-        )
-        return None
-    dev_info = sd.query_devices(default_out)
-    logger.debug(
-        "WASAPI loopback デバイス選択: #%d %s", default_out, dev_info["name"]
-    )
-    return default_out, {"extra_settings": settings}
+    @staticmethod
+    def is_available() -> bool:
+        if sys.platform != "win32":
+            return False
+        try:
+            import soundcard  # noqa: F401
+            return True
+        except ImportError:
+            return False
+
+    def detect_monitor_source(self) -> str | None:
+        try:
+            import soundcard
+            spk = soundcard.default_speaker()
+            return spk.name
+        except Exception as e:
+            logger.warning("soundcard デフォルトスピーカー取得失敗: %s", e)
+            return None
+
+    def list_devices(self) -> None:
+        try:
+            import soundcard
+            print(t("rec.wasapi_speakers"))
+            for spk in soundcard.all_speakers():
+                print(f"  {spk.name}")
+        except ImportError:
+            print("  (soundcard が利用できません)")
+
+    def start_monitor_capture(self, source: str, audio_queue: queue.Queue,
+                              stop_event: threading.Event) -> None:
+        """soundcard で WASAPI ループバックキャプチャ (polling)"""
+        import numpy as np
+        import soundcard
+        speakers = soundcard.all_speakers()
+        spk = next((s for s in speakers if s.name == source), soundcard.default_speaker())
+        logger.info("WASAPI loopback キャプチャ開始: %s", spk.name)
+        try:
+            with spk.recorder(samplerate=SAMPLE_RATE, channels=CHANNELS, blocksize=FRAME_SIZE) as rec:
+                while not stop_event.is_set():
+                    data = rec.record(numframes=FRAME_SIZE)
+                    samples = (data[:, 0] * 32767).astype(np.int16)
+                    audio_queue.put(samples)
+        except Exception as e:
+            logger.error("WASAPI loopback キャプチャエラー: %s", e)
 
 
 def find_monitor_device_sd() -> tuple[int, dict[str, Any]] | None:
-    """sounddevice でモニターデバイスを検索
+    """sounddevice でモニターデバイスを検索 (Linux のみ)
 
     戻り値: (デバイスID, sd.InputStream に追加で渡す kwargs) または None。
-    Linux では追加 kwargs は空 dict。Windows では WASAPI loopback 設定を含む。
+    Windows は WasapiSoundcardBackend を使うため None を返す。
     """
     if sys.platform == "win32":
-        return _find_monitor_device_wasapi()
+        return None
     return _find_monitor_device_linux()
 
 
