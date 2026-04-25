@@ -86,13 +86,11 @@ make dupcheck                    # Duplicate code detection (pylint R0801)
 
 - `README.md` (English, primary) / `README.ja.md` (Japanese)
 - `SPEC.md` — Detailed Japanese technical spec with Mermaid diagrams
-- `SKILL.md` / `SKILL.ja.md` — Claude Code Skill API documentation
-- `skills/data/SKILL.md.template` / `SKILL.ja.md.template` — Skill templates with `{clerk_util_path}` and `{data_dir}` placeholders
 
 ## User Preferences
 
 - Primary communication language: Japanese
-- Commit messages / README / SKILL.md: English
+- Commit messages / README: English
 - Diagrams: Mermaid (not PlantUML)
 - Prefers quick iteration: change → syntax check → restart → verify on dashboard
 - Prefers toggle buttons over separate start/stop buttons

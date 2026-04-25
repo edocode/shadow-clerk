@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """shadow-clerk ユーティリティ — データディレクトリ操作 + プロセス管理"""
 from __future__ import annotations
-import importlib.resources
 import json
 import os
 import pathlib
@@ -10,7 +9,7 @@ import subprocess
 import sys
 import time
 
-from shadow_clerk import DATA_DIR, CONFIG_FILE, get_data_dir, get_skill_dir
+from shadow_clerk import DATA_DIR, CONFIG_FILE, get_data_dir
 from shadow_clerk._transcript_name import TranscriptName
 
 # config.yaml から output_directory を読む
@@ -502,94 +501,6 @@ def cmd_summarize(args: list[str]) -> None:
     sys.exit(result.returncode)
 
 
-def cmd_claude_setup(args: list[str]) -> None:
-    """Claude Code skill として登録する"""
-    # 言語オプションの解析
-    lang = args[0] if args else None
-
-    skill_dir = get_skill_dir()
-
-    # 既存シンボリックリンクがあれば警告
-    if os.path.islink(skill_dir):
-        print(f"WARNING: {skill_dir} はシンボリックリンクです。")
-        print(f"  削除してから再実行してください: rm {skill_dir}")
-        sys.exit(1)
-
-    os.makedirs(skill_dir, exist_ok=True)
-    os.makedirs(get_data_dir(), exist_ok=True)
-
-    # clerk-util のインストールパスを取得
-    clerk_util_path = shutil.which("clerk-util")
-    if not clerk_util_path:
-        print("ERROR: clerk-util がパスに見つかりません。", file=sys.stderr)
-        print("  pip install shadow-clerk でインストールしてください。", file=sys.stderr)
-        sys.exit(1)
-
-    # テンプレートファイルを選択: SKILL.<lang>.md.template があればそれを使う
-    template_name = "SKILL.md.template"
-    if lang:
-        lang_template = f"SKILL.{lang}.md.template"
-        lang_resource = importlib.resources.files("shadow_clerk").joinpath(f"data/{lang_template}")
-        if lang_resource.is_file():
-            template_name = lang_template
-        else:
-            print(f"NOTE: {lang_template} not found, using default SKILL.md.template")
-
-    template = importlib.resources.files("shadow_clerk").joinpath(f"data/{template_name}").read_text()
-    skill_md = template.replace("{clerk_util_path}", clerk_util_path)
-    skill_md = skill_md.replace("{data_dir}", get_data_dir())
-
-    skill_md_path = os.path.join(skill_dir, "SKILL.md")
-    with open(skill_md_path, "w", encoding="utf-8") as f:
-        f.write(skill_md)
-    lang_label = f" ({lang})" if lang and template_name != "SKILL.md.template" else ""
-    print(f"SKILL.md を生成しました{lang_label}: {skill_md_path}")
-
-    # settings.local.json に permission エントリ追加
-    _register_permissions(clerk_util_path)
-
-
-def _register_permissions(clerk_util_path: str) -> None:
-    """~/.claude/settings.local.json に clerk-util の permission を追加する"""
-    settings_path = os.path.expanduser("~/.claude/settings.local.json")
-
-    # 既存の settings を読み込み
-    settings = {}
-    if os.path.isfile(settings_path):
-        try:
-            with open(settings_path, "r", encoding="utf-8") as f:
-                settings = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    permissions = settings.setdefault("permissions", {})
-    allow = permissions.setdefault("allow", [])
-
-    data_dir = get_data_dir()
-    entries = [
-        f"Bash({clerk_util_path} *)",
-        f"Edit({data_dir}/**)",
-        f"Write({data_dir}/**)",
-        f"Read({data_dir}/**)",
-    ]
-
-    added = []
-    for entry in entries:
-        if entry not in allow:
-            allow.append(entry)
-            added.append(entry)
-
-    if added:
-        with open(settings_path, "w", encoding="utf-8") as f:
-            json.dump(settings, f, indent=2, ensure_ascii=False)
-            f.write("\n")
-        print("permissions を追加しました:")
-        for e in added:
-            print(f"  {e}")
-    else:
-        print("permissions は既に登録済みです。")
-
-
 def cmd_gcal_auth(args: list[str]) -> None:
     """Google Calendar OAuth 認証フローを実行してトークンを保存する"""
     if not args:
@@ -646,7 +557,6 @@ def cmd_help(args: list[str]) -> None:
     print("  summarize [DATE] [--mode full|update]  議事録を生成 (DATE: YYYYMMDD or YYYYMMDDHHMM)")
     print()
     print("Setup subcommands:")
-    print("  claude-setup [lang]  Claude Code skill として登録 (lang: ja, en, ...)")
     print("  gcal-auth <credentials.json> [token_file]  Google Calendar OAuth 認証")
     print()
     print(f"Data directory: {DATA_DIR}")
@@ -674,7 +584,6 @@ COMMANDS = {
     "restart": cmd_restart,
     "run-llm": cmd_run_llm,
     "summarize": cmd_summarize,
-    "claude-setup": cmd_claude_setup,
     "gcal-auth": cmd_gcal_auth,
     "help": cmd_help,
 }

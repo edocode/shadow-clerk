@@ -25,10 +25,5 @@ def get_data_dir() -> str:
     return os.path.expanduser("~/.local/share/shadow-clerk")
 
 
-def get_skill_dir() -> str:
-    """Claude Code skill ディレクトリのパスを返す。"""
-    return os.path.expanduser("~/.claude/skills/shadow-clerk")
-
-
 DATA_DIR = get_data_dir()
 CONFIG_FILE = os.path.join(DATA_DIR, "config.yaml")

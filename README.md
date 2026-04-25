@@ -200,15 +200,17 @@ api_endpoint: http://localhost:11434/v1
 api_model: llama3
 ```
 
-### 5. (Optional) Register as Claude Code Skill
+### 5. (Optional) Use Claude CLI as the LLM provider
 
-For managing minutes generation, translation, and controls from Claude Code:
+If you have Claude Code installed (`claude` on your `$PATH`), shadow-clerk can shell out to `claude -p` for translation and summarization. Set in `config.yaml`:
 
-```bash
-clerk-util claude-setup
+```yaml
+llm_provider: claude
+claude_cli_model: haiku   # or sonnet / opus / a full model id
+# claude_cli_path: claude  # full path if not on $PATH
 ```
 
-This generates `~/.claude/skills/shadow-clerk/SKILL.md` and adds permissions to `~/.claude/settings.local.json`.
+This uses your existing Claude Code OAuth login. No extra setup needed — translation and summarization run inside the daemon as background threads, no Claude Code session required.
 
 ## Usage
 

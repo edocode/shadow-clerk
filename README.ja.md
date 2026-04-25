@@ -200,15 +200,17 @@ api_endpoint: http://localhost:11434/v1
 api_model: llama3
 ```
 
-### 5. (オプション) Claude Code Skill の登録
+### 5. (オプション) Claude CLI を LLM プロバイダーとして使う
 
-Claude Code から議事録生成・翻訳・操作を行う場合:
+Claude Code (`claude` コマンドが `$PATH` 上にある状態) を翻訳・要約のバックエンドとして使う場合、`config.yaml` に:
 
-```bash
-clerk-util claude-setup
+```yaml
+llm_provider: claude
+claude_cli_model: haiku   # sonnet / opus / モデル ID も指定可
+# claude_cli_path: claude  # PATH 上にない場合はフルパス
 ```
 
-`~/.claude/skills/shadow-clerk/SKILL.md` が生成され、`~/.claude/settings.local.json` に permission が追加される。
+既存の Claude Code OAuth ログインをそのまま使う。追加セットアップ不要、翻訳・要約は daemon 内のバックグラウンドスレッドで実行されるので Claude Code セッションを開きっぱなしにする必要なし。
 
 ## 使い方
 

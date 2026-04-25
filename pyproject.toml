@@ -43,9 +43,6 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.setuptools.package-data]
-shadow_clerk = ["data/*.template"]
-
 [dependency-groups]
 dev = [
     "mypy>=1.20.0",
