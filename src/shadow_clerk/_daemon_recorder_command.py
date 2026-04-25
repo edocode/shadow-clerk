@@ -481,20 +481,12 @@ class _RecorderCommandMixin:
             # auto_summary: 会議終了時に自動で議事録を生成
             config = load_config()
             if config.get("auto_summary"):
-                llm_prov = config.get("llm_provider", "claude")
-                if llm_prov == "api":
-                    logger.info("自動要約開始: provider=api")
-                    threading.Thread(
-                        target=self._auto_summarize,
-                        args=(session_transcript,),
-                        name="auto-summary", daemon=True,
-                    ).start()
-                else:
-                    # Claude provider: .clerk_command に書いて Claude Code に処理させる
-                    session_name = os.path.basename(session_transcript)
-                    with open(COMMAND_FILE, "w", encoding="utf-8") as f:
-                        f.write(f"generate_summary {session_name}")
-                    logger.info("自動要約開始: provider=claude (.clerk_command 経由)")
+                logger.info("自動要約開始: provider=%s", config.get("llm_provider", "claude"))
+                threading.Thread(
+                    target=self._auto_summarize,
+                    args=(session_transcript,),
+                    name="auto-summary", daemon=True,
+                ).start()
 
         elif cmd.startswith("set_model "):
             model_size = cmd.split(None, 1)[1].strip()
@@ -509,16 +501,10 @@ class _RecorderCommandMixin:
             target = self._resolve_translate_target(parts[1] if len(parts) > 1 else "")
             config = load_config()
             provider = get_translation_provider(config)
-            if provider in ("api", "libretranslate"):
-                if self._translate_thread and self._translate_thread.is_alive():
-                    logger.info("翻訳ループは既に動作中 (provider=%s)", provider)
-                else:
-                    self._launch_translate_thread(target, reset_offset=False)
+            if self._translate_thread and self._translate_thread.is_alive():
+                logger.info("翻訳ループは既に動作中 (provider=%s)", provider)
             else:
-                self._translating_external = True
-                with open(COMMAND_FILE, "w", encoding="utf-8") as f:
-                    f.write(cmd)
-                logger.info("翻訳開始: provider=claude (.clerk_command 経由)")
+                self._launch_translate_thread(target, reset_offset=False)
             print(t("rec.translate_start"))
 
         elif cmd == "translate_stop":
@@ -526,12 +512,7 @@ class _RecorderCommandMixin:
                 self._translate_stop_event.set()
                 self._translate_thread.join(timeout=10)
                 self._translate_thread = None
-                logger.info("翻訳停止: provider=api/libretranslate (内部スレッド)")
-            else:
-                self._translating_external = False
-                with open(COMMAND_FILE, "w", encoding="utf-8") as f:
-                    f.write("translate_stop")
-                logger.info("翻訳停止: provider=claude (.clerk_command 経由)")
+                logger.info("翻訳停止: 内部スレッド")
             print(t("rec.translate_stop"))
 
         elif cmd.startswith("translate_regenerate"):
@@ -541,17 +522,11 @@ class _RecorderCommandMixin:
             provider = get_translation_provider(config)
             logger.info("翻訳再生成: provider=%s, file=%s, offset リセット",
                         provider, os.path.basename(target or self.output_path))
-            if provider in ("api", "libretranslate"):
-                if self._translate_thread and self._translate_thread.is_alive():
-                    self._translate_stop_event.set()
-                    self._translate_thread.join(timeout=10)
-                    self._translate_thread = None
-                self._launch_translate_thread(target, reset_offset=True)
-            else:
-                self._translating_external = True
-                with open(COMMAND_FILE, "w", encoding="utf-8") as f:
-                    f.write(cmd)
-                logger.info("翻訳再生成: provider=claude (.clerk_command 経由)")
+            if self._translate_thread and self._translate_thread.is_alive():
+                self._translate_stop_event.set()
+                self._translate_thread.join(timeout=10)
+                self._translate_thread = None
+            self._launch_translate_thread(target, reset_offset=True)
 
         elif cmd.startswith("custom_exec "):
             action = cmd.split(None, 1)[1]

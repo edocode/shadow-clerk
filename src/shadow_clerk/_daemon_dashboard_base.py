@@ -140,8 +140,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         except OSError:
             pass
         translating = (self.recorder._translate_thread is not None
-                       and self.recorder._translate_thread.is_alive()
-                       ) or self.recorder._translating_external
+                       and self.recorder._translate_thread.is_alive())
         self._send_json({
             "running": not self.recorder.stop_event.is_set(),
             "backend": self.recorder.backend_name,
@@ -241,8 +240,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         except OSError:
             pass
         translating = (self.recorder._translate_thread is not None
-                       and self.recorder._translate_thread.is_alive()
-                       ) or self.recorder._translating_external
+                       and self.recorder._translate_thread.is_alive())
         self._send_json({
             "file": os.path.basename(filepath), "lines": lines, "translating": translating})
 
@@ -336,22 +334,14 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
             return
         config = load_config()
-        llm_prov = config.get("llm_provider", "claude")
-        if llm_prov == "api":
-            logger.info("ダッシュボード: 要約生成 provider=api, file=%s", os.path.basename(transcript_path))
-            self._send_json({"status": "ok", "message": t("dash.summary_generation_started")})
-            threading.Thread(
-                target=self.recorder._auto_summarize,
-                args=(transcript_path,),
-                name="dashboard-summary", daemon=True,
-            ).start()
-        else:
-            # Claude provider: .clerk_command に書いて Claude Code に処理させる（全文モード）
-            transcript_name = os.path.basename(transcript_path)
-            logger.info("ダッシュボード: 要約生成 provider=claude, file=%s (.clerk_command 経由)", transcript_name)
-            with open(COMMAND_FILE, "w", encoding="utf-8") as f:
-                f.write(f"generate_summary_full {transcript_name}")
-            self._send_json({"status": "ok", "message": t("dash.summary_generation_started")})
+        logger.info("ダッシュボード: 要約生成 provider=%s, file=%s",
+                    config.get("llm_provider", "claude"), os.path.basename(transcript_path))
+        self._send_json({"status": "ok", "message": t("dash.summary_generation_started")})
+        threading.Thread(
+            target=self.recorder._auto_summarize,
+            args=(transcript_path,),
+            name="dashboard-summary", daemon=True,
+        ).start()
 
     def _notify_summary_done(self) -> None:
         """POST /api/summary/notify — 外部プロセスからの要約完了通知"""

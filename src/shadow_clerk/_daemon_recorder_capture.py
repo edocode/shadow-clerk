@@ -118,7 +118,6 @@ class _RecorderCaptureMixin:
         # 翻訳ループ
         self._translate_stop_event = threading.Event()
         self._translate_thread: threading.Thread | None = None
-        self._translating_external = False  # Claude provider 経由の翻訳中フラグ
         self.translate_target_path: str | None = None  # 現在翻訳中のトランスクリプトパス
 
         # リアルタイム interim 翻訳キュー (maxsize=1 で最新のみ保持)

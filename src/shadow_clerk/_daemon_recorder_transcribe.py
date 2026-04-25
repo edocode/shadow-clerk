@@ -181,45 +181,10 @@ class _RecorderTranscribeMixin:
                 if os.path.exists(COMMAND_FILE):
                     with open(COMMAND_FILE, "r", encoding="utf-8") as f:
                         cmd = f.read().strip()
-                    # 翻訳コマンド: translation_provider で判定
-                    _translate_prefixes = ("translate_start", "translate_stop", "translate_regenerate")
-                    # 要約コマンド: llm_provider で判定 (ファイル名付き: generate_summary_full transcript-*.txt)
-                    _is_translate = any(cmd == p or cmd.startswith(p + " ") for p in _translate_prefixes)
-                    _is_summary = cmd.startswith("generate_summary")
-                    if _is_translate:
-                        config = load_config()
-                        provider = get_translation_provider(config)
-                        if provider in ("api", "libretranslate"):
-                            os.remove(COMMAND_FILE)
-                            logger.info("翻訳コマンド検出: %s (provider=%s, 内部処理)", cmd, provider)
-                            self._execute_command(cmd)
-                        else:
-                            logger.info("翻訳コマンド検出: %s (provider=claude, subagent に委譲)", cmd)
-                    elif _is_summary:
-                        config = load_config()
-                        llm_prov = config.get("llm_provider", "claude")
-                        if llm_prov == "api":
-                            os.remove(COMMAND_FILE)
-                            logger.info("要約コマンド検出: %s (provider=api, 内部処理)", cmd)
-                            self._execute_command(cmd)
-                        else:
-                            logger.info("要約コマンド検出: %s (provider=claude, subagent に委譲)", cmd)
-                    elif cmd.startswith("llm_query "):
-                        # llm_query は _llm_query (claude provider) が自分で COMMAND_FILE に書き込む。
-                        # ここで _execute_command を呼ぶと再度書き込まれ無限ループになるため、
-                        # claude provider の場合はファイルを残して Claude Code に委譲する。
-                        config = load_config()
-                        if config.get("llm_provider") == "claude":
-                            logger.debug("LLM クエリ検出 (provider=claude, Claude Code に委譲): %s", cmd)
-                        else:
-                            os.remove(COMMAND_FILE)
-                            logger.info("コマンドファイル検出: %s", cmd)
-                            self._execute_command(cmd)
-                    else:
-                        os.remove(COMMAND_FILE)
-                        if cmd:
-                            logger.info("コマンドファイル検出: %s", cmd)
-                            self._execute_command(cmd)
+                    os.remove(COMMAND_FILE)
+                    if cmd:
+                        logger.info("コマンドファイル検出: %s", cmd)
+                        self._execute_command(cmd)
             except Exception as e:
                 logger.error("コマンド処理エラー: %s", e)
             self.stop_event.wait(timeout=0.5)
