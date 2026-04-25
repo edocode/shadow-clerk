@@ -325,12 +325,42 @@ def cmd_start(args: list[str]) -> None:
     _exec_clerk_daemon(list(args))
 
 
+def _terminate_pid(pid: int) -> None:
+    """OS に応じて clerk-daemon プロセスを終了させる。
+
+    Linux: SIGTERM。
+    Windows: taskkill /PID (graceful) → 5秒待っても残るなら taskkill /F。
+    """
+    if sys.platform == "win32":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(pid)],
+                capture_output=True, timeout=5, check=False,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+        # 残っていたら強制終了
+        for _ in range(10):
+            if not _is_pid_alive(pid):
+                return
+            time.sleep(0.5)
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/PID", str(pid)],
+                capture_output=True, timeout=5, check=False,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+        return
+    import signal as _signal
+    os.kill(pid, _signal.SIGTERM)
+
+
 def cmd_stop(args: list[str]) -> None:
     """clerk-daemon プロセスに SIGTERM 送信"""
-    import signal as _signal
     pid = _read_pid()
     if pid and _is_pid_alive(pid):
-        os.kill(pid, _signal.SIGTERM)
+        _terminate_pid(pid)
     else:
         subprocess.run(["pkill", "-f", "clerk-daemon|clerk_daemon"])
 
@@ -339,10 +369,9 @@ def cmd_restart(args: list[str]) -> None:
     """clerk-daemon を停止 → 待機 → 起動"""
     # 停止
     if _is_recorder_running():
-        import signal as _signal
         pid = _read_pid()
         if pid and _is_pid_alive(pid):
-            os.kill(pid, _signal.SIGTERM)
+            _terminate_pid(pid)
         else:
             subprocess.run(["pkill", "-f", "clerk-daemon|clerk_daemon"])
         # 終了待機（最大10秒）
