@@ -266,31 +266,45 @@ class WasapiSoundcardBackend(AudioBackend):
     def detect_monitor_source(self) -> str | None:
         try:
             import soundcard
-            spk = soundcard.default_speaker()
-            return spk.name
+            default_spk_name = soundcard.default_speaker().name
+            for mic in soundcard.all_microphones(include_loopback=True):
+                if getattr(mic, "isloopback", False) and mic.name == default_spk_name:
+                    return mic.name
+            # 既定スピーカーに対応する loopback mic が見つからなければ最初の loopback を使う
+            for mic in soundcard.all_microphones(include_loopback=True):
+                if getattr(mic, "isloopback", False):
+                    return mic.name
+            return None
         except Exception as e:
-            logger.warning("soundcard デフォルトスピーカー取得失敗: %s", e)
+            logger.warning("soundcard loopback マイク取得失敗: %s", e)
             return None
 
     def list_devices(self) -> None:
         try:
             import soundcard
-            print(t("rec.wasapi_speakers"))
-            for spk in soundcard.all_speakers():
-                print(f"  {spk.name}")
+            print(t("rec.wasapi_loopback_mics"))
+            for mic in soundcard.all_microphones(include_loopback=True):
+                if getattr(mic, "isloopback", False):
+                    print(f"  {mic.name}")
         except ImportError:
-            print("  (soundcard が利用できません)")
+            print(t("rec.wasapi_soundcard_unavailable"))
 
     def start_monitor_capture(self, source: str, audio_queue: queue.Queue,
                               stop_event: threading.Event) -> None:
-        """soundcard で WASAPI ループバックキャプチャ (polling)"""
+        """soundcard の loopback マイクで WASAPI ループバックキャプチャ (polling)"""
         import numpy as np
         import soundcard
-        speakers = soundcard.all_speakers()
-        spk = next((s for s in speakers if s.name == source), soundcard.default_speaker())
-        logger.info("WASAPI loopback キャプチャ開始: %s", spk.name)
+        loopback_mics = [
+            m for m in soundcard.all_microphones(include_loopback=True)
+            if getattr(m, "isloopback", False)
+        ]
+        if not loopback_mics:
+            logger.error("WASAPI loopback マイクが見つかりません")
+            return
+        mic = next((m for m in loopback_mics if m.name == source), loopback_mics[0])
+        logger.info("WASAPI loopback キャプチャ開始: %s", mic.name)
         try:
-            with spk.recorder(samplerate=SAMPLE_RATE, channels=CHANNELS, blocksize=FRAME_SIZE) as rec:
+            with mic.recorder(samplerate=SAMPLE_RATE, channels=CHANNELS, blocksize=FRAME_SIZE) as rec:
                 while not stop_event.is_set():
                     data = rec.record(numframes=FRAME_SIZE)
                     samples = (data[:, 0] * 32767).astype(np.int16)

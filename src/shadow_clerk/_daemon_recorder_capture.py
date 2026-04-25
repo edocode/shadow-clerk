@@ -233,7 +233,9 @@ class _RecorderCaptureMixin:
     ) -> bool:
         """sounddevice でモニターデバイスをキャプチャ。成功なら True、失敗なら False。
 
-        extra: sd.InputStream に追加で渡す kwargs(WASAPI loopback 設定等)。
+        Linux 専用パス (PipeWire/PulseAudio の `.monitor`/"Monitor of " デバイス)。
+        Windows は WasapiSoundcardBackend 経由でキャプチャする。
+        extra: sd.InputStream に追加で渡す kwargs(現状 Linux では空 dict)。
         """
         import sounddevice as sd
         extra = extra or {}
