@@ -4,6 +4,11 @@
 
 shadow-clerk は Linux 専用。主な依存: PipeWire/PulseAudio（音声キャプチャ）、evdev（Wayland PTT入力）。
 
+## 進捗
+
+- 2026-04-25 Windows 対応(Phase A1) 実装済み: データディレクトリ・WASAPI ループバックモニター・`clerk-util stop` の3点を分岐。Linux 動作はそのまま温存。
+- 残: macOS 対応、PipeWire/PulseAudio 直叩きの完全廃止(Phase B、未着手)。
+
 ## プラットフォーム依存箇所
 
 ### 1. システム音声（モニター）キャプチャ — 難易度: 高
@@ -16,7 +21,7 @@ shadow-clerk は Linux 専用。主な依存: PipeWire/PulseAudio（音声キャ
 | Windows | WASAPI ループバック API | `sounddevice` 経由で利用可能。デバイス検出ロジックの書き換えが必要 |
 | macOS | OS標準ではシステム音声キャプチャ不可 | BlackHole や Background Music 等の仮想オーディオドライバが必須 |
 
-**対象コード**: `clerk_daemon.py` L195-427（PipeWire/PulseAudio バックエンド、モニターデバイス検出）
+**対象コード**: `_daemon_audio.py`（バックエンド）、`_daemon_recorder_capture.py`（マイク・モニタースレッド）
 
 ### 2. 音声ツール（サブプロセス呼び出し）— 難易度: 中
 
@@ -27,7 +32,7 @@ shadow-clerk は Linux 専用。主な依存: PipeWire/PulseAudio（音声キャ
 
 **対応方針**: sounddevice（PortAudio ベース、クロスプラットフォーム）に統一し、上記ツール依存を除去
 
-**対象コード**: `clerk_daemon.py` L195-375
+**対象コード**: `_daemon_audio.py`
 
 ### 3. PTT キー入力 — 難易度: 低
 
@@ -38,7 +43,7 @@ shadow-clerk は Linux 専用。主な依存: PipeWire/PulseAudio（音声キャ
 
 **対応方針**: pynput をプライマリに統一。evdev は Linux Wayland 用のオプションとして残す
 
-**対象コード**: `clerk_daemon.py` L950-1086, L1567-1586
+**対象コード**: `_daemon_recorder_command.py`、`_daemon_constants.py`（import フラグ）
 
 ### 4. 設定ファイルパス — 難易度: 低
 
