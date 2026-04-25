@@ -2,7 +2,34 @@
 
 Web会議の音声をリアルタイムで録音・文字起こしするツール。翻訳や議事録生成もできる。
 
-Ubuntu + PipeWire / PulseAudio 環境で動作する。
+## 動作環境
+
+| OS | 対応状況 | 備考 |
+|----|----------|------|
+| Linux (PipeWire/PulseAudio) | 対応 | 主開発ターゲット |
+| Windows 10/11 | 対応 | WASAPI ループバックでモニターキャプチャ（既定の再生デバイスに追従） |
+| macOS | 未対応 | 仮想オーディオドライバ（BlackHole 等）が必要 — 未実装 |
+
+### Windows セットアップ
+
+1. [uv](https://docs.astral.sh/uv/) をインストールする。
+2. shadow-clerk をインストールする:
+   ```
+   uv tool install shadow-clerk
+   ```
+3. 起動するターミナルにマイクのアクセスを許可する（Windows 設定 → プライバシーとセキュリティ → マイク）。
+4. デーモンを起動する:
+   ```
+   clerk-daemon
+   ```
+5. ダッシュボードを開く: <http://localhost:8765>
+
+データディレクトリは `%APPDATA%\shadow-clerk`。モニターキャプチャはシステムの既定の再生デバイスに追従する。Windows のサウンド設定で既定デバイスを切り替えると、キャプチャ対象も切り替わる。
+
+デーモンを停止するには:
+```
+clerk-util stop
+```
 
 ## 機能と必要なもの
 
