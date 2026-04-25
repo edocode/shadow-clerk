@@ -155,3 +155,23 @@ Windows 側初期検証(要望者協力前提):
 | pynput のキーマッピングに OS 差 | PTT 効かない | 起動時の押下検出ログを残し、要望者の検証で実マッピングを確認 |
 | `taskkill` がフォアグラウンド権限を要求 | `clerk-util stop` 失敗 | Ctrl+C 案内をフォールバックドキュメント化 |
 | 16kHz リサンプル品質 | 認識精度低下 | sounddevice の `samplerate=16000` 直接指定で動かないデバイスがあれば、48kHz キャプチャ + 既存リサンプラに通す |
+
+## Windows verification checklist (for the requester)
+
+Run these on a Windows 10/11 machine after `uv tool install shadow-clerk`:
+
+- [ ] `clerk-daemon --help` runs without error
+- [ ] `clerk-daemon` starts and prints data directory under `%APPDATA%\shadow-clerk`
+- [ ] Mic capture: speaking produces transcript lines tagged `[Self]`(`[自分]`)
+- [ ] Monitor capture: playing audio (YouTube etc.) produces transcript lines tagged `[Other]`(`[相手]`)
+- [ ] Dashboard reachable at <http://localhost:8765>
+- [ ] PTT key (set in `config.yaml` の `voice_command_key`) で音声コマンドが受け付けられる
+- [ ] `clerk-util stop` で 5〜10秒以内に daemon が終了する
+- [ ] 終了後に Task Manager に `clerk-daemon.exe` が残っていない
+
+If anything fails, capture:
+- The full daemon log (`%APPDATA%\shadow-clerk\daemon.log`)
+- The terminal output during start
+- Output of `uv run python -c "import sounddevice as sd; print(sd.query_hostapis()); print(sd.query_devices())"`
+
+and report back.
