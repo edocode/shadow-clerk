@@ -327,17 +327,20 @@ custom_commands:
 
 #### Claude モード (`translation_provider: claude` / `llm_provider: claude`)
 
-Claude Code の Skill（`/shadow-clerk`）経由で実行する。翻訳・要約は Claude 自身がインラインで行う。
+clerk-daemon が `claude -p` を subprocess 起動して翻訳・要約を実行する。既存の Claude Code OAuth ログインをそのまま使う。
 
 - **最も高品質** — 特に日本語の同音異義語修正（ja→ja）で顕著
-- **Claude Code が必須** — ターミナルで Claude Code を起動した状態で使う
-- **翻訳の動作**: `/shadow-clerk start` で clerk-daemon を起動すると、バックグラウンドの subagent が翻訳・コマンド監視を行う。ダッシュボードからの翻訳指示も subagent が処理する
-- **フォアグラウンド翻訳**: `/shadow-clerk translate start` で直接実行すると、翻訳ループが Claude Code のターミナルに表示される（待機中のポーリング出力が続くため、通常は `/shadow-clerk start` でバックグラウンド実行を推奨）
+- **`claude` コマンドが PATH 上にあること** — Claude Code をインストール済みなら自動で見つかる
+- **Claude Code セッションは不要** — daemon が単独でジョブごとに `claude -p` を起動するので、ターミナルで Claude Code を開きっぱなしにする必要なし
+- **翻訳・要約とも daemon 内のスレッドで完結** — api / libretranslate と同じ仕組み
+- **コスト記録**: `claude -p --output-format json` のレスポンスから `total_cost_usd` を daemon ログに記録
 
 ```yaml
 # config.yaml
 translation_provider: claude   # 翻訳を Claude で実行
 llm_provider: claude           # 要約を Claude で実行（デフォルト）
+claude_cli_path: claude        # フルパス指定可（PATH 上にない場合）
+claude_cli_model: haiku        # haiku / sonnet / opus または完全なモデル ID
 ```
 
 #### API モード (`translation_provider: api` / `llm_provider: api`)
@@ -365,29 +368,29 @@ api_model: gpt-4o
 
 | 用途 | 翻訳 | 要約 | 特徴 |
 |---|---|---|---|
-| 高品質（Claude Code 使用） | `translation_provider: claude` | `llm_provider: claude` | 最高品質、Claude Code 必須 |
-| 自律動作（外部 API） | `translation_provider: api` | `llm_provider: api` | Claude Code 不要、品質はモデル依存 |
+| 高品質（Claude CLI） | `translation_provider: claude` | `llm_provider: claude` | 最高品質、`claude` コマンドが必要 |
+| 自律動作（外部 API） | `translation_provider: api` | `llm_provider: api` | OpenAI 互換 API、品質はモデル依存 |
 | ローカル完結 | `translation_provider: libretranslate` | — | LLM 不要、品質は低い |
 | ハイブリッド | `translation_provider: api` | `llm_provider: claude` | 翻訳は自動、要約は高品質 |
 
-### 議事録生成 (Claude Code Skill)
+### 議事録生成
 
-Claude Code から clerk-daemon の起動・停止・議事録生成を行える:
+会議終了時の自動生成、ダッシュボードからのオンデマンド生成、`clerk-util` からのコマンドライン生成、の3経路がある:
 
 ```
-/shadow-clerk start                    # clerk-daemon をバックグラウンドで起動（翻訳 subagent も自動起動）
-/shadow-clerk start --language ja      # オプション付きで起動
-/shadow-clerk stop                     # clerk-daemon を停止
-/shadow-clerk start meeting            # 会議セッションを開始（auto_translate 連動）
-/shadow-clerk end meeting              # 会議セッションを終了（auto_summary 連動）
-/shadow-clerk          # 差分テキストから議事録を更新
-/shadow-clerk full     # 全文から議事録を再生成
-/shadow-clerk status   # 現在の状態を確認
-/shadow-clerk translate start          # 翻訳ループを開始（フォアグラウンド）
-/shadow-clerk translate stop           # 翻訳ループを停止
+clerk-util start                                   # daemon 起動（バックグラウンド）
+clerk-util stop                                    # daemon 停止
+clerk-util recorder-status                         # 動作状態
+clerk-util summarize                               # 差分から議事録を更新
+clerk-util summarize --mode full                   # 全文から再生成
+clerk-util summarize 20260425 --mode full          # 日付指定
+clerk-util command start_meeting                   # 会議セッション開始
+clerk-util command end_meeting                     # 会議セッション終了（auto_summary 連動）
+clerk-util command translate_start                 # 翻訳ループ開始
+clerk-util command translate_stop                  # 翻訳ループ停止
 ```
 
-> **Note:** `/shadow-clerk start` で起動すると、翻訳コマンド監視用の subagent がバックグラウンドで動作する。`translation_provider: claude` の場合、ダッシュボードからの翻訳指示（開始・再生成）はこの subagent が処理する。
+会議の開始・終了は **音声コマンド**（「シェルク、会議開始」「シェルク、会議終了」）または **ダッシュボードのボタン** からも操作可能。ダッシュボードの「要約生成」ボタンで任意のタイミングで議事録生成も可能。
 
 生成された議事録は `~/.local/share/shadow-clerk/summary-YYYYMMDD.md` に保存される。
 
@@ -432,22 +435,21 @@ ui_language: ja                # UI言語 (ja/en) — ダッシュボード・�
 Claude Code から設定を操作:
 
 ```
-/shadow-clerk config show                     # 現在の設定を表示
-/shadow-clerk config set default_model tiny   # 設定値を変更
-/shadow-clerk config set auto_translate true  # 自動翻訳を有効化
-/shadow-clerk config init                     # デフォルト設定ファイルを生成
+clerk-util read-config                                # 現在の設定を表示
+clerk-util write-config-value default_model tiny      # 設定値を変更
+clerk-util write-config-value auto_translate true     # 自動翻訳を有効化
 ```
 
-`auto_translate: true` にすると、`/shadow-clerk start meeting` 時に自動で翻訳が開始される。
-`auto_summary: true` にすると、`/shadow-clerk end meeting` 時に自動で議事録が生成される。
+`auto_translate: true` にすると、会議セッション開始時に自動で翻訳が開始される。
+`auto_summary: true` にすると、会議セッション終了時に自動で議事録が生成される。
 
 ### 翻訳ファイルからの要約生成
 
 `summary_source` が未指定 (null/auto) の場合、翻訳ファイルが存在すれば自動的にそれを要約ソースとして使う (なければ transcript にフォールバック)。明示的に挙動を固定したい場合:
 
 ```
-/shadow-clerk config set summary_source transcript   # 強制的に transcript
-/shadow-clerk config set summary_source translate    # 強制的に translation (無ければ transcript にフォールバック)
+clerk-util write-config-value summary_source transcript   # 強制的に transcript
+clerk-util write-config-value summary_source translate    # 強制的に translation (無ければ transcript にフォールバック)
 ```
 
 ### 要約の言語
@@ -455,8 +457,8 @@ Claude Code から設定を操作:
 `summary_language` で要約の出力言語を指定する。未指定 (null) の場合は `ui_language` をデフォルトとして使用:
 
 ```
-/shadow-clerk config set summary_language en   # 英語で要約
-/shadow-clerk config set summary_language ja   # 日本語で要約
+clerk-util write-config-value summary_language en   # 英語で要約
+clerk-util write-config-value summary_language ja   # 日本語で要約
 ```
 
 ## ファイル構成
@@ -470,10 +472,6 @@ shadow-clerk/                          # リポジトリ
     llm_client.py                      # 外部 API 翻訳・Summary 生成
     i18n.py                            # 多言語対応 (ja/en)
     clerk_util.py                      # データディレクトリ操作・プロセス管理
-    data/
-      SKILL.md.template                # Claude Code Skill テンプレート
-  skills/
-    SKILL.md                           # Claude Code Skill 定義（開発用）
 
 ~/.local/share/shadow-clerk/           # ランタイムデータ
   transcript-YYYYMMDD.txt              # 文字起こし結果（日付ベース）

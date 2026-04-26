@@ -325,17 +325,20 @@ Translation and summary each support multiple providers with different operation
 
 #### Claude mode (`translation_provider: claude` / `llm_provider: claude`)
 
-Runs via the Claude Code Skill (`/shadow-clerk`). Claude performs translation and summary inline.
+clerk-daemon shells out to `claude -p` per request, reusing your existing Claude Code OAuth login.
 
 - **Highest quality** — especially for Japanese homophone correction (ja→ja)
-- **Requires Claude Code** — must be running in a Claude Code terminal session
-- **How translation works**: `/shadow-clerk start` launches clerk-daemon with a background subagent that handles translation and command monitoring. Dashboard-initiated translation is also processed by this subagent
-- **Foreground translation**: `/shadow-clerk translate start` runs the translation loop directly in the terminal (polling output is visible; use `/shadow-clerk start` for background operation instead)
+- **Requires `claude` on PATH** — found automatically if Claude Code is installed
+- **No Claude Code session required** — the daemon spawns `claude -p` per job, so you don't need to keep a Claude Code terminal open
+- **Translation and summary both run inside daemon threads** — same plumbing as api / libretranslate
+- **Cost tracking**: `claude -p --output-format json` returns `total_cost_usd`, which is logged by the daemon
 
 ```yaml
 # config.yaml
 translation_provider: claude   # Translation by Claude
 llm_provider: claude           # Summary by Claude (default)
+claude_cli_path: claude        # full path if not on PATH
+claude_cli_model: haiku        # haiku / sonnet / opus or a full model id
 ```
 
 #### API mode (`translation_provider: api` / `llm_provider: api`)
@@ -363,29 +366,29 @@ Translation only. Runs locally without any external API or Claude Code (summary 
 
 | Use case | Translation | Summary | Notes |
 |---|---|---|---|
-| Best quality (with Claude Code) | `translation_provider: claude` | `llm_provider: claude` | Highest quality, requires Claude Code |
-| Autonomous (external API) | `translation_provider: api` | `llm_provider: api` | No Claude Code needed, quality varies by model |
+| Best quality (Claude CLI) | `translation_provider: claude` | `llm_provider: claude` | Highest quality, needs `claude` CLI |
+| Autonomous (external API) | `translation_provider: api` | `llm_provider: api` | OpenAI-compatible, quality varies by model |
 | Fully local | `translation_provider: libretranslate` | — | No LLM needed, lower quality |
 | Hybrid | `translation_provider: api` | `llm_provider: claude` | Auto translation + high-quality summary |
 
-### Meeting minutes (Claude Code Skill)
+### Meeting minutes
 
-You can start/stop clerk-daemon and generate meeting minutes from Claude Code:
+Three ways to generate minutes: automatically at meeting end, on demand from the dashboard, or via `clerk-util` from the command line:
 
 ```
-/shadow-clerk start                    # Start clerk-daemon in the background (with translation subagent)
-/shadow-clerk start --language ja      # Start with options
-/shadow-clerk stop                     # Stop clerk-daemon
-/shadow-clerk start meeting            # Start a meeting session (auto_translate linked)
-/shadow-clerk end meeting              # End a meeting session (auto_summary linked)
-/shadow-clerk          # Update minutes from transcript diff
-/shadow-clerk full     # Regenerate minutes from full transcript
-/shadow-clerk status   # Check current status
-/shadow-clerk translate start          # Start translation loop (foreground)
-/shadow-clerk translate stop           # Stop translation loop
+clerk-util start                                   # Start daemon (background)
+clerk-util stop                                    # Stop daemon
+clerk-util recorder-status                         # Show running state
+clerk-util summarize                               # Update minutes from transcript diff
+clerk-util summarize --mode full                   # Regenerate from full transcript
+clerk-util summarize 20260425 --mode full          # Specify date
+clerk-util command start_meeting                   # Start meeting session
+clerk-util command end_meeting                     # End meeting session (auto_summary linked)
+clerk-util command translate_start                 # Start translation loop
+clerk-util command translate_stop                  # Stop translation loop
 ```
 
-> **Note:** `/shadow-clerk start` launches a background subagent for command monitoring. When `translation_provider: claude`, dashboard-initiated translation (start/regenerate) is processed by this subagent.
+Meeting start/end is also available via **voice commands** ("clerk, start meeting" / "clerk, end meeting") or **dashboard buttons**. The dashboard's "Generate Summary" button can trigger minutes generation at any time.
 
 Generated meeting minutes are saved to `~/.local/share/shadow-clerk/summary-YYYYMMDD.md`.
 
@@ -430,22 +433,21 @@ ui_language: ja                # UI language (ja/en) — dashboard, terminal out
 Manage configuration from Claude Code:
 
 ```
-/shadow-clerk config show                     # Show current config
-/shadow-clerk config set default_model tiny   # Change a setting
-/shadow-clerk config set auto_translate true  # Enable auto-translation
-/shadow-clerk config init                     # Generate default config file
+clerk-util read-config                                # Show current config
+clerk-util write-config-value default_model tiny      # Change a setting
+clerk-util write-config-value auto_translate true     # Enable auto-translation
 ```
 
-With `auto_translate: true`, translation starts automatically on `/shadow-clerk start meeting`.
-With `auto_summary: true`, meeting minutes are generated automatically on `/shadow-clerk end meeting`.
+With `auto_translate: true`, translation starts automatically when a meeting session begins.
+With `auto_summary: true`, meeting minutes are generated automatically when a meeting session ends.
 
 ### Summary source selection
 
 When `summary_source` is unset (null/auto), the summary is generated from the translation file if one exists (falling back to the transcript if not). To pin the behavior explicitly:
 
 ```
-/shadow-clerk config set summary_source transcript   # always use transcript
-/shadow-clerk config set summary_source translate    # always use translation (fallback to transcript if missing)
+clerk-util write-config-value summary_source transcript   # always use transcript
+clerk-util write-config-value summary_source translate    # always use translation (fallback to transcript if missing)
 ```
 
 ### Summary language
@@ -453,8 +455,8 @@ When `summary_source` is unset (null/auto), the summary is generated from the tr
 `summary_language` controls the output language of the summary. When unset (null), it falls back to `ui_language`:
 
 ```
-/shadow-clerk config set summary_language en   # summarize in English
-/shadow-clerk config set summary_language ja   # summarize in Japanese
+clerk-util write-config-value summary_language en   # summarize in English
+clerk-util write-config-value summary_language ja   # summarize in Japanese
 ```
 
 ## File structure
@@ -468,10 +470,6 @@ shadow-clerk/                          # Repository
     llm_client.py                      # External API translation & summary
     i18n.py                            # Internationalization (ja/en)
     clerk_util.py                      # Data directory operations & process management
-    data/
-      SKILL.md.template                # Claude Code Skill template
-  skills/
-    SKILL.md                           # Claude Code Skill definition (development)
 
 ~/.local/share/shadow-clerk/           # Runtime data
   transcript-YYYYMMDD.txt              # Transcription output (date-based)
