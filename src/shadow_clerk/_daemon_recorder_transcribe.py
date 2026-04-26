@@ -154,8 +154,16 @@ class _RecorderTranscribeMixin:
                             if one_shot and effective_size >= size:
                                 logger.info("one-shot 翻訳完了: %s", tr_name)
                                 return
-                        elif result.returncode != 0:
-                            logger.error("翻訳エラー: %s", result.stderr.strip()[:200])
+                        else:
+                            # stderr の末尾(traceback の本体や ERROR ログ)を出す。
+                            # 先頭は --verbose の DEBUG 行で埋まることが多い。
+                            stderr_tail = (result.stderr or "").strip()
+                            if len(stderr_tail) > 800:
+                                stderr_tail = "..." + stderr_tail[-800:]
+                            stdout_excerpt = (result.stdout or "").strip()[:200]
+                            logger.error("翻訳エラー (rc=%d): stderr_tail=%s%s",
+                                         result.returncode, stderr_tail,
+                                         f"  stdout_head={stdout_excerpt!r}" if stdout_excerpt else "")
                             if one_shot:
                                 return
                     elif one_shot:
