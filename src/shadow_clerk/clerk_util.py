@@ -34,90 +34,7 @@ def _read_output_directory() -> None:
 _read_output_directory()
 
 
-def resolve_path(name: str) -> str:
-    """ファイル名に応じてディレクトリを解決する"""
-    if name.startswith("transcript-") or name.startswith("summary-"):
-        return os.path.join(OUTPUT_DIR, name)
-    return os.path.join(DATA_DIR, name)
-
-
 # --- サブコマンド実装 ---
-
-
-def cmd_read(args: list[str]) -> None:
-    path = resolve_path(args[0])
-    try:
-        with open(path) as f:
-            sys.stdout.write(f.read())
-    except FileNotFoundError:
-        pass
-
-
-def cmd_read_from(args: list[str]) -> None:
-    path = resolve_path(args[0])
-    offset = int(args[1])
-    try:
-        with open(path, "rb") as f:
-            f.seek(offset)
-            data = f.read()
-            sys.stdout.buffer.write(data)
-    except FileNotFoundError:
-        pass
-
-
-def cmd_write(args: list[str]) -> None:
-    path = resolve_path(args[0])
-    with open(path, "w") as f:
-        f.write(args[1] + "\n")
-
-
-def cmd_append(args: list[str]) -> None:
-    path = resolve_path(args[0])
-    if len(args) >= 3 and args[1] == "-f":
-        with open(args[2]) as src, open(path, "a") as dst:
-            dst.write(src.read())
-    elif len(args) >= 2:
-        with open(path, "a") as f:
-            f.write(args[1] + "\n")
-    else:
-        with open(path, "a") as f:
-            f.write(sys.stdin.read())
-
-
-def cmd_lines(args: list[str]) -> None:
-    path = resolve_path(args[0])
-    try:
-        with open(path) as f:
-            count = sum(1 for _ in f)
-        print(count)
-    except FileNotFoundError:
-        print(0)
-
-
-def cmd_size(args: list[str]) -> None:
-    path = resolve_path(args[0])
-    try:
-        print(os.path.getsize(path))
-    except FileNotFoundError:
-        pass
-
-
-def cmd_mtime(args: list[str]) -> None:
-    path = resolve_path(args[0])
-    try:
-        st = os.stat(path)
-        # stat -c %y 互換のフォーマット
-        from datetime import datetime
-
-        dt = datetime.fromtimestamp(st.st_mtime)
-        print(dt.strftime("%Y-%m-%d %H:%M:%S.%f") + " " + time.strftime("%z"))
-    except FileNotFoundError:
-        pass
-
-
-def cmd_exists(args: list[str]) -> None:
-    path = resolve_path(args[0])
-    print("yes" if os.path.isfile(path) else "no")
 
 
 def cmd_ls(args: list[str]) -> None:
@@ -221,11 +138,6 @@ ui_language: ja"""
             sys.stdout.write(f.read())
 
 
-def cmd_write_config(args: list[str]) -> None:
-    with open(CONFIG_FILE, "w") as f:
-        f.write(sys.stdin.read())
-
-
 def cmd_write_config_value(args: list[str]) -> None:
     """YAML を読み込み、指定キーを更新して書き戻す"""
     key = args[0]
@@ -267,11 +179,6 @@ def cmd_write_config_value(args: list[str]) -> None:
 
     with open(CONFIG_FILE, "w") as f:
         f.writelines(new_lines)
-
-
-def cmd_path(args: list[str]) -> None:
-    print(shutil.which("clerk-util") or os.path.abspath(__file__))
-
 
 
 def _exec_clerk_daemon(args: list[str]) -> None:
@@ -514,21 +421,11 @@ def cmd_help(args: list[str]) -> None:
     print("Usage: clerk-util <subcommand> [args]")
     print()
     print("Data subcommands:")
-    print("  read <file>                ファイルを読む")
-    print("  read-from <file> <offset>  オフセット位置から読む")
-    print("  write <file> <text>        ファイルに書き込む")
-    print("  append <file> <text>       ファイルに追記する")
-    print("  lines <file>               行数を表示")
-    print("  size <file>                バイト数を表示")
-    print("  mtime <file>               最終更新日時を表示")
-    print("  exists <file>              ファイルの存在確認")
     print("  ls                         データディレクトリの一覧")
-    print("  command <cmd>              clerk-daemon にコマンドを送信")
+    print("  command <cmd>              clerk-daemon にコマンドを送信 (HTTP /api/command)")
     print("  recorder-status            clerk-daemon の動作状態 (running/stopped)")
     print("  read-config                config.yaml を読む（なければデフォルト生成）")
-    print("  write-config               stdin から config.yaml を書き込む")
     print("  write-config-value <k> <v> config.yaml の指定キーを更新")
-    print("  path                       clerk-util 自身のフルパスを出力")
     print()
     print("Process subcommands:")
     print("  start [opts]      clerk-daemon を起動 (exec)")
@@ -544,21 +441,11 @@ def cmd_help(args: list[str]) -> None:
 
 
 COMMANDS = {
-    "read": cmd_read,
-    "read-from": cmd_read_from,
-    "write": cmd_write,
-    "append": cmd_append,
-    "lines": cmd_lines,
-    "size": cmd_size,
-    "mtime": cmd_mtime,
-    "exists": cmd_exists,
     "ls": cmd_ls,
     "command": cmd_command,
     "recorder-status": cmd_recorder_status,
     "read-config": cmd_read_config,
-    "write-config": cmd_write_config,
     "write-config-value": cmd_write_config_value,
-    "path": cmd_path,
     "start": cmd_start,
     "stop": cmd_stop,
     "restart": cmd_restart,
