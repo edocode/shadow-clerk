@@ -125,6 +125,7 @@ def call_claude_cli(
     try:
         proc = subprocess.run(
             cmd, input=user_content, capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
             timeout=timeout, check=False,
         )
     except FileNotFoundError as e:

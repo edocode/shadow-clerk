@@ -197,6 +197,16 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # Windows の cp932 デフォルトでは日本語の print が UnicodeEncodeError で
+    # 落ちる。サブプロセスとして呼ばれる前提なので、強制的に UTF-8 にする。
+    if sys.platform == "win32":
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+            sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError):
+            pass
+
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.WARNING,
         format="[%(name)s] %(levelname)s: %(message)s",

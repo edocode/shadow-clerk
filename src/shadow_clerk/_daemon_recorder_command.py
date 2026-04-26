@@ -83,7 +83,8 @@ class _RecorderCommandMixin:
         try:
             result = subprocess.run(
                 [sys.executable, "-m", "shadow_clerk.llm_client", "spell-check"],
-                input=text, capture_output=True, text=True, timeout=30,
+                input=text, capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=30,
             )
             if result.returncode == 0 and result.stdout.strip():
                 corrected = result.stdout.strip()
@@ -112,7 +113,8 @@ class _RecorderCommandMixin:
         try:
             result = subprocess.run(
                 [sys.executable, "-m", "shadow_clerk.llm_client", "match-command"],
-                input=payload, capture_output=True, text=True, timeout=30,
+                input=payload, capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=30,
             )
             if result.returncode != 0:
                 logger.warning("match-command 失敗: %s", result.stderr.strip())
@@ -205,7 +207,8 @@ class _RecorderCommandMixin:
 
         try:
             result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=600,
+                cmd, capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=600,
                 cwd=os.path.dirname(os.path.abspath(__file__)),
             )
             if result.returncode == 0:

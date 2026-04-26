@@ -55,7 +55,8 @@ class _RecorderTranscribeMixin:
             try:
                 result = subprocess.run(
                     [sys.executable, "-m", "shadow_clerk.llm_client", "query", text],
-                    capture_output=True, text=True, timeout=60,
+                    capture_output=True, text=True,
+                    encoding="utf-8", errors="replace", timeout=60,
                 )
                 if result.returncode != 0:
                     logger.error("LLM クエリエラー: %s", result.stderr.strip())
@@ -132,7 +133,8 @@ class _RecorderTranscribeMixin:
                                "--max-bytes", str(effective_size - offset)]
                         if os.path.exists(tr_path):
                             cmd += ["--context-file", tr_path]
-                        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                        result = subprocess.run(cmd, capture_output=True, text=True,
+                                                encoding="utf-8", errors="replace", timeout=300)
                         if result.returncode == 0 and result.stdout.strip():
                             translation = Translation(
                                 transcript_name=tn,
