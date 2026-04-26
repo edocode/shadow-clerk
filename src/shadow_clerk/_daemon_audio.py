@@ -271,19 +271,15 @@ class WasapiBackend(AudioBackend):
         if sys.platform != "win32":
             return False
         try:
-            import pyaudio
+            import pyaudiowpatch as pyaudio
         except ImportError as e:
-            logger.warning("pyaudio (PyAudioWPatch) のインポート失敗: %s", e)
+            logger.warning("pyaudiowpatch のインポート失敗: %s", e)
             return False
-        # PyAudioWPatch であることを確認(標準 pyaudio には paWASAPI 等が無い)
         if not hasattr(pyaudio, "paWASAPI"):
-            logger.warning("pyaudio は import できたが paWASAPI が無い "
-                           "— 標準 pyaudio が入っている可能性。"
-                           "PyAudioWPatch を入れ直してください")
+            logger.warning("pyaudiowpatch に paWASAPI が無い")
             return False
         if not hasattr(pyaudio.PyAudio, "get_loopback_device_info_generator"):
-            logger.warning("pyaudio に get_loopback_device_info_generator が無い "
-                           "— PyAudioWPatch の patch が当たっていない")
+            logger.warning("pyaudiowpatch に get_loopback_device_info_generator が無い")
             return False
         return True
 
@@ -294,7 +290,7 @@ class WasapiBackend(AudioBackend):
         prefer_name が指定されていれば部分一致で優先する。
         指定がなければ既定の出力デバイスに対応する loopback を優先する。
         """
-        import pyaudio
+        import pyaudiowpatch as pyaudio
         try:
             host_info = p.get_host_api_info_by_type(pyaudio.paWASAPI)
         except OSError:
@@ -329,7 +325,7 @@ class WasapiBackend(AudioBackend):
 
     def detect_monitor_source(self) -> str | None:
         try:
-            import pyaudio
+            import pyaudiowpatch as pyaudio
             p = pyaudio.PyAudio()
             try:
                 info = self._find_loopback_info(p)
@@ -342,7 +338,7 @@ class WasapiBackend(AudioBackend):
 
     def list_devices(self) -> None:
         try:
-            import pyaudio
+            import pyaudiowpatch as pyaudio
             p = pyaudio.PyAudio()
             try:
                 print(t("rec.wasapi_loopback_mics"))
@@ -362,7 +358,7 @@ class WasapiBackend(AudioBackend):
         デバイスの native rate / channels で開き、Python 側で 16kHz mono に
         間引き + ミックスダウンしてから既存パイプラインに流す。
         """
-        import pyaudio
+        import pyaudiowpatch as pyaudio
         import numpy as np
         p = pyaudio.PyAudio()
         stream = None
