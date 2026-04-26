@@ -431,9 +431,12 @@ whisper_compute_type: int8     # 計算精度 (int8/float16/float32)
 whisper_device: cpu            # デバイス (cpu/cuda)
 interim_transcription: false   # 中間文字起こし（発話中にリアルタイム表示）
 interim_model: base            # 中間文字起こし用モデル
+interim_translation: true      # 中間文字起こしを翻訳して dashboard interim パネルに表示
+interim_translation_provider: null  # null=自動 / "api" / "libretranslate" / "claude"
 japanese_asr_model: default    # 日本語 ASR モデル (default/kotoba-whisper/reazonspeech-k2)
 kotoba_whisper_model: kotoba-tech/kotoba-whisper-v2.0-faster  # Kotoba-Whisper モデル
 interim_japanese_asr_model: default  # 中間文字起こし用の日本語 ASR モデル
+reazonspeech_precision: fp32   # ReazonSpeech k2: fp32 / int8 / int8-fp32 (fp16 は無効)
 ui_language: ja                # UI言語 (ja/en) — ダッシュボード・ターミナル出力・LLMプロンプト
 ```
 
@@ -587,3 +590,12 @@ default_model: small
 interim_model: base
 whisper_beam_size: 1
 ```
+
+**中間翻訳:**
+
+`interim_transcription` が有効なとき、daemon は確定前の各行を翻訳してダッシュボードの interim パネルに流す。これを制御するキーが2つ:
+
+- `interim_translation: true` — 中間 ASR は残しつつ中間翻訳パネルだけオフにする場合は false
+- `interim_translation_provider: null | "api" | "libretranslate" | "claude"` — バックエンドを明示。`null` は `translation_provider` を踏襲し、それが `claude` なら interim には遅すぎるため `api` → `libretranslate` の順で自動フォールバック(claude は1呼び出し 5〜10秒)。`claude` を直接指定するのは遅延を承知の場合だけ
+
+中間パネルは1秒以下のレスポンスが前提なので、`libretranslate`(ローカル)が最も推奨、`api` も高速モデルなら可。確定 transcript の翻訳は `translation_provider` を使い、ここの設定の影響は受けない。

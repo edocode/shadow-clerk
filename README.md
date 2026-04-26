@@ -429,9 +429,12 @@ whisper_compute_type: int8     # Compute precision (int8/float16/float32)
 whisper_device: cpu            # Device (cpu/cuda)
 interim_transcription: false   # Interim transcription (real-time display while speaking)
 interim_model: base            # Model for interim transcription
+interim_translation: true      # Translate interim transcription to dashboard's interim panel
+interim_translation_provider: null  # null=auto, "api", "libretranslate", or "claude"
 japanese_asr_model: default    # Japanese ASR model (default/kotoba-whisper/reazonspeech-k2)
 kotoba_whisper_model: kotoba-tech/kotoba-whisper-v2.0-faster  # Kotoba-Whisper model
 interim_japanese_asr_model: default  # Japanese ASR for interim transcription
+reazonspeech_precision: fp32   # ReazonSpeech k2: fp32 / int8 / int8-fp32 (fp16 is invalid)
 ui_language: ja                # UI language (ja/en) — dashboard, terminal output, LLM prompts
 ```
 
@@ -586,3 +589,12 @@ default_model: small
 interim_model: base
 whisper_beam_size: 1
 ```
+
+**Interim translation:**
+
+When `interim_transcription` is on, the daemon also emits a translation of each pre-confirmed line to the dashboard's interim panel. Two knobs control this:
+
+- `interim_translation: true` — toggle the translation panel without disabling interim ASR.
+- `interim_translation_provider: null | "api" | "libretranslate" | "claude"` — pick the backend explicitly. `null` falls back to `translation_provider`; if that is `claude` it is auto-routed to `api` then `libretranslate` (claude is too slow for interim, ~5-10s per call). Set to `claude` only if you accept the latency.
+
+The interim panel needs sub-second responses to be useful, so `libretranslate` (local) is recommended; `api` is OK with a fast model. Confirmed-transcript translation is unaffected — it always uses `translation_provider`.
