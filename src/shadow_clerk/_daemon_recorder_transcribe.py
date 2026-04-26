@@ -426,9 +426,10 @@ class _RecorderTranscribeMixin:
     def _interim_translate_thread(self) -> None:
         """リアルタイム interim 翻訳スレッド
 
-        claude provider の場合は Claude Code に依頼できないため、
-        api_endpoint があれば API に、libretranslate_endpoint があれば
-        LibreTranslate にフォールバックする。
+        claude provider は subprocess 起動 + API ラウンドトリップで毎回
+        5〜10 秒かかり、interim 用途(目標 1〜2 秒)に間に合わないので、
+        api / libretranslate にフォールバックする。どちらも未設定なら
+        interim 翻訳は無効化(確定翻訳の方は通常通り動作する)。
         """
         current_seq: dict[str, int] = {}
         client = None
@@ -439,7 +440,7 @@ class _RecorderTranscribeMixin:
             config = load_config()
             translation_provider = get_translation_provider(config)
 
-            # claude provider → 中間翻訳に使えるバックエンドを探す
+            # claude provider → interim には遅すぎるので別バックエンドを探す
             interim_provider = translation_provider
             if interim_provider == "claude":
                 if config.get("api_endpoint") and _HAS_LLM_CLIENT:
@@ -447,9 +448,16 @@ class _RecorderTranscribeMixin:
                 elif config.get("libretranslate_endpoint"):
                     interim_provider = "libretranslate"
                 else:
-                    # フォールバック先なし
                     if not _logged_provider:
-                        logger.info("中間翻訳: provider=claude, フォールバック先なし (api_endpoint/libretranslate 未設定)")
+                        # interim_transcription が無効なら interim 翻訳も
+                        # そもそも動かない経路。誤誘導しないよう警告は出さない。
+                        if config.get("interim_transcription", False):
+                            logger.warning(
+                                "中間翻訳は無効: translation_provider=claude は遅延が大きく "
+                                "interim 用途に使えません。中間翻訳を有効にするには "
+                                "`libretranslate_endpoint` (高速、推奨) または "
+                                "`api_endpoint`+`api_model` を config.yaml に設定してください。"
+                                "(確定済み transcript の翻訳は claude のまま動作します)")
                         _logged_provider = True
                     self.stop_event.wait(timeout=5.0)
                     continue
