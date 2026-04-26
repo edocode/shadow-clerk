@@ -10,7 +10,7 @@ import threading
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from shadow_clerk.i18n import t, t_all
-from shadow_clerk._daemon_constants import COMMAND_FILE, SESSION_FILE
+from shadow_clerk._daemon_constants import SESSION_FILE
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_dashboard_html import _HTML_TEMPLATE
 from shadow_clerk._transcript_name import TranscriptName
@@ -259,9 +259,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         if not cmd:
             self.send_error(400)
             return
-        with open(COMMAND_FILE, "w", encoding="utf-8") as f:
-            f.write(cmd)
         logger.info("ダッシュボードからコマンド: %s", cmd)
+        self.recorder._execute_command(cmd)
         self._send_json({"status": "ok", "command": cmd})
 
     def _get_summary_path(self, transcript_path: str | None = None) -> str:

@@ -21,7 +21,7 @@ except ImportError:
 from shadow_clerk import DATA_DIR
 from shadow_clerk.i18n import t, nt
 from shadow_clerk._daemon_constants import (
-    SAMPLE_RATE, COMMAND_FILE, SESSION_FILE,
+    SAMPLE_RATE, SESSION_FILE,
     _HAS_PYNPUT, evdev, _HAS_EVDEV,
 )
 from shadow_clerk._daemon_config import load_config, get_translation_provider
@@ -176,22 +176,6 @@ class _RecorderTranscribeMixin:
             self.translate_target_path = None
 
         logger.info("翻訳ループ終了")
-
-    def _command_watch_thread(self) -> None:
-        """コマンドファイルをポーリングして実行するスレッド"""
-        logger.info("コマンド監視スレッド開始")
-        while not self.stop_event.is_set():
-            try:
-                if os.path.exists(COMMAND_FILE):
-                    with open(COMMAND_FILE, "r", encoding="utf-8") as f:
-                        cmd = f.read().strip()
-                    os.remove(COMMAND_FILE)
-                    if cmd:
-                        logger.info("コマンドファイル検出: %s", cmd)
-                        self._execute_command(cmd)
-            except Exception as e:
-                logger.error("コマンド処理エラー: %s", e)
-            self.stop_event.wait(timeout=0.5)
 
     # 短いノイズ語フィルタ: 3文字以内、かな/カナ開始、小書きかな/カナ終了
     _SMALL_KANA = set("ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶ")
@@ -617,7 +601,6 @@ class _RecorderTranscribeMixin:
             threading.Thread(target=self._transcribe_thread, name="transcribe", daemon=True),
             threading.Thread(target=self._interim_transcribe_thread, name="interim-transcribe", daemon=True),
             threading.Thread(target=self._interim_translate_thread, name="interim-translate", daemon=True),
-            threading.Thread(target=self._command_watch_thread, name="cmd-watch", daemon=True),
         ]
 
         # Push-to-Talk キーリスナー（Wayland → evdev、X11 → pynput）

@@ -16,7 +16,6 @@ import time
 from typing import Any
 
 from shadow_clerk import DATA_DIR
-from shadow_clerk._daemon_constants import COMMAND_FILE
 
 logger = logging.getLogger("shadow-clerk.gcal")
 
@@ -200,13 +199,11 @@ class GCalMonitor:
             return False
 
     def _send_command(self, cmd: str):
-        """COMMAND_FILE にコマンドを書き込む"""
-        try:
-            with open(COMMAND_FILE, "w", encoding="utf-8") as f:
-                f.write(cmd)
-            logger.info("gcal コマンド送信: %s", cmd)
-        except OSError as e:
-            logger.warning("gcal コマンド送信失敗: %s", e)
+        if self._recorder is None:
+            logger.warning("gcal コマンド送信失敗: recorder 未初期化")
+            return
+        logger.info("gcal コマンド送信: %s", cmd)
+        self._recorder._execute_command(cmd)
 
     def _run(self):
         credentials_file = self._config.get("gcal_credentials_file")

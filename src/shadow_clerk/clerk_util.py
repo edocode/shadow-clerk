@@ -138,8 +138,28 @@ def cmd_ls(args: list[str]) -> None:
 
 def cmd_command(args: list[str]) -> None:
     cmd_text = " ".join(args)
-    with open(os.path.join(DATA_DIR, ".clerk_command"), "w") as f:
-        f.write(cmd_text)
+    if not _is_recorder_running():
+        print("error: clerk-daemon is not running", file=sys.stderr)
+        sys.exit(1)
+    import yaml
+    try:
+        with open(CONFIG_FILE) as f:
+            cfg = yaml.safe_load(f) or {}
+    except Exception:
+        cfg = {}
+    port = cfg.get("dashboard_port", 8765)
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            f"http://localhost:{port}/api/command",
+            data=json.dumps({"command": cmd_text}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        print(f"error: command send failed: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 PID_FILE = os.path.join(DATA_DIR, "daemon.pid")
