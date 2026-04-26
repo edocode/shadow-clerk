@@ -287,10 +287,19 @@ def cmd_run_llm(args: list[str]) -> None:
 
 
 def cmd_summarize(args: list[str]) -> None:
-    """clerk-util summarize [YYYYMMDD|YYYYMMDDHHMM|transcript-*.txt] [--mode full|update]
+    """clerk-util summarize [YYYYMMDD|YYYYMMDDHHMM[@name]|transcript-*.txt] [--mode full|update]
 
     日付またはファイル名からファイルを自動解決し、llm_client summarize を実行する。
-    省略時は .clerk_session → 今日の日付。
+
+    引数の解決順:
+      1. transcript-*.txt 形式 → そのまま使用
+      2. YYYYMMDDHHMM@name 形式 → 該当ファイルを使用
+      3. YYYYMMDDHHMM(名前なし)形式: transcript-YYYYMMDDHHMM.txt が存在すればそれ、
+         無ければ同タイムスタンプの会議ファイル `transcript-YYYYMMDDHHMM@*.txt` を
+         glob で検索(1件なら自動選択、複数ヒットならエラーにして候補を表示)
+      4. YYYYMMDD 形式 → transcript-YYYYMMDD.txt(日次ファイル)
+      5. 引数なし → .clerk_session → 今日の日付
+
     --mode 省略時は full。
     """
     import datetime
@@ -330,8 +339,29 @@ def cmd_summarize(args: list[str]) -> None:
 
     # ファイルパス解決
     transcript_name = tn.filename
-    summary_name = tn.summary_filename
     transcript_path = os.path.join(OUTPUT_DIR, transcript_name)
+
+    # 名前なしで指定された(`tn.meeting_name is None`) かつ実ファイル無し →
+    # 同タイムスタンプの会議名付きファイル `transcript-<dt>@*.txt` を探す
+    # (TranscriptName.parse は翻訳ファイル `-{lang}.txt` を除外するので候補から自動的に外れる)
+    if not os.path.isfile(transcript_path) and tn.meeting_name is None:
+        import glob
+        pattern = os.path.join(OUTPUT_DIR, f"transcript-{tn.datetime_str}@*.txt")
+        candidates = sorted(
+            (f for f in glob.glob(pattern)
+             if TranscriptName.parse(os.path.basename(f)) is not None),
+        )
+        if len(candidates) == 1:
+            tn = TranscriptName.parse(os.path.basename(candidates[0])) or tn
+            transcript_name = tn.filename
+            transcript_path = candidates[0]
+        elif len(candidates) > 1:
+            print("複数の会議ファイルがマッチしました。明示的に指定してください:", file=sys.stderr)
+            for c in candidates:
+                print(f"  {os.path.basename(c)}", file=sys.stderr)
+            sys.exit(1)
+
+    summary_name = tn.summary_filename
     summary_path = os.path.join(OUTPUT_DIR, summary_name)
 
     # summary_source 設定をチェック
@@ -432,7 +462,9 @@ def cmd_help(args: list[str]) -> None:
     print("  stop              clerk-daemon を停止 (SIGTERM)")
     print("  restart [opts]    clerk-daemon を停止→待機→起動 (exec)")
     print("  run-llm <args...>          llm_client を実行 (exec)")
-    print("  summarize [DATE] [--mode full|update]  議事録を生成 (DATE: YYYYMMDD or YYYYMMDDHHMM)")
+    print("  summarize [DATE|FILE] [--mode full|update]  議事録を生成")
+    print("                             DATE: YYYYMMDD / YYYYMMDDHHMM[@name]、FILE: transcript-*.txt")
+    print("                             名前なしタイムスタンプ指定なら同 dt の会議ファイルを自動検索")
     print()
     print("Setup subcommands:")
     print("  gcal-auth <credentials.json> [token_file]  Google Calendar OAuth 認証")
