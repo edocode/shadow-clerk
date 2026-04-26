@@ -78,7 +78,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--backend",
-        choices=["auto", "pipewire", "pulseaudio", "sounddevice"],
+        choices=["auto", "pipewire", "pulseaudio", "sounddevice", "wasapi"],
         default="auto",
         help="音声バックエンド (default: auto)",
     )

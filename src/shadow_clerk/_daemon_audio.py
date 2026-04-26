@@ -271,10 +271,21 @@ class WasapiBackend(AudioBackend):
         if sys.platform != "win32":
             return False
         try:
-            import pyaudio  # noqa: F401
-            return True
-        except ImportError:
+            import pyaudio
+        except ImportError as e:
+            logger.warning("pyaudio (PyAudioWPatch) のインポート失敗: %s", e)
             return False
+        # PyAudioWPatch であることを確認(標準 pyaudio には paWASAPI 等が無い)
+        if not hasattr(pyaudio, "paWASAPI"):
+            logger.warning("pyaudio は import できたが paWASAPI が無い "
+                           "— 標準 pyaudio が入っている可能性。"
+                           "PyAudioWPatch を入れ直してください")
+            return False
+        if not hasattr(pyaudio.PyAudio, "get_loopback_device_info_generator"):
+            logger.warning("pyaudio に get_loopback_device_info_generator が無い "
+                           "— PyAudioWPatch の patch が当たっていない")
+            return False
+        return True
 
     @staticmethod
     def _find_loopback_info(p: Any, prefer_name: str = "") -> dict | None:
