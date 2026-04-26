@@ -12,11 +12,29 @@ A tool that records web meeting audio in real-time and transcribes it. Also supp
 
 ### Windows-specific notes
 
-Installation follows the regular [Setup](#setup) section below — the `uv tool install` flow works on Windows as-is.
+Recommended install (explicit Windows deps):
+
+```powershell
+uv python install 3.13
+uv tool install --python 3.13 --with PyAudioWPatch -e ".[spell-check,gcal]"
+# +ReazonSpeech k2 (Japanese ASR, optional):
+uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr" -e ".[spell-check,gcal,reazonspeech]"
+```
+
+Why explicit `--python` and `--with`:
+
+- **`--python 3.13` (uv-managed Python)**: Microsoft Store Python runs in an AppContainer sandbox that redirects `%APPDATA%\shadow-clerk` to `%LOCALAPPDATA%\Packages\PythonSoftwareFoundation.Python.X.YY_<id>\LocalCache\Roaming\shadow-clerk\`. The package id changes when the Python minor version is upgraded, silently moving the data directory and orphaning existing transcripts/config. uv-managed Python avoids the sandbox. Daemon startup also logs a WARNING when Store Python is detected.
+- **`--with PyAudioWPatch`**: WASAPI loopback monitor capture uses [PyAudioWPatch](https://github.com/s0d3s/PyAudioWPatch). It's declared as a Windows-only dep in `pyproject.toml` but some uv versions don't reliably resolve PEP 508 markers from local-editable installs, so passing it explicitly is safer.
+- **`--with sherpa-onnx`** (ReazonSpeech only): Same reason — ensures uv picks the Windows wheel (with `onnxruntime.dll`) rather than a stale resolution to the Linux wheel.
+
+Other notes:
 
 - **Microphone permission**: Allow mic access for the terminal you launch from (Windows Settings → Privacy → Microphone).
 - **Monitor capture**: Uses WASAPI loopback on the system default playback device. Switching the default device in Windows sound settings switches what gets captured.
-- **Data directory**: `%APPDATA%\shadow-clerk` (the `~/.local/share/shadow-clerk` paths in the rest of this README map to that on Windows).
+- **Data directory**: `%APPDATA%\shadow-clerk` (the `~/.local/share/shadow-clerk` paths in the rest of this README map to that on Windows). Override with `SHADOW_CLERK_DATA_DIR` if needed.
+- **Remote Desktop (RDP)**: When running inside an RDP session, the host's "Remote Audio" virtual device is auto-skipped (it would either segfault or capture nothing useful). The daemon falls back to a non-RDP loopback device if available; otherwise monitor capture is disabled and only the mic is recorded.
+- **`voice_command_key`**: The default `f23` is a Linux/xremap convention. On Windows set it to `null` (disable PTT) or to one of `menu`/`ctrl_r`/`ctrl_l`/`alt_r`/`alt_l`/`shift_r`/`shift_l` in `config.yaml`.
+- **Stopping the daemon**: `clerk-util stop` works (Windows path uses `taskkill`). `clerk-util start` runs the daemon in the foreground with Ctrl+C handling, mirroring Linux.
 
 ## Features and requirements
 

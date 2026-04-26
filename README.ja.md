@@ -12,11 +12,29 @@ Web会議の音声をリアルタイムで録音・文字起こしするツー�
 
 ### Windows 固有の注意点
 
-インストール手順は下の [セットアップ](#セットアップ) セクションと共通(`uv tool install` がそのまま Windows でも動く)。
+推奨インストール(Windows 用 dep を明示):
+
+```powershell
+uv python install 3.13
+uv tool install --python 3.13 --with PyAudioWPatch -e ".[spell-check,gcal]"
+# +ReazonSpeech k2(日本語 ASR、オプション):
+uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr" -e ".[spell-check,gcal,reazonspeech]"
+```
+
+`--python` と `--with` を明示する理由:
+
+- **`--python 3.13`(uv 管理 Python)**: Microsoft Store 版 Python は AppContainer サンドボックスで動作し、`%APPDATA%\shadow-clerk` への書き込みが `%LOCALAPPDATA%\Packages\PythonSoftwareFoundation.Python.X.YY_<id>\LocalCache\Roaming\shadow-clerk\` にリダイレクトされる。Python マイナーバージョン更新で package id が変わるとデータディレクトリが別パスに移り、過去の transcript/config が「消えた」状態になる。uv 管理 Python はサンドボックス外で動くので回避できる。daemon 起動時に Store Python を検知すると WARNING を出す。
+- **`--with PyAudioWPatch`**: WASAPI ループバックモニターキャプチャに [PyAudioWPatch](https://github.com/s0d3s/PyAudioWPatch) を使用。`pyproject.toml` で Windows 限定 dep として宣言してあるが、uv のバージョンによって local editable install から PEP 508 marker を確実に解決しない場合があるため明示するのが安全。
+- **`--with sherpa-onnx`**(ReazonSpeech 利用時のみ): 同様の理由。Windows wheel(`onnxruntime.dll` 同梱)を確実に選ばせ、Linux wheel が誤って入って `libonnxruntime.so` が見つからなくなる事故を防ぐ。
+
+その他:
 
 - **マイク権限**: 起動するターミナルにマイクアクセスを許可する(Windows 設定 → プライバシーとセキュリティ → マイク)。
 - **モニターキャプチャ**: WASAPI ループバックでシステムの既定の再生デバイスを録音。サウンド設定で既定デバイスを切り替えると、キャプチャ対象も切り替わる。
-- **データディレクトリ**: `%APPDATA%\shadow-clerk`(README 内の `~/.local/share/shadow-clerk` は Windows ではこのパスにマップされる)。
+- **データディレクトリ**: `%APPDATA%\shadow-clerk`(README 内の `~/.local/share/shadow-clerk` は Windows ではこのパスにマップされる)。`SHADOW_CLERK_DATA_DIR` 環境変数で上書き可。
+- **リモートデスクトップ(RDP)**: RDP セッション内で動作している場合、ホストの「リモート オーディオ」仮想デバイスは自動でスキップされる(セグフォするか何も拾えないため)。代わりに非 RDP の loopback デバイスがあればそれを使う。無い場合はモニターキャプチャ無効でマイクのみで動作する。
+- **`voice_command_key`**: デフォルトの `f23` は Linux/xremap 用の慣習。Windows では `null`(PTT 無効)または `menu`/`ctrl_r`/`ctrl_l`/`alt_r`/`alt_l`/`shift_r`/`shift_l` のいずれかを `config.yaml` で設定する。
+- **daemon の停止**: `clerk-util stop` が動作する(Windows では内部で `taskkill` を使用)。`clerk-util start` はフォアグラウンドで起動し Ctrl+C で停止できる(Linux と同じ挙動)。
 
 ## 機能と必要なもの
 
