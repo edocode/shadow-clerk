@@ -8,9 +8,7 @@ import queue
 import threading
 from typing import Any
 from shadow_clerk import DATA_DIR, CONFIG_FILE
-from shadow_clerk._daemon_constants import (
-    COMMAND_FILE, SESSION_FILE,
-)
+from shadow_clerk._daemon_constants import SESSION_FILE
 from shadow_clerk._daemon_config import load_config
 
 logger = logging.getLogger("shadow-clerk")
@@ -163,7 +161,6 @@ class FileWatcher(threading.Thread):
         # Metadata files (mtime-based)
         for evt, path in [
             ("session", SESSION_FILE),
-            ("command", COMMAND_FILE),
             ("response", os.path.join(DATA_DIR, ".clerk_response")),
             ("config", CONFIG_FILE),
         ]:

@@ -16,7 +16,7 @@ from shadow_clerk.i18n import t
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain import MeetingSession
 from shadow_clerk._daemon_constants import (
-    COMMAND_FILE, SESSION_FILE,
+    SESSION_FILE,
     VOICE_CMD_PREFIX, VOICE_CMD_SUFFIX, VOICE_COMMANDS,
     build_wake_word_patterns,
     pynput_keyboard, _HAS_PYNPUT, evdev, _ecodes, _HAS_EVDEV,

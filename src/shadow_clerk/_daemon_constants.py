@@ -80,8 +80,7 @@ DEFAULT_CONFIG = {
     "gcal_end_buffer_minutes": 1,    # 終了 N 分後に end_meeting を送信
 }
 
-# コマンド・セッションファイル
-COMMAND_FILE = os.path.join(DATA_DIR, ".clerk_command")
+# セッションファイル
 SESSION_FILE = os.path.join(DATA_DIR, ".clerk_session")
 PID_FILE = os.path.join(DATA_DIR, "daemon.pid")
 LOG_FILE = os.path.join(DATA_DIR, "daemon.log")
