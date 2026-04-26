@@ -642,7 +642,18 @@ class _RecorderTranscribeMixin:
 
             port = getattr(self.args, "dashboard_port", 8765)
             ThreadingHTTPServer.allow_reuse_address = True
-            self._dashboard_server = ThreadingHTTPServer(("", port), DashboardHandler)
+
+            class _QuietServer(ThreadingHTTPServer):
+                def handle_error(self, request, client_address):
+                    # ブラウザの接続切断は害がないので、ConnectionError 系は静かに無視する
+                    import sys as _sys
+                    exc = _sys.exc_info()[1]
+                    if isinstance(exc, (ConnectionError, BrokenPipeError, TimeoutError)):
+                        logger.debug("dashboard 接続切断: %s", exc)
+                        return
+                    super().handle_error(request, client_address)
+
+            self._dashboard_server = _QuietServer(("", port), DashboardHandler)
             threads.append(threading.Thread(
                 target=self._dashboard_server.serve_forever,
                 name="dashboard", daemon=True))
