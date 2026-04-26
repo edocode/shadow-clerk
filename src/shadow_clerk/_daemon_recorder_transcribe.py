@@ -41,36 +41,40 @@ class _RecorderTranscribeMixin:
     def _llm_query(self, text: str) -> None:
         """LLM にクエリを投げて結果を表示・保存する（バックグラウンド実行）"""
         config = load_config()
-        if config.get("llm_provider") == "claude":
-            # Claude プロバイダ: .clerk_command 経由で Claude Code subagent に処理させる
-            command_file = os.path.join(DATA_DIR, ".clerk_command")
-            try:
-                with open(command_file, "w", encoding="utf-8") as f:
-                    f.write(f"llm_query {text}")
-                logger.info("LLM クエリを .clerk_command に書き込み (claude): %s", text)
-            except Exception as e:
-                logger.error("LLM クエリ (.clerk_command 書き込み失敗): %s", e)
-            return
-
+        provider = config.get("llm_provider") or "claude"
         response_file = os.path.join(DATA_DIR, ".clerk_response")
-        try:
-            result = subprocess.run(
-                [sys.executable, "-m", "shadow_clerk.llm_client", "query", text],
-                capture_output=True, text=True, timeout=60,
-            )
-            answer = result.stdout.strip()
-            if result.returncode != 0:
-                logger.error("LLM クエリエラー: %s", result.stderr.strip())
+        answer = ""
+        if provider == "claude":
+            try:
+                from shadow_clerk._llm_config import call_claude_cli
+                answer = call_claude_cli(text, nt("llm.query_system"), config).strip()
+            except Exception as e:
+                logger.error("LLM クエリ (claude) 失敗: %s", e)
                 return
-            if answer:
-                logger.info("[LLM] %s", answer)
+        else:
+            try:
+                result = subprocess.run(
+                    [sys.executable, "-m", "shadow_clerk.llm_client", "query", text],
+                    capture_output=True, text=True, timeout=60,
+                )
+                if result.returncode != 0:
+                    logger.error("LLM クエリエラー: %s", result.stderr.strip())
+                    return
+                answer = result.stdout.strip()
+            except subprocess.TimeoutExpired:
+                logger.error("LLM クエリがタイムアウトしました")
+                return
+            except Exception as e:
+                logger.error("LLM クエリ失敗: %s", e)
+                return
+        if answer:
+            logger.info("[LLM] %s", answer)
+            try:
                 with open(response_file, "w", encoding="utf-8") as f:
                     f.write(answer)
                 logger.info("LLM 回答を .clerk_response に保存")
-        except subprocess.TimeoutExpired:
-            logger.error("LLM クエリがタイムアウトしました")
-        except Exception as e:
-            logger.error("LLM クエリ失敗: %s", e)
+            except OSError as e:
+                logger.warning("LLM 回答の保存に失敗: %s", e)
 
     @staticmethod
     def _translate_offset_file(transcript_path: str) -> str:
