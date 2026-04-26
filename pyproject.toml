@@ -13,7 +13,7 @@ dependencies = [
     "openai>=1.0.0",
     "pynput>=1.7.6",
     "evdev>=1.6.0; sys_platform == 'linux'",
-    "soundcard>=0.4.0; sys_platform == 'win32'",
+    "PyAudioWPatch>=0.2.12; sys_platform == 'win32'",
     "langdetect>=1.0.9",
 ]
 

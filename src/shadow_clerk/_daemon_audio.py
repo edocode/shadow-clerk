@@ -191,19 +191,19 @@ def detect_backend(preferred: str = "auto") -> tuple[str, AudioBackend | None]:
         logger.warning("PulseAudio が利用できません、sounddevice にフォールバック")
         return "sounddevice", None
 
-    if preferred == "wasapi_soundcard":
-        if WasapiSoundcardBackend.is_available():
-            return "wasapi_soundcard", WasapiSoundcardBackend()
-        logger.warning("soundcard が利用できません、sounddevice にフォールバック")
+    if preferred == "wasapi":
+        if WasapiBackend.is_available():
+            return "wasapi", WasapiBackend()
+        logger.warning("PyAudioWPatch が利用できません、sounddevice にフォールバック")
         return "sounddevice", None
 
     if preferred == "sounddevice":
         return "sounddevice", None
 
-    # auto: Windows → WasapiSoundcardBackend / Linux → PipeWire → PulseAudio → sounddevice
+    # auto: Windows → WasapiBackend / Linux → PipeWire → PulseAudio → sounddevice
     if sys.platform == "win32":
-        if WasapiSoundcardBackend.is_available():
-            return "wasapi_soundcard", WasapiSoundcardBackend()
+        if WasapiBackend.is_available():
+            return "wasapi", WasapiBackend()
         return "sounddevice", None
     if PipeWireBackend.is_available():
         return "pipewire", PipeWireBackend()
@@ -251,11 +251,7 @@ def _get_default_sink_name() -> str | None:
 
 
 def _is_rdp_audio(name: str) -> bool:
-    """RDP の virtual audio device か判定。
-
-    soundcard で recorder を開くと WASAPI ドライバ層でセグフォし Python が
-    無言で落ちるため、loopback 候補から除外する。
-    """
+    """RDP の virtual audio device か判定。loopback 候補から除外する。"""
     if not name:
         return False
     n = name.lower()
@@ -267,109 +263,149 @@ def _is_rdp_audio(name: str) -> bool:
     )
 
 
-class WasapiSoundcardBackend(AudioBackend):
-    """Windows WASAPI ループバックバックエンド (soundcard パッケージ)"""
+class WasapiBackend(AudioBackend):
+    """Windows WASAPI ループバックバックエンド (PyAudioWPatch)"""
 
     @staticmethod
     def is_available() -> bool:
         if sys.platform != "win32":
             return False
         try:
-            import soundcard  # noqa: F401
+            import pyaudio  # noqa: F401
             return True
         except ImportError:
             return False
 
     @staticmethod
-    def _local_loopback_mics() -> list:
-        """RDP デバイスを除いた loopback マイク一覧"""
-        import soundcard
-        result = []
-        for mic in soundcard.all_microphones(include_loopback=True):
-            if not getattr(mic, "isloopback", False):
+    def _find_loopback_info(p: Any, prefer_name: str = "") -> dict | None:
+        """RDP 以外の WASAPI loopback デバイス情報を返す。
+
+        prefer_name が指定されていれば部分一致で優先する。
+        指定がなければ既定の出力デバイスに対応する loopback を優先する。
+        """
+        import pyaudio
+        try:
+            host_info = p.get_host_api_info_by_type(pyaudio.paWASAPI)
+        except OSError:
+            return None
+        default_idx = host_info.get("defaultOutputDevice")
+        default_name = ""
+        if default_idx is not None and default_idx >= 0:
+            try:
+                default_name = p.get_device_info_by_index(default_idx)["name"]
+            except OSError:
+                pass
+            if _is_rdp_audio(default_name):
+                logger.info("既定の WASAPI 出力 (%s) は RDP デバイス、別を探す",
+                            default_name)
+                default_name = ""
+
+        target = None
+        fallback = None
+        for info in p.get_loopback_device_info_generator():
+            name = info["name"]
+            if _is_rdp_audio(name):
+                logger.debug("RDP デバイススキップ: %s", name)
                 continue
-            if _is_rdp_audio(mic.name):
-                logger.info("RDP オーディオデバイスをスキップ: %s", mic.name)
-                continue
-            result.append(mic)
-        return result
+            if prefer_name and prefer_name in name:
+                return info
+            if default_name and (default_name in name or name in default_name):
+                if target is None:
+                    target = info
+            if fallback is None:
+                fallback = info
+        return target or fallback
 
     def detect_monitor_source(self) -> str | None:
         try:
-            import soundcard
-            default_spk_name = soundcard.default_speaker().name
-            if _is_rdp_audio(default_spk_name):
-                logger.info("既定スピーカーが RDP デバイス (%s)、ローカル loopback を探す",
-                            default_spk_name)
-                default_spk_name = ""
-            local_mics = self._local_loopback_mics()
-            # 既定スピーカーに対応する loopback を優先
-            for mic in local_mics:
-                if default_spk_name and mic.name == default_spk_name:
-                    return mic.name
-            # フォールバック: 最初のローカル loopback
-            if local_mics:
-                return local_mics[0].name
-            return None
+            import pyaudio
+            p = pyaudio.PyAudio()
+            try:
+                info = self._find_loopback_info(p)
+                return info["name"] if info else None
+            finally:
+                p.terminate()
         except Exception as e:
-            logger.warning("soundcard loopback マイク取得失敗: %s", e)
+            logger.warning("PyAudio loopback デバイス取得失敗: %s", e)
             return None
 
     def list_devices(self) -> None:
         try:
-            import soundcard
-            print(t("rec.wasapi_loopback_mics"))
-            for mic in soundcard.all_microphones(include_loopback=True):
-                if not getattr(mic, "isloopback", False):
-                    continue
-                marker = " (RDP — skipped)" if _is_rdp_audio(mic.name) else ""
-                print(f"  {mic.name}{marker}")
+            import pyaudio
+            p = pyaudio.PyAudio()
+            try:
+                print(t("rec.wasapi_loopback_mics"))
+                for info in p.get_loopback_device_info_generator():
+                    name = info["name"]
+                    marker = " (RDP — skipped)" if _is_rdp_audio(name) else ""
+                    print(f"  {name}{marker}")
+            finally:
+                p.terminate()
         except ImportError:
             print(t("rec.wasapi_soundcard_unavailable"))
 
     def start_monitor_capture(self, source: str, audio_queue: queue.Queue,
                               stop_event: threading.Event) -> None:
-        """soundcard の loopback マイクで WASAPI ループバックキャプチャ (polling)
+        """PyAudioWPatch の WASAPI loopback でキャプチャ (polling)。
 
-        soundcard の内部リサンプラ(samplerate を SAMPLE_RATE=16000 にして
-        WASAPI 側の native レートから変換させる経路)が一部 Windows ドライバ
-        構成で C レベル落ちするため、WASAPI 共有モードの標準レート 48000Hz
-        で開いて Python 側で 1/3 に間引きする。
+        デバイスの native rate / channels で開き、Python 側で 16kHz mono に
+        間引き + ミックスダウンしてから既存パイプラインに流す。
         """
+        import pyaudio
         import numpy as np
-        loopback_mics = self._local_loopback_mics()
-        if not loopback_mics:
-            logger.error("WASAPI loopback マイクが見つかりません(RDP デバイス除外後)")
-            return
-        mic = next((m for m in loopback_mics if m.name == source), loopback_mics[0])
-        if _is_rdp_audio(mic.name):
-            # source が RDP デバイス指定だった場合のガード(異常系)
-            logger.error("RDP デバイス (%s) ではキャプチャしない", mic.name)
-            return
-        native_rate = 48000
-        decimate = native_rate // SAMPLE_RATE  # 3
-        native_block = FRAME_SIZE * decimate
-        logger.info("WASAPI loopback キャプチャ開始: %s (native=%dHz → %dHz)",
-                    mic.name, native_rate, SAMPLE_RATE)
+        p = pyaudio.PyAudio()
+        stream = None
         try:
-            with mic.recorder(samplerate=native_rate, channels=CHANNELS,
-                              blocksize=native_block) as rec:
-                while not stop_event.is_set():
-                    data = rec.record(numframes=native_block)
-                    # 1ch を取り出して 1/3 に間引く(高域はエイリアスするが
-                    # 音声認識帯域(<4kHz)には影響しない)
-                    decimated = data[::decimate, 0]
-                    samples = (decimated * 32767).astype(np.int16)
-                    audio_queue.put(samples)
+            info = self._find_loopback_info(p, prefer_name=source or "")
+            if info is None:
+                logger.error("WASAPI loopback デバイスが見つかりません(RDP 除外後)")
+                return
+            if _is_rdp_audio(info["name"]):
+                logger.error("RDP デバイス (%s) ではキャプチャしない", info["name"])
+                return
+            native_rate = int(info["defaultSampleRate"])
+            channels = int(info["maxInputChannels"]) or 1
+            decimate = max(1, native_rate // SAMPLE_RATE)
+            native_block = FRAME_SIZE * decimate
+            logger.info("WASAPI loopback キャプチャ開始: %s "
+                        "(index=%d, native=%dHz/%dch → %dHz mono)",
+                        info["name"], info["index"], native_rate, channels, SAMPLE_RATE)
+            stream = p.open(
+                format=pyaudio.paInt16,
+                channels=channels,
+                rate=native_rate,
+                input=True,
+                input_device_index=info["index"],
+                frames_per_buffer=native_block,
+            )
+            while not stop_event.is_set():
+                raw = stream.read(native_block, exception_on_overflow=False)
+                arr = np.frombuffer(raw, dtype=np.int16)
+                if channels > 1:
+                    # ステレオ以上 → モノラルにミックスダウン
+                    arr = arr.reshape(-1, channels).mean(axis=1).astype(np.int16)
+                # native_rate → SAMPLE_RATE に間引き(整数比のみ、エイリアスは
+                # 音声認識帯域には影響しない)
+                if decimate > 1:
+                    arr = arr[::decimate]
+                audio_queue.put(arr.copy())
         except Exception as e:
             logger.error("WASAPI loopback キャプチャエラー: %s", e)
+        finally:
+            if stream is not None:
+                try:
+                    stream.stop_stream()
+                    stream.close()
+                except Exception:
+                    pass
+            p.terminate()
 
 
 def find_monitor_device_sd() -> tuple[int, dict[str, Any]] | None:
     """sounddevice でモニターデバイスを検索 (Linux のみ)
 
     戻り値: (デバイスID, sd.InputStream に追加で渡す kwargs) または None。
-    Windows は WasapiSoundcardBackend を使うため None を返す。
+    Windows は WasapiBackend を使うため None を返す。
     """
     if sys.platform == "win32":
         return None
