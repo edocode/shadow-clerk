@@ -7,6 +7,17 @@ import sys
 __version__ = "0.2.0"
 
 
+def is_microsoft_store_python() -> bool:
+    """Microsoft Store 版 Python(AppContainer サンドボックスあり)で動作中か判定。"""
+    if sys.platform != "win32":
+        return False
+    exe = (sys.executable or "").replace("\\", "/").lower()
+    return (
+        "windowsapps/pythonsoftwarefoundation" in exe
+        or "/packages/pythonsoftwarefoundation" in exe
+    )
+
+
 def get_data_dir() -> str:
     """データディレクトリのパスを返す。
 
@@ -14,6 +25,12 @@ def get_data_dir() -> str:
     デフォルト:
       - Windows: %APPDATA%\\shadow-clerk
       - Linux/その他: ~/.local/share/shadow-clerk
+
+    注意: Microsoft Store 版 Python では %APPDATA% が AppContainer
+    サンドボックス(`%LOCALAPPDATA%\\Packages\\<pkg-id>\\LocalCache\\Roaming\\`)
+    にリダイレクトされるため、Python マイナーバージョンが変わるとデータが
+    別パスに移ることになる。uv 管理 Python(`uv python install`)か
+    python.org 版 Python を推奨。
     """
     if env := os.environ.get("SHADOW_CLERK_DATA_DIR"):
         return env

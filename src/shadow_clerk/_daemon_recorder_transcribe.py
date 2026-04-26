@@ -582,6 +582,16 @@ class _RecorderTranscribeMixin:
         logger.info("出力先: %s", self.output_path)
         logger.info("モデル: %s", self.args.model)
         logger.info("言語: %s", self.args.language or "auto")
+        from shadow_clerk import is_microsoft_store_python
+        if is_microsoft_store_python():
+            logger.warning(
+                "Microsoft Store 版 Python を検出。データディレクトリは "
+                "AppContainer サンドボックス内 (%LOCALAPPDATA%\\Packages\\"
+                "PythonSoftwareFoundation.Python.X.YY_*\\LocalCache\\Roaming\\"
+                "shadow-clerk) に作られ、Python マイナーバージョンが変わると "
+                "別パスに移ります。uv 管理 Python (`uv python install` + "
+                "`uv tool install --python 3.13 ...`) か python.org 版 Python "
+                "の使用を推奨。SHADOW_CLERK_DATA_DIR で固定パスへ強制も可")
         print(t("rec.recording"))
         print(t("rec.output", path=self.output_path))
 
