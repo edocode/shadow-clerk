@@ -13,7 +13,7 @@ import urllib.parse
 import urllib.request
 import yaml
 from shadow_clerk.i18n import t
-from shadow_clerk._daemon_constants import COMMAND_FILE, GLOSSARY_FILE, DEFAULT_CONFIG
+from shadow_clerk._daemon_constants import GLOSSARY_FILE, DEFAULT_CONFIG
 from shadow_clerk._daemon_config import load_config, get_translation_provider
 from shadow_clerk._transcript_name import TranscriptName
 

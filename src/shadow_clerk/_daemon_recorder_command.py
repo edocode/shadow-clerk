@@ -41,11 +41,6 @@ def _sanitize_meeting_name(name: str) -> str:
 class _RecorderCommandMixin:
     """コマンド処理・キーリスナー ミックスイン"""
 
-    def _init_wake_word_patterns(self) -> None:
-        """config の wake_word からコマンド検出パターンを初期化"""
-        wake_word = (load_config().get("wake_word") or "").strip() or "シェルク"
-        self._wake_prefix, self._wake_suffix = build_wake_word_patterns(wake_word)
-
     def _extract_command_body(self, text: str) -> str | None:
         """プレフィックス/サフィックスのウェイクワードを検出し、コマンド本文を返す。未検出なら None。"""
         prefix = getattr(self, "_wake_prefix", VOICE_CMD_PREFIX)
