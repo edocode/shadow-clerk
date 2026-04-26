@@ -309,16 +309,32 @@ def cmd_poll_command(args: list[str]) -> None:
 
 
 def _exec_clerk_daemon(args: list[str]) -> None:
-    """同じ環境の clerk-daemon を exec する"""
-    # Windows では .exe 拡張子付きも探す
+    """同じ環境の clerk-daemon をフォアグラウンドで起動する。
+
+    Linux: os.execv で現在のプロセスを置き換える(Ctrl+C で停止可能)。
+    Windows: os.execv は新プロセスを spawn して親が即終了するため見かけ上
+    バックグラウンド化する。これを避けるため subprocess.run で待機する。
+    """
     names = ("clerk-daemon.exe", "clerk-daemon") if sys.platform == "win32" else ("clerk-daemon",)
+    exe: str | None = None
     for base in (pathlib.Path(sys.executable).parent, pathlib.Path(sys.argv[0]).resolve().parent):
         for name in names:
             candidate = base / name
             if candidate.exists():
-                os.execv(str(candidate), [str(candidate)] + args)
-    # PATH フォールバック: shutil.which は Windows で .exe を自動補完
-    exe = shutil.which("clerk-daemon") or "clerk-daemon"
+                exe = str(candidate)
+                break
+        if exe:
+            break
+    if not exe:
+        # PATH フォールバック: shutil.which は Windows で .exe を自動補完
+        exe = shutil.which("clerk-daemon") or "clerk-daemon"
+
+    if sys.platform == "win32":
+        try:
+            result = subprocess.run([exe] + args, check=False)
+        except KeyboardInterrupt:
+            sys.exit(130)
+        sys.exit(result.returncode)
     os.execv(exe, [exe] + args)
 
 

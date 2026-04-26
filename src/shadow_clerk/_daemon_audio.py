@@ -329,7 +329,13 @@ class WasapiSoundcardBackend(AudioBackend):
 
     def start_monitor_capture(self, source: str, audio_queue: queue.Queue,
                               stop_event: threading.Event) -> None:
-        """soundcard の loopback マイクで WASAPI ループバックキャプチャ (polling)"""
+        """soundcard の loopback マイクで WASAPI ループバックキャプチャ (polling)
+
+        soundcard の内部リサンプラ(samplerate を SAMPLE_RATE=16000 にして
+        WASAPI 側の native レートから変換させる経路)が一部 Windows ドライバ
+        構成で C レベル落ちするため、WASAPI 共有モードの標準レート 48000Hz
+        で開いて Python 側で 1/3 に間引きする。
+        """
         import numpy as np
         loopback_mics = self._local_loopback_mics()
         if not loopback_mics:
@@ -340,12 +346,20 @@ class WasapiSoundcardBackend(AudioBackend):
             # source が RDP デバイス指定だった場合のガード(異常系)
             logger.error("RDP デバイス (%s) ではキャプチャしない", mic.name)
             return
-        logger.info("WASAPI loopback キャプチャ開始: %s", mic.name)
+        native_rate = 48000
+        decimate = native_rate // SAMPLE_RATE  # 3
+        native_block = FRAME_SIZE * decimate
+        logger.info("WASAPI loopback キャプチャ開始: %s (native=%dHz → %dHz)",
+                    mic.name, native_rate, SAMPLE_RATE)
         try:
-            with mic.recorder(samplerate=SAMPLE_RATE, channels=CHANNELS, blocksize=FRAME_SIZE) as rec:
+            with mic.recorder(samplerate=native_rate, channels=CHANNELS,
+                              blocksize=native_block) as rec:
                 while not stop_event.is_set():
-                    data = rec.record(numframes=FRAME_SIZE)
-                    samples = (data[:, 0] * 32767).astype(np.int16)
+                    data = rec.record(numframes=native_block)
+                    # 1ch を取り出して 1/3 に間引く(高域はエイリアスするが
+                    # 音声認識帯域(<4kHz)には影響しない)
+                    decimated = data[::decimate, 0]
+                    samples = (decimated * 32767).astype(np.int16)
                     audio_queue.put(samples)
         except Exception as e:
             logger.error("WASAPI loopback キャプチャエラー: %s", e)
