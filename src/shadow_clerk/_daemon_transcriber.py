@@ -116,7 +116,10 @@ class Transcriber:
                                "Whisper にフォールバックします。", e)
                 backend, model_id = "whisper", self.model_size
         if backend == "reazonspeech-k2":
-            precision = "fp32" if self.device == "cpu" else "fp16"
+            # ReazonSpeech k2 は ONNX 量子化バリアント(fp32/int8/int8-fp32)で
+            # precision を指定する。fp16 は無効。device=cuda でも fp32 で動作
+            # (sherpa-onnx の CUDA Execution Provider を使う)。
+            precision = load_config().get("reazonspeech_precision") or "fp32"
             logger.info("[%s] ReazonSpeech K2 モデル読み込み中: %s (device=%s, precision=%s) ...",
                          self._label, model_id, self.device, precision)
             self.model = k2_load_model(device=self.device, precision=precision)

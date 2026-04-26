@@ -71,6 +71,7 @@ DEFAULT_CONFIG = {
     "japanese_asr_model": "default",
     "kotoba_whisper_model": "kotoba-tech/kotoba-whisper-v2.0-faster",
     "interim_japanese_asr_model": "default",
+    "reazonspeech_precision": "fp32",  # fp32 / int8 / int8-fp32 (fp16 は無効)
     # Google Calendar 連携
     "gcal_integration": False,
     "gcal_credentials_file": None,   # OAuth credentials.json のパス
