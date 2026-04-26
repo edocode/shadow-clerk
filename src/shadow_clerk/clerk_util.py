@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 
-from shadow_clerk import DATA_DIR, CONFIG_FILE, get_data_dir
+from shadow_clerk import DATA_DIR, CONFIG_FILE
 from shadow_clerk._transcript_name import TranscriptName
 
 # config.yaml から output_directory を読む
