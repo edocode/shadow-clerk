@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """shadow-clerk ユーティリティ — データディレクトリ操作 + プロセス管理"""
 from __future__ import annotations
-import importlib.resources
 import json
 import os
 import pathlib
@@ -10,7 +9,7 @@ import subprocess
 import sys
 import time
 
-from shadow_clerk import DATA_DIR, CONFIG_FILE, get_data_dir, get_skill_dir
+from shadow_clerk import DATA_DIR, CONFIG_FILE, get_data_dir
 from shadow_clerk._transcript_name import TranscriptName
 
 # config.yaml から output_directory を読む
@@ -263,8 +262,9 @@ def cmd_poll_command(args: list[str]) -> None:
     親プロセスが消滅した場合も自動終了する。
     """
     import signal
-    # SIGHUP で即終了（親シェル終了時）
-    signal.signal(signal.SIGHUP, lambda *_: sys.exit(0))
+    if sys.platform != "win32":
+        # SIGHUP で即終了（親シェル終了時）
+        signal.signal(signal.SIGHUP, lambda *_: sys.exit(0))
 
     interval = float(args[0])
     rest = args[1:]
@@ -310,14 +310,16 @@ def cmd_poll_command(args: list[str]) -> None:
 
 def _exec_clerk_daemon(args: list[str]) -> None:
     """同じ環境の clerk-daemon を exec する"""
-    # 1. sys.executable と同じディレクトリ (venv 内)
-    for base in (pathlib.Path(sys.executable).parent,
-                 pathlib.Path(sys.argv[0]).resolve().parent):
-        candidate = base / "clerk-daemon"
-        if candidate.exists():
-            os.execv(str(candidate), ["clerk-daemon"] + args)
-    # 2. フォールバック: PATH 検索
-    os.execvp("clerk-daemon", ["clerk-daemon"] + args)
+    # Windows では .exe 拡張子付きも探す
+    names = ("clerk-daemon.exe", "clerk-daemon") if sys.platform == "win32" else ("clerk-daemon",)
+    for base in (pathlib.Path(sys.executable).parent, pathlib.Path(sys.argv[0]).resolve().parent):
+        for name in names:
+            candidate = base / name
+            if candidate.exists():
+                os.execv(str(candidate), [str(candidate)] + args)
+    # PATH フォールバック: shutil.which は Windows で .exe を自動補完
+    exe = shutil.which("clerk-daemon") or "clerk-daemon"
+    os.execv(exe, [exe] + args)
 
 
 def cmd_start(args: list[str]) -> None:
@@ -325,26 +327,59 @@ def cmd_start(args: list[str]) -> None:
     _exec_clerk_daemon(list(args))
 
 
-def cmd_stop(args: list[str]) -> None:
-    """clerk-daemon プロセスに SIGTERM 送信"""
+def _terminate_pid(pid: int) -> None:
+    """OS に応じて clerk-daemon プロセスを終了させる。
+
+    Linux: SIGTERM。
+    Windows: taskkill /PID (graceful) → 5秒待っても残るなら taskkill /F。
+    """
+    if sys.platform == "win32":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(pid)],
+                capture_output=True, timeout=5, check=False,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+        # 残っていたら強制終了
+        for _ in range(10):
+            if not _is_pid_alive(pid):
+                return
+            time.sleep(0.5)
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/PID", str(pid)],
+                capture_output=True, timeout=5, check=False,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+        return
     import signal as _signal
+    os.kill(pid, _signal.SIGTERM)
+
+
+def cmd_stop(args: list[str]) -> None:
+    """clerk-daemon プロセスを停止 (Linux: SIGTERM, Windows: taskkill)"""
     pid = _read_pid()
     if pid and _is_pid_alive(pid):
-        os.kill(pid, _signal.SIGTERM)
-    else:
+        _terminate_pid(pid)
+    elif sys.platform != "win32":
         subprocess.run(["pkill", "-f", "clerk-daemon|clerk_daemon"])
+    else:
+        print("warning: PIDファイルが見つかりません。実行中の clerk-daemon を特定できません。", file=sys.stderr)
 
 
 def cmd_restart(args: list[str]) -> None:
     """clerk-daemon を停止 → 待機 → 起動"""
     # 停止
     if _is_recorder_running():
-        import signal as _signal
         pid = _read_pid()
         if pid and _is_pid_alive(pid):
-            os.kill(pid, _signal.SIGTERM)
-        else:
+            _terminate_pid(pid)
+        elif sys.platform != "win32":
             subprocess.run(["pkill", "-f", "clerk-daemon|clerk_daemon"])
+        else:
+            print("warning: PIDファイルが見つかりません。実行中の clerk-daemon を特定できません。", file=sys.stderr)
         # 終了待機（最大10秒）
         for _ in range(20):
             time.sleep(0.5)
@@ -466,94 +501,6 @@ def cmd_summarize(args: list[str]) -> None:
     sys.exit(result.returncode)
 
 
-def cmd_claude_setup(args: list[str]) -> None:
-    """Claude Code skill として登録する"""
-    # 言語オプションの解析
-    lang = args[0] if args else None
-
-    skill_dir = get_skill_dir()
-
-    # 既存シンボリックリンクがあれば警告
-    if os.path.islink(skill_dir):
-        print(f"WARNING: {skill_dir} はシンボリックリンクです。")
-        print(f"  削除してから再実行してください: rm {skill_dir}")
-        sys.exit(1)
-
-    os.makedirs(skill_dir, exist_ok=True)
-    os.makedirs(get_data_dir(), exist_ok=True)
-
-    # clerk-util のインストールパスを取得
-    clerk_util_path = shutil.which("clerk-util")
-    if not clerk_util_path:
-        print("ERROR: clerk-util がパスに見つかりません。", file=sys.stderr)
-        print("  pip install shadow-clerk でインストールしてください。", file=sys.stderr)
-        sys.exit(1)
-
-    # テンプレートファイルを選択: SKILL.<lang>.md.template があればそれを使う
-    template_name = "SKILL.md.template"
-    if lang:
-        lang_template = f"SKILL.{lang}.md.template"
-        lang_resource = importlib.resources.files("shadow_clerk").joinpath(f"data/{lang_template}")
-        if lang_resource.is_file():
-            template_name = lang_template
-        else:
-            print(f"NOTE: {lang_template} not found, using default SKILL.md.template")
-
-    template = importlib.resources.files("shadow_clerk").joinpath(f"data/{template_name}").read_text()
-    skill_md = template.replace("{clerk_util_path}", clerk_util_path)
-    skill_md = skill_md.replace("{data_dir}", get_data_dir())
-
-    skill_md_path = os.path.join(skill_dir, "SKILL.md")
-    with open(skill_md_path, "w", encoding="utf-8") as f:
-        f.write(skill_md)
-    lang_label = f" ({lang})" if lang and template_name != "SKILL.md.template" else ""
-    print(f"SKILL.md を生成しました{lang_label}: {skill_md_path}")
-
-    # settings.local.json に permission エントリ追加
-    _register_permissions(clerk_util_path)
-
-
-def _register_permissions(clerk_util_path: str) -> None:
-    """~/.claude/settings.local.json に clerk-util の permission を追加する"""
-    settings_path = os.path.expanduser("~/.claude/settings.local.json")
-
-    # 既存の settings を読み込み
-    settings = {}
-    if os.path.isfile(settings_path):
-        try:
-            with open(settings_path, "r", encoding="utf-8") as f:
-                settings = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    permissions = settings.setdefault("permissions", {})
-    allow = permissions.setdefault("allow", [])
-
-    data_dir = get_data_dir()
-    entries = [
-        f"Bash({clerk_util_path} *)",
-        f"Edit({data_dir}/**)",
-        f"Write({data_dir}/**)",
-        f"Read({data_dir}/**)",
-    ]
-
-    added = []
-    for entry in entries:
-        if entry not in allow:
-            allow.append(entry)
-            added.append(entry)
-
-    if added:
-        with open(settings_path, "w", encoding="utf-8") as f:
-            json.dump(settings, f, indent=2, ensure_ascii=False)
-            f.write("\n")
-        print("permissions を追加しました:")
-        for e in added:
-            print(f"  {e}")
-    else:
-        print("permissions は既に登録済みです。")
-
-
 def cmd_gcal_auth(args: list[str]) -> None:
     """Google Calendar OAuth 認証フローを実行してトークンを保存する"""
     if not args:
@@ -610,7 +557,6 @@ def cmd_help(args: list[str]) -> None:
     print("  summarize [DATE] [--mode full|update]  議事録を生成 (DATE: YYYYMMDD or YYYYMMDDHHMM)")
     print()
     print("Setup subcommands:")
-    print("  claude-setup [lang]  Claude Code skill として登録 (lang: ja, en, ...)")
     print("  gcal-auth <credentials.json> [token_file]  Google Calendar OAuth 認証")
     print()
     print(f"Data directory: {DATA_DIR}")
@@ -638,7 +584,6 @@ COMMANDS = {
     "restart": cmd_restart,
     "run-llm": cmd_run_llm,
     "summarize": cmd_summarize,
-    "claude-setup": cmd_claude_setup,
     "gcal-auth": cmd_gcal_auth,
     "help": cmd_help,
 }

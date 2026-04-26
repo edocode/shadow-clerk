@@ -8,7 +8,7 @@ import re
 import sys
 
 from shadow_clerk.i18n import t, nt
-from shadow_clerk._llm_config import load_config, get_api_client, get_translation_provider, resolve_path
+from shadow_clerk._llm_config import load_config, get_api_client, get_translation_provider, resolve_path, call_claude_cli
 from shadow_clerk._llm_glossary import load_glossary, MARKER_RE, TIMESTAMP_RE, _seems_target_language
 
 logger = logging.getLogger("llm-client")
@@ -232,15 +232,23 @@ def translate(args: argparse.Namespace) -> None:
 
 
     else:
-        # api (OpenAI compatible) provider
-        client, model = get_api_client(config)
-        logger.info("翻訳実行: provider=api (model=%s), %d 行", model, len(translatable))
+        # LLM provider (api or claude): バッチ翻訳
+        if provider == "claude":
+            logger.info("翻訳実行: provider=claude (cli=%s, model=%s), %d 行",
+                        config.get("claude_cli_path") or "claude",
+                        config.get("claude_cli_model") or "haiku",
+                        len(translatable))
+            client = None
+            api_model: str | None = None
+        else:
+            client, api_model = get_api_client(config)
+            logger.info("翻訳実行: provider=api (model=%s), %d 行", api_model, len(translatable))
 
         # バッチで翻訳（全テキストをまとめて送信）
         numbered_lines = "\n".join(
             f"{idx}: {text}" for idx, (_, text) in enumerate(translatable)
         )
-        logger.debug("translate: API request:\n%s", numbered_lines)
+        logger.debug("translate: LLM request:\n%s", numbered_lines)
 
         # 翻訳済みファイルから末尾 N 行をコンテキストとして読む
         context_block = ""
@@ -276,21 +284,30 @@ def translate(args: argparse.Namespace) -> None:
 
         user_content = context_block + numbered_lines
 
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
-            temperature=0.3,
-        )
+        def _llm_call(user_text: str) -> str:
+            if provider == "claude":
+                return call_claude_cli(user_text, system_prompt, config)
+            response = client.chat.completions.create(
+                model=api_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_text},
+                ],
+                temperature=0.3,
+            )
+            return response.choices[0].message.content or ""
 
-        raw_content = response.choices[0].message.content
-        logger.debug("translate: API response (raw): %r", raw_content)
+        try:
+            raw_content = _llm_call(user_content)
+        except RuntimeError as e:
+            logger.error("translate: LLM call failed: %s", e)
+            raw_content = ""
+
+        logger.debug("translate: LLM response (raw): %r", raw_content)
         translated_text = raw_content.strip() if raw_content else ""
 
         if not translated_text:
-            logger.warning("translate: API returned empty response")
+            logger.warning("translate: LLM returned empty response")
 
         # 翻訳結果をパース
         translated_map = {}
@@ -315,15 +332,7 @@ def translate(args: argparse.Namespace) -> None:
                 f"{idx}: {translatable[idx][1]}" for idx in missing
             )
             try:
-                retry_resp = client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": retry_numbered},
-                    ],
-                    temperature=0.3,
-                )
-                retry_raw = retry_resp.choices[0].message.content
+                retry_raw = _llm_call(retry_numbered)
                 if retry_raw:
                     for rline in retry_raw.strip().splitlines():
                         rline = rline.strip()

@@ -724,8 +724,6 @@ class _DashboardHandlerOps:
         is_new=False: 既存会議へのマージ → 既存サマリー/翻訳ファイルがあれば更新
         """
         config = load_config()
-        llm_prov = config.get("llm_provider", "claude")
-        trans_prov = get_translation_provider(config)
         lang = config.get("translate_language", "ja")
 
         jobs: list[tuple[str, bool, bool]] = []  # (path, do_summary, do_translate)
@@ -750,7 +748,7 @@ class _DashboardHandlerOps:
         def _worker() -> None:
             for mp, do_summary, do_translate in jobs:
                 # 翻訳を先に実行（summary_source=translate の場合に必要）
-                if do_translate and trans_prov in ("api", "libretranslate"):
+                if do_translate:
                     try:
                         with open(mp + ".translate_offset", "w", encoding="utf-8") as f:
                             f.write("0")
@@ -758,14 +756,7 @@ class _DashboardHandlerOps:
                         pass
                     self.recorder._translate_loop(mp)
                 if do_summary:
-                    if llm_prov == "api":
-                        self.recorder._auto_summarize(mp)
-                    else:
-                        try:
-                            with open(COMMAND_FILE, "w", encoding="utf-8") as f:
-                                f.write(f"generate_summary {os.path.basename(mp)}")
-                        except OSError:
-                            pass
+                    self.recorder._auto_summarize(mp)
 
         logger.info("自動ジョブ起動: %d 件 (is_new=%s)", len(jobs), is_new)
         threading.Thread(target=_worker, name="auto-jobs", daemon=True).start()

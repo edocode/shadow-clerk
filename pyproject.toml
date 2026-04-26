@@ -12,7 +12,8 @@ dependencies = [
     "pyyaml>=6.0",
     "openai>=1.0.0",
     "pynput>=1.7.6",
-    "evdev>=1.6.0",
+    "evdev>=1.6.0; sys_platform == 'linux'",
+    "soundcard>=0.4.0; sys_platform == 'win32'",
     "langdetect>=1.0.9",
 ]
 
@@ -41,9 +42,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.setuptools.package-data]
-shadow_clerk = ["data/*.template"]
 
 [dependency-groups]
 dev = [

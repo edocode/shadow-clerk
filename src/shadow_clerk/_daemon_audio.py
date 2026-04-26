@@ -4,7 +4,9 @@ import logging
 import queue
 import shutil
 import subprocess
+import sys
 import threading
+from typing import Any
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import SAMPLE_RATE, CHANNELS, FRAME_SIZE
 
@@ -189,10 +191,20 @@ def detect_backend(preferred: str = "auto") -> tuple[str, AudioBackend | None]:
         logger.warning("PulseAudio が利用できません、sounddevice にフォールバック")
         return "sounddevice", None
 
+    if preferred == "wasapi_soundcard":
+        if WasapiSoundcardBackend.is_available():
+            return "wasapi_soundcard", WasapiSoundcardBackend()
+        logger.warning("soundcard が利用できません、sounddevice にフォールバック")
+        return "sounddevice", None
+
     if preferred == "sounddevice":
         return "sounddevice", None
 
-    # auto: PipeWire → PulseAudio → sounddevice
+    # auto: Windows → WasapiSoundcardBackend / Linux → PipeWire → PulseAudio → sounddevice
+    if sys.platform == "win32":
+        if WasapiSoundcardBackend.is_available():
+            return "wasapi_soundcard", WasapiSoundcardBackend()
+        return "sounddevice", None
     if PipeWireBackend.is_available():
         return "pipewire", PipeWireBackend()
     if PulseAudioBackend.is_available():
@@ -238,8 +250,82 @@ def _get_default_sink_name() -> str | None:
     return None
 
 
-def find_monitor_device_sd() -> int | None:
-    """sounddevice でモニターデバイスを検索
+class WasapiSoundcardBackend(AudioBackend):
+    """Windows WASAPI ループバックバックエンド (soundcard パッケージ)"""
+
+    @staticmethod
+    def is_available() -> bool:
+        if sys.platform != "win32":
+            return False
+        try:
+            import soundcard  # noqa: F401
+            return True
+        except ImportError:
+            return False
+
+    def detect_monitor_source(self) -> str | None:
+        try:
+            import soundcard
+            default_spk_name = soundcard.default_speaker().name
+            for mic in soundcard.all_microphones(include_loopback=True):
+                if getattr(mic, "isloopback", False) and mic.name == default_spk_name:
+                    return mic.name
+            # 既定スピーカーに対応する loopback mic が見つからなければ最初の loopback を使う
+            for mic in soundcard.all_microphones(include_loopback=True):
+                if getattr(mic, "isloopback", False):
+                    return mic.name
+            return None
+        except Exception as e:
+            logger.warning("soundcard loopback マイク取得失敗: %s", e)
+            return None
+
+    def list_devices(self) -> None:
+        try:
+            import soundcard
+            print(t("rec.wasapi_loopback_mics"))
+            for mic in soundcard.all_microphones(include_loopback=True):
+                if getattr(mic, "isloopback", False):
+                    print(f"  {mic.name}")
+        except ImportError:
+            print(t("rec.wasapi_soundcard_unavailable"))
+
+    def start_monitor_capture(self, source: str, audio_queue: queue.Queue,
+                              stop_event: threading.Event) -> None:
+        """soundcard の loopback マイクで WASAPI ループバックキャプチャ (polling)"""
+        import numpy as np
+        import soundcard
+        loopback_mics = [
+            m for m in soundcard.all_microphones(include_loopback=True)
+            if getattr(m, "isloopback", False)
+        ]
+        if not loopback_mics:
+            logger.error("WASAPI loopback マイクが見つかりません")
+            return
+        mic = next((m for m in loopback_mics if m.name == source), loopback_mics[0])
+        logger.info("WASAPI loopback キャプチャ開始: %s", mic.name)
+        try:
+            with mic.recorder(samplerate=SAMPLE_RATE, channels=CHANNELS, blocksize=FRAME_SIZE) as rec:
+                while not stop_event.is_set():
+                    data = rec.record(numframes=FRAME_SIZE)
+                    samples = (data[:, 0] * 32767).astype(np.int16)
+                    audio_queue.put(samples)
+        except Exception as e:
+            logger.error("WASAPI loopback キャプチャエラー: %s", e)
+
+
+def find_monitor_device_sd() -> tuple[int, dict[str, Any]] | None:
+    """sounddevice でモニターデバイスを検索 (Linux のみ)
+
+    戻り値: (デバイスID, sd.InputStream に追加で渡す kwargs) または None。
+    Windows は WasapiSoundcardBackend を使うため None を返す。
+    """
+    if sys.platform == "win32":
+        return None
+    return _find_monitor_device_linux()
+
+
+def _find_monitor_device_linux() -> tuple[int, dict[str, Any]] | None:
+    """Linux (PipeWire/PulseAudio) でモニターデバイスを検索
 
     PipeWire: `.monitor` サフィックスを持つ入力デバイス
     PulseAudio: "Monitor of " プレフィックスを持つ入力デバイス
@@ -269,11 +355,11 @@ def find_monitor_device_sd() -> int | None:
         for idx, name in candidates:
             if name == expected_monitor:
                 logger.debug("デフォルト Sink のモニター選択: #%d %s", idx, name)
-                return idx
+                return idx, {}
 
     # 見つからなければ最初の候補
     logger.debug("デフォルト Sink 不明、最初の候補を選択: #%d %s", *candidates[0])
-    return candidates[0][0]
+    return candidates[0][0], {}
 
 
 def list_all_devices(backend_name: str, backend: AudioBackend | None) -> None:
@@ -287,7 +373,8 @@ def list_all_devices(backend_name: str, backend: AudioBackend | None) -> None:
 
     monitor_sd = find_monitor_device_sd()
     if monitor_sd is not None:
-        print(t("rec.auto_detect_sd", device=monitor_sd))
+        device_idx, _ = monitor_sd
+        print(t("rec.auto_detect_sd", device=device_idx))
 
     if backend:
         monitor = backend.detect_monitor_source()

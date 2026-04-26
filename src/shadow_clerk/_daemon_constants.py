@@ -46,6 +46,8 @@ DEFAULT_CONFIG = {
     "api_endpoint": None,
     "api_model": None,
     "api_key_env": "SHADOW_CLERK_API_KEY",
+    "claude_cli_path": "claude",
+    "claude_cli_model": "haiku",
     "custom_commands": [],
     "initial_prompt": None,
     "voice_command_key": "f23",

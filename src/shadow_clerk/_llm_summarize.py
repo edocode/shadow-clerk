@@ -10,7 +10,7 @@ from openai import OpenAI
 
 from shadow_clerk import DATA_DIR
 from shadow_clerk.i18n import t, nt
-from shadow_clerk._llm_config import load_config, get_api_client, resolve_path
+from shadow_clerk._llm_config import load_config, get_api_client, resolve_path, call_claude_cli
 from shadow_clerk._llm_glossary import load_glossary_for_summary
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain import Summary
@@ -98,8 +98,13 @@ def _get_summary_format() -> str:
 def summarize(args: argparse.Namespace) -> None:
     """transcript から議事録を生成する。"""
     config = load_config()
-    client, model = get_api_client(config)
-    logger.info("要約開始: provider=api (model=%s), mode=%s", model, args.mode)
+    provider = config.get("llm_provider") or "claude"
+    if provider == "claude":
+        client, model = None, config.get("claude_cli_model") or "haiku"
+        logger.info("要約開始: provider=claude (cli_model=%s), mode=%s", model, args.mode)
+    else:
+        client, model = get_api_client(config)
+        logger.info("要約開始: provider=api (model=%s), mode=%s", model, args.mode)
 
     # transcript ファイルを読む
     transcript_path = os.path.expanduser(args.file)
@@ -122,7 +127,7 @@ def summarize(args: argparse.Namespace) -> None:
         logger.info("参加予定者情報を読み込み（プロンプトに付与）")
 
     if args.mode == "full":
-        result = _summarize_full(client, model, transcript, attendees_block)
+        result = _summarize_full(client, model, transcript, attendees_block, provider=provider)
     elif args.mode == "update":
         existing_summary = ""
         if args.existing:
@@ -134,7 +139,7 @@ def summarize(args: argparse.Namespace) -> None:
                     existing_summary = f.read()
             except FileNotFoundError:
                 pass
-        result = _summarize_update(client, model, transcript, existing_summary, attendees_block)
+        result = _summarize_update(client, model, transcript, existing_summary, attendees_block, provider=provider)
 
     if result:
         # Summary バリューオブジェクトとして扱う
@@ -191,7 +196,10 @@ def _split_transcript_lines(transcript: str, max_tokens: int) -> list[str]:
 _PROMPT_OVERHEAD_TOKENS = 2000
 
 
-def _summarize_full(client: OpenAI, model: str, transcript: str, attendees_block: str = "") -> str | None:
+def _summarize_full(
+    client: OpenAI | None, model: str, transcript: str, attendees_block: str = "",
+    *, provider: str = "api",
+) -> str | None:
     """transcript 全文から議事録を生成する。長い場合はチャンク分割で段階的に要約。"""
     summary_format = _get_summary_format()
 
@@ -202,7 +210,7 @@ def _summarize_full(client: OpenAI, model: str, transcript: str, attendees_block
 
     if transcript_tokens + overhead <= max_context:
         # 1回で処理できる場合
-        return _summarize_full_single(client, model, transcript, summary_format, attendees_block)
+        return _summarize_full_single(client, model, transcript, summary_format, attendees_block, provider=provider)
     else:
         # チャンク分割: 各チャンクを update モードで段階的に要約
         # 既存 summary が蓄積されるため十分なマージンを確保 (8000 tokens)
@@ -212,14 +220,15 @@ def _summarize_full(client: OpenAI, model: str, transcript: str, attendees_block
         summary = ""
         for i, chunk in enumerate(chunks):
             logger.info("チャンク %d/%d を要約中...", i + 1, len(chunks))
-            summary = _summarize_update_single(client, model, chunk, summary, summary_format, attendees_block)
+            summary = _summarize_update_single(client, model, chunk, summary, summary_format, attendees_block, provider=provider)
             if not summary:
                 return None
         return summary
 
 
 def _summarize_full_single(
-    client: OpenAI, model: str, transcript: str, summary_format: str, attendees_block: str = ""
+    client: OpenAI | None, model: str, transcript: str, summary_format: str,
+    attendees_block: str = "", *, provider: str = "api",
 ) -> str | None:
     """transcript 全文から議事録を生成する（単一リクエスト）。"""
     config = load_config()
@@ -240,17 +249,24 @@ def _summarize_full_single(
                      summary_language=summary_language,
                      attendees_block=attendees_block)
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ],
-        temperature=0.3,
-        max_tokens=max_tokens,
-    )
+    if provider == "claude":
+        try:
+            result = call_claude_cli(user_content, system_prompt, config)
+        except RuntimeError as e:
+            logger.error("summarize: claude call failed: %s", e)
+            return None
+    else:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            temperature=0.3,
+            max_tokens=max_tokens,
+        )
+        result = response.choices[0].message.content
 
-    result = response.choices[0].message.content
     if not result or len(result.strip()) < 50:
         logger.warning("要約結果が短すぎます (%d文字)、スキップ", len(result.strip()) if result else 0)
         return None
@@ -258,7 +274,8 @@ def _summarize_full_single(
 
 
 def _summarize_update(
-    client: OpenAI, model: str, transcript: str, existing_summary: str, attendees_block: str = ""
+    client: OpenAI | None, model: str, transcript: str, existing_summary: str,
+    attendees_block: str = "", *, provider: str = "api",
 ) -> str | None:
     """既存の summary を踏まえて差分 transcript から議事録を更新する。長い場合はチャンク分割。"""
     summary_format = _get_summary_format()
@@ -273,7 +290,7 @@ def _summarize_update(
     )
 
     if transcript_tokens + overhead <= max_context:
-        return _summarize_update_single(client, model, transcript, existing_summary, summary_format, attendees_block)
+        return _summarize_update_single(client, model, transcript, existing_summary, summary_format, attendees_block, provider=provider)
     else:
         # 既存 summary が蓄積されるため十分なマージンを確保 (8000 tokens)
         chunk_max = (
@@ -288,15 +305,15 @@ def _summarize_update(
         summary = existing_summary
         for i, chunk in enumerate(chunks):
             logger.info("チャンク %d/%d を要約中...", i + 1, len(chunks))
-            summary = _summarize_update_single(client, model, chunk, summary, summary_format, attendees_block)
+            summary = _summarize_update_single(client, model, chunk, summary, summary_format, attendees_block, provider=provider)
             if not summary:
                 return None
         return summary
 
 
 def _summarize_update_single(
-    client: OpenAI, model: str, transcript: str, existing_summary: str,
-    summary_format: str, attendees_block: str = "",
+    client: OpenAI | None, model: str, transcript: str, existing_summary: str,
+    summary_format: str, attendees_block: str = "", *, provider: str = "api",
 ) -> str | None:
     """既存の summary を踏まえて差分 transcript から議事録を更新する（単一リクエスト）。"""
     config = load_config()
@@ -318,17 +335,24 @@ def _summarize_update_single(
                      summary_language=summary_language,
                      attendees_block=attendees_block)
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ],
-        temperature=0.3,
-        max_tokens=max_tokens,
-    )
+    if provider == "claude":
+        try:
+            result = call_claude_cli(user_content, system_prompt, config)
+        except RuntimeError as e:
+            logger.error("summarize: claude call failed: %s", e)
+            return None
+    else:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            temperature=0.3,
+            max_tokens=max_tokens,
+        )
+        result = response.choices[0].message.content
 
-    result = response.choices[0].message.content
     if not result or len(result.strip()) < 50:
         logger.warning("要約結果が短すぎます (%d文字)、スキップ", len(result.strip()) if result else 0)
         return None

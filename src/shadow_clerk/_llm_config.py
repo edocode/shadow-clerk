@@ -1,7 +1,9 @@
 """shadow-clerk LLM client: 設定・API クライアント"""
 from __future__ import annotations
+import json
 import logging
 import os
+import subprocess
 import sys
 
 from openai import OpenAI
@@ -93,3 +95,56 @@ def get_api_client(config: dict) -> tuple[OpenAI, str]:
                  endpoint, model, api_key[:8] if len(api_key) > 8 else "***")
     client = OpenAI(base_url=endpoint, api_key=api_key)
     return client, model
+
+
+def call_claude_cli(
+    user_content: str,
+    system_prompt: str,
+    config: dict,
+    *,
+    timeout: int = 180,
+) -> str:
+    """`claude -p` を呼び出してレスポンステキストを返す。
+
+    config から `claude_cli_path` (default: "claude") と `claude_cli_model`
+    (default: "haiku") を読み取る。stdout は --output-format json で受け取り、
+    `.result` を返す。エラー時は RuntimeError。
+    """
+    claude_path = config.get("claude_cli_path") or "claude"
+    model = config.get("claude_cli_model") or "haiku"
+    cmd = [
+        claude_path, "-p",
+        "--tools", "",
+        "--no-session-persistence",
+        "--output-format", "json",
+        "--model", model,
+        "--system-prompt", system_prompt,
+    ]
+    logger.debug("claude -p invoke: model=%s, system_len=%d, user_len=%d",
+                 model, len(system_prompt), len(user_content))
+    try:
+        proc = subprocess.run(
+            cmd, input=user_content, capture_output=True, text=True,
+            timeout=timeout, check=False,
+        )
+    except FileNotFoundError as e:
+        raise RuntimeError(f"claude CLI not found at {claude_path!r}: {e}") from e
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"claude -p timed out after {timeout}s") from e
+    if proc.returncode != 0:
+        stderr = (proc.stderr or "").strip()[:500]
+        raise RuntimeError(f"claude -p exited {proc.returncode}: {stderr}")
+    try:
+        parsed = json.loads(proc.stdout)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(
+            f"claude -p output not valid JSON: {proc.stdout[:500]!r}"
+        ) from e
+    if parsed.get("is_error"):
+        err = parsed.get("api_error_status") or parsed.get("result") or "unknown"
+        raise RuntimeError(f"claude -p reported error: {err}")
+    cost = parsed.get("total_cost_usd")
+    if cost is not None:
+        logger.info("claude -p: model=%s, cost=$%.4f, duration=%dms",
+                    model, cost, parsed.get("duration_ms", 0))
+    return parsed.get("result", "") or ""
