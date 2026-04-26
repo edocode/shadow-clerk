@@ -253,60 +253,6 @@ def cmd_path(args: list[str]) -> None:
     print(shutil.which("clerk-util") or os.path.abspath(__file__))
 
 
-def cmd_poll_command(args: list[str]) -> None:
-    """
-    .clerk_command を interval 秒ごとにチェックし、
-    コマンドがあればその内容を stdout に出力して終了。
-    recorder-status が stopped なら 'stopped' を出力して終了。
-    --timeout <sec> 指定時は最大 sec 秒でタイムアウトして空文字で終了。
-    親プロセスが消滅した場合も自動終了する。
-    """
-    import signal
-    if sys.platform != "win32":
-        # SIGHUP で即終了（親シェル終了時）
-        signal.signal(signal.SIGHUP, lambda *_: sys.exit(0))
-
-    interval = float(args[0])
-    rest = args[1:]
-
-    # --timeout オプション解析
-    timeout = None
-    if "--timeout" in rest:
-        idx = rest.index("--timeout")
-        if idx + 1 < len(rest):
-            timeout = float(rest[idx + 1])
-
-    cmd_file = os.path.join(DATA_DIR, ".clerk_command")
-    start = time.monotonic()
-    ppid = os.getppid()
-
-    while True:
-        # 親プロセスが消滅していたら終了（孤立防止）
-        if os.getppid() != ppid:
-            return
-
-        # コマンドファイルをチェック
-        if os.path.isfile(cmd_file):
-            try:
-                with open(cmd_file) as f:
-                    content = f.read().strip()
-                if content:
-                    print(content)
-                    return
-            except FileNotFoundError:
-                pass
-
-        # recorder-status をチェック
-        if not _is_recorder_running():
-            print("stopped")
-            return
-
-        # タイムアウトチェック
-        if timeout is not None and (time.monotonic() - start) >= timeout:
-            return
-
-        time.sleep(interval)
-
 
 def _exec_clerk_daemon(args: list[str]) -> None:
     """同じ環境の clerk-daemon をフォアグラウンドで起動する。
@@ -565,7 +511,6 @@ def cmd_help(args: list[str]) -> None:
     print("  path                       clerk-util 自身のフルパスを出力")
     print()
     print("Process subcommands:")
-    print("  poll-command <interval> [--timeout <sec>]  .clerk_command を定期チェック")
     print("  start [opts]      clerk-daemon を起動 (exec)")
     print("  stop              clerk-daemon を停止 (SIGTERM)")
     print("  restart [opts]    clerk-daemon を停止→待機→起動 (exec)")
@@ -594,7 +539,6 @@ COMMANDS = {
     "write-config": cmd_write_config,
     "write-config-value": cmd_write_config_value,
     "path": cmd_path,
-    "poll-command": cmd_poll_command,
     "start": cmd_start,
     "stop": cmd_stop,
     "restart": cmd_restart,
