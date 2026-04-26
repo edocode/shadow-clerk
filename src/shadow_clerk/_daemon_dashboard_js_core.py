@@ -43,7 +43,8 @@ function fmtTranscriptLine(t){
 }
 function addLines(id,text,fmt){
   const el=document.getElementById(id);
-  text.split('\\n').forEach(l=>{if(l.trim())el.insertAdjacentHTML('beforeend',fmt(l));});
+  // Windows の transcript ファイルは CRLF で保存されるため、行末の \\r を除去
+  text.split('\\n').forEach(l=>{const s=l.replace(/\\r$/,'');if(s.trim())el.insertAdjacentHTML('beforeend',fmt(s));});
   if(as[id])el.scrollTop=el.scrollHeight;
 }
 /* --- Selection management --- */
