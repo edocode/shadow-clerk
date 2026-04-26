@@ -430,15 +430,29 @@ class _RecorderTranscribeMixin:
         5〜10 秒かかり、interim 用途(目標 1〜2 秒)に間に合わないので、
         api / libretranslate にフォールバックする。どちらも未設定なら
         interim 翻訳は無効化(確定翻訳の方は通常通り動作する)。
+
+        前提: `interim_transcription: true`(interim 認識が動いていないと
+        翻訳の入力も無い) かつ `interim_translation: true`(明示的に有効化)。
         """
         current_seq: dict[str, int] = {}
         client = None
         model = None
         _logged_provider = False
+        _logged_disabled = False
 
         while not self.stop_event.is_set():
             config = load_config()
             translation_provider = get_translation_provider(config)
+            interim_translation_enabled = config.get("interim_translation", True)
+            interim_transcription_enabled = config.get("interim_transcription", False)
+
+            # interim_translation が明示的に無効 → 何もしない
+            if not interim_translation_enabled:
+                if not _logged_disabled and interim_transcription_enabled:
+                    logger.info("中間翻訳: 無効 (interim_translation=false)")
+                    _logged_disabled = True
+                self.stop_event.wait(timeout=5.0)
+                continue
 
             # claude provider → interim には遅すぎるので別バックエンドを探す
             interim_provider = translation_provider
@@ -449,15 +463,15 @@ class _RecorderTranscribeMixin:
                     interim_provider = "libretranslate"
                 else:
                     if not _logged_provider:
-                        # interim_transcription が無効なら interim 翻訳も
-                        # そもそも動かない経路。誤誘導しないよう警告は出さない。
-                        if config.get("interim_transcription", False):
+                        # interim_transcription が無効なら誤誘導になるので警告しない
+                        if interim_transcription_enabled:
                             logger.warning(
                                 "中間翻訳は無効: translation_provider=claude は遅延が大きく "
                                 "interim 用途に使えません。中間翻訳を有効にするには "
                                 "`libretranslate_endpoint` (高速、推奨) または "
                                 "`api_endpoint`+`api_model` を config.yaml に設定してください。"
-                                "(確定済み transcript の翻訳は claude のまま動作します)")
+                                "(確定済み transcript の翻訳は claude のまま動作します。"
+                                "中間翻訳そのものが不要なら `interim_translation: false` で警告を抑制可)")
                         _logged_provider = True
                     self.stop_event.wait(timeout=5.0)
                     continue

@@ -56,6 +56,7 @@ DEFAULT_CONFIG = {
     "whisper_compute_type": "int8", # int8/float16/float32
     "whisper_device": "cpu",       # cpu/cuda
     "interim_transcription": False,
+    "interim_translation": True,  # interim_transcription の出力を翻訳して dashboard に流す
     "interim_model": "base",
     "ui_language": "ja",
     "translation_provider": None,
