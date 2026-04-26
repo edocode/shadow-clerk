@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
 from typing import Any
 import numpy as np
 from shadow_clerk._daemon_constants import GLOSSARY_FILE, SAMPLE_RATE
@@ -92,14 +93,23 @@ class Transcriber:
             return
         if backend == "reazonspeech-k2":
             try:
-                # sherpa-onnx-core の libonnxruntime.so を参照するためパスを追加
+                # sherpa-onnx-core の動的ライブラリ参照パスを追加
                 import sherpa_onnx as _so
                 _so_lib = os.path.join(os.path.dirname(_so.__file__), "lib")
-                _ld = os.environ.get("LD_LIBRARY_PATH", "")
-                if _so_lib not in _ld:
-                    os.environ["LD_LIBRARY_PATH"] = f"{_so_lib}:{_ld}" if _ld else _so_lib
-                    import ctypes
-                    ctypes.cdll.LoadLibrary(os.path.join(_so_lib, "libonnxruntime.so"))
+                import ctypes
+                if sys.platform == "win32":
+                    # Windows: DLL 検索ディレクトリを追加し、onnxruntime.dll を明示ロード
+                    try:
+                        os.add_dll_directory(_so_lib)
+                    except (OSError, AttributeError):
+                        pass
+                    ctypes.cdll.LoadLibrary(os.path.join(_so_lib, "onnxruntime.dll"))
+                else:
+                    # Linux/macOS: LD_LIBRARY_PATH 経由で参照
+                    _ld = os.environ.get("LD_LIBRARY_PATH", "")
+                    if _so_lib not in _ld:
+                        os.environ["LD_LIBRARY_PATH"] = f"{_so_lib}:{_ld}" if _ld else _so_lib
+                        ctypes.cdll.LoadLibrary(os.path.join(_so_lib, "libonnxruntime.so"))
                 from reazonspeech.k2.asr import load_model as k2_load_model
             except (ImportError, OSError) as e:
                 logger.warning("reazonspeech-k2 の読み込みに失敗: %s — "
