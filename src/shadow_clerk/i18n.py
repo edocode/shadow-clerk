@@ -261,6 +261,7 @@ STRINGS = {
         # --- cfg.section.* : 設定セクション ---
         "cfg.section.general": "基本設定",
         "cfg.section.transcription": "文字起こし",
+        "cfg.section.interim": "中間処理 (確定前)",
         "cfg.section.translation": "翻訳",
         "cfg.section.summary": "要約",
         "cfg.section.api": "LLM / API",
@@ -698,6 +699,7 @@ STRINGS = {
         # --- cfg.section.* ---
         "cfg.section.general": "General",
         "cfg.section.transcription": "Transcription",
+        "cfg.section.interim": "Interim (pre-confirmed)",
         "cfg.section.translation": "Translation",
         "cfg.section.summary": "Summary",
         "cfg.section.api": "LLM / API",
