@@ -10,26 +10,13 @@ A tool that records web meeting audio in real-time and transcribes it. Also supp
 | Windows 10/11 | Supported | Monitor capture via WASAPI loopback (default playback device) |
 | macOS | Not supported yet | Requires a virtual audio driver (e.g. BlackHole) — not implemented |
 
-### Windows setup
+### Windows-specific notes
 
-1. Install [uv](https://docs.astral.sh/uv/).
-2. Install shadow-clerk:
-   ```
-   uv tool install shadow-clerk
-   ```
-3. Allow microphone access for the terminal you launch from (Windows Settings → Privacy → Microphone).
-4. Start the daemon:
-   ```
-   clerk-daemon
-   ```
-5. Open the dashboard at <http://localhost:8765>.
+Installation follows the regular [Setup](#setup) section below — the `uv tool install` flow works on Windows as-is.
 
-The data directory is `%APPDATA%\shadow-clerk`. Monitor capture follows the system default playback device — switching the default device in Windows sound settings switches what gets captured.
-
-To stop the daemon:
-```
-clerk-util stop
-```
+- **Microphone permission**: Allow mic access for the terminal you launch from (Windows Settings → Privacy → Microphone).
+- **Monitor capture**: Uses WASAPI loopback on the system default playback device. Switching the default device in Windows sound settings switches what gets captured.
+- **Data directory**: `%APPDATA%\shadow-clerk` (the `~/.local/share/shadow-clerk` paths in the rest of this README map to that on Windows).
 
 ## Features and requirements
 
