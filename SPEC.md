@@ -2,7 +2,7 @@
 
 ## 概要
 
-Ubuntu 環境で Web会議の音声をリアルタイムで録音・文字起こしし、Claude Code の Skill で議事録生成・翻訳を行うシステム。
+Ubuntu 環境で Web会議の音声をリアルタイムで録音・文字起こしし、外部 LLM(OpenAI互換API / `claude -p` / LibreTranslate)で議事録生成・翻訳を行うシステム。
 
 ## アーキテクチャ
 
@@ -25,7 +25,7 @@ Python スクリプト。常駐してリアルタイムに文字起こしを行�
   - `set_language <lang>` / `unset_language` — 言語切り替え
   - `set_model <size>` — Whisper モデル切り替え（ランタイム再ロード）
   - `start_meeting` / `end_meeting` — 会議セッション管理
-  - `translate_start` / `translate_stop` — 翻訳ループ開始・停止（`llm_provider: api` 時は clerk-daemon が直接処理、`claude` 時は SKILL.md 向けにファイルを残す）
+  - `translate_start` / `translate_stop` — 翻訳ループ開始・停止（clerk-daemon が `_launch_translate_thread` で内部処理、provider に応じて llm_client に委譲）
 - **音声コマンド**: マイク入力から音声コマンドを検出・実行。2つの方式がある:
   - **Push-to-Talk（推奨）**: `voice_command_key`（デフォルト: `f23` — xremap 等で物理キーに割り当て前提）を押しながら発話すると、ウェイクワードなしでコマンドとして認識される。離した後も 1.5 秒の猶予タイマーあり
   - **ウェイクワード方式（フォールバック）**: `wake_word`（デフォルト: 「シェルク」）に続けてコマンドを発話する。設定値から濁点・半濁点・小書き・ひらがなのバリアントを自動生成する fuzzy マッチが効く
@@ -45,37 +45,22 @@ Python スクリプト。常駐してリアルタイムに文字起こしを行�
   - `llm_client.py query` サブコマンドをバックグラウンドで実行
   - 結果は stdout に表示し、`.clerk_response` ファイルに保存
 
-### モジュール B: SKILL.md（Claude Code Skill）
+### モジュール B: llm_client.py（翻訳・議事録生成）
 
-Claude Code の Skill として動作。transcript を読み議事録生成・翻訳を行う。
+clerk-daemon の翻訳ループおよび議事録生成スレッドから `python -m shadow_clerk.llm_client ...` として起動される Python スクリプト。`config.yaml:llm_provider` / `translation_provider` に応じて以下の3つのバックエンドを切り替える:
 
-サブコマンド:
-- `update` / 引数なし — 差分テキストから議事録(summary.md)を更新
-- `full` — 全文から議事録を再生成
-- `set language <lang>` — 文字起こし言語を切り替え
-- `set model <size>` — Whisper モデルを切り替え
-- `config show` — 設定を表示
-- `config set <key> <value>` — 設定を変更
-- `config init` — デフォルト設定ファイルを生成
-- `start meeting` / `end meeting` — 会議セッション管理（auto_translate / auto_summary 連動）
-- `start [opts]` — clerk-daemon をバックグラウンドで起動
-- `stop` — clerk-daemon を停止
-- `status` — 録音・文字起こしの状態表示
-- `translate <lang>` — リアルタイム翻訳モード（ループで新行検出→翻訳→ファイル保存）
-- `translate stop` — 翻訳モード停止
-- `setup` — 必要な Bash permission を自動設定
-- `help` — サブコマンド一覧表示
-
-### モジュール C: llm_client.py（外部 API 翻訳・Summary 生成）
-
-`llm_provider: api` の場合に使用する Python スクリプト。OpenAI Compatible API で翻訳と議事録生成を行う。
+- **api**: OpenAI Compatible API(Ollama / vLLM / 商用 API 等)
+- **claude**: `claude -p` を subprocess 起動(既存の Claude Code OAuth ログインを利用)
+  - `claude_cli_path`(default `"claude"`)、`claude_cli_model`(default `"haiku"`)で制御
+  - `--output-format json` でレスポンス取得、`is_error` チェック・コスト記録あり
+- **libretranslate**: LibreTranslate ローカル API(翻訳のみ)
 
 サブコマンド:
 - `translate <lang>` — stdin から transcript 行を受け取り翻訳して stdout に出力
   - タイムスタンプ・スピーカーラベル保持、マーカー行はそのまま
   - 音声認識の誤認識を文脈から補正してから翻訳
   - `--file <path> --offset <bytes>` で差分読み込み対応
-  - プロバイダは `translation_provider` 設定で `libretranslate` / `api` を切替可能
+  - プロバイダは `translation_provider` 設定で `libretranslate` / `api` / `claude` を切替可能(未設定時は `llm_provider` にフォールバック)
 - `query <prompt>` — LLM に自由形式のクエリを投げて回答を stdout に出力
   - 音声コマンドの LLM フォールバックから呼び出される
 - `summarize --mode full --file <transcript>` — transcript 全文から議事録生成
@@ -170,12 +155,9 @@ graph TB
         filewatcher["FileWatcher<br/>(SSE Broadcaster)"]
     end
 
-    subgraph claude["Claude Code"]
-        skill["SKILL.md<br/>(議事録生成・翻訳)"]
-        util["clerk-util<br/>(データ操作)"]
-    end
+    util["clerk-util<br/>(データ操作)"]
 
-    llm["llm_client.py<br/>(外部 API)"]
+    llm["llm_client.py<br/>(api / claude / libretranslate)"]
     i18n["i18n.py<br/>(多言語対応)"]
     browser["Browser<br/>(Dashboard UI)"]
 
@@ -201,7 +183,6 @@ graph TB
     browser --> dashboard
     filewatcher --> transcript
     filewatcher --> browser
-    skill --> util
     util --> data
     llm --> config
     llm --> glossary
@@ -462,11 +443,10 @@ sequenceDiagram
     participant FS as FileSystem
     participant FW as FileWatcher
     participant B as Browser
-    participant Skill as Claude Code (SKILL.md)
 
     rect rgb(240, 248, 255)
-        Note over User, Skill: 録音開始 (常時)
-        User->>Rec: clerk-daemon (または /shadow-clerk start)
+        Note over User, B: 録音開始 (常時)
+        User->>Rec: clerk-daemon
         Rec->>Rec: スレッド群を起動
         Rec->>FS: transcript-YYYYMMDD.txt に追記開始
     end
@@ -520,11 +500,13 @@ sequenceDiagram
     Note over Rec: 会議終了後も transcript-YYYYMMDD.txt への追記は継続される
 
     rect rgb(255, 240, 245)
-        Note over User, Skill: 議事録生成 (手動)
-        User->>Skill: /shadow-clerk update
-        Skill->>FS: transcript 差分を読み取り
-        Skill->>Skill: 既存 summary を踏まえ議事録を更新
-        Skill->>FS: summary-YYYYMMDD.md 保存
+        Note over User, B: 議事録生成 (手動)
+        User->>B: ダッシュボード「要約生成」ボタン
+        B->>Rec: POST /api/summary (file)
+        Rec->>LLM: summarize --mode update --file <transcript>
+        LLM-->>Rec: 議事録テキスト
+        Rec->>FS: summary-*.md 保存
+        FW->>B: SSE "alert" (要約完了通知)
     end
 ```
 
