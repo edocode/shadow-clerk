@@ -250,6 +250,23 @@ def _get_default_sink_name() -> str | None:
     return None
 
 
+def _is_rdp_audio(name: str) -> bool:
+    """RDP の virtual audio device か判定。
+
+    soundcard で recorder を開くと WASAPI ドライバ層でセグフォし Python が
+    無言で落ちるため、loopback 候補から除外する。
+    """
+    if not name:
+        return False
+    n = name.lower()
+    return (
+        "リモート オーディオ" in name      # ja (full-width space)
+        or "リモート デスクトップ" in name  # ja (RDP redirected device)
+        or "remote audio" in n             # en
+        or "remote desktop" in n           # en
+    )
+
+
 class WasapiSoundcardBackend(AudioBackend):
     """Windows WASAPI ループバックバックエンド (soundcard パッケージ)"""
 
@@ -263,17 +280,36 @@ class WasapiSoundcardBackend(AudioBackend):
         except ImportError:
             return False
 
+    @staticmethod
+    def _local_loopback_mics() -> list:
+        """RDP デバイスを除いた loopback マイク一覧"""
+        import soundcard
+        result = []
+        for mic in soundcard.all_microphones(include_loopback=True):
+            if not getattr(mic, "isloopback", False):
+                continue
+            if _is_rdp_audio(mic.name):
+                logger.info("RDP オーディオデバイスをスキップ: %s", mic.name)
+                continue
+            result.append(mic)
+        return result
+
     def detect_monitor_source(self) -> str | None:
         try:
             import soundcard
             default_spk_name = soundcard.default_speaker().name
-            for mic in soundcard.all_microphones(include_loopback=True):
-                if getattr(mic, "isloopback", False) and mic.name == default_spk_name:
+            if _is_rdp_audio(default_spk_name):
+                logger.info("既定スピーカーが RDP デバイス (%s)、ローカル loopback を探す",
+                            default_spk_name)
+                default_spk_name = ""
+            local_mics = self._local_loopback_mics()
+            # 既定スピーカーに対応する loopback を優先
+            for mic in local_mics:
+                if default_spk_name and mic.name == default_spk_name:
                     return mic.name
-            # 既定スピーカーに対応する loopback mic が見つからなければ最初の loopback を使う
-            for mic in soundcard.all_microphones(include_loopback=True):
-                if getattr(mic, "isloopback", False):
-                    return mic.name
+            # フォールバック: 最初のローカル loopback
+            if local_mics:
+                return local_mics[0].name
             return None
         except Exception as e:
             logger.warning("soundcard loopback マイク取得失敗: %s", e)
@@ -284,8 +320,10 @@ class WasapiSoundcardBackend(AudioBackend):
             import soundcard
             print(t("rec.wasapi_loopback_mics"))
             for mic in soundcard.all_microphones(include_loopback=True):
-                if getattr(mic, "isloopback", False):
-                    print(f"  {mic.name}")
+                if not getattr(mic, "isloopback", False):
+                    continue
+                marker = " (RDP — skipped)" if _is_rdp_audio(mic.name) else ""
+                print(f"  {mic.name}{marker}")
         except ImportError:
             print(t("rec.wasapi_soundcard_unavailable"))
 
@@ -293,15 +331,15 @@ class WasapiSoundcardBackend(AudioBackend):
                               stop_event: threading.Event) -> None:
         """soundcard の loopback マイクで WASAPI ループバックキャプチャ (polling)"""
         import numpy as np
-        import soundcard
-        loopback_mics = [
-            m for m in soundcard.all_microphones(include_loopback=True)
-            if getattr(m, "isloopback", False)
-        ]
+        loopback_mics = self._local_loopback_mics()
         if not loopback_mics:
-            logger.error("WASAPI loopback マイクが見つかりません")
+            logger.error("WASAPI loopback マイクが見つかりません(RDP デバイス除外後)")
             return
         mic = next((m for m in loopback_mics if m.name == source), loopback_mics[0])
+        if _is_rdp_audio(mic.name):
+            # source が RDP デバイス指定だった場合のガード(異常系)
+            logger.error("RDP デバイス (%s) ではキャプチャしない", mic.name)
+            return
         logger.info("WASAPI loopback キャプチャ開始: %s", mic.name)
         try:
             with mic.recorder(samplerate=SAMPLE_RATE, channels=CHANNELS, blocksize=FRAME_SIZE) as rec:
