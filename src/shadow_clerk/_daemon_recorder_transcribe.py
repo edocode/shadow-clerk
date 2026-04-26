@@ -426,13 +426,14 @@ class _RecorderTranscribeMixin:
     def _interim_translate_thread(self) -> None:
         """リアルタイム interim 翻訳スレッド
 
-        claude provider は subprocess 起動 + API ラウンドトリップで毎回
-        5〜10 秒かかり、interim 用途(目標 1〜2 秒)に間に合わないので、
-        api / libretranslate にフォールバックする。どちらも未設定なら
-        interim 翻訳は無効化(確定翻訳の方は通常通り動作する)。
+        プロバイダ選択順:
+          1. `interim_translation_provider` 明示指定があればそれを使う
+             (claude も指定可、ただし遅延 5〜10 秒で interim 向きではない)
+          2. 未指定(null)のとき: `translation_provider` を踏襲。claude は
+             interim には遅すぎるので api → libretranslate の順で fallback、
+             どちらも無ければ interim 翻訳は無効化
 
-        前提: `interim_transcription: true`(interim 認識が動いていないと
-        翻訳の入力も無い) かつ `interim_translation: true`(明示的に有効化)。
+        前提: `interim_transcription: true` かつ `interim_translation: true`。
         """
         current_seq: dict[str, int] = {}
         client = None
@@ -445,8 +446,8 @@ class _RecorderTranscribeMixin:
             translation_provider = get_translation_provider(config)
             interim_translation_enabled = config.get("interim_translation", True)
             interim_transcription_enabled = config.get("interim_transcription", False)
+            interim_provider_override = config.get("interim_translation_provider")
 
-            # interim_translation が明示的に無効 → 何もしない
             if not interim_translation_enabled:
                 if not _logged_disabled and interim_transcription_enabled:
                     logger.info("中間翻訳: 無効 (interim_translation=false)")
@@ -454,32 +455,35 @@ class _RecorderTranscribeMixin:
                 self.stop_event.wait(timeout=5.0)
                 continue
 
-            # claude provider → interim には遅すぎるので別バックエンドを探す
-            interim_provider = translation_provider
-            if interim_provider == "claude":
-                if config.get("api_endpoint") and _HAS_LLM_CLIENT:
-                    interim_provider = "api"
-                elif config.get("libretranslate_endpoint"):
-                    interim_provider = "libretranslate"
-                else:
-                    if not _logged_provider:
-                        # interim_transcription が無効なら誤誘導になるので警告しない
-                        if interim_transcription_enabled:
-                            logger.warning(
-                                "中間翻訳は無効: translation_provider=claude は遅延が大きく "
-                                "interim 用途に使えません。中間翻訳を有効にするには "
-                                "`libretranslate_endpoint` (高速、推奨) または "
-                                "`api_endpoint`+`api_model` を config.yaml に設定してください。"
-                                "(確定済み transcript の翻訳は claude のまま動作します。"
-                                "中間翻訳そのものが不要なら `interim_translation: false` で警告を抑制可)")
-                        _logged_provider = True
-                    self.stop_event.wait(timeout=5.0)
-                    continue
+            if interim_provider_override:
+                interim_provider = interim_provider_override
+                if interim_provider == "claude" and not _logged_provider:
+                    logger.warning("中間翻訳: provider=claude を明示指定 (1呼び出し 5〜10秒の遅延あり)")
+            else:
+                interim_provider = translation_provider
+                if interim_provider == "claude":
+                    if config.get("api_endpoint") and _HAS_LLM_CLIENT:
+                        interim_provider = "api"
+                    elif config.get("libretranslate_endpoint"):
+                        interim_provider = "libretranslate"
+                    else:
+                        if not _logged_provider:
+                            if interim_transcription_enabled:
+                                logger.warning(
+                                    "中間翻訳は無効: translation_provider=claude は遅延が大きく "
+                                    "interim 用途に使えません。`libretranslate_endpoint` または "
+                                    "`api_endpoint`+`api_model` を設定するか、"
+                                    "`interim_translation_provider: claude` で明示指定してください "
+                                    "(遅延承知の場合)。中間翻訳が不要なら "
+                                    "`interim_translation: false` で警告を抑制可")
+                            _logged_provider = True
+                        self.stop_event.wait(timeout=5.0)
+                        continue
 
             if not _logged_provider:
-                logger.info("中間翻訳スレッド開始: provider=%s%s",
-                            interim_provider,
-                            f" (translation_provider={translation_provider} からフォールバック)" if interim_provider != translation_provider else "")
+                src = (f"interim_translation_provider={interim_provider_override}" if interim_provider_override
+                       else f"translation_provider={translation_provider}")
+                logger.info("中間翻訳スレッド開始: provider=%s (%s)", interim_provider, src)
                 _logged_provider = True
 
             if interim_provider == "libretranslate":
@@ -494,6 +498,8 @@ class _RecorderTranscribeMixin:
                 if not config.get("api_endpoint"):
                     self.stop_event.wait(timeout=2.0)
                     continue
+            # claude は call_claude_cli が内部で claude バイナリを解決するので
+            # ここでの事前チェックは不要
 
             try:
                 text, source, speaker, timestamp, seq = self._interim_translate_queue.get(timeout=1.0)
@@ -539,6 +545,24 @@ class _RecorderTranscribeMixin:
                             ensure_ascii=False))
                 except Exception as e:
                     logger.warning("中間翻訳エラー (libretranslate): %s", e)
+            elif interim_provider == "claude":
+                # claude_cli は遅いが明示指定された場合のみ呼ぶ
+                try:
+                    from shadow_clerk._llm_config import call_claude_cli
+                    glossary = load_glossary(lang)
+                    system_prompt = nt("llm.translate_system", lang=lang, hiragana_step="")
+                    if glossary:
+                        system_prompt += "\n" + glossary
+                    translated = call_claude_cli(f"1: {text}", system_prompt, config).strip()
+                    if translated.startswith("1:"):
+                        translated = translated[2:].strip()
+                    if translated and hasattr(self, "_file_watcher"):
+                        self._file_watcher._broadcast("interim_translation", json.dumps(
+                            {"source": source, "speaker": speaker, "text": text,
+                             "translated": translated, "timestamp": timestamp},
+                            ensure_ascii=False))
+                except Exception as e:
+                    logger.warning("中間翻訳エラー (claude): %s", e)
             else:
                 # api_model 未設定時はスキップ
                 if not config.get("api_model"):
