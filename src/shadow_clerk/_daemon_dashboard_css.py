@@ -213,6 +213,7 @@ main {
 .modal-body textarea { resize:vertical; min-height:60px; font-family:monospace; font-size:12px; }
 .modal-body .cfg-section { grid-column:1/-1; font-weight:bold; font-size:13px; padding:8px 0 4px; border-bottom:1px solid var(--border); margin-top:4px; color:var(--text); }
 .modal-body .cfg-section:first-child { margin-top:0; }
+.modal-body .cfg-warn { grid-column:1/-1; font-size:11px; padding:6px 8px; background:rgba(255,179,71,0.12); border-left:3px solid #ffb347; color:var(--muted); margin:2px 0 4px; line-height:1.5; }
 #glossaryTable th, #glossaryTable td {
   border:1px solid var(--border); padding:4px 6px;
 }

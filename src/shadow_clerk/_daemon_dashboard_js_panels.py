@@ -188,7 +188,8 @@ const CFG_FIELDS=[
   {key:'interim_model',label:I18N['cfg.interim_model'],type:'select',opts:['tiny','base','small','medium']},
   {key:'interim_japanese_asr_model',label:I18N['cfg.interim_japanese_asr_model'],type:'select',opts:['default','kotoba-whisper','reazonspeech-k2']},
   {key:'interim_translation',label:I18N['cfg.interim_translation'],type:'bool'},
-  {key:'interim_translation_provider',label:I18N['cfg.interim_translation_provider'],type:'select',opts:['','api','libretranslate','claude']},
+  {key:'interim_translation_provider',label:I18N['cfg.interim_translation_provider'],type:'select',opts:['','api','libretranslate','claude'],
+    warn:{when:'claude',msgKey:'cfg.interim_translation_provider_claude_warn'}},
   {type:'section',label:I18N['cfg.section.translation']},
   {key:'translate_language',label:I18N['cfg.translate_language'],type:'select',opts:LANG_OPTS},
   {key:'auto_translate',label:I18N['cfg.auto_translate'],type:'bool'},
@@ -262,6 +263,18 @@ async function openCfg(){
       if(f.ph)el.placeholder=f.ph;
     }
     b.appendChild(el);
+    if(f.warn){
+      const w=document.createElement('div');w.className='cfg-warn';
+      w.id='cfg_warn_'+f.key;
+      w.textContent=I18N[f.warn.msgKey]||f.warn.msgKey;
+      const isWarnValue=()=>{
+        const cur=el.tagName==='SELECT'?el.value:(el.querySelector&&el.querySelector('select')?el.querySelector('select').value:el.value);
+        return String(cur)===String(f.warn.when);
+      };
+      w.style.display=isWarnValue()?'block':'none';
+      el.addEventListener('change',()=>{w.style.display=isWarnValue()?'block':'none';});
+      b.appendChild(w);
+    }
   });
   document.getElementById('cfgSaved').style.display='none';
   const jaEl=document.getElementById('cfg_japanese_asr_model');
