@@ -106,13 +106,14 @@ This is all you need for transcription. The following optional extras are availa
 japanese_asr_model: kotoba-whisper
 ```
 
-**ReazonSpeech k2** — Requires the `reazonspeech` extra:
+**ReazonSpeech k2** — Requires the `reazonspeech` extra plus the `reazonspeech-k2-asr` package, which is only distributed via Git (not on PyPI), so it must be installed separately:
 
 ```bash
 uv tool install -e ".[reazonspeech]" \
   --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
 # or for development:
 uv sync --extra reazonspeech
+uv pip install "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
 ```
 
 ```yaml

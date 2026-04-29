@@ -106,13 +106,14 @@ cd shadow-clerk
 japanese_asr_model: kotoba-whisper
 ```
 
-**ReazonSpeech k2** — `reazonspeech` extra が必要:
+**ReazonSpeech k2** — `reazonspeech` extra と `reazonspeech-k2-asr` パッケージが必要。`reazonspeech-k2-asr` は PyPI ではなく Git でのみ配布されているため別途インストールが必要:
 
 ```bash
 uv tool install -e ".[reazonspeech]" \
   --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
 # 開発用:
 uv sync --extra reazonspeech
+uv pip install "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
 ```
 
 ```yaml

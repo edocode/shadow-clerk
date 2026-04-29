@@ -2,8 +2,40 @@
 name = "shadow-clerk"
 version = "0.2.0"
 description = "Real-time audio recording and transcription tool for web meetings"
+readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11"
+authors = [
+    {name = "Atsushi Kato", email = "ktat.is@gmail.com"},
+]
+keywords = [
+    "meeting",
+    "transcription",
+    "speech-to-text",
+    "whisper",
+    "real-time",
+    "audio",
+    "japanese",
+    "asr",
+    "translation",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio :: Capture/Recording",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Office/Business",
+    "Natural Language :: English",
+    "Natural Language :: Japanese",
+]
 dependencies = [
     "faster-whisper>=1.0.0",
     "sounddevice>=0.4.6",
@@ -17,15 +49,23 @@ dependencies = [
     "langdetect>=1.0.9",
 ]
 
+[project.urls]
+Homepage = "https://github.com/edocode/shadow-clerk"
+Repository = "https://github.com/edocode/shadow-clerk"
+Issues = "https://github.com/edocode/shadow-clerk/issues"
+
 [project.optional-dependencies]
 spell-check = [
     "transformers>=4.30.0",
     "torch>=2.0.0",
     "sentencepiece>=0.1.99",
 ]
+# Note: reazonspeech-k2-asr is published only via Git, not on PyPI, so it
+# cannot be declared here (PyPI rejects direct URL references in metadata).
+# After installing this extra, also run:
+#   uv pip install "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
 reazonspeech = [
     "sherpa-onnx>=1.12.28",
-    "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr",
 ]
 gcal = [
     "google-auth-oauthlib>=1.0.0",
