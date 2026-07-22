@@ -141,27 +141,32 @@ def summarize(args: argparse.Namespace) -> None:
                 pass
         result = _summarize_update(client, model, transcript, existing_summary, attendees_block, provider=provider)
 
-    if result:
-        # Summary バリューオブジェクトとして扱う
-        tn = TranscriptName.parse(os.path.basename(transcript_path))
-        summary = Summary(transcript_name=tn, content=result) if tn else None
+    if not result:
+        # rc=0 で終了すると呼び出し側（自動要約）が成功と誤認して完了通知を出すため、
+        # LLM 失敗・応答不足は異常終了で伝える
+        print(t("err.summary_failed"), file=sys.stderr)
+        sys.exit(1)
 
-        if args.output:
-            output_path = os.path.expanduser(args.output)
-            if not os.path.isabs(output_path):
-                output_path = resolve_path(output_path, config)
-        elif summary:
-            # args.output 未指定かつ TranscriptName をパースできた場合は
-            # transcript と同ディレクトリに summary ファイルを自動生成
-            output_path = summary.file_path(os.path.dirname(transcript_path))
-        else:
-            output_path = None
+    # Summary バリューオブジェクトとして扱う
+    tn = TranscriptName.parse(os.path.basename(transcript_path))
+    summary = Summary(transcript_name=tn, content=result) if tn else None
 
-        if output_path:
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(result)
-            logger.info("summary 保存: %s", output_path)
-        print(result)
+    if args.output:
+        output_path = os.path.expanduser(args.output)
+        if not os.path.isabs(output_path):
+            output_path = resolve_path(output_path, config)
+    elif summary:
+        # args.output 未指定かつ TranscriptName をパースできた場合は
+        # transcript と同ディレクトリに summary ファイルを自動生成
+        output_path = summary.file_path(os.path.dirname(transcript_path))
+    else:
+        output_path = None
+
+    if output_path:
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(result)
+        logger.info("summary 保存: %s", output_path)
+    print(result)
 
 
 def _estimate_tokens(text: str) -> int:

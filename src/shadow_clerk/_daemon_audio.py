@@ -1,5 +1,6 @@
 """Shadow-clerk daemon: 音声バックエンド"""
 from __future__ import annotations
+import collections
 import logging
 import queue
 import shutil
@@ -11,6 +12,43 @@ from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import SAMPLE_RATE, CHANNELS, FRAME_SIZE
 
 logger = logging.getLogger("shadow-clerk")
+
+
+def _capture_pcm_stream(cmd: list[str], name: str, audio_queue: queue.Queue,
+                        stop_event: threading.Event) -> None:
+    """コマンドの stdout から PCM フレームを読み続けて audio_queue に流す。
+
+    stderr は別スレッドで読み捨てつつ末尾のみ保持する。読まずに放置すると
+    子プロセスが警告を大量出力した際に OS パイプバッファが充満して
+    stdout への音声出力ごとブロックし、キャプチャが無音停止する。
+    """
+    import numpy as np
+    logger.info("%s monitor capture: %s", name, " ".join(cmd))
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert proc.stdout is not None and proc.stderr is not None
+    stderr_tail: collections.deque[bytes] = collections.deque(maxlen=50)
+
+    def _drain() -> None:
+        for line in proc.stderr:
+            stderr_tail.append(line)
+
+    drain_thread = threading.Thread(target=_drain, name=f"{cmd[0]}-stderr", daemon=True)
+    drain_thread.start()
+    try:
+        while not stop_event.is_set():
+            data = proc.stdout.read(FRAME_SIZE * 2)
+            if not data:
+                break
+            if len(data) == FRAME_SIZE * 2:
+                samples = np.frombuffer(data, dtype=np.int16)
+                audio_queue.put(samples)
+    finally:
+        proc.terminate()
+        proc.wait()
+        drain_thread.join(timeout=2)
+        err = b"".join(stderr_tail)
+        if err:
+            logger.warning("%s stderr: %s", cmd[0], err.decode("utf-8", errors="replace").strip())
 
 
 class AudioBackend:
@@ -91,24 +129,7 @@ class PipeWireBackend(AudioBackend):
             "--format", "s16",
             "-",
         ]
-        logger.info("PipeWire monitor capture: %s", " ".join(cmd))
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        assert proc.stdout is not None and proc.stderr is not None
-        try:
-            while not stop_event.is_set():
-                data = proc.stdout.read(FRAME_SIZE * 2)
-                if not data:
-                    break
-                if len(data) == FRAME_SIZE * 2:
-                    import numpy as np
-                    samples = np.frombuffer(data, dtype=np.int16)
-                    audio_queue.put(samples)
-        finally:
-            proc.terminate()
-            proc.wait()
-            err = proc.stderr.read()
-            if err:
-                logger.warning("pw-record stderr: %s", err.decode("utf-8", errors="replace").strip())
+        _capture_pcm_stream(cmd, "PipeWire", audio_queue, stop_event)
 
 
 class PulseAudioBackend(AudioBackend):
@@ -157,24 +178,7 @@ class PulseAudioBackend(AudioBackend):
             "--channels=1",
             "--format=s16le",
         ]
-        logger.info("PulseAudio monitor capture: %s", " ".join(cmd))
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        assert proc.stdout is not None and proc.stderr is not None
-        try:
-            while not stop_event.is_set():
-                data = proc.stdout.read(FRAME_SIZE * 2)
-                if not data:
-                    break
-                if len(data) == FRAME_SIZE * 2:
-                    import numpy as np
-                    samples = np.frombuffer(data, dtype=np.int16)
-                    audio_queue.put(samples)
-        finally:
-            proc.terminate()
-            proc.wait()
-            err = proc.stderr.read()
-            if err:
-                logger.warning("parec stderr: %s", err.decode("utf-8", errors="replace").strip())
+        _capture_pcm_stream(cmd, "PulseAudio", audio_queue, stop_event)
 
 
 def detect_backend(preferred: str = "auto") -> tuple[str, AudioBackend | None]:

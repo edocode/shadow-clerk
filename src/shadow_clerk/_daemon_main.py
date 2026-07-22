@@ -12,6 +12,7 @@ from shadow_clerk._daemon_constants import PID_FILE, LOG_FILE
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_audio import detect_backend, list_all_devices
 from shadow_clerk._daemon_recorder import Recorder
+from shadow_clerk._process import is_clerk_daemon_process
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -36,6 +37,14 @@ def _daemonize() -> None:
 def _write_pid_file() -> None:
     with open(PID_FILE, "w") as f:
         f.write(str(os.getpid()))
+
+
+def _read_existing_pid() -> int | None:
+    try:
+        with open(PID_FILE) as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
 
 
 def _remove_pid_file() -> None:
@@ -147,6 +156,20 @@ def main() -> None:
     args.whisper_compute_type = args.compute_type if args.compute_type is not None else config.get("whisper_compute_type", "int8")
     args.whisper_device = args.device if args.device is not None else config.get("whisper_device", "cpu")
 
+    # デバイス一覧表示は稼働中デーモンに影響を与えない（PID ファイルも書かない）
+    if args.list_devices:
+        backend_name, backend = detect_backend(args.backend)
+        print(t("rec.backend", name=backend_name))
+        list_all_devices(backend_name, backend)
+        return
+
+    # 多重起動ガード: 稼働中デーモンの daemon.pid を上書き→atexit 削除して
+    # プロセス管理不能にしてしまうのを防ぐ
+    existing_pid = _read_existing_pid()
+    if existing_pid is not None and existing_pid != os.getpid() and is_clerk_daemon_process(existing_pid):
+        print(t("rec.already_running", pid=existing_pid), file=sys.stderr)
+        sys.exit(1)
+
     log_level = logging.DEBUG if args.verbose else logging.INFO
     log_format = "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
     log_datefmt = "%H:%M:%S"
@@ -170,15 +193,9 @@ def main() -> None:
             datefmt=log_datefmt,
         )
 
-    # PID ファイルは常に書き込む（clerk-util recorder-status で使用）
+    # PID ファイルを書き込む（clerk-util recorder-status で使用）
     _write_pid_file()
     atexit.register(_remove_pid_file)
-
-    if args.list_devices:
-        backend_name, backend = detect_backend(args.backend)
-        print(t("rec.backend", name=backend_name))
-        list_all_devices(backend_name, backend)
-        return
 
     recorder = Recorder(args)
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from enum import Enum
 
+from shadow_clerk._transcript_name import KNOWN_LANGUAGE_CODES
+
 
 class Language(str, Enum):
     """音声認識・翻訳で使用する言語コード。
@@ -20,6 +22,8 @@ class Language(str, Enum):
     DE = "de"    # ドイツ語
     FR = "fr"    # フランス語
     ES = "es"    # スペイン語
+    PT = "pt"    # ポルトガル語
+    RU = "ru"    # ロシア語
 
     @classmethod
     def coerce(cls, value: str) -> Language | str:
@@ -32,3 +36,8 @@ class Language(str, Enum):
             return cls(value)
         except ValueError:
             return value
+
+
+# 翻訳ファイル名の判定用 allowlist（_transcript_name.py）との同期を保証する
+assert {lang.value for lang in Language} == set(KNOWN_LANGUAGE_CODES), \
+    "Language enum と KNOWN_LANGUAGE_CODES が一致していません"

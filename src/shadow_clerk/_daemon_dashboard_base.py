@@ -179,6 +179,9 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             info = tn.file_info()
             info["has_translation"] = tn.translation_filename(lang) in all_files
             info["has_summary"] = tn.summary_filename in all_files
+            # 削除確認モーダル用: 実際に一緒に削除される関連ファイル一覧
+            info["related"] = self._related_file_names(
+                os.path.join(output_dir, f), tn, all_files)
             file_info[f] = info
             if tn.meeting_group is not None:
                 groups.setdefault(tn.meeting_group, []).append(f)
@@ -253,7 +256,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             body = self.rfile.read(length)
             data = json.loads(body)
             cmd = data.get("command", "").strip()
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
             self.send_error(400)
             return
         if not cmd:
@@ -322,7 +325,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length) if length else b"{}"
             data = json.loads(body) if body else {}
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
             data = {}
         file_param = data.get("file")
         if file_param:
@@ -348,7 +351,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length) if length else b"{}"
             data = json.loads(body) if body else {}
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
             data = {}
         summary_name = data.get("name", "")
         if summary_name and hasattr(self.recorder, "_file_watcher"):

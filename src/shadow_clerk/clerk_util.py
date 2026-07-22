@@ -10,20 +10,35 @@ import sys
 import time
 
 from shadow_clerk import DATA_DIR, CONFIG_FILE
+from shadow_clerk._process import is_pid_alive as _is_pid_alive, is_clerk_daemon_process
 from shadow_clerk._transcript_name import TranscriptName
+
+# pkill 用パターン: `vim clerk_daemon.py` や `tail -f clerk-daemon.log` のような
+# 無関係プロセスにマッチしないよう、直後が空白または行末の場合のみマッチさせる
+_PKILL_PATTERN = r"clerk[-_]daemon( |$)"
 
 # config.yaml から output_directory を読む
 OUTPUT_DIR = DATA_DIR
 
 
 def _read_output_directory() -> None:
-    """config.yaml の output_directory を読んで OUTPUT_DIR を返す"""
+    """config.yaml の output_directory を読んで OUTPUT_DIR を返す。
+
+    起動速度のため yaml をインポートせず素朴に読む。クォート付き値や
+    インラインコメントも daemon 側 (yaml.safe_load) と同じ値になるよう剥がす。
+    """
     global OUTPUT_DIR
     if os.path.isfile(CONFIG_FILE):
         with open(CONFIG_FILE) as f:
             for line in f:
                 if line.startswith("output_directory:"):
                     val = line.split(":", 1)[1].strip()
+                    # インラインコメントを除去（クォート外の " #" 以降）
+                    if not val.startswith(("'", '"')):
+                        val = val.split(" #", 1)[0].strip()
+                    # クォートを除去
+                    if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
+                        val = val[1:-1]
                     if val and val != "null":
                         OUTPUT_DIR = os.path.expanduser(val)
                         os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -91,19 +106,10 @@ def _read_pid() -> int | None:
         return None
 
 
-def _is_pid_alive(pid: int) -> bool:
-    """プロセスが存在するか"""
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
-
-
 def _is_recorder_running() -> bool:
-    """clerk-daemon プロセスが動作中か"""
+    """clerk-daemon プロセスが動作中か（PID 再利用による誤判定は cmdline で除外）"""
     pid = _read_pid()
-    return bool(pid and _is_pid_alive(pid))
+    return bool(pid and is_clerk_daemon_process(pid))
 
 
 def cmd_recorder_status(args: list[str]) -> None:
@@ -250,10 +256,10 @@ def _terminate_pid(pid: int) -> None:
 def cmd_stop(args: list[str]) -> None:
     """clerk-daemon プロセスを停止 (Linux: SIGTERM, Windows: taskkill)"""
     pid = _read_pid()
-    if pid and _is_pid_alive(pid):
+    if pid and is_clerk_daemon_process(pid):
         _terminate_pid(pid)
     elif sys.platform != "win32":
-        subprocess.run(["pkill", "-f", "clerk-daemon|clerk_daemon"])
+        subprocess.run(["pkill", "-f", _PKILL_PATTERN])
     else:
         print("warning: PIDファイルが見つかりません。実行中の clerk-daemon を特定できません。", file=sys.stderr)
 
@@ -263,10 +269,10 @@ def cmd_restart(args: list[str]) -> None:
     # 停止
     if _is_recorder_running():
         pid = _read_pid()
-        if pid and _is_pid_alive(pid):
+        if pid and is_clerk_daemon_process(pid):
             _terminate_pid(pid)
         elif sys.platform != "win32":
-            subprocess.run(["pkill", "-f", "clerk-daemon|clerk_daemon"])
+            subprocess.run(["pkill", "-f", _PKILL_PATTERN])
         else:
             print("warning: PIDファイルが見つかりません。実行中の clerk-daemon を特定できません。", file=sys.stderr)
         # 終了待機（最大10秒）

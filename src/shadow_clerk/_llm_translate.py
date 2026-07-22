@@ -14,49 +14,68 @@ from shadow_clerk._llm_glossary import load_glossary, MARKER_RE, TIMESTAMP_RE, _
 logger = logging.getLogger("llm-client")
 
 
-def _translate_libretranslate(texts: list[str], lang: str, endpoint: str, api_key: str | None) -> list[str]:
-    """LibreTranslate API で翻訳する。
+def _fix_libretranslate_uppercase(line: str) -> str:
+    """LibreTranslate bug: 入力に全大文字英単語(AI等)があると出力全体が大文字になる。
 
-    全テキストを改行で結合して一括送信し、レスポンスを改行で分割して返す。
+    各文の先頭を大文字にし、それ以外を小文字にする（title case ではなく sentence case）。
     """
+    if line and len(line) > 3 and line == line.upper() and line != line.lower():
+        import re as _re
+        line = line.lower()
+        line = _re.sub(r'(^|[.!?]\s+)([a-z])', lambda m: m.group(1) + m.group(2).upper(), line)
+        # "i " / "i'" を "I " / "I'" に修正
+        line = _re.sub(r"\bi\b(?=['\s])", "I", line)
+        logger.debug("LibreTranslate uppercase fix: %r", line[:80])
+    return line
+
+
+def _lt_request(q, lang: str, endpoint: str, api_key: str | None):
+    """LibreTranslate /translate を1回叩き、translatedText を返す（str または list）。"""
     import urllib.request
-    joined = "\n".join(texts)
-    payload = {
-        "q": joined,
-        "source": "auto",
-        "target": lang,
-        "format": "text",
-    }
+    payload: dict = {"q": q, "source": "auto", "target": lang, "format": "text"}
     if api_key:
         payload["api_key"] = api_key
-
     data = json.dumps(payload).encode("utf-8")
     url = endpoint.rstrip("/") + "/translate"
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        result = json.loads(resp.read().decode("utf-8"))
+    return result.get("translatedText", "")
 
-    logger.debug("LibreTranslate request: url=%s, %d texts", url, len(texts))
+
+def _translate_libretranslate(texts: list[str], lang: str, endpoint: str, api_key: str | None) -> list[str]:
+    """LibreTranslate API で翻訳する。
+
+    q を配列で送ると translatedText も配列で返るため、入力行と出力行が
+    確実に 1 対 1 で対応する（翻訳結果に改行が含まれても序数がずれない）。
+    配列を受け付けない旧サーバ（HTTP 400 等）や文字列で返すサーバには、
+    改行結合/分割へフォールバックする（この場合のみ序数ズレの可能性が残る）。
+    """
+    import urllib.error
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-        translated = result.get("translatedText", "")
-        logger.debug("LibreTranslate response: %r", translated[:200])
-        lines = translated.split("\n")
-        # LibreTranslate bug: 入力に全大文字英単語(AI等)があると出力全体が大文字になる
-        # 各文の先頭を大文字にし、それ以外を小文字にする（title case ではなく sentence case）
-        fixed = []
-        for line in lines:
-            if line and len(line) > 3 and line == line.upper() and line != line.lower():
-                import re as _re
-                line = line.lower()
-                line = _re.sub(r'(^|[.!?]\s+)([a-z])', lambda m: m.group(1) + m.group(2).upper(), line)
-                # "i " / "i'" を "I " / "I'" に修正
-                line = _re.sub(r"\bi\b(?=['\s])", "I", line)
-                logger.debug("LibreTranslate uppercase fix: %r", line[:80])
-            fixed.append(line)
-        return fixed
+        translated = _lt_request(texts, lang, endpoint, api_key)
+        if isinstance(translated, list):
+            # 配列応答: 入力と 1 対 1 対応。要素内の改行はそのまま保持
+            logger.debug("LibreTranslate array response: %d items", len(translated))
+            return [_fix_libretranslate_uppercase(str(t)) for t in translated]
+        # 配列を投げたのに文字列で返す旧サーバ → 改行分割フォールバック
+        logger.debug("LibreTranslate string response for array request: %r", translated[:200])
+        return [_fix_libretranslate_uppercase(line) for line in translated.split("\n")]
+    except urllib.error.HTTPError as e:
+        # 配列 q 自体を拒否する旧サーバ向けに、改行結合の文字列で1回だけ再試行
+        logger.warning("LibreTranslate array request rejected (HTTP %s), retrying as joined string", e.code)
+        try:
+            translated = _lt_request("\n".join(texts), lang, endpoint, api_key)
+            joined = translated if isinstance(translated, str) else "\n".join(str(t) for t in translated)
+            return [_fix_libretranslate_uppercase(line) for line in joined.split("\n")]
+        except Exception as e2:
+            logger.error("LibreTranslate error (string fallback): %s", e2)
+            raise
     except Exception as e:
+        # 原文フォールバックで返すと呼び出し側が翻訳成功と区別できず、
+        # 原文が翻訳ファイルに確定して二度と再翻訳されないため、失敗は伝播させる
         logger.error("LibreTranslate error: %s", e)
-        return texts  # フォールバック: 原文をそのまま返す
+        raise
 
 
 # --- spell check (transformers) ---
@@ -202,7 +221,11 @@ def translate(args: argparse.Namespace) -> None:
             logger.debug("spell-check enabled: model=%s, %d texts", spell_model, len(texts))
             texts = _spell_check(texts, spell_model)
 
-        translated_list = _translate_libretranslate(texts, lang, endpoint, api_key)
+        try:
+            translated_list = _translate_libretranslate(texts, lang, endpoint, api_key)
+        except Exception as e:
+            print(f"Error: LibreTranslate translation failed: {e}", file=sys.stderr)
+            sys.exit(1)
 
         # 翻訳結果が不足していればリトライ
         if len(translated_list) < len(texts):
@@ -299,7 +322,8 @@ def translate(args: argparse.Namespace) -> None:
 
         try:
             raw_content = _llm_call(user_content)
-        except RuntimeError as e:
+        except Exception as e:
+            # api provider は openai.APIError 系を投げるため RuntimeError 限定にしない
             logger.error("translate: LLM call failed: %s", e)
             raw_content = ""
 
@@ -345,6 +369,14 @@ def translate(args: argparse.Namespace) -> None:
                             len(translated_map), len(translatable))
             except Exception as e:
                 logger.warning("translate: retry failed: %s", e)
+
+        if not translated_map:
+            # 全行未翻訳 = LLM 呼び出し自体の失敗。原文フォールバックで rc=0 終了すると
+            # 呼び出し側が原文を翻訳ファイルに書いて offset を進めてしまい、
+            # そのチャンクが永久に未翻訳のまま確定するため、異常終了して再試行させる。
+            # （一部の行だけ欠けた場合は、個別行の再試行ループを避けるため従来通り原文で埋める）
+            print("Error: translation failed for all lines", file=sys.stderr)
+            sys.exit(1)
 
         # 出力を組み立て
         translate_idx = 0

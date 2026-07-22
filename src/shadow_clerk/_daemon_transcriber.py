@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import sys
+import threading
 from typing import Any
 import numpy as np
 from shadow_clerk._daemon_constants import GLOSSARY_FILE, SAMPLE_RATE
@@ -74,6 +75,9 @@ class Transcriber:
         self._backend: str = "whisper"  # "whisper" or "reazonspeech-k2"
         self._ja_asr_config_key = ja_asr_config_key
         self._label = label
+        # transcribe 中のモデル差し替え（reload_model / ensure_model_for_language は
+        # 別スレッドから呼ばれる）で model が None になる競合を防ぐ
+        self._model_lock = threading.RLock()
 
     def _resolve_model_id(self) -> tuple[str, str]:
         """(backend, model_id) を返す"""
@@ -88,6 +92,10 @@ class Transcriber:
         return ("whisper", self.model_size)
 
     def load_model(self) -> None:
+        with self._model_lock:
+            self._load_model_locked()
+
+    def _load_model_locked(self) -> None:
         backend, model_id = self._resolve_model_id()
         if self.model is not None and self._loaded_model_id == model_id and self._backend == backend:
             return
@@ -134,21 +142,23 @@ class Transcriber:
         logger.info("[%s] モデル読み込み完了: %s", self._label, model_id)
 
     def reload_model(self, model_size: str) -> None:
-        self.model_size = model_size
-        self.model = None
-        self._loaded_model_id = None
-        self._backend = "whisper"
-        self.load_model()
-
-    def ensure_model_for_language(self) -> None:
-        if self.model is None:
-            return
-        backend, model_id = self._resolve_model_id()
-        if self._loaded_model_id != model_id or self._backend != backend:
-            logger.info("言語変更に伴いモデルを切り替え: %s -> %s", self._loaded_model_id, model_id)
+        with self._model_lock:
+            self.model_size = model_size
             self.model = None
             self._loaded_model_id = None
-            self.load_model()
+            self._backend = "whisper"
+            self._load_model_locked()
+
+    def ensure_model_for_language(self) -> None:
+        with self._model_lock:
+            if self.model is None:
+                return
+            backend, model_id = self._resolve_model_id()
+            if self._loaded_model_id != model_id or self._backend != backend:
+                logger.info("言語変更に伴いモデルを切り替え: %s -> %s", self._loaded_model_id, model_id)
+                self.model = None
+                self._loaded_model_id = None
+                self._load_model_locked()
 
     # Whisper がよく出力するハルシネーション（無音時の誤認識）パターン
     HALLUCINATION_RE = re.compile(
@@ -162,12 +172,13 @@ class Transcriber:
 
     def transcribe(self, audio: np.ndarray) -> str:
         """音声セグメントを文字起こし"""
-        if self.model is None:
-            self.load_model()
-        assert self.model is not None
-        if self._backend == "reazonspeech-k2":
-            return self._transcribe_k2(audio)
-        return self._transcribe_whisper(audio)
+        with self._model_lock:
+            if self.model is None:
+                self._load_model_locked()
+            assert self.model is not None
+            if self._backend == "reazonspeech-k2":
+                return self._transcribe_k2(audio)
+            return self._transcribe_whisper(audio)
 
     def _transcribe_whisper(self, audio: np.ndarray) -> str:
         """Whisper バックエンドによる文字起こし"""

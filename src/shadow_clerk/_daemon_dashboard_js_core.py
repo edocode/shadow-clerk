@@ -25,6 +25,10 @@ const as={tp:true,rp:true,sp:true,logc:true};
 });
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function escAttr(s){return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+// onclick 属性内のシングルクォート JS 文字列に埋め込む値用。
+// ブラウザは属性値を HTML デコードしてから JS として解釈するため、
+// escAttr だけでは ' が生き残り文字列が壊れる（XSS になり得る）。escJs → escAttr の順で適用する。
+function escJs(s){return s.replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'");}
 function fmtLine(t){
   if(/^---\\s.*\\s---$/.test(t)) return '<div class="ln"><span class="mk">'+esc(t)+'</span></div>';
   const m=t.match(/^\\[(\\d{4}-\\d{2}-\\d{2}\\s\\d{2}:\\d{2}:\\d{2})\\]\\s\\[([^\\]]+)\\]\\s(.*)$/);
@@ -127,15 +131,9 @@ function openFileDelModal(){
     const r=document.querySelector('input[name="fileDelMode"][value="merge"]');
     if(r)r.checked=true;
   }
-  const stem=curFile.replace(/\\.txt$/,'');
-  const files=[curFile];
-  const sel=document.getElementById('fsel');
-  for(const opt of sel.options){
-    const v=opt.value;
-    if(v!==curFile && v.startsWith(stem+'-') && v.endsWith('.txt'))files.push(v);
-  }
-  if(fi?.summary)files.push(fi.summary);
-  files.push(curFile+'.translate_offset');
+  // サーバが返す related（翻訳・summary・offset）を使い、実際に削除されるファイルと一致させる。
+  // 翻訳ファイルは /api/files に載らず fsel にも無いため、以前は一覧から漏れていた
+  const files=[curFile,...((fi?.related)||[])];
   const list=document.getElementById('fileDelList');
   list.innerHTML='';
   files.forEach(f=>{const d=document.createElement('div');d.textContent=f;list.appendChild(d);});
@@ -158,7 +156,9 @@ async function doFileDel(){
 }
 /* --- Extract meeting modal --- */
 function _dtPlusDays(dateStr,n){
-  const d=new Date(dateStr.substring(0,4)+'-'+dateStr.substring(4,6)+'-'+dateStr.substring(6,8));
+  // new Date('YYYY-MM-DD') は UTC 解釈になり、UTC より遅いタイムゾーンで1日ずれるため
+  // ローカル時刻のコンポーネント指定で構築する
+  const d=new Date(+dateStr.substring(0,4),+dateStr.substring(4,6)-1,+dateStr.substring(6,8));
   d.setDate(d.getDate()+n);
   return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
 }
@@ -406,6 +406,9 @@ es.addEventListener('transcript',e=>{
 });
 es.addEventListener('translation',e=>{
   const d=JSON.parse(e.data);
+  // 表示中ファイルの翻訳のみ反映（他ファイルの自動翻訳が閲覧中パネルに混入しないように）
+  // d.file は翻訳ファイル名 (transcript-...-en.txt)。curFile の stem + '-' で照合する
+  if(curFile&&!d.file.startsWith(curFile.replace(/\\.txt$/,'-')))return;
   const el=document.getElementById('rp');
   const msg=el.querySelector('.translating-msg');if(msg)msg.remove();
   addLines('rp',d.diff,fmtLine);document.getElementById('rf').textContent=d.file;
@@ -469,7 +472,12 @@ async function loadFiles(){
     const o=document.createElement('option');o.value=f;
     o.textContent=(fileInfo[f]?.label||f)+(f===d.active?' ★':'');s.appendChild(o);
   });
-  s.value=(p&&shown.has(p))?p:(d.active||'');curFile=s.value;
+  s.value=(p&&shown.has(p))?p:(d.active||'');
+  if(curFile!==s.value){
+    // 選択中ファイルが消えた（リネーム・削除等）→ パネルも新しい選択に合わせて再読込
+    curFile=s.value;
+    if(p){loadT(curFile);loadR(curFile);loadS(curFile);}
+  }
   populateYearSelect();
   // URL ハッシュに指定があれば選択ファイルを復元
   const hf=_hashFile();
@@ -552,7 +560,7 @@ function renderDatePane(){
   }
   dp.innerHTML=files.map(([f])=>{
     const fi=fileInfo[f];
-    return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}"><span class="mg-file-label">${esc((fi?.label||f))}</span>${_badges(fi)}</div>`;
+    return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(escJs(f))}')" title="${escAttr(f)}"><span class="mg-file-label">${esc((fi?.label||f))}</span>${_badges(fi)}</div>`;
   }).join('');
 }
 """
