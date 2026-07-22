@@ -55,8 +55,10 @@ def _translate_libretranslate(texts: list[str], lang: str, endpoint: str, api_ke
             fixed.append(line)
         return fixed
     except Exception as e:
+        # 原文フォールバックで返すと呼び出し側が翻訳成功と区別できず、
+        # 原文が翻訳ファイルに確定して二度と再翻訳されないため、失敗は伝播させる
         logger.error("LibreTranslate error: %s", e)
-        return texts  # フォールバック: 原文をそのまま返す
+        raise
 
 
 # --- spell check (transformers) ---
@@ -202,7 +204,11 @@ def translate(args: argparse.Namespace) -> None:
             logger.debug("spell-check enabled: model=%s, %d texts", spell_model, len(texts))
             texts = _spell_check(texts, spell_model)
 
-        translated_list = _translate_libretranslate(texts, lang, endpoint, api_key)
+        try:
+            translated_list = _translate_libretranslate(texts, lang, endpoint, api_key)
+        except Exception as e:
+            print(f"Error: LibreTranslate translation failed: {e}", file=sys.stderr)
+            sys.exit(1)
 
         # 翻訳結果が不足していればリトライ
         if len(translated_list) < len(texts):
@@ -299,7 +305,8 @@ def translate(args: argparse.Namespace) -> None:
 
         try:
             raw_content = _llm_call(user_content)
-        except RuntimeError as e:
+        except Exception as e:
+            # api provider は openai.APIError 系を投げるため RuntimeError 限定にしない
             logger.error("translate: LLM call failed: %s", e)
             raw_content = ""
 
@@ -345,6 +352,14 @@ def translate(args: argparse.Namespace) -> None:
                             len(translated_map), len(translatable))
             except Exception as e:
                 logger.warning("translate: retry failed: %s", e)
+
+        if not translated_map:
+            # 全行未翻訳 = LLM 呼び出し自体の失敗。原文フォールバックで rc=0 終了すると
+            # 呼び出し側が原文を翻訳ファイルに書いて offset を進めてしまい、
+            # そのチャンクが永久に未翻訳のまま確定するため、異常終了して再試行させる。
+            # （一部の行だけ欠けた場合は、個別行の再試行ループを避けるため従来通り原文で埋める）
+            print("Error: translation failed for all lines", file=sys.stderr)
+            sys.exit(1)
 
         # 出力を組み立て
         translate_idx = 0

@@ -253,7 +253,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             body = self.rfile.read(length)
             data = json.loads(body)
             cmd = data.get("command", "").strip()
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
             self.send_error(400)
             return
         if not cmd:
@@ -322,7 +322,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length) if length else b"{}"
             data = json.loads(body) if body else {}
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
             data = {}
         file_param = data.get("file")
         if file_param:
@@ -348,7 +348,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length) if length else b"{}"
             data = json.loads(body) if body else {}
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
             data = {}
         summary_name = data.get("name", "")
         if summary_name and hasattr(self.recorder, "_file_watcher"):

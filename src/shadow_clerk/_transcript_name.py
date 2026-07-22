@@ -12,12 +12,38 @@ from __future__ import annotations
 import os
 import re
 
+# 翻訳ファイルの言語サフィックスとして認識するコード（domain.Language と同期すること）。
+# 任意の [a-z]+ を許すと "follow-up" のような会議名が翻訳ファイルと誤判定されるため
+# allowlist で制限する。
+KNOWN_LANGUAGE_CODES: tuple[str, ...] = ("ja", "en", "zh", "ko", "de", "fr", "es", "pt", "ru")
+_LANG_ALT = "|".join(KNOWN_LANGUAGE_CODES)
+
+def sanitize_meeting_name(name: str) -> str:
+    """会議名をファイル名に使用できる形式にエスケープする。
+
+    音声コマンド・gcal・ダッシュボード API すべてこの関数を通すこと。
+    `.` はファイル名パターン（@name 部は `[^.]+`）を壊すため、`'` と `` ` `` は
+    ダッシュボード JS の onclick 文字列を壊すため除去する。
+    """
+    # ファイル名・パターン・JS に使えない文字を除去
+    name = re.sub(r'[/\\:*?"\'`<>|.\x00-\x1f]', '', name)
+    # @ は区切り文字と衝突するため除去
+    name = name.replace('@', '')
+    # 連続空白を _ に置換、前後トリム
+    name = re.sub(r'\s+', '_', name.strip())
+    # 末尾の _ を除去、長さ制限
+    name = name[:50].rstrip('_')
+    # 末尾が -{言語コード} だと翻訳ファイルと誤判定されるため区切りを _ に変える
+    return re.sub(rf'-({_LANG_ALT})$', r'_\1', name)
+
+
 # 全 transcript ファイルにマッチ（日次 + 会議）
 _FILE_RE = re.compile(r'^transcript-(\d{8,12})(?:@([^.]+))?\.txt$')
 # 会議ファイルにのみマッチ（HHMM あり）
 _MEETING_RE = re.compile(r'^transcript-(\d{12})(?:@([^.]+))?\.txt$')
 # 翻訳ファイルにマッチ: transcript-YYYYMMDDHHMM[@name]-{lang}.txt
-_TRANSLATION_RE = re.compile(r'^transcript-(\d{8,12})(?:@([^.]+))?-([a-z]{2,10})\.txt$')
+_TRANSLATION_RE = re.compile(
+    rf'^transcript-(\d{{8,12}})(?:@([^.]+))?-({_LANG_ALT})\.txt$')
 
 
 class TranscriptName:
@@ -149,11 +175,14 @@ class TranscriptName:
 
     @property
     def related_file_pattern(self) -> "re.Pattern[str]":
-        """同タイムスタンプの関連ファイル（翻訳・summary・offset等）にマッチするパターン。
+        """同タイムスタンプ・同会議名の関連ファイル（翻訳・offset等）の stem にマッチするパターン。
 
-        transcript-YYYYMMDDHHMM[@任意の名前] で始まるファイルを対象とする。
+        stem 直後が `.`（拡張子）または `-`（翻訳サフィックス）の場合のみマッチする。
+        会議名を `[^.]+` で緩くマッチさせると翻訳ファイル `@name-en.txt` の
+        `-en` まで stem として食われ、リネーム時に transcript 本体と同名に
+        衝突してしまうため、実際の会議名をエスケープして厳密にマッチさせる。
         """
-        return re.compile(r'^' + re.escape(self.datetime_stem) + r'(?:@[^.]+)?')
+        return re.compile(r'^' + re.escape(self.stem) + r'(?=[.-])')
 
     def file_info(self) -> dict:
         """ダッシュボード /api/files レスポンス用の file_info dict を返す"""
@@ -180,7 +209,7 @@ class TranscriptName:
           summary-YYYYMMDDHHMM[@old].md
         """
         tr_pat = self.related_file_pattern
-        sum_pat = re.compile(r'^summary-' + re.escape(self.datetime_str) + r'(?:@[^.]+)?')
+        sum_pat = re.compile(r'^' + re.escape(self.summary_stem) + r'(?=[.-])')
         try:
             all_files = os.listdir(directory)
         except OSError:

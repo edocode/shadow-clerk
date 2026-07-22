@@ -15,7 +15,7 @@ import yaml
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import GLOSSARY_FILE, DEFAULT_CONFIG
 from shadow_clerk._daemon_config import load_config, get_translation_provider
-from shadow_clerk._transcript_name import TranscriptName
+from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name
 
 try:
     from shadow_clerk.llm_client import load_dotenv as llm_load_dotenv
@@ -43,7 +43,7 @@ class _DashboardHandlerOps:
                 if single:
                     raw_lines = [single]
             file_param = data.get("file", "")
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
             self.send_error(400)
             return
         if not raw_lines or not file_param:
@@ -56,42 +56,34 @@ class _DashboardHandlerOps:
             self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
             return
 
-        # transcript から行削除
-        if not self._remove_lines_from_file(t_path, raw_lines):
-            self._send_json({"status": "error", "message": t("dash.delete_error")})
-            return
+        # 転写スレッドの追記と競合しないようロックを取って read-modify-write する
+        with self.recorder.transcript_lock:
+            # transcript から行削除
+            if not self._remove_lines_from_file(t_path, raw_lines):
+                self._send_json({"status": "error", "message": t("dash.delete_error")})
+                return
 
-        # タイムスタンプを抽出して翻訳ファイルから対応行を削除
-        timestamps = []
-        for raw_line in raw_lines:
-            ts_match = re.match(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]", raw_line)
-            if ts_match:
-                timestamps.append(ts_match.group(1))
-        if timestamps:
-            config = load_config()
-            lang = config.get("translate_language", "ja")
-            _tn = TranscriptName.parse(os.path.basename(t_path))
-            if _tn:
-                tr_path = os.path.join(os.path.dirname(t_path), _tn.translation_filename(lang))
-                if os.path.exists(tr_path):
-                    self._remove_lines_from_file_by_ts(tr_path, timestamps)
-                    tr_key = ("translation", tr_path)
-                    if self.file_watcher and tr_key in self.file_watcher._file_offsets:
-                        self.file_watcher._file_offsets[tr_key] = self._get_file_size(tr_path)
+            # タイムスタンプを抽出して翻訳ファイルから対応行を削除
+            timestamps = []
+            for raw_line in raw_lines:
+                ts_match = re.match(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]", raw_line)
+                if ts_match:
+                    timestamps.append(ts_match.group(1))
+            tr_path = None
+            if timestamps:
+                config = load_config()
+                lang = config.get("translate_language", "ja")
+                _tn = TranscriptName.parse(os.path.basename(t_path))
+                if _tn:
+                    tr_path = os.path.join(os.path.dirname(t_path), _tn.translation_filename(lang))
+                    if os.path.exists(tr_path):
+                        self._remove_lines_from_file_by_ts(tr_path, timestamps)
+                    else:
+                        tr_path = None
 
-        # FileWatcher のオフセットをリセット
-        t_key = ("transcript", t_path)
-        if self.file_watcher and t_key in self.file_watcher._file_offsets:
-            self.file_watcher._file_offsets[t_key] = self._get_file_size(t_path)
-
-        # translate_offset ファイルを新 transcript サイズに更新
-        offset_file = t_path + ".translate_offset"
-        if os.path.exists(offset_file):
-            try:
-                with open(offset_file, "w", encoding="utf-8") as f:
-                    f.write(str(self._get_file_size(t_path)))
-            except OSError:
-                pass
+        # FileWatcher オフセット・translate_offset を新サイズにリセット
+        self._reset_watch_offsets(
+            [("transcript", t_path), ("translation", tr_path)], [t_path])
 
         # transcript がマーカー行・空行のみになった場合は関連ファイルごと削除
         cleaned = self._check_and_cleanup_empty_transcript(t_path)
@@ -152,7 +144,7 @@ class _DashboardHandlerOps:
             body = self.rfile.read(length)
             data = json.loads(body)
             file_param = data.get("file", "")
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
             self.send_error(400)
             return
         if not file_param:
@@ -177,7 +169,7 @@ class _DashboardHandlerOps:
             body = self.rfile.read(length)
             data = json.loads(body)
             file_param = data.get("file", "")
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
             self.send_error(400)
             return
         if not file_param:
@@ -223,31 +215,27 @@ class _DashboardHandlerOps:
             if cur:
                 blocks.append(cur)
             blocks.sort(key=lambda b: (ts_pattern.match(b[0]).group(1) if ts_pattern.match(b[0]) else ""))
-            tmp_fd, tmp_p = tempfile.mkstemp(dir=output_dir, prefix=".transcript-", suffix=".tmp")
-            try:
-                with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-                    for b in blocks:
-                        f.writelines(b)
-                os.replace(tmp_p, dst)
-            except BaseException:
-                try:
-                    os.unlink(tmp_p)
-                except OSError:
-                    pass
-                raise
+            self._atomic_write_lines(dst, [line for b in blocks for line in b])
 
+        daily_path = os.path.join(output_dir, daily_tn.filename)
+        merged_translations: list[str] = []
         with self.recorder.transcript_lock:
             # transcript 本体をマージ
-            _merge_file(t_path, os.path.join(output_dir, daily_tn.filename))
+            _merge_file(t_path, daily_path)
             # 翻訳ファイルをマージ (transcript-YYYYMMDDHHMM[@name]-{lang}.txt → transcript-YYYYMMDD-{lang}.txt)
             for fname in os.listdir(output_dir):
                 if fname.startswith(tn.stem + "-") and fname.endswith(".txt"):
                     lang = fname[len(tn.stem) + 1:-4]
                     if lang:
-                        _merge_file(
-                            os.path.join(output_dir, fname),
-                            os.path.join(output_dir, daily_tn.translation_filename(lang)),
-                        )
+                        daily_tr = os.path.join(output_dir, daily_tn.translation_filename(lang))
+                        _merge_file(os.path.join(output_dir, fname), daily_tr)
+                        merged_translations.append(daily_tr)
+
+        # マージは日次ファイルの途中に行を挿入するため、旧オフセットのままだと
+        # FileWatcher が無関係なバイト範囲を配信し、翻訳ループもずれた範囲を翻訳する
+        self._reset_watch_offsets(
+            [("transcript", daily_path)] + [("translation", p) for p in merged_translations],
+            [daily_path])
 
         deleted = self._cleanup_transcript_files(t_path, tn)
         if not deleted:
@@ -255,209 +243,19 @@ class _DashboardHandlerOps:
             return
         self._send_json({"status": "ok", "deleted": deleted})
 
-    def _extract_meeting(self) -> None:
-        """POST /api/transcript/extract-meeting — タイムスタンプ範囲の行を会議ファイルへ移動"""
-        try:
-            length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(length)
-            data = json.loads(body)
-            file_param = data.get("file", "")
-            start_ts = data.get("start_ts", "")
-            end_ts = data.get("end_ts", "")
-            target = data.get("target", "new")
-            name = (data.get("name") or "").strip()
-        except (json.JSONDecodeError, ValueError):
-            self.send_error(400)
-            return
-        if not file_param or not start_ts or not end_ts:
-            self.send_error(400)
-            return
-
-        output_dir = self.recorder._output_dir
-        t_path = os.path.join(output_dir, os.path.basename(file_param))
-        if not os.path.exists(t_path):
-            self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
-            return
-
-        with self.recorder.transcript_lock:
-            try:
-                with open(t_path, "r", encoding="utf-8") as f:
-                    all_lines = f.readlines()
-            except OSError:
-                self._send_json({"status": "error", "message": t("dash.extract_meeting_error")})
-                return
-
-            # タイムスタンプ範囲内の行を抽出 / 残りを分離
-            extracted = []
-            remaining = []
-            ts_pattern = re.compile(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]")
-            for line in all_lines:
-                m = ts_pattern.match(line)
-                if m and start_ts <= m.group(1) <= end_ts:
-                    extracted.append(line)
-                else:
-                    remaining.append(line)
-
-            if not extracted:
-                self._send_json({"status": "error", "message": t("dash.extract_meeting_no_lines")})
-                return
-
-            # 会議ファイル名の決定
-            if target == "new":
-                meeting_ts = start_ts.replace("-", "").replace(" ", "").replace(":", "")[:12]
-                meeting_name = TranscriptName(meeting_ts, name or None).filename
-                meeting_path = os.path.join(output_dir, meeting_name)
-                # 会議開始/終了マーカー付きで作成
-                with open(meeting_path, "w", encoding="utf-8") as f:
-                    f.write("--- meeting start ---\n")
-                    f.writelines(extracted)
-                    f.write("--- meeting end ---\n")
-            else:
-                # 既存会議ファイルにマージ
-                meeting_name = os.path.basename(target)
-                meeting_path = os.path.join(output_dir, meeting_name)
-                existing_lines = []
-                if os.path.exists(meeting_path):
-                    with open(meeting_path, "r", encoding="utf-8") as f:
-                        existing_lines = f.readlines()
-                merged = self._merge_meeting_lines(existing_lines, extracted)
-                with open(meeting_path, "w", encoding="utf-8") as f:
-                    f.writelines(merged)
-
-            # 日次 transcript から抽出行を削除（一時ファイル→rename で安全に書き戻し）
-            tmp_fd, tmp_path = tempfile.mkstemp(
-                dir=output_dir, prefix=".transcript-", suffix=".tmp")
-            try:
-                with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-                    f.writelines(remaining)
-                os.replace(tmp_path, t_path)
-            except BaseException:
-                # 書き込み失敗時は一時ファイルを削除
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-                raise
-
-            # 翻訳ファイルも同様に処理
-            config = load_config()
-            lang = config.get("translate_language", "ja")
-            _src_tn = TranscriptName.parse(os.path.basename(t_path))
-            _mtg_tn = TranscriptName.parse(meeting_name)
-            tr_path = os.path.join(output_dir, _src_tn.translation_filename(lang)) if _src_tn else None
-            meeting_tr_path = os.path.join(output_dir, _mtg_tn.translation_filename(lang)) if _mtg_tn else None
-            if tr_path and os.path.exists(tr_path):
-                self._extract_translation_lines(
-                    tr_path, meeting_tr_path, start_ts, end_ts,
-                    is_new=(target == "new"),
-                )
-
-        # FileWatcher オフセットリセット
-        for ftype, fpath in [("transcript", t_path), ("translation", tr_path)]:
-            if fpath is None:
-                continue
-            fkey = (ftype, fpath)
-            if self.file_watcher and fkey in self.file_watcher._file_offsets:
-                self.file_watcher._file_offsets[fkey] = self._get_file_size(fpath)
-
-        # translate_offset リセット
-        for p in [t_path, meeting_path]:
-            offset_file = p + ".translate_offset"
-            if os.path.exists(offset_file):
-                try:
-                    with open(offset_file, "w", encoding="utf-8") as f:
-                        f.write(str(self._get_file_size(p)))
-                except OSError:
-                    pass
-
-        # 元ファイルがマーカー行・空行のみになった場合は関連ファイルごと削除
-        source_deleted = self._check_and_cleanup_empty_transcript(t_path)
-
-        # 自動要約・翻訳トリガー
-        self._trigger_auto_jobs_for_meetings(
-            [meeting_path], is_new=(target == "new"))
-
-        resp: dict = {
-            "status": "ok",
-            "message": t("dash.extract_meeting_success", name=meeting_name),
-        }
-        if source_deleted:
-            resp["source_deleted"] = source_deleted
-        self._send_json(resp)
-
     @staticmethod
-    def _merge_meeting_lines(existing: list[str], new_lines: list[str]) -> list[str]:
-        """既存会議ファイルの行と新しい行をタイムスタンプ順でマージ。マーカー行は保持。"""
-        ts_pattern = re.compile(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]")
-        marker_re = re.compile(r"^---\s.*\s---\s*$")
+    def _atomic_write_lines(path: str, lines: list[str]) -> None:
+        """一時ファイル → os.replace でアトミックに書き戻す。
 
-        # 既存からマーカー除去してデータ行のみ抽出
-        data_lines = []
-        for line in existing:
-            if not marker_re.match(line.strip()):
-                data_lines.append(line)
-        # 新しい行を追加
-        data_lines.extend(new_lines)
-
-        # タイムスタンプでソート（タイムスタンプなし行はそのまま末尾）
-        def sort_key(line: str) -> str:
-            m = ts_pattern.match(line)
-            return m.group(1) if m else "9999"
-
-        data_lines.sort(key=sort_key)
-
-        # マーカーを先頭・末尾に付与して返す
-        result = ["--- meeting start ---\n"]
-        result.extend(data_lines)
-        result.append("--- meeting end ---\n")
-        return result
-
-    @staticmethod
-    def _extract_translation_lines(tr_path: str, meeting_tr_path: str, start_ts: str, end_ts: str, is_new: bool = True) -> None:
-        """翻訳ファイルから対応行を会議翻訳ファイルへ移動/マージ"""
-        ts_pattern = re.compile(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]")
-        try:
-            with open(tr_path, "r", encoding="utf-8") as f:
-                all_lines = f.readlines()
-        except OSError:
-            return
-
-        extracted = []
-        remaining = []
-        for line in all_lines:
-            m = ts_pattern.match(line)
-            if m and start_ts <= m.group(1) <= end_ts:
-                extracted.append(line)
-            else:
-                remaining.append(line)
-
-        if not extracted:
-            return
-
-        if is_new or not os.path.exists(meeting_tr_path):
-            with open(meeting_tr_path, "w", encoding="utf-8") as f:
-                f.writelines(extracted)
-        else:
-            # 既存会議翻訳とマージ
-            with open(meeting_tr_path, "r", encoding="utf-8") as f:
-                existing = f.readlines()
-            merged = existing + extracted
-
-            def sort_key(line: str) -> str:
-                m = ts_pattern.match(line)
-                return m.group(1) if m else "9999"
-            merged.sort(key=sort_key)
-            with open(meeting_tr_path, "w", encoding="utf-8") as f:
-                f.writelines(merged)
-
-        # 元翻訳ファイルから抽出行を削除（一時ファイル→rename で安全に書き戻し）
-        output_dir = os.path.dirname(tr_path)
+        `open(path, "w")` の直接書き戻しは truncate 中の読み取りで
+        空/途中のファイルが見えるため使用しない。
+        """
         tmp_fd, tmp_path = tempfile.mkstemp(
-            dir=output_dir, prefix=".translate-", suffix=".tmp")
+            dir=os.path.dirname(path), prefix=".transcript-", suffix=".tmp")
         try:
             with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-                f.writelines(remaining)
-            os.replace(tmp_path, tr_path)
+                f.writelines(lines)
+            os.replace(tmp_path, path)
         except BaseException:
             try:
                 os.unlink(tmp_path)
@@ -465,182 +263,8 @@ class _DashboardHandlerOps:
                 pass
             raise
 
-    def _split_by_silence(self) -> None:
-        """POST /api/transcript/split-by-silence — 沈黙期間で transcript を会議ファイルに分割"""
-        from datetime import datetime
-        try:
-            length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(length)
-            data = json.loads(body)
-            file_param = data.get("file", "")
-            min_silence_minutes = float(data.get("min_silence_minutes", 1))
-            start_ts = data.get("start_ts", "")
-            end_ts = data.get("end_ts", "")
-        except (json.JSONDecodeError, ValueError):
-            self.send_error(400)
-            return
-        if not file_param or min_silence_minutes <= 0:
-            self.send_error(400)
-            return
-
-        output_dir = self.recorder._output_dir
-        t_path = os.path.join(output_dir, os.path.basename(file_param))
-        if not os.path.exists(t_path):
-            self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
-            return
-
-        min_silence_sec = min_silence_minutes * 60
-        ts_pattern = re.compile(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]")
-
-        with self.recorder.transcript_lock:
-            try:
-                with open(t_path, "r", encoding="utf-8") as f:
-                    all_lines = f.readlines()
-            except OSError:
-                self._send_json({"status": "error", "message": t("dash.extract_split_error")})
-                return
-
-            # 対象範囲のフィルタリング（範囲指定なしは全行が対象）
-            if start_ts and end_ts:
-                target_lines = [l for l in all_lines if (m := ts_pattern.match(l)) and start_ts <= m.group(1) <= end_ts]
-                remaining_lines = [l for l in all_lines if not (ts_pattern.match(l) and start_ts <= ts_pattern.match(l).group(1) <= end_ts)]
-            else:
-                target_lines = all_lines
-                remaining_lines = []
-
-            # 沈黙期間でセグメントに分割
-            # ルール:
-            #   - N分以上の沈黙後の最初の発話が会議開始候補 (candidate)
-            #   - 候補中に1分超のギャップ → 候補失格 → idle
-            #   - 候補開始から3分以上、1分以内ギャップが続いたら会議確定 (active)
-            #   - active中: 3分以上の沈黙で会議終了
-            CONFIRM_WINDOW_SEC = 3 * 60   # 確認ウィンドウ: 3分
-            MAX_CANDIDATE_GAP_SEC = 60    # 候補中の最大ギャップ: 1分
-            MEETING_END_SEC = 3 * 60      # 会議終了閾値: 3分
-
-            segments: list[list[str]] = []
-            current_segment: list[str] = []
-            last_dt: datetime | None = None
-            state = "idle"  # idle | candidate | active
-            candidate_start_dt: datetime | None = None
-
-            for line in target_lines:
-                m = ts_pattern.match(line)
-                if not m:
-                    if state in ("candidate", "active"):
-                        current_segment.append(line)
-                    continue
-                dt = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
-                if last_dt is None:
-                    # ファイル先頭 → 会議開始候補
-                    current_segment = [line]
-                    candidate_start_dt = dt
-                    state = "candidate"
-                    last_dt = dt
-                    continue
-                gap = (dt - last_dt).total_seconds()
-                if state == "candidate":
-                    if gap > MAX_CANDIDATE_GAP_SEC:
-                        # 1分超ギャップ → 候補失格
-                        current_segment = []
-                        candidate_start_dt = None
-                        state = "idle"
-                        if gap >= min_silence_sec:
-                            current_segment = [line]
-                            candidate_start_dt = dt
-                            state = "candidate"
-                    else:
-                        current_segment.append(line)
-                        if (dt - candidate_start_dt).total_seconds() >= CONFIRM_WINDOW_SEC:
-                            state = "active"  # 3分以上継続 → 会議確定
-                elif state == "active":
-                    if gap >= MEETING_END_SEC:
-                        # 3分以上沈黙 → 会議終了
-                        segments.append(current_segment)
-                        current_segment = []
-                        candidate_start_dt = None
-                        state = "idle"
-                        if gap >= min_silence_sec:
-                            current_segment = [line]
-                            candidate_start_dt = dt
-                            state = "candidate"
-                    else:
-                        current_segment.append(line)
-                else:  # idle
-                    if gap >= min_silence_sec:
-                        current_segment = [line]
-                        candidate_start_dt = dt
-                        state = "candidate"
-                last_dt = dt
-
-            # active のまま終了した場合は保存（candidate は未確定のため破棄）
-            if state == "active" and current_segment:
-                segments.append(current_segment)
-
-            if len(segments) < 2:
-                self._send_json({"status": "error", "message": t("dash.extract_split_no_segments")})
-                return
-
-            # 各セグメントを会議ファイルとして作成
-            config = load_config()
-            lang = config.get("translate_language", "ja")
-            _src_tn = TranscriptName.parse(os.path.basename(t_path))
-            created: list[str] = []
-
-            for seg in segments:
-                first_ts = next((ts_pattern.match(l).group(1) for l in seg if ts_pattern.match(l)), None)
-                if not first_ts:
-                    continue
-                meeting_ts = first_ts.replace("-", "").replace(" ", "").replace(":", "")[:12]
-                meeting_name = TranscriptName(meeting_ts, None).filename
-                meeting_path = os.path.join(output_dir, meeting_name)
-                with open(meeting_path, "w", encoding="utf-8") as f:
-                    f.write("--- meeting start ---\n")
-                    f.writelines(seg)
-                    f.write("--- meeting end ---\n")
-                created.append(meeting_name)
-
-            # 元ファイルから分割済み行を削除（一時ファイル→rename で安全に書き戻し）
-            tmp_fd, tmp_path = tempfile.mkstemp(dir=output_dir, prefix=".transcript-", suffix=".tmp")
-            try:
-                with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-                    f.writelines(remaining_lines)
-                os.replace(tmp_path, t_path)
-            except BaseException:
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-                raise
-
-            # 翻訳ファイルを各セグメントのタイムスタンプ範囲で分割
-            tr_path = os.path.join(output_dir, _src_tn.translation_filename(lang)) if _src_tn else None
-            if tr_path and os.path.exists(tr_path):
-                for meeting_name, seg in zip(created, segments):
-                    seg_ts_list = [ts_pattern.match(l).group(1) for l in seg if ts_pattern.match(l)]
-                    if not seg_ts_list:
-                        continue
-                    _mtg_tn = TranscriptName.parse(meeting_name)
-                    meeting_tr_path = os.path.join(output_dir, _mtg_tn.translation_filename(lang)) if _mtg_tn else None
-                    self._extract_translation_lines(tr_path, meeting_tr_path, min(seg_ts_list), max(seg_ts_list), is_new=True)
-
-        # 元ファイルがマーカー行・空行のみになった場合は関連ファイルごと削除
-        source_deleted = self._check_and_cleanup_empty_transcript(t_path)
-
-        # 自動要約・翻訳トリガー
-        created_paths = [os.path.join(output_dir, name) for name in created]
-        self._trigger_auto_jobs_for_meetings(created_paths, is_new=True)
-
-        resp: dict = {
-            "status": "ok",
-            "message": t("dash.extract_split_success", count=len(created)),
-        }
-        if source_deleted:
-            resp["source_deleted"] = source_deleted
-        self._send_json(resp)
-
-    @staticmethod
-    def _remove_lines_from_file(path: str, raw_lines: list[str]) -> bool:
+    @classmethod
+    def _remove_lines_from_file(cls, path: str, raw_lines: list[str]) -> bool:
         """ファイルから完全一致する行を各1件ずつ削除する"""
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -656,14 +280,13 @@ class _DashboardHandlerOps:
                 new_lines.append(line)
             if len(new_lines) == len(lines):
                 return False
-            with open(path, "w", encoding="utf-8") as f:
-                f.writelines(new_lines)
+            cls._atomic_write_lines(path, new_lines)
             return True
         except OSError:
             return False
 
-    @staticmethod
-    def _remove_lines_from_file_by_ts(path: str, timestamps: list[str]) -> bool:
+    @classmethod
+    def _remove_lines_from_file_by_ts(cls, path: str, timestamps: list[str]) -> bool:
         """ファイルからタイムスタンプ前方一致する行を各1件ずつ削除する"""
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -681,8 +304,7 @@ class _DashboardHandlerOps:
                     new_lines.append(line)
             if len(new_lines) == len(lines):
                 return False
-            with open(path, "w", encoding="utf-8") as f:
-                f.writelines(new_lines)
+            cls._atomic_write_lines(path, new_lines)
             return True
         except OSError:
             return False
@@ -694,6 +316,28 @@ class _DashboardHandlerOps:
             return os.path.getsize(path)
         except OSError:
             return 0
+
+    def _reset_watch_offsets(self, watched: list[tuple[str, str | None]],
+                             offset_paths: list[str]) -> None:
+        """ファイル書き換え後に FileWatcher オフセットと translate_offset を現サイズへリセットする。
+
+        watched: [(file_type, path)] — FileWatcher の追跡オフセットを合わせる対象
+        offset_paths: `.translate_offset` を現ファイルサイズに更新する transcript パス
+        """
+        for ftype, fpath in watched:
+            if fpath is None:
+                continue
+            fkey = (ftype, fpath)
+            if self.file_watcher and fkey in self.file_watcher._file_offsets:
+                self.file_watcher._file_offsets[fkey] = self._get_file_size(fpath)
+        for p in offset_paths:
+            offset_file = p + ".translate_offset"
+            if os.path.exists(offset_file):
+                try:
+                    with open(offset_file, "w", encoding="utf-8") as f:
+                        f.write(str(self._get_file_size(p)))
+                except OSError:
+                    pass
 
     @staticmethod
     def _is_only_markers(lines: list[str]) -> bool:
@@ -754,7 +398,9 @@ class _DashboardHandlerOps:
                             f.write("0")
                     except OSError:
                         pass
-                    self.recorder._translate_loop(mp)
+                    # 専用の stop イベントを渡す: ユーザーが translate_stop した後でも
+                    # 会議切り出しの自動翻訳は独立して動くようにする
+                    self.recorder._translate_loop(mp, threading.Event())
                 if do_summary:
                     self.recorder._auto_summarize(mp)
 
@@ -797,7 +443,7 @@ class _DashboardHandlerOps:
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length)
             data = json.loads(body)
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
             self.send_error(400)
             return
         # Merge with existing config to preserve unknown keys
@@ -812,8 +458,11 @@ class _DashboardHandlerOps:
             except (TypeError, ValueError):
                 config["whisper_beam_size"] = DEFAULT_CONFIG["whisper_beam_size"]
         from shadow_clerk import CONFIG_FILE
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+        # FileWatcher が毎秒 config を読むため、truncate 中の部分 YAML を
+        # 読ませないよう一時ファイル → os.replace でアトミックに書く
+        self._atomic_write_lines(
+            CONFIG_FILE,
+            [yaml.dump(config, default_flow_style=False, allow_unicode=True)])
         logger.info("ダッシュボードから設定変更")
         self._send_json(config)
 
@@ -841,8 +490,8 @@ class _DashboardHandlerOps:
             length = int(self.headers.get("Content-Length", 0))
             data = json.loads(self.rfile.read(length))
             file_param = os.path.basename(data.get("file", ""))
-            new_name = data.get("name", "").strip()
-        except (json.JSONDecodeError, ValueError):
+            new_name = sanitize_meeting_name(data.get("name", ""))
+        except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
             self.send_error(400)
             return
 

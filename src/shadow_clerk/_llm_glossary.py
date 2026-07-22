@@ -250,7 +250,8 @@ def _seems_target_language(text: str, lang: str) -> bool:
         return True
     try:
         from langdetect import detect
-        return detect(text) == lang
+        # langdetect は "zh-cn"/"zh-tw" のように地域付きコードを返すことがある
+        return detect(text).split("-")[0] == lang
     except Exception:
         has_cjk = any("\u3000" <= c <= "\u9fff" or "\uff00" <= c <= "\uffef" for c in text)
         if lang in ("ja", "zh"):

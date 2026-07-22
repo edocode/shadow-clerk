@@ -150,6 +150,7 @@ class _RecorderCaptureMixin:
                 logger.warning("マイク status: %s", status)
             self.mic_queue.put(indata[:, 0].copy().astype(np.int16))
 
+        stream = None
         try:
             with self._stream_lock:
                 stream = sd.InputStream(
@@ -162,11 +163,17 @@ class _RecorderCaptureMixin:
                 )
                 stream.start()
             self.stop_event.wait()
-            stream.stop()
-            stream.close()
         except sd.PortAudioError as e:
             logger.error("マイクキャプチャエラー: %s", e)
             self.use_mic = False
+        finally:
+            # start() 失敗時もストリームをリークさせない
+            if stream is not None:
+                try:
+                    stream.stop()
+                    stream.close()
+                except sd.PortAudioError:
+                    pass
 
     def _monitor_capture_thread(self) -> None:
         """モニター音声キャプチャスレッド"""
@@ -246,6 +253,7 @@ class _RecorderCaptureMixin:
 
         max_retries = 2
         for attempt in range(max_retries):
+            stream = None
             try:
                 sd._initialize()
                 with self._stream_lock:
@@ -260,8 +268,6 @@ class _RecorderCaptureMixin:
                     )
                     stream.start()
                 self.stop_event.wait()
-                stream.stop()
-                stream.close()
                 return True
             except sd.PortAudioError as e:
                 if attempt < max_retries - 1:
@@ -269,6 +275,14 @@ class _RecorderCaptureMixin:
                     time.sleep(1)
                 else:
                     logger.warning("sounddevice モニター失敗、バックエンドにフォールバック: %s", e)
+            finally:
+                # start() 失敗・リトライ時もストリームをリークさせない
+                if stream is not None:
+                    try:
+                        stream.stop()
+                        stream.close()
+                    except sd.PortAudioError:
+                        pass
         return False
 
     def _vad_thread_for_queue(self, audio_queue: queue.Queue, segmenter: VADSegmenter,
@@ -295,14 +309,18 @@ class _RecorderCaptureMixin:
                     frame = np.pad(frame, (0, FRAME_SIZE - len(frame)))
 
             # コマンドモード判定: キー押下中 or リリース後の猶予期間内
-            if self._command_mode or (
-                self._command_mode_release_time > 0
-                and time.time() - self._command_mode_release_time < PTT_GRACE_SEC
-            ):
-                command_mode_latch = True
-            elif command_mode_latch and not self._command_mode:
-                # 猶予期間が過ぎてもセグメントが生成されなかった場合、ラッチをリセット
-                command_mode_latch = False
+            # PTT はユーザーのマイクにのみ適用する。monitor スレッドがラッチや
+            # 共有の猶予タイマーを操作すると、リモート参加者のセグメント確定の
+            # たびに mic 側の猶予が殺され、コマンドが本文として記録されてしまう
+            if label == "mic":
+                if self._command_mode or (
+                    self._command_mode_release_time > 0
+                    and time.time() - self._command_mode_release_time < PTT_GRACE_SEC
+                ):
+                    command_mode_latch = True
+                elif command_mode_latch and not self._command_mode:
+                    # 猶予期間が過ぎてもセグメントが生成されなかった場合、ラッチをリセット
+                    command_mode_latch = False
 
             timestamp = time.time()
             segment = segmenter.process_frame(frame, timestamp)
@@ -310,7 +328,8 @@ class _RecorderCaptureMixin:
                 ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 self.transcribe_queue.put((segment, ts, label, command_mode_latch))
                 command_mode_latch = False  # 次のセグメント用にリセット
-                self._command_mode_release_time = 0.0  # 猶予タイマーもクリア
+                if label == "mic":
+                    self._command_mode_release_time = 0.0  # 猶予タイマーもクリア
                 interim_seq += 1
                 last_interim_time = 0.0
                 # final segment 確定時に config を再読み込み（ランタイム切替対応）

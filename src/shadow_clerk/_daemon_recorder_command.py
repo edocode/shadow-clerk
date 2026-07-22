@@ -13,7 +13,7 @@ import threading
 import time
 
 from shadow_clerk.i18n import t
-from shadow_clerk._transcript_name import TranscriptName
+from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name
 from shadow_clerk.domain import MeetingSession
 from shadow_clerk._daemon_constants import (
     SESSION_FILE,
@@ -24,18 +24,6 @@ from shadow_clerk._daemon_constants import (
 from shadow_clerk._daemon_config import load_config, get_translation_provider, _builtin_command_descs
 
 logger = logging.getLogger("shadow-clerk")
-
-
-def _sanitize_meeting_name(name: str) -> str:
-    """会議名をファイル名に使用できる形式にエスケープする"""
-    # ファイル名に使えない文字を除去
-    name = re.sub(r'[/\\:*?"<>|\x00-\x1f]', '', name)
-    # @ は区切り文字と衝突するため除去
-    name = name.replace('@', '')
-    # 連続空白を _ に置換、前後トリム
-    name = re.sub(r'\s+', '_', name.strip())
-    # 末尾の _ を除去、長さ制限
-    return name[:50].rstrip('_')
 
 
 class _RecorderCommandMixin:
@@ -240,7 +228,18 @@ class _RecorderCommandMixin:
             "shift_r": pynput_keyboard.Key.shift_r,
             "shift_l": pynput_keyboard.Key.shift_l,
         }
-        return key_map.get(key_name)
+        if key_name in key_map:
+            return key_map[key_name]
+        # ファンクションキー: f1〜f20 は pynput の Key enum に定義がある。
+        # デフォルト設定の f23 など f21〜f24 は VK/keysym から直接生成する
+        # (X11: XK_F1=0xffbe 起点、Windows: VK_F1=0x70 起点)
+        if (m := re.fullmatch(r"f([1-9]|1[0-9]|2[0-4])", key_name)):
+            n = int(m.group(1))
+            if n <= 20 and hasattr(pynput_keyboard.Key, key_name):
+                return getattr(pynput_keyboard.Key, key_name)
+            base = 0x70 if sys.platform == "win32" else 0xFFBE
+            return pynput_keyboard.KeyCode.from_vk(base + n - 1)
+        return None
 
     def _key_listener_thread(self) -> None:
         """pynput でグローバルキー監視を行うスレッド"""
@@ -418,9 +417,11 @@ class _RecorderCommandMixin:
                 pass
         # 過去ファイル指定なら one-shot、現在ファイルなら継続ループ
         loop_target = target if target != self.output_path else None
-        self._translate_stop_event.clear()
+        # stop イベントはスレッドごとに新規作成する。共有イベントを clear() すると、
+        # join タイムアウト後も生きている旧スレッドが動作を再開してしまう
+        self._translate_stop_event = threading.Event()
         self._translate_thread = threading.Thread(
-            target=self._translate_loop, args=(loop_target,),
+            target=self._translate_loop, args=(loop_target, self._translate_stop_event),
             name="translate-loop", daemon=True)
         self._translate_thread.start()
         logger.info("翻訳スレッド起動: target=%s, reset_offset=%s",
@@ -456,7 +457,7 @@ class _RecorderCommandMixin:
         elif cmd.startswith("start_meeting"):
             parts = cmd.split(None, 1)
             if len(parts) > 1:
-                meeting_name = _sanitize_meeting_name(parts[1])
+                meeting_name = sanitize_meeting_name(parts[1])
             else:
                 # 名前なし: 進行中の gcal イベントがあればその名前を自動割り当て
                 gcal = getattr(self, "gcal_monitor", None)

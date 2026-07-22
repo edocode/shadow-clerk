@@ -29,7 +29,7 @@ function renderSearchResults(results){
   const typeLabel={transcript:'T',translation:'R',summary:'S'};
   res.innerHTML=results.map(r=>{
     const tl=r.type&&r.type!=='transcript'?(typeLabel[r.type]||r.type):'';
-    return `<div class="sr-item" onclick="openSearchResult('${escAttr(r.file)}',${r.line||0},'${escAttr(r.type||'')}')" title="${escAttr(r.text||'')}">`
+    return `<div class="sr-item" onclick="openSearchResult('${escAttr(escJs(r.file))}',${r.line||0},'${escAttr(escJs(r.type||''))}')" title="${escAttr(r.text||'')}">`
       +`<span class="sr-display">${esc(r.display||r.file)}</span>`
       +(tl?`<span class="sr-type">${esc(tl)}</span>`:'')
       +`</div>`;
@@ -37,17 +37,21 @@ function renderSearchResults(results){
 }
 function openSearchResult(file,line,type){
   selectMtgFile(file); // fsel への追加 + onSel() を一括処理
+  if(type==='summary'){openSumPane();return;} // summary ヒットは transcript 行と対応しない
   if(line>0){
     const panelId=type==='translation'?'rp':'tp';
-    setTimeout(()=>{
+    // 読み込み完了を待つ（大きいファイルで 400ms 固定だと間に合わないためリトライ）
+    let tries=0;
+    const tryScroll=()=>{
       const el=document.getElementById(panelId);
       const lns=el?el.querySelectorAll('.ln'):[];
       if(lns.length>=line){
         lns[line-1].scrollIntoView({block:'center'});
         lns[line-1].style.outline='1px solid var(--accent)';
         setTimeout(()=>{if(lns[line-1])lns[line-1].style.outline='';},2000);
-      }
-    },400);
+      }else if(++tries<15){setTimeout(tryScroll,400);}
+    };
+    setTimeout(tryScroll,400);
   }
 }
 let mtgSortMode=(function(){try{return localStorage.getItem('mtgSortMode')||'newest';}catch(e){return 'newest';}})();
@@ -87,7 +91,7 @@ function renderMtgPane(){
     mp.innerHTML=order.map(name=>{
       const cnt=meetingGroups[name].length;
       const icon=name==='ad-hoc'?'📁':'📂';
-      return `<div class="mg-item" onclick="selectMtgGroup('${escAttr(name)}')">`
+      return `<div class="mg-item" onclick="selectMtgGroup('${escAttr(escJs(name))}')">`
         +`<span class="mg-name">${icon} ${esc(name)}</span>`
         +`<span class="mg-cnt">${cnt}</span></div>`;
     }).join('');
@@ -108,7 +112,7 @@ function renderMtgPane(){
     });
     mp.innerHTML=files.map(f=>{
       const fi=fileInfo[f];
-      return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(f)}')" title="${escAttr(f)}"><span class="mg-file-label">${esc((fi?.label||f))}</span>${_badges(fi)}</div>`;
+      return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(escJs(f))}')" title="${escAttr(f)}"><span class="mg-file-label">${esc((fi?.label||f))}</span>${_badges(fi)}</div>`;
     }).join('');
   }
 }
@@ -129,15 +133,22 @@ function selectMtgFile(file){
     });
   fsel.value=file;onSel();_updateRenameMtgBtn();
 }
+// ファイル切替直後に前リクエストの遅延応答が届いてパネルを上書きしないよう、
+// 各 load 関数は世代カウンタで最新リクエストの応答のみ描画する
+let _tGen=0,_rGen=0;
 async function loadT(file){
+  const g=++_tGen;
   try{const u=file?'/api/transcript?file='+encodeURIComponent(file):'/api/transcript';
-  const d=await(await fetch(u)).json(),el=document.getElementById('tp');el.innerHTML='';
+  const d=await(await fetch(u)).json();if(g!==_tGen)return;
+  const el=document.getElementById('tp');el.innerHTML='';
   d.lines.forEach(l=>el.insertAdjacentHTML('beforeend',fmtTranscriptLine(l)));
   document.getElementById('tf').textContent=d.file;el.scrollTop=el.scrollHeight;}catch(e){}
 }
 async function loadR(file){
+  const g=++_rGen;
   try{const u=file?'/api/translation?file='+encodeURIComponent(file):'/api/translation';
-  const d=await(await fetch(u)).json(),el=document.getElementById('rp');el.innerHTML='';
+  const d=await(await fetch(u)).json();if(g!==_rGen)return;
+  const el=document.getElementById('rp');el.innerHTML='';
   if(d.translating&&!d.lines.length){
     el.insertAdjacentHTML('beforeend','<div class="translating-msg">'+esc(I18N['dash.translating'])+'</div>');
   }else{
@@ -166,7 +177,9 @@ es.addEventListener('alert',e=>{
   const d=JSON.parse(e.data);if(d.message){alert(d.message);loadS(curFile);openSumPane();}
 });
 function hideResp(){document.getElementById('resp').classList.remove('show');}
-initSearchSelects();switchLeftTab('dates');loadFiles();if(!_hashFile()){loadT('');loadR('');loadS('');}loadLogs();setInterval(loadFiles,10000);
+initSearchSelects();switchLeftTab('dates');loadFiles();if(!_hashFile()){loadT('');loadR('');loadS('');}loadLogs();
+// 翻訳・ミュート等のボタン状態は SSE に載らないため、定期的にステータスも同期する
+setInterval(()=>{loadFiles();fetchStatus();},10000);
 window.addEventListener('hashchange',()=>{const f=_hashFile();if(f&&fileInfo[f]&&f!==curFile)selectMtgFile(f);});
 const LANG_OPTS=['ja','en','zh','ko','fr','de','es','pt','ru'];
 const CFG_FIELDS=[
@@ -347,9 +360,12 @@ function glossaryMakeHeadSel(val){
   sel.onchange=()=>{const idx=[...sel.closest('tr').children].indexOf(sel.parentElement);glossaryCols[idx]=sel.value;};
   return sel;
 }
+let glossaryComments=[];
 async function openGlossary(){
   let text='';
   try{const r=await fetch('/api/glossary');text=await r.text();}catch(e){}
+  // コメント行は編集 UI に出さないが、保存時に消さないよう保持する
+  glossaryComments=text.split('\\n').filter(l=>l.startsWith('#'));
   const lines=text.split('\\n').filter(l=>l.trim()&&!l.startsWith('#'));
   glossaryCols=(lines.length>0)?lines[0].split('\\t'):['ja','en','reading','note'];
   const head=document.getElementById('glossaryHead');
@@ -369,7 +385,7 @@ async function openGlossary(){
 function closeGlossary(){document.getElementById('glossaryModal').classList.remove('open');}
 async function saveGlossary(){
   glossaryCols=[...document.querySelectorAll('#glossaryHead select')].map(s=>s.value);
-  const rows=[glossaryCols.join('\\t')];
+  const rows=[...glossaryComments,glossaryCols.join('\\t')];
   document.querySelectorAll('#glossaryBody tr').forEach(tr=>{
     const vals=Array.from(tr.querySelectorAll('input')).map(i=>i.value);
     if(vals.some(v=>v.trim()))rows.push(vals.join('\\t'));
@@ -391,14 +407,17 @@ function _renderAttendees(list){
     +(note?'<div style="font-size:11px;color:var(--muted);margin-top:2px">'+esc(note)+'</div>':'')
     +'</div>';
 }
+let _sGen=0;
 async function loadS(file){
   const el=document.getElementById('sp');if(!el)return;
+  const g=++_sGen;
   const f=file?'?file='+encodeURIComponent(file):'';
   try{
     const [sumD,attD]=await Promise.all([
       fetch('/api/summary'+f).then(r=>r.json()),
       file?fetch('/api/attendees?file='+encodeURIComponent(file)).then(r=>r.json()).catch(()=>({attendees:[]})):Promise.resolve({attendees:[]}),
     ]);
+    if(g!==_sGen)return;
     document.getElementById('sf').textContent=sumD.file||'';
     const attHtml=_renderAttendees(attD.attendees||[]);
     if(sumD.content){
@@ -541,9 +560,10 @@ async function doRenameMtg(){
     if(d.status!=='ok'){alert(d.message||'Error');return;}
     const saved=document.getElementById('renameMtgSaved');
     saved.style.display='inline';setTimeout(()=>saved.style.display='none',2000);
-    curFile=d.new_file;
     await loadFiles();
-    loadT(curFile);loadR(curFile);
+    // loadFiles は旧ファイル名が消えた時点でアクティブファイルにフォールバックするため、
+    // リネーム後のファイルを明示的に選択し直す（fsel への option 追加 + パネル再読込）
+    selectMtgFile(d.new_file);
     setTimeout(closeRenameMtg,800);
   }catch(e){alert('Error: '+e.message);}
 }

@@ -16,6 +16,7 @@ import time
 from typing import Any
 
 from shadow_clerk import DATA_DIR
+from shadow_clerk._transcript_name import sanitize_meeting_name as _sanitize_name
 
 logger = logging.getLogger("shadow-clerk.gcal")
 
@@ -24,14 +25,6 @@ _SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 
 # ポーリング間隔 (秒)
 _POLL_INTERVAL = 60
-
-
-def _sanitize_name(name: str) -> str:
-    """イベント名をファイル名 suffix 用にエスケープする（_daemon_recorder_command と同ロジック）"""
-    name = re.sub(r'[/\\:*?"<>|\x00-\x1f]', '', name)
-    name = name.replace('@', '')
-    name = re.sub(r'\s+', '_', name.strip())
-    return name[:50].rstrip('_')
 
 
 def _get_credentials(credentials_file: str, token_file: str):
@@ -232,6 +225,22 @@ class GCalMonitor:
                 logger.warning("gcal ポーリングエラー: %s", e)
             self._stop_event.wait(_POLL_INTERVAL)
 
+    def _another_meeting_ongoing(self, events: list, exclude_id: str,
+                                 now_utc: datetime.datetime, end_buffer_min: int) -> bool:
+        """exclude_id 以外に「start_meeting 送信済みで終了時刻が未来」のイベントがあるか。
+
+        start_meeting は開始 buffer 分前に先行送信されるため、開始時刻ではなく
+        「started 済みか」で判定する（現在のセッションはそのイベントのもの）。
+        """
+        for e in events:
+            eid = e.get("id", "")
+            if eid == exclude_id or self._processed.get(eid) != "started":
+                continue
+            en = _parse_event_time(e.get("end", {}))
+            if en is not None and now_utc < en + datetime.timedelta(minutes=end_buffer_min):
+                return True
+        return False
+
     def _poll(self, service, calendar_id: str, buffer_min: int, end_buffer_min: int):
         now_utc = datetime.datetime.utcnow()
         next_poll = now_utc + datetime.timedelta(seconds=_POLL_INTERVAL)
@@ -290,7 +299,14 @@ class GCalMonitor:
             trigger_end = end_dt + datetime.timedelta(minutes=end_buffer_min)
             if (now_utc <= trigger_end <= next_poll or end_dt <= now_utc <= trigger_end or now_utc > trigger_end):
                 if self._processed.get(event_id) == "started":
-                    if self._has_recent_speech(silence_seconds=60):
+                    if self._another_meeting_ongoing(events, event_id, now_utc, end_buffer_min):
+                        # back-to-back 会議: 後続会議の start_meeting で現在のセッションは
+                        # 既に切り替わっている。引数なし end_meeting を送ると後続会議の
+                        # セッションを誤終了させるため、送信せず ended 扱いにする
+                        self._processed[event_id] = "ended"
+                        logger.info("会議終了 (後続会議が進行中のため end_meeting 送信なし): %s (%s)",
+                                    summary, event_id)
+                    elif self._has_recent_speech(silence_seconds=60):
                         logger.info("会議終了延期（会話継続中）: %s (%s)", summary, event_id)
                     else:
                         self._send_command("end_meeting")
