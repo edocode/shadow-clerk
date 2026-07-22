@@ -97,14 +97,29 @@ class FileWatcher(threading.Thread):
             return 0
 
     def _read_diff(self, path: str, old_size: int) -> tuple[str | None, int]:
+        """old_size 以降の差分を返す。返す新オフセットは「実際に配信したバイト数」。
+
+        os.path.getsize() と read() の間の追記で diff が getsize 値を超え、
+        offset を getsize にすると超過分を次回再配信して行が重複する問題を防ぐため、
+        実読み取りバイト数でオフセットを進める。さらに最後の改行までに丸めて、
+        マルチバイト文字や行の途中で切れた断片を配信しない。
+        """
         try:
             new_size = os.path.getsize(path)
-            if new_size <= old_size:
+            if new_size < old_size:
+                # ファイル縮小（書き換え）→ 呼び出し側が別途オフセットをリセットする
                 return None, new_size
+            if new_size == old_size:
+                return None, old_size
             with open(path, "rb") as f:
                 f.seek(old_size)
-                diff = f.read().decode("utf-8", errors="replace")
-            return diff, new_size
+                raw = f.read()
+            nl = raw.rfind(b"\n")
+            if nl < 0:
+                # 完全な行がまだ書き込まれていない → 次回ポーリングまで保留
+                return None, old_size
+            raw = raw[:nl + 1]
+            return raw.decode("utf-8", errors="replace"), old_size + len(raw)
         except OSError:
             return None, 0
 

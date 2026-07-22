@@ -131,15 +131,9 @@ function openFileDelModal(){
     const r=document.querySelector('input[name="fileDelMode"][value="merge"]');
     if(r)r.checked=true;
   }
-  const stem=curFile.replace(/\\.txt$/,'');
-  const files=[curFile];
-  const sel=document.getElementById('fsel');
-  for(const opt of sel.options){
-    const v=opt.value;
-    if(v!==curFile && v.startsWith(stem+'-') && v.endsWith('.txt'))files.push(v);
-  }
-  if(fi?.summary)files.push(fi.summary);
-  files.push(curFile+'.translate_offset');
+  // サーバが返す related（翻訳・summary・offset）を使い、実際に削除されるファイルと一致させる。
+  // 翻訳ファイルは /api/files に載らず fsel にも無いため、以前は一覧から漏れていた
+  const files=[curFile,...((fi?.related)||[])];
   const list=document.getElementById('fileDelList');
   list.innerHTML='';
   files.forEach(f=>{const d=document.createElement('div');d.textContent=f;list.appendChild(d);});

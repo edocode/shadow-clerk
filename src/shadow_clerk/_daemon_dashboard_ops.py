@@ -58,8 +58,10 @@ class _DashboardHandlerOps:
 
         # 転写スレッドの追記と競合しないようロックを取って read-modify-write する
         with self.recorder.transcript_lock:
+            old_offset = self._read_translate_offset(t_path)
             # transcript から行削除
-            if not self._remove_lines_from_file(t_path, raw_lines):
+            removed, old_lines = self._remove_lines_from_file(t_path, raw_lines)
+            if not removed:
                 self._send_json({"status": "error", "message": t("dash.delete_error")})
                 return
 
@@ -81,9 +83,14 @@ class _DashboardHandlerOps:
                     else:
                         tr_path = None
 
-        # FileWatcher オフセット・translate_offset を新サイズにリセット
+        # FileWatcher の SSE オフセットは新サイズに合わせる
         self._reset_watch_offsets(
-            [("transcript", t_path), ("translation", tr_path)], [t_path])
+            [("transcript", t_path), ("translation", tr_path)], [])
+        # translate_offset は「削除した翻訳済みバイト分」だけ縮める。
+        # 新サイズへのリセットだと未翻訳の末尾を翻訳済みと誤認しスキップするため
+        if old_offset is not None:
+            self._write_translate_offset(
+                t_path, self._shrink_translate_offset(old_lines, removed, old_offset))
 
         # transcript がマーカー行・空行のみになった場合は関連ファイルごと削除
         cleaned = self._check_and_cleanup_empty_transcript(t_path)
@@ -93,36 +100,46 @@ class _DashboardHandlerOps:
 
         self._send_json({"status": "ok"})
 
+    @staticmethod
+    def _related_file_names(t_path: str, tn: TranscriptName | None,
+                            all_files: set[str]) -> list[str]:
+        """t_path に付随する関連ファイル（翻訳・summary・offset）の basename 一覧を返す。
+
+        削除処理（_cleanup_transcript_files）と削除確認モーダルの表示で
+        同じ集合を使い、「確認に出ていないファイルが消える」不一致を防ぐ。
+        all_files はディレクトリ内ファイル名の集合。
+        """
+        base = os.path.basename(t_path)
+        related: list[str] = []
+        if tn:
+            for f in sorted(all_files):
+                if f != base and f.startswith(tn.stem + "-") and f.endswith(".txt"):
+                    related.append(f)
+            if tn.summary_filename in all_files:
+                related.append(tn.summary_filename)
+        offset_name = base + ".translate_offset"
+        if offset_name in all_files:
+            related.append(offset_name)
+        return related
+
     def _cleanup_transcript_files(self, t_path: str, tn: TranscriptName | None) -> list[str]:
         """transcript ファイルと関連ファイルを削除し、削除ファイル名リストを返す。
         transcript 本体の削除に失敗した場合は空リストを返す。"""
         output_dir = os.path.dirname(t_path)
+        try:
+            all_files = set(os.listdir(output_dir))
+        except OSError:
+            all_files = set()
         deleted: list[str] = []
         try:
             os.remove(t_path)
             deleted.append(os.path.basename(t_path))
         except OSError:
             return []
-        if tn:
-            for f in os.listdir(output_dir):
-                if f.startswith(tn.stem + "-") and f.endswith(".txt"):
-                    try:
-                        os.remove(os.path.join(output_dir, f))
-                        deleted.append(f)
-                    except OSError:
-                        pass
-            summary_path = os.path.join(output_dir, tn.summary_filename)
-            if os.path.exists(summary_path):
-                try:
-                    os.remove(summary_path)
-                    deleted.append(tn.summary_filename)
-                except OSError:
-                    pass
-        offset_file = t_path + ".translate_offset"
-        if os.path.exists(offset_file):
+        for name in self._related_file_names(t_path, tn, all_files):
             try:
-                os.remove(offset_file)
-                deleted.append(os.path.basename(offset_file))
+                os.remove(os.path.join(output_dir, name))
+                deleted.append(name)
             except OSError:
                 pass
         trans_prefix = os.path.join(output_dir, tn.stem + "-") if tn else None
@@ -264,26 +281,74 @@ class _DashboardHandlerOps:
             raise
 
     @classmethod
-    def _remove_lines_from_file(cls, path: str, raw_lines: list[str]) -> bool:
-        """ファイルから完全一致する行を各1件ずつ削除する"""
+    def _remove_lines_from_file(cls, path: str, raw_lines: list[str]) -> tuple[list[int], list[str]]:
+        """ファイルから完全一致する行を各1件ずつ削除する。
+
+        (削除した旧インデックスのリスト, 削除前の全行リスト) を返す。
+        1件も削除しなかった/エラー時は削除インデックスが空リスト。
+        呼び出し側が translate_offset のバイト調整に旧行情報を使う。
+        """
         try:
             with open(path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
-            targets = collections.Counter(
-                ln.rstrip("\n") + "\n" for ln in raw_lines
-            )
-            new_lines = []
-            for line in lines:
-                if targets.get(line, 0) > 0:
-                    targets[line] -= 1
-                    continue
-                new_lines.append(line)
-            if len(new_lines) == len(lines):
-                return False
-            cls._atomic_write_lines(path, new_lines)
-            return True
         except OSError:
-            return False
+            return [], []
+        targets = collections.Counter(ln.rstrip("\n") + "\n" for ln in raw_lines)
+        new_lines: list[str] = []
+        removed: list[int] = []
+        for i, line in enumerate(lines):
+            if targets.get(line, 0) > 0:
+                targets[line] -= 1
+                removed.append(i)
+                continue
+            new_lines.append(line)
+        if not removed:
+            return [], lines
+        try:
+            cls._atomic_write_lines(path, new_lines)
+        except OSError:
+            return [], lines
+        return removed, lines
+
+    @staticmethod
+    def _shrink_translate_offset(old_lines: list[str], removed_indices: list[int],
+                                 old_offset: int) -> int:
+        """行削除後の translate_offset（翻訳済み境界のバイト位置）を算出する。
+
+        削除された行のうち旧オフセットより前（＝翻訳済み領域）にあった分の
+        バイト数だけオフセットを縮める。単純に新ファイルサイズへリセットすると、
+        削除時点で未翻訳だった末尾を「翻訳済み」と誤認して恒久的にスキップして
+        しまうため、翻訳済み領域だけを正確に縮める。
+        """
+        removed = set(removed_indices)
+        new_offset = old_offset
+        pos = 0
+        for i, line in enumerate(old_lines):
+            blen = len(line.encode("utf-8"))
+            if i in removed:
+                if pos + blen <= old_offset:
+                    new_offset -= blen
+                elif pos < old_offset:  # オフセットが行の途中（通常起きない）
+                    new_offset -= (old_offset - pos)
+            pos += blen
+        return max(0, new_offset)
+
+    @staticmethod
+    def _read_translate_offset(path: str) -> int | None:
+        """path の .translate_offset を読む。ファイルがなければ None（翻訳未開始）。"""
+        try:
+            with open(path + ".translate_offset", "r", encoding="utf-8") as f:
+                return int(f.read().strip())
+        except (OSError, ValueError):
+            return None
+
+    @staticmethod
+    def _write_translate_offset(path: str, value: int) -> None:
+        try:
+            with open(path + ".translate_offset", "w", encoding="utf-8") as f:
+                f.write(str(value))
+        except OSError:
+            pass
 
     @classmethod
     def _remove_lines_from_file_by_ts(cls, path: str, timestamps: list[str]) -> bool:
@@ -331,13 +396,8 @@ class _DashboardHandlerOps:
             if self.file_watcher and fkey in self.file_watcher._file_offsets:
                 self.file_watcher._file_offsets[fkey] = self._get_file_size(fpath)
         for p in offset_paths:
-            offset_file = p + ".translate_offset"
-            if os.path.exists(offset_file):
-                try:
-                    with open(offset_file, "w", encoding="utf-8") as f:
-                        f.write(str(self._get_file_size(p)))
-                except OSError:
-                    pass
+            if os.path.exists(p + ".translate_offset"):
+                self._write_translate_offset(p, self._get_file_size(p))
 
     @staticmethod
     def _is_only_markers(lines: list[str]) -> bool:

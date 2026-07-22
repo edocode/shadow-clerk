@@ -14,15 +14,32 @@ from shadow_clerk._llm_glossary import load_glossary, MARKER_RE, TIMESTAMP_RE, _
 logger = logging.getLogger("llm-client")
 
 
+def _fix_libretranslate_uppercase(line: str) -> str:
+    """LibreTranslate bug: 入力に全大文字英単語(AI等)があると出力全体が大文字になる。
+
+    各文の先頭を大文字にし、それ以外を小文字にする（title case ではなく sentence case）。
+    """
+    if line and len(line) > 3 and line == line.upper() and line != line.lower():
+        import re as _re
+        line = line.lower()
+        line = _re.sub(r'(^|[.!?]\s+)([a-z])', lambda m: m.group(1) + m.group(2).upper(), line)
+        # "i " / "i'" を "I " / "I'" に修正
+        line = _re.sub(r"\bi\b(?=['\s])", "I", line)
+        logger.debug("LibreTranslate uppercase fix: %r", line[:80])
+    return line
+
+
 def _translate_libretranslate(texts: list[str], lang: str, endpoint: str, api_key: str | None) -> list[str]:
     """LibreTranslate API で翻訳する。
 
-    全テキストを改行で結合して一括送信し、レスポンスを改行で分割して返す。
+    q を配列で送ると translatedText も配列で返るため、入力行と出力行が
+    確実に 1 対 1 で対応する（翻訳結果に改行が含まれても序数がずれない）。
+    配列を受け付けない旧サーバは文字列を返すので、その場合のみ改行結合/分割に
+    フォールバックする。
     """
     import urllib.request
-    joined = "\n".join(texts)
-    payload = {
-        "q": joined,
+    payload: dict = {
+        "q": texts,
         "source": "auto",
         "target": lang,
         "format": "text",
@@ -39,21 +56,13 @@ def _translate_libretranslate(texts: list[str], lang: str, endpoint: str, api_ke
         with urllib.request.urlopen(req, timeout=120) as resp:
             result = json.loads(resp.read().decode("utf-8"))
         translated = result.get("translatedText", "")
-        logger.debug("LibreTranslate response: %r", translated[:200])
-        lines = translated.split("\n")
-        # LibreTranslate bug: 入力に全大文字英単語(AI等)があると出力全体が大文字になる
-        # 各文の先頭を大文字にし、それ以外を小文字にする（title case ではなく sentence case）
-        fixed = []
-        for line in lines:
-            if line and len(line) > 3 and line == line.upper() and line != line.lower():
-                import re as _re
-                line = line.lower()
-                line = _re.sub(r'(^|[.!?]\s+)([a-z])', lambda m: m.group(1) + m.group(2).upper(), line)
-                # "i " / "i'" を "I " / "I'" に修正
-                line = _re.sub(r"\bi\b(?=['\s])", "I", line)
-                logger.debug("LibreTranslate uppercase fix: %r", line[:80])
-            fixed.append(line)
-        return fixed
+        if isinstance(translated, list):
+            # 配列応答: 入力と 1 対 1 対応。要素内の改行はそのまま保持
+            logger.debug("LibreTranslate array response: %d items", len(translated))
+            return [_fix_libretranslate_uppercase(str(t)) for t in translated]
+        # 文字列応答（旧サーバ）: 改行分割にフォールバック（序数ズレの可能性あり）
+        logger.debug("LibreTranslate string response: %r", translated[:200])
+        return [_fix_libretranslate_uppercase(line) for line in translated.split("\n")]
     except Exception as e:
         # 原文フォールバックで返すと呼び出し側が翻訳成功と区別できず、
         # 原文が翻訳ファイルに確定して二度と再翻訳されないため、失敗は伝播させる
