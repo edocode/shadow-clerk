@@ -335,7 +335,25 @@ class _RecorderCommandMixin:
 
         try:
             while not self.stop_event.is_set():
-                r, _, _ = select.select(keyboards, [], [], 0.1)
+                if not keyboards:
+                    # 全デバイス切断 → 再接続を待って再スキャン
+                    self.stop_event.wait(timeout=3.0)
+                    keyboards = self._find_keyboard_devices()
+                    if keyboards:
+                        logger.info("evdev: キーボード再検出: %s",
+                                    ", ".join(d.name for d in keyboards))
+                    continue
+                try:
+                    r, _, _ = select.select(keyboards, [], [], 0.1)
+                except OSError:
+                    # 無効な fd が混入 → 全デバイスを破棄して再スキャンへ
+                    for dev in keyboards:
+                        try:
+                            dev.close()
+                        except Exception:
+                            pass
+                    keyboards = []
+                    continue
                 for dev in r:
                     try:
                         for event in dev.read():
@@ -357,7 +375,14 @@ class _RecorderCommandMixin:
                                     print(t("rec.ptt_off", vkey=self._voice_command_key))
                                 # value == 2 (キーリピート) は無視
                     except OSError:
-                        pass  # デバイス切断等
+                        # デバイス切断。リストに残すと select が即時 return し
+                        # busy-loop になるため必ず除去する
+                        logger.warning("evdev: デバイス切断を検出、監視から除外: %s", dev.name)
+                        keyboards.remove(dev)
+                        try:
+                            dev.close()
+                        except Exception:
+                            pass
         finally:
             for dev in keyboards:
                 try:

@@ -34,6 +34,7 @@ SPEECH_FRAMES_THRESHOLD = 10  # 発話検出に必要な連続フレーム数 (~
 SILENCE_FRAMES_THRESHOLD = 30  # 無音検出に必要な連続フレーム数 (~900ms)
 MIN_SEGMENT_DURATION = 0.5  # 最小セグメント長(秒)
 MAX_SEGMENT_DURATION = 30.0  # 最大セグメント長(秒)
+INTERIM_MAX_DURATION = 10.0  # interim 転写に渡す直近音声の最大長(秒)
 
 DEFAULT_CONFIG = {
     "translate_language": "en",

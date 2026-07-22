@@ -5,7 +5,8 @@ import numpy as np
 import webrtcvad
 from shadow_clerk._daemon_constants import (
     VAD_MODE, SAMPLE_RATE, SPEECH_FRAMES_THRESHOLD, SILENCE_FRAMES_THRESHOLD,
-    MIN_SEGMENT_DURATION, MAX_SEGMENT_DURATION, FRAME_DURATION_MS,
+    MIN_SEGMENT_DURATION, MAX_SEGMENT_DURATION, INTERIM_MAX_DURATION,
+    FRAME_DURATION_MS,
 )
 
 logger = logging.getLogger("shadow-clerk")
@@ -85,11 +86,15 @@ class VADSegmenter:
         return segment
 
     def get_interim_segment(self) -> np.ndarray | None:
-        """発話中の蓄積音声のコピーを返す（読み取り専用、segmentation に影響しない）"""
+        """発話中の蓄積音声のコピーを返す（読み取り専用、segmentation に影響しない）
+
+        長い発話で毎回全体を再転写しないよう、直近 INTERIM_MAX_DURATION 秒に制限する。
+        """
         if self.in_speech and self.current_segment:
             duration = len(self.current_segment) * FRAME_DURATION_MS / 1000.0
             if duration >= MIN_SEGMENT_DURATION:
-                return np.concatenate(self.current_segment)
+                max_frames = int(INTERIM_MAX_DURATION * 1000 / FRAME_DURATION_MS)
+                return np.concatenate(self.current_segment[-max_frames:])
         return None
 
     def flush(self) -> np.ndarray | None:
