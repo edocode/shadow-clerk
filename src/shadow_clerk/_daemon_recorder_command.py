@@ -418,7 +418,11 @@ class _RecorderCommandMixin:
         # 過去ファイル指定なら one-shot、現在ファイルなら継続ループ
         loop_target = target if target != self.output_path else None
         # stop イベントはスレッドごとに新規作成する。共有イベントを clear() すると、
-        # join タイムアウト後も生きている旧スレッドが動作を再開してしまう
+        # join タイムアウト後も生きている旧スレッドが動作を再開してしまう。
+        # 差し替え前に旧イベントを set して、レースで生き残った旧ループも確実に止める
+        prev = getattr(self, "_translate_stop_event", None)
+        if prev is not None:
+            prev.set()
         self._translate_stop_event = threading.Event()
         self._translate_thread = threading.Thread(
             target=self._translate_loop, args=(loop_target, self._translate_stop_event),

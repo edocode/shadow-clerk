@@ -29,40 +29,48 @@ def _fix_libretranslate_uppercase(line: str) -> str:
     return line
 
 
+def _lt_request(q, lang: str, endpoint: str, api_key: str | None):
+    """LibreTranslate /translate を1回叩き、translatedText を返す（str または list）。"""
+    import urllib.request
+    payload: dict = {"q": q, "source": "auto", "target": lang, "format": "text"}
+    if api_key:
+        payload["api_key"] = api_key
+    data = json.dumps(payload).encode("utf-8")
+    url = endpoint.rstrip("/") + "/translate"
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        result = json.loads(resp.read().decode("utf-8"))
+    return result.get("translatedText", "")
+
+
 def _translate_libretranslate(texts: list[str], lang: str, endpoint: str, api_key: str | None) -> list[str]:
     """LibreTranslate API で翻訳する。
 
     q を配列で送ると translatedText も配列で返るため、入力行と出力行が
     確実に 1 対 1 で対応する（翻訳結果に改行が含まれても序数がずれない）。
-    配列を受け付けない旧サーバは文字列を返すので、その場合のみ改行結合/分割に
-    フォールバックする。
+    配列を受け付けない旧サーバ（HTTP 400 等）や文字列で返すサーバには、
+    改行結合/分割へフォールバックする（この場合のみ序数ズレの可能性が残る）。
     """
-    import urllib.request
-    payload: dict = {
-        "q": texts,
-        "source": "auto",
-        "target": lang,
-        "format": "text",
-    }
-    if api_key:
-        payload["api_key"] = api_key
-
-    data = json.dumps(payload).encode("utf-8")
-    url = endpoint.rstrip("/") + "/translate"
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-
-    logger.debug("LibreTranslate request: url=%s, %d texts", url, len(texts))
+    import urllib.error
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-        translated = result.get("translatedText", "")
+        translated = _lt_request(texts, lang, endpoint, api_key)
         if isinstance(translated, list):
             # 配列応答: 入力と 1 対 1 対応。要素内の改行はそのまま保持
             logger.debug("LibreTranslate array response: %d items", len(translated))
             return [_fix_libretranslate_uppercase(str(t)) for t in translated]
-        # 文字列応答（旧サーバ）: 改行分割にフォールバック（序数ズレの可能性あり）
-        logger.debug("LibreTranslate string response: %r", translated[:200])
+        # 配列を投げたのに文字列で返す旧サーバ → 改行分割フォールバック
+        logger.debug("LibreTranslate string response for array request: %r", translated[:200])
         return [_fix_libretranslate_uppercase(line) for line in translated.split("\n")]
+    except urllib.error.HTTPError as e:
+        # 配列 q 自体を拒否する旧サーバ向けに、改行結合の文字列で1回だけ再試行
+        logger.warning("LibreTranslate array request rejected (HTTP %s), retrying as joined string", e.code)
+        try:
+            translated = _lt_request("\n".join(texts), lang, endpoint, api_key)
+            joined = translated if isinstance(translated, str) else "\n".join(str(t) for t in translated)
+            return [_fix_libretranslate_uppercase(line) for line in joined.split("\n")]
+        except Exception as e2:
+            logger.error("LibreTranslate error (string fallback): %s", e2)
+            raise
     except Exception as e:
         # 原文フォールバックで返すと呼び出し側が翻訳成功と区別できず、
         # 原文が翻訳ファイルに確定して二度と再翻訳されないため、失敗は伝播させる

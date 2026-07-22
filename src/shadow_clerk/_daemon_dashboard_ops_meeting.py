@@ -1,4 +1,5 @@
 """Shadow-clerk daemon: ダッシュボード 会議切り出し・沈黙分割エンドポイント"""
+# pylint: disable=duplicate-code  # POST ボディ解析・パス解決の定型は各ハンドラで共通形
 from __future__ import annotations
 import json
 import os
@@ -36,6 +37,7 @@ class _DashboardHandlerMeetingOps:
             return
 
         with self.recorder.transcript_lock:
+            old_offset = self._read_translate_offset(t_path)
             try:
                 with open(t_path, "r", encoding="utf-8") as f:
                     all_lines = f.readlines()
@@ -46,11 +48,13 @@ class _DashboardHandlerMeetingOps:
             # タイムスタンプ範囲内の行を抽出 / 残りを分離
             extracted = []
             remaining = []
+            extracted_idx: list[int] = []
             ts_pattern = re.compile(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]")
-            for line in all_lines:
+            for i, line in enumerate(all_lines):
                 m = ts_pattern.match(line)
                 if m and start_ts <= m.group(1) <= end_ts:
                     extracted.append(line)
+                    extracted_idx.append(i)
                 else:
                     remaining.append(line)
 
@@ -98,10 +102,16 @@ class _DashboardHandlerMeetingOps:
                     is_new=(target == "new"),
                 )
 
-        # FileWatcher オフセット・translate_offset リセット
+        # FileWatcher の SSE オフセットは新サイズに合わせる。会議ファイル(meeting_path)の
+        # translate_offset は既存分のみ現サイズにリセット（新規なら auto-job が 0 で作る）
         self._reset_watch_offsets(
             [("transcript", t_path), ("translation", tr_path)],
-            [t_path, meeting_path])
+            [meeting_path])
+        # 元ファイルの translate_offset は削除した翻訳済みバイト分だけ縮める
+        # （新サイズへのリセットだと未翻訳末尾を翻訳済みと誤認しスキップするため）
+        if old_offset is not None:
+            self._write_translate_offset(
+                t_path, self._shrink_translate_offset(all_lines, extracted_idx, old_offset))
 
         # 元ファイルがマーカー行・空行のみになった場合は関連ファイルごと削除
         source_deleted = self._check_and_cleanup_empty_transcript(t_path)
@@ -214,6 +224,7 @@ class _DashboardHandlerMeetingOps:
         ts_pattern = re.compile(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]")
 
         with self.recorder.transcript_lock:
+            old_offset = self._read_translate_offset(t_path)
             try:
                 with open(t_path, "r", encoding="utf-8") as f:
                     all_lines = f.readlines()
@@ -343,10 +354,15 @@ class _DashboardHandlerMeetingOps:
                     meeting_tr_path = os.path.join(output_dir, _mtg_tn.translation_filename(lang)) if _mtg_tn else None
                     self._extract_translation_lines(tr_path, meeting_tr_path, min(seg_ts_list), max(seg_ts_list), is_new=True)
 
-        # FileWatcher オフセット・translate_offset リセット
-        # （縮小した元ファイルへの生バイト diff 配信・翻訳オフセットずれを防ぐ）
+        # FileWatcher の SSE オフセットは新サイズに合わせる
+        # （縮小した元ファイルへの生バイト diff 配信を防ぐ）
         self._reset_watch_offsets(
-            [("transcript", t_path), ("translation", tr_path)], [t_path])
+            [("transcript", t_path), ("translation", tr_path)], [])
+        # 元ファイルの translate_offset は分割で除いた翻訳済みバイト分だけ縮める
+        # （新サイズへのリセットだと未翻訳末尾を翻訳済みと誤認しスキップするため）
+        if old_offset is not None:
+            self._write_translate_offset(
+                t_path, self._shrink_translate_offset(all_lines, list(consumed), old_offset))
 
         # 元ファイルがマーカー行・空行のみになった場合は関連ファイルごと削除
         source_deleted = self._check_and_cleanup_empty_transcript(t_path)

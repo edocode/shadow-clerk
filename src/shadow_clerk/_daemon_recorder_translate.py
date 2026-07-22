@@ -118,8 +118,10 @@ class _RecorderTranslateMixin:
                      f" (one-shot: {os.path.basename(target_transcript)})" if one_shot else "")
         if target_transcript:
             self.translate_target_path = target_transcript
+        fail_count = 0  # 連続失敗回数（バックオフ用）
         try:
             while not self.stop_event.is_set() and not stop_event.is_set():
+                failed = False
                 try:
                     transcript = target_transcript or self.output_path
                     offset_file = self._translate_offset_file(transcript)
@@ -185,6 +187,7 @@ class _RecorderTranslateMixin:
                             logger.error("翻訳エラー (rc=%d): stderr_tail=%s%s",
                                          result.returncode, stderr_tail,
                                          f"  stdout_head={stdout_excerpt!r}" if stdout_excerpt else "")
+                            failed = True
                             if one_shot:
                                 return
                     elif one_shot:
@@ -193,14 +196,24 @@ class _RecorderTranslateMixin:
                         return
                 except subprocess.TimeoutExpired:
                     logger.error("翻訳タイムアウト")
+                    failed = True
                     if one_shot:
                         return
                 except Exception as e:
                     logger.error("翻訳ループエラー: %s", e)
+                    failed = True
                     if one_shot:
                         return
 
-                stop_event.wait(timeout=5.0)
+                # 失敗が続くと LLM/翻訳サーバを 5 秒毎に無限に叩き続けるため指数バックオフ。
+                # 成功したら 5 秒間隔に戻す（バックログ消化のためのポーリング間隔）
+                if failed:
+                    fail_count += 1
+                    wait = min(5.0 * (2 ** (fail_count - 1)), 300.0)
+                else:
+                    fail_count = 0
+                    wait = 5.0
+                stop_event.wait(timeout=wait)
         finally:
             self.translate_target_path = None
 

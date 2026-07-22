@@ -31,8 +31,8 @@ def sanitize_meeting_name(name: str) -> str:
     name = name.replace('@', '')
     # 連続空白を _ に置換、前後トリム
     name = re.sub(r'\s+', '_', name.strip())
-    # 末尾の _ を除去、長さ制限
-    name = name[:50].rstrip('_')
+    # 長さ制限後、末尾の区切り文字（_ / -）を除去（切り詰めで末尾に残ることがある）
+    name = name[:50].rstrip('_-')
     # 末尾が -{言語コード} だと翻訳ファイルと誤判定されるため区切りを _ に変える
     return re.sub(rf'-({_LANG_ALT})$', r'_\1', name)
 
