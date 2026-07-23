@@ -1,6 +1,11 @@
 # Shadow-clerk
 
+[![PyPI version](https://img.shields.io/pypi/v/shadow-clerk.svg)](https://pypi.org/project/shadow-clerk/)
+[![Python versions](https://img.shields.io/pypi/pyversions/shadow-clerk.svg)](https://pypi.org/project/shadow-clerk/)
+
 Web会議の音声をリアルタイムで録音・文字起こしするツール。翻訳や議事録生成もできる。
+
+PyPI で公開中: <https://pypi.org/project/shadow-clerk/>
 
 ## 動作環境
 
@@ -16,9 +21,9 @@ Web会議の音声をリアルタイムで録音・文字起こしするツー�
 
 ```powershell
 uv python install 3.13
-uv tool install --python 3.13 --with PyAudioWPatch -e ".[spell-check,gcal]"
+uv tool install --python 3.13 --with PyAudioWPatch "shadow-clerk[spell-check,gcal]"
 # +ReazonSpeech k2(日本語 ASR、オプション):
-uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr" -e ".[spell-check,gcal,reazonspeech]"
+uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr" "shadow-clerk[spell-check,gcal,reazonspeech]"
 ```
 
 `--python` と `--with` を明示する理由:
@@ -68,23 +73,29 @@ sudo apt install libportaudio2 portaudio19-dev
 
 ### 2. インストール
 
-```bash
-git clone https://gitlab.edocode.co.jp/common/shadow-clerk.git
-cd shadow-clerk
-```
+PyPI からインストール:
 
 |  | コマンド |
 |---|---|
-| 基本 | `uv tool install -e .` |
-| + ReazonSpeech | `uv tool install -e ".[reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
-| + スペルチェック | `uv tool install -e ".[spell-check]"` |
-| + 両方 (ReazonSpeech + スペルチェック) | `uv tool install -e ".[spell-check,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
-| + Google Calendar | `uv tool install -e ".[gcal]"` |
-| すべて | `uv tool install -e ".[spell-check,gcal,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| 基本 | `uv tool install shadow-clerk` |
+| + ReazonSpeech | `uv tool install "shadow-clerk[reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| + スペルチェック | `uv tool install "shadow-clerk[spell-check]"` |
+| + 両方 (ReazonSpeech + スペルチェック) | `uv tool install "shadow-clerk[spell-check,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| + Google Calendar | `uv tool install "shadow-clerk[gcal]"` |
+| すべて | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 
 > **注意:** `uv tool install` はツールごとに1つの環境を管理します。異なる extras で再インストールする場合は `--force` を付けてください。`--force` なしでは「already installed」と表示され、extra が追加されません。指定した extras のみが含まれ、以前の extras は削除されます。
 
+> **`reazonspeech-k2-asr` を `--with` で別途指定する理由:** `reazonspeech-k2-asr` は PyPI ではなく Git のみで配布されており、PyPI のメタデータには直接 URL 参照を書けないため `reazonspeech` extra に含められない。ReazonSpeech k2 を使う場合は常に `--with` で追加すること。
+
+別の方法: `pipx install shadow-clerk` や venv 内で `pip install shadow-clerk` でも可。
+
 ### 2a. 開発用
+
+```bash
+git clone https://github.com/edocode/shadow-clerk.git
+cd shadow-clerk
+```
 
 |  | コマンド |
 |---|---|
@@ -109,7 +120,7 @@ japanese_asr_model: kotoba-whisper
 **ReazonSpeech k2** — `reazonspeech` extra と `reazonspeech-k2-asr` パッケージが必要。`reazonspeech-k2-asr` は PyPI ではなく Git でのみ配布されているため別途インストールが必要:
 
 ```bash
-uv tool install -e ".[reazonspeech]" \
+uv tool install "shadow-clerk[reazonspeech]" \
   --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
 # 開発用:
 uv sync --extra reazonspeech
@@ -144,7 +155,7 @@ spell_check_model: mbyhphat/t5-japanese-typo-correction  # デフォルト
 Google カレンダーのスケジュールに基づいて会議セッションを自動開始・終了する。`gcal` extra が必要:
 
 ```bash
-uv tool install -e ".[gcal]"
+uv tool install "shadow-clerk[gcal]"
 # 開発用:
 uv sync --extra gcal
 ```

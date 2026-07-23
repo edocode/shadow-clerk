@@ -1,6 +1,11 @@
 # Shadow-clerk
 
+[![PyPI version](https://img.shields.io/pypi/v/shadow-clerk.svg)](https://pypi.org/project/shadow-clerk/)
+[![Python versions](https://img.shields.io/pypi/pyversions/shadow-clerk.svg)](https://pypi.org/project/shadow-clerk/)
+
 A tool that records web meeting audio in real-time and transcribes it. Also supports translation and meeting minutes generation.
+
+Available on PyPI: <https://pypi.org/project/shadow-clerk/>
 
 ## Platform support
 
@@ -16,9 +21,9 @@ Recommended install (explicit Windows deps):
 
 ```powershell
 uv python install 3.13
-uv tool install --python 3.13 --with PyAudioWPatch -e ".[spell-check,gcal]"
+uv tool install --python 3.13 --with PyAudioWPatch "shadow-clerk[spell-check,gcal]"
 # +ReazonSpeech k2 (Japanese ASR, optional):
-uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr" -e ".[spell-check,gcal,reazonspeech]"
+uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr" "shadow-clerk[spell-check,gcal,reazonspeech]"
 ```
 
 Why explicit `--python` and `--with`:
@@ -68,23 +73,29 @@ sudo apt install libportaudio2 portaudio19-dev
 
 ### 2. Install
 
-```bash
-git clone https://gitlab.edocode.co.jp/common/shadow-clerk.git
-cd shadow-clerk
-```
+Install from PyPI:
 
 |  | Command |
 |---|---|
-| Basic | `uv tool install -e .` |
-| + ReazonSpeech | `uv tool install -e ".[reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
-| + Spell check | `uv tool install -e ".[spell-check]"` |
-| + Both (ReazonSpeech + Spell check) | `uv tool install -e ".[spell-check,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
-| + Google Calendar | `uv tool install -e ".[gcal]"` |
-| All | `uv tool install -e ".[spell-check,gcal,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| Basic | `uv tool install shadow-clerk` |
+| + ReazonSpeech | `uv tool install "shadow-clerk[reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| + Spell check | `uv tool install "shadow-clerk[spell-check]"` |
+| + Both (ReazonSpeech + Spell check) | `uv tool install "shadow-clerk[spell-check,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| + Google Calendar | `uv tool install "shadow-clerk[gcal]"` |
+| All | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 
 > **Note:** `uv tool install` maintains a single environment per tool. When reinstalling with different extras, use `--force` — without it, `uv tool install` reports "already installed" and does not add the extra. Only the extras specified in the command are included; previously installed extras are removed.
 
+> **Why `reazonspeech-k2-asr` is `--with`'d separately:** The `reazonspeech-k2-asr` package is only distributed via Git (not on PyPI), and PyPI rejects direct URL references in package metadata, so it cannot be declared inside the `reazonspeech` extra. Pass it via `--with` whenever you need ReazonSpeech k2.
+
+Alternative: `pipx install shadow-clerk` (or `pip install shadow-clerk` inside a venv) also works.
+
 ### 2a. For development
+
+```bash
+git clone https://github.com/edocode/shadow-clerk.git
+cd shadow-clerk
+```
 
 |  | Command |
 |---|---|
@@ -109,7 +120,7 @@ japanese_asr_model: kotoba-whisper
 **ReazonSpeech k2** — Requires the `reazonspeech` extra plus the `reazonspeech-k2-asr` package, which is only distributed via Git (not on PyPI), so it must be installed separately:
 
 ```bash
-uv tool install -e ".[reazonspeech]" \
+uv tool install "shadow-clerk[reazonspeech]" \
   --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
 # or for development:
 uv sync --extra reazonspeech
@@ -144,7 +155,7 @@ The spell check model is auto-downloaded on first use. It corrects Japanese spee
 Automatically starts and ends meeting sessions based on your Google Calendar schedule. Requires the `gcal` extra:
 
 ```bash
-uv tool install -e ".[gcal]"
+uv tool install "shadow-clerk[gcal]"
 # or for development:
 uv sync --extra gcal
 ```
