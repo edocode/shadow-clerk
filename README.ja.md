@@ -428,6 +428,7 @@ translation_provider: null    # 翻訳プロバイダ (null=llm_provider を使�
 api_endpoint: null            # OpenAI Compatible API の base URL
 api_model: null               # API モデル名 (gpt-4o, etc.)
 api_key_env: SHADOW_CLERK_API_KEY  # API キーを格納する環境変数名
+api_disable_thinking: false   # 翻訳・中間翻訳で reasoning モデルの思考を無効化 (Qwen3 等; enable_thinking=false を送信)。要約は常に思考する
 summary_source: null          # 要約ソース (null=auto: translationがあれば優先 / "transcript" / "translate")
 summary_language: null        # 要約の言語 (null=ui_language にフォールバック / ja, en, zh, ...)
 libretranslate_endpoint: null     # LibreTranslate API URL (例: http://localhost:5000)

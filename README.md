@@ -426,6 +426,7 @@ translation_provider: null    # Translation provider (null=use llm_provider, "cl
 api_endpoint: null            # OpenAI Compatible API base URL
 api_model: null               # API model name (gpt-4o, etc.)
 api_key_env: SHADOW_CLERK_API_KEY  # Environment variable name for API key
+api_disable_thinking: false   # Disable reasoning-model thinking for translation/interim (Qwen3 etc.; sends enable_thinking=false). Summary always keeps thinking.
 summary_source: null          # Summary source (null=auto: prefer translation if exists / "transcript" / "translate")
 summary_language: null        # Summary output language (null=fallback to ui_language / ja, en, zh, ...)
 libretranslate_endpoint: null     # LibreTranslate API URL (e.g. http://localhost:5000)

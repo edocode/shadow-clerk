@@ -8,7 +8,10 @@ import re
 import sys
 
 from shadow_clerk.i18n import t, nt
-from shadow_clerk._llm_config import load_config, get_api_client, get_translation_provider, resolve_path, call_claude_cli
+from shadow_clerk._llm_config import (
+    load_config, get_api_client, get_translation_provider, resolve_path, call_claude_cli,
+    chat_completion,
+)
 from shadow_clerk._llm_glossary import load_glossary, MARKER_RE, TIMESTAMP_RE, _seems_target_language
 
 logger = logging.getLogger("llm-client")
@@ -310,15 +313,14 @@ def translate(args: argparse.Namespace) -> None:
         def _llm_call(user_text: str) -> str:
             if provider == "claude":
                 return call_claude_cli(user_text, system_prompt, config)
-            response = client.chat.completions.create(
-                model=api_model,
-                messages=[
+            return chat_completion(
+                client, api_model,
+                [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_text},
                 ],
-                temperature=0.3,
+                config, temperature=0.3,
             )
-            return response.choices[0].message.content or ""
 
         try:
             raw_content = _llm_call(user_content)

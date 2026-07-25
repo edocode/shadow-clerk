@@ -10,7 +10,7 @@ from openai import OpenAI
 
 from shadow_clerk import DATA_DIR
 from shadow_clerk.i18n import t, nt
-from shadow_clerk._llm_config import load_config, get_api_client, resolve_path, call_claude_cli
+from shadow_clerk._llm_config import load_config, get_api_client, resolve_path, call_claude_cli, chat_completion
 from shadow_clerk._llm_glossary import load_glossary_for_summary
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain import Summary
@@ -261,16 +261,15 @@ def _summarize_full_single(
             logger.error("summarize: claude call failed: %s", e)
             return None
     else:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
+        # 要約は思考が品質に効くため force_thinking=True（思考過程は strip される）
+        result = chat_completion(
+            client, model,
+            [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
-            temperature=0.3,
-            max_tokens=max_tokens,
+            config, temperature=0.3, max_tokens=max_tokens, force_thinking=True,
         )
-        result = response.choices[0].message.content
 
     if not result or len(result.strip()) < 50:
         logger.warning("要約結果が短すぎます (%d文字)、スキップ", len(result.strip()) if result else 0)
@@ -347,16 +346,15 @@ def _summarize_update_single(
             logger.error("summarize: claude call failed: %s", e)
             return None
     else:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
+        # 要約は思考が品質に効くため force_thinking=True（思考過程は strip される）
+        result = chat_completion(
+            client, model,
+            [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
-            temperature=0.3,
-            max_tokens=max_tokens,
+            config, temperature=0.3, max_tokens=max_tokens, force_thinking=True,
         )
-        result = response.choices[0].message.content
 
     if not result or len(result.strip()) < 50:
         logger.warning("要約結果が短すぎます (%d文字)、スキップ", len(result.strip()) if result else 0)

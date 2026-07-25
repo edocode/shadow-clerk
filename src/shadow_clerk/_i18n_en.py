@@ -217,6 +217,7 @@ STRINGS_EN: dict[str, str] = {
     "cfg.api_endpoint": "API Endpoint",
     "cfg.api_model": "API Model",
     "cfg.api_key_env": "API Key Env Var",
+    "cfg.api_disable_thinking": "Disable Thinking (translation/interim)",
     "cfg.initial_prompt": "Initial Prompt",
     "cfg.initial_prompt_ph": "Whisper hint words",
     "cfg.voice_command_key": "PTT Key",

@@ -10,7 +10,7 @@ from openai import OpenAI  # noqa: F401
 
 from shadow_clerk._llm_config import (  # noqa: F401
     load_dotenv, load_config, resolve_path, get_api_client, get_translation_provider,
-    ENV_FILE, GLOSSARY_FILE,
+    chat_completion, strip_reasoning, ENV_FILE, GLOSSARY_FILE,
 )
 from shadow_clerk._llm_glossary import (  # noqa: F401
     load_glossary, load_glossary_replacements, load_glossary_for_summary, _seems_target_language,
@@ -35,16 +35,14 @@ def query(args: argparse.Namespace) -> None:
     config = load_config()
     client, model = get_api_client(config)
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
+    answer = chat_completion(
+        client, model,
+        [
             {"role": "system", "content": nt("llm.query_system")},
             {"role": "user", "content": args.prompt},
         ],
-        temperature=0.7,
+        config, temperature=0.7,
     )
-
-    answer = response.choices[0].message.content
     if answer:
         print(answer.strip())
 
@@ -76,16 +74,14 @@ def match_command(args: argparse.Namespace) -> None:
 
     system_prompt = nt("llm.match_command_system", commands=commands_desc)
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
+    raw_content = chat_completion(
+        client, model,
+        [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": text},
         ],
-        temperature=0.1,
+        config, temperature=0.1,
     )
-
-    raw_content = response.choices[0].message.content or ""
     logger.debug("match-command: API response: %r", raw_content)
 
     # JSON 抽出（コードブロック対応）

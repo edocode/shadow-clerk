@@ -217,6 +217,7 @@ STRINGS_JA: dict[str, str] = {
     "cfg.api_endpoint": "APIエンドポイント",
     "cfg.api_model": "APIモデル",
     "cfg.api_key_env": "APIキー環境変数",
+    "cfg.api_disable_thinking": "思考を無効化（翻訳・中間翻訳）",
     "cfg.initial_prompt": "初期プロンプト",
     "cfg.initial_prompt_ph": "Whisperヒント語彙",
     "cfg.voice_command_key": "PTTキー",

@@ -47,6 +47,9 @@ DEFAULT_CONFIG = {
     "api_endpoint": None,
     "api_model": None,
     "api_key_env": "SHADOW_CLERK_API_KEY",
+    # reasoning/thinking モデルで interim・翻訳の思考過程出力を抑制する
+    # (Qwen3 等の vLLM で enable_thinking=false を送る)。要約は品質のため常に思考する。
+    "api_disable_thinking": False,
     "claude_cli_path": "claude",
     "claude_cli_model": "haiku",
     "custom_commands": [],

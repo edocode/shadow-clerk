@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 
@@ -62,6 +63,60 @@ def resolve_path(filename: str, config: dict) -> str:
     if filename.startswith("transcript-") or filename.startswith("summary-"):
         return os.path.join(output_dir, filename)
     return os.path.join(DATA_DIR, filename)
+
+
+# --- reasoning/thinking モデル対応 ---
+# 一部の reasoning モデル (Qwen3, DeepSeek-R1 等) は思考過程を message.content に
+# 出力する。vLLM で reasoning parser 未設定の場合、開始 <think> はテンプレートが
+# 注入するため生成には現れず「思考文...</think>本回答」の形になる。ここでは
+# ・<think>...</think> ブロックを除去
+# ・開始タグ欠落で </think> だけ残る場合は最後の </think> 以降を本回答として採用
+# ・閉じ欠落（途中で切れた思考）は開始タグ以降を捨てる
+# タグの無い素の思考漏れ（"Thinking Process:" 等）は除去できないため、
+# 呼び出し側の出力形状検証で弾く。
+_THINK_BLOCK_RE = re.compile(r"<(think|thinking|reasoning|thought)\b[^>]*>.*?</\1\s*>", re.I | re.S)
+_THINK_CLOSE_RE = re.compile(r"</(think|thinking|reasoning|thought)\s*>", re.I)
+_THINK_OPEN_RE = re.compile(r"<(think|thinking|reasoning|thought)\b[^>]*>", re.I)
+
+
+def strip_reasoning(text: str) -> str:
+    """reasoning モデルの思考過程を content から取り除き、本回答だけを返す。"""
+    if not text:
+        return ""
+    cleaned = _THINK_BLOCK_RE.sub("", text)
+    closes = list(_THINK_CLOSE_RE.finditer(cleaned))
+    if closes:
+        cleaned = cleaned[closes[-1].end():]
+    op = _THINK_OPEN_RE.search(cleaned)
+    if op:
+        cleaned = cleaned[:op.start()]
+    return cleaned.strip()
+
+
+def _thinking_extra_body(config: dict, *, force_thinking: bool) -> dict | None:
+    """api_disable_thinking 設定に応じた extra_body を返す。
+
+    force_thinking=True（要約など思考が品質に効くタスク）では常に思考を許可する。
+    """
+    if not force_thinking and config.get("api_disable_thinking"):
+        return {"chat_template_kwargs": {"enable_thinking": False}}
+    return None
+
+
+def chat_completion(
+    client: OpenAI, model: str, messages: list[dict], config: dict,
+    *, temperature: float = 0.3, max_tokens: int | None = None,
+    force_thinking: bool = False,
+) -> str:
+    """chat.completions.create を叩き、思考過程を除去した本回答テキストを返す。"""
+    kwargs: dict = {"model": model, "messages": messages, "temperature": temperature}
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
+    extra = _thinking_extra_body(config, force_thinking=force_thinking)
+    if extra:
+        kwargs["extra_body"] = extra
+    response = client.chat.completions.create(**kwargs)
+    return strip_reasoning(response.choices[0].message.content or "")
 
 
 def get_api_client(config: dict) -> tuple[OpenAI, str]:

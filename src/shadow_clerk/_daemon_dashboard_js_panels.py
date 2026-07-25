@@ -223,6 +223,7 @@ const CFG_FIELDS=[
   {key:'api_endpoint',label:I18N['cfg.api_endpoint'],type:'text',ph:'https://...'},
   {key:'api_model',label:I18N['cfg.api_model'],type:'api_model'},
   {key:'api_key_env',label:I18N['cfg.api_key_env'],type:'text',ph:'SHADOW_CLERK_API_KEY'},
+  {key:'api_disable_thinking',label:I18N['cfg.api_disable_thinking'],type:'bool',def:false},
   {type:'section',label:I18N['cfg.section.gcal']},
   {key:'gcal_integration',label:I18N['cfg.gcal_integration'],type:'bool'},
   {key:'gcal_credentials_file',label:I18N['cfg.gcal_credentials_file'],type:'text',ph:I18N['cfg.gcal_credentials_file_ph']},

@@ -5,13 +5,17 @@ import json
 import logging
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
 import urllib.request
 
 try:
-    from shadow_clerk.llm_client import get_api_client, load_glossary, load_dotenv as llm_load_dotenv, _spell_check
+    from shadow_clerk.llm_client import (
+        get_api_client, load_glossary, load_dotenv as llm_load_dotenv, _spell_check,
+        chat_completion, strip_reasoning,
+    )
     _HAS_LLM_CLIENT = True
 except ImportError:
     _HAS_LLM_CLIENT = False
@@ -23,6 +27,22 @@ from shadow_clerk.domain import Translation
 from shadow_clerk._transcript_name import TranscriptName
 
 logger = logging.getLogger("shadow-clerk")
+
+_INTERIM_LINE_RE = re.compile(r"(?m)^\s*1:\s*(.*)$")
+
+
+def _extract_interim_line(text: str) -> str:
+    """interim 応答から翻訳 1 行を取り出す。
+
+    reasoning モデルの思考漏れ（"Thinking Process:" 等の複数行）を弾くため、
+    `1: 訳文` 形式を優先し、無ければ単一行のときだけ採用、複数行なら破棄する。
+    """
+    text = strip_reasoning(text) if _HAS_LLM_CLIENT else text.strip()
+    m = _INTERIM_LINE_RE.search(text)
+    if m:
+        return m.group(1).strip()
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    return lines[0] if len(lines) == 1 else ""
 
 
 class _RecorderTranslateMixin:
@@ -349,9 +369,8 @@ class _RecorderTranslateMixin:
                     system_prompt = nt("llm.translate_system", lang=lang, hiragana_step="")
                     if glossary:
                         system_prompt += "\n" + glossary
-                    translated = call_claude_cli(f"1: {text}", system_prompt, config).strip()
-                    if translated.startswith("1:"):
-                        translated = translated[2:].strip()
+                    translated = _extract_interim_line(
+                        call_claude_cli(f"1: {text}", system_prompt, config))
                     if translated and hasattr(self, "_file_watcher"):
                         self._file_watcher._broadcast("interim_translation", json.dumps(
                             {"source": source, "speaker": speaker, "text": text,
@@ -375,19 +394,15 @@ class _RecorderTranslateMixin:
                     if glossary:
                         system_prompt += "\n" + glossary
 
-                    resp = client.chat.completions.create(
-                        model=model,
-                        messages=[
+                    raw = chat_completion(
+                        client, model,
+                        [
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": f"1: {text}"},
                         ],
-                        max_tokens=512,
-                        temperature=0.3,
+                        config, temperature=0.3, max_tokens=512,
                     )
-                    translated = resp.choices[0].message.content.strip()
-                    # "1: " prefix を除去
-                    if translated.startswith("1:"):
-                        translated = translated[2:].strip()
+                    translated = _extract_interim_line(raw)
 
                     if translated and hasattr(self, "_file_watcher"):
                         self._file_watcher._broadcast("interim_translation", json.dumps(
