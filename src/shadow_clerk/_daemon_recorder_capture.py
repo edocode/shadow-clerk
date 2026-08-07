@@ -9,22 +9,98 @@ import queue
 import re
 import threading
 import time
+from collections.abc import Iterator
 from typing import Any
 import numpy as np
 from shadow_clerk import DATA_DIR
 from shadow_clerk._daemon_constants import (
     SAMPLE_RATE, FRAME_SIZE, CHANNELS, DTYPE,
     SESSION_FILE,
+    STREAM_STALL_SEC, STREAM_CHECK_INTERVAL, STREAM_RESOLVE_INTERVAL, STREAM_RETRY_SEC,
+    STREAM_DEGRADED_RETRY_SEC,
     build_wake_word_patterns,
-    _HAS_PYNPUT, _HAS_EVDEV,
 )
 from shadow_clerk._daemon_config import load_config
-from shadow_clerk._daemon_audio import detect_backend, find_monitor_device_sd, PulseAudioBackend
+from shadow_clerk._daemon_audio import (
+    AudioBackend, PulseAudioBackend, detect_backend, get_default_sink_name,
+    refresh_device_list, resolve_mic_device, resolve_monitor_device,
+)
 from shadow_clerk._daemon_vad import VADSegmenter
 from shadow_clerk._daemon_transcriber import Transcriber, GlossaryReplacer
-from shadow_clerk.domain import MeetingSession
+from shadow_clerk.domain import AudioDevice, MeetingSession
 
 logger = logging.getLogger("shadow-clerk")
+
+
+class _CaptureStream:
+    """監視付きの PortAudio 入力ストリーム。
+
+    コールバックで最終フレーム時刻を更新し、ウォッチドッグが途絶を検知する。
+    follow_sink=True なら開いた時点のデフォルト Sink 名を覚え、出力先の切り替えを
+    検知する（サスペンド復帰やヘッドセットの抜き差しで実際に起きる）。
+    """
+
+    def __init__(self, label: str, device: AudioDevice, audio_queue: queue.Queue,
+                 follow_sink: bool = False) -> None:
+        self.label = label
+        self.device = device
+        self.sink = get_default_sink_name() if follow_sink else None
+        self._queue = audio_queue
+        self._stream: Any = None
+        self.last_frame = time.monotonic()
+
+    def _callback(self, indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
+        if status:
+            logger.warning("%s status: %s", self.label, status)
+        self.last_frame = time.monotonic()
+        self._queue.put(indata[:, 0].copy().astype(np.int16))
+
+    def open(self) -> bool:
+        """ストリームを開いて開始する。成功なら True。"""
+        import sounddevice as sd
+        try:
+            self._stream = sd.InputStream(
+                samplerate=SAMPLE_RATE,
+                channels=CHANNELS,
+                dtype=DTYPE,
+                blocksize=FRAME_SIZE,
+                device=self.device.index,
+                callback=self._callback,
+            )
+            self._stream.start()
+        except sd.PortAudioError as e:
+            logger.warning("%s キャプチャを開けません (%s): %s", self.label, self.device, e)
+            self.close()
+            return False
+        self.last_frame = time.monotonic()
+        logger.info("%s キャプチャ開始 (%s)", self.label, self.device)
+        return True
+
+    def idle_sec(self) -> float:
+        """最終フレームからの経過秒数。
+
+        CLOCK_MONOTONIC はサスペンド中進まないため、レジューム直後に
+        サスペンド時間で誤検知することはない。
+        """
+        return time.monotonic() - self.last_frame
+
+    def changed_sink(self) -> str | None:
+        """デフォルト Sink が開いた時点から変わっていれば新しい名前を返す"""
+        if self.sink is None:
+            return None
+        current = get_default_sink_name()
+        return current if current and current != self.sink else None
+
+    def close(self) -> None:
+        import sounddevice as sd
+        if self._stream is None:
+            return
+        try:
+            self._stream.stop()
+            self._stream.close()
+        except sd.PortAudioError:
+            pass
+        self._stream = None
 
 
 class _RecorderCaptureMixin:
@@ -139,151 +215,131 @@ class _RecorderCaptureMixin:
         signal.signal(signal.SIGINT, handler)
         signal.signal(signal.SIGTERM, handler)
 
-    def _mic_capture_thread(self) -> None:
-        """マイク音声キャプチャスレッド"""
-        import sounddevice as sd
-        mic_device = self.args.mic
-        logger.info("マイクキャプチャ開始 (device=%s)", mic_device)
+    def _audio_capture_thread(self) -> None:
+        """マイク/モニターをキャプチャし、フレーム途絶・出力先変更を検知して再接続する。
 
-        def callback(indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
-            if status:
-                logger.warning("マイク status: %s", status)
-            self.mic_queue.put(indata[:, 0].copy().astype(np.int16))
-
-        stream = None
-        try:
-            with self._stream_lock:
-                stream = sd.InputStream(
-                    samplerate=SAMPLE_RATE,
-                    channels=CHANNELS,
-                    dtype=DTYPE,
-                    blocksize=FRAME_SIZE,
-                    device=mic_device,
-                    callback=callback,
-                )
-                stream.start()
-            self.stop_event.wait()
-        except sd.PortAudioError as e:
-            logger.error("マイクキャプチャエラー: %s", e)
-            self.use_mic = False
-        finally:
-            # start() 失敗時もストリームをリークさせない
-            if stream is not None:
-                try:
-                    stream.stop()
-                    stream.close()
-                except sd.PortAudioError:
-                    pass
-
-    def _monitor_capture_thread(self) -> None:
-        """モニター音声キャプチャスレッド"""
-        import sounddevice as sd
-        # sounddevice でモニターデバイスを探す
-        monitor_device = self.args.monitor
-        monitor_extra: dict[str, Any] = {}
-        if monitor_device is None:
-            found = find_monitor_device_sd()
-            if found is not None:
-                monitor_device, monitor_extra = found
-
-        if monitor_device is not None:
-            dev_info = sd.query_devices(monitor_device)
-            logger.info("sounddevice monitor キャプチャ開始 (device=%s: %s)", monitor_device, dev_info["name"])
-            if self._monitor_capture_sounddevice(monitor_device, monitor_extra):
-                return
-            # sounddevice 失敗 → バックエンドにフォールバック
-            logger.info("sounddevice 失敗、%s バックエンドにフォールバック", self.backend_name)
-
-        # バックエンド固有のモニターキャプチャ
-        if self.backend:
-            monitor_source = self.backend.detect_monitor_source()
-            if monitor_source:
-                logger.info("%s monitor キャプチャ開始: %s", self.backend_name, monitor_source)
-                try:
-                    self.backend.start_monitor_capture(
-                        monitor_source, self.monitor_queue, self.stop_event
-                    )
-                    # stop_event が set される前に終了した場合はキャプチャ失敗
-                    if not self.stop_event.is_set():
-                        logger.warning("monitor キャプチャが予期せず終了しました: %s", monitor_source)
-                    else:
-                        return
-                except FileNotFoundError as e:
-                    logger.error("monitor キャプチャコマンドが見つかりません: %s", e)
-                except Exception as e:
-                    logger.error("monitor キャプチャ失敗: %s", e)
-
-        # PipeWire バックエンド失敗時に PulseAudio (parec) でフォールバック
-        if self.backend_name == "pipewire" and PulseAudioBackend.is_available():
-            logger.info("PipeWire monitor 失敗、PulseAudio (parec) にフォールバック")
-            pa_backend = PulseAudioBackend()
-            pa_source = pa_backend.detect_monitor_source()
-            if pa_source:
-                logger.info("PulseAudio monitor キャプチャ開始: %s", pa_source)
-                try:
-                    pa_backend.start_monitor_capture(pa_source, self.monitor_queue, self.stop_event)
-                    if not self.stop_event.is_set():
-                        logger.warning("PulseAudio monitor キャプチャが予期せず終了しました: %s", pa_source)
-                        self.use_monitor = False
-                    return
-                except FileNotFoundError as e:
-                    logger.error("parec が見つかりません: %s", e)
-                except Exception as e:
-                    logger.error("PulseAudio monitor キャプチャ失敗: %s", e)
-
-        logger.warning("モニターソースが見つかりません。マイクのみで録音します。")
-        self.use_monitor = False
-
-    def _monitor_capture_sounddevice(
-        self, device: int, extra: dict[str, Any] | None = None
-    ) -> bool:
-        """sounddevice でモニターデバイスをキャプチャ。成功なら True、失敗なら False。
-
-        Linux 専用パス (PipeWire/PulseAudio の `.monitor`/"Monitor of " デバイス)。
-        Windows は WasapiSoundcardBackend 経由でキャプチャする。
-        extra: sd.InputStream に追加で渡す kwargs(現状 Linux では空 dict)。
+        マイクとモニターを 1 スレッドでまとめて管理するのは、デバイス一覧の再列挙
+        (refresh_device_list) が開いている PortAudio ストリームを全て破棄するため。
         """
-        import sounddevice as sd
-        extra = extra or {}
+        backend_started = False
+        first = True
+        while not self.stop_event.is_set():
+            if not first:
+                # サスペンド復帰・抜き差し後は PortAudio のキャッシュが陳腐化している
+                try:
+                    refresh_device_list()
+                except Exception as e:
+                    logger.warning("デバイス一覧の再列挙に失敗: %s", e)
+            first = False
 
-        def callback(indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
-            if status:
-                logger.warning("モニター status: %s", status)
-            self.monitor_queue.put(indata[:, 0].copy().astype(np.int16))
+            mic = self._open_capture("mic", resolve_mic_device(self.args.mic), self.mic_queue)
+            self.use_mic = mic is not None
 
-        max_retries = 2
-        for attempt in range(max_retries):
-            stream = None
-            try:
-                sd._initialize()
-                with self._stream_lock:
-                    stream = sd.InputStream(
-                        samplerate=SAMPLE_RATE,
-                        channels=CHANNELS,
-                        dtype=DTYPE,
-                        blocksize=FRAME_SIZE,
-                        device=device,
-                        callback=callback,
-                        **extra,
-                    )
-                    stream.start()
-                self.stop_event.wait()
-                return True
-            except sd.PortAudioError as e:
-                if attempt < max_retries - 1:
-                    logger.warning("sounddevice モニターエラー (リトライ %d/%d): %s", attempt + 1, max_retries, e)
-                    time.sleep(1)
-                else:
-                    logger.warning("sounddevice モニター失敗、バックエンドにフォールバック: %s", e)
-            finally:
-                # start() 失敗・リトライ時もストリームをリークさせない
+            monitor = None
+            if not backend_started:
+                monitor = self._open_capture(
+                    "monitor", resolve_monitor_device(self.args.monitor), self.monitor_queue,
+                    follow_sink=self.args.monitor is None,
+                )
+                self.use_monitor = monitor is not None
+                if monitor is None:
+                    logger.info("sounddevice でモニターを開けません、%s バックエンドにフォールバック",
+                                self.backend_name)
+                    threading.Thread(target=self._monitor_backend_thread,
+                                     name="monitor-backend", daemon=True).start()
+                    backend_started = True
+
+            reason = self._watch_streams(
+                [s for s in (mic, monitor) if s is not None],
+                degraded=mic is None or (monitor is None and not backend_started),
+            )
+            for stream in (mic, monitor):
                 if stream is not None:
-                    try:
-                        stream.stop()
-                        stream.close()
-                    except sd.PortAudioError:
-                        pass
+                    stream.close()
+            if reason is None:
+                return
+            logger.warning("音声ストリーム再接続: %s", reason)
+            if self.stop_event.wait(STREAM_RETRY_SEC):
+                return
+
+    def _open_capture(self, label: str, device: AudioDevice | None, audio_queue: queue.Queue,
+                      follow_sink: bool = False) -> _CaptureStream | None:
+        """キャプチャストリームを開く。一時的な失敗に備えて 1 度だけリトライする。"""
+        if device is None:
+            return None
+        for attempt in range(2):
+            stream = _CaptureStream(label, device, audio_queue, follow_sink)
+            if stream.open():
+                return stream
+            if attempt == 0 and self.stop_event.wait(1.0):
+                break
+        return None
+
+    def _watch_streams(self, streams: list[_CaptureStream], degraded: bool = False) -> str | None:
+        """ストリームを監視し、再接続が必要になった理由を返す。停止要求なら None。
+
+        degraded=True は一部のデバイスを開けていない状態。開けなかった側が
+        戻ってくる可能性があるので、途絶を待たず定期的に開き直す。
+        """
+        if not streams:
+            return "キャプチャデバイスを取得できません"
+        retry_at = time.monotonic() + STREAM_DEGRADED_RETRY_SEC if degraded else None
+        next_resolve = time.monotonic() + STREAM_RESOLVE_INTERVAL
+        while not self.stop_event.wait(STREAM_CHECK_INTERVAL):
+            if retry_at is not None and time.monotonic() >= retry_at:
+                return "開けていないデバイスの再試行"
+            for stream in streams:
+                if (idle := stream.idle_sec()) > STREAM_STALL_SEC:
+                    return f"{stream.label} のフレームが {idle:.0f} 秒途絶 ({stream.device.name})"
+            if time.monotonic() < next_resolve:
+                continue
+            next_resolve = time.monotonic() + STREAM_RESOLVE_INTERVAL
+            for stream in streams:
+                if (new_sink := stream.changed_sink()) is not None:
+                    return f"デフォルト出力先が変更 {stream.sink} → {new_sink}"
+        return None
+
+    def _monitor_backend_thread(self) -> None:
+        """pw-record / parec でモニターをキャプチャ。プロセスが落ちたら再検出して再開する。"""
+        warned = False
+        while not self.stop_event.is_set():
+            if self._capture_monitor_backend_once():
+                warned = False
+            elif not warned:
+                logger.warning("モニターソースが見つかりません。マイクのみで録音します。")
+                warned = True
+            self.use_monitor = False
+            if self.stop_event.wait(STREAM_RETRY_SEC):
+                return
+
+    def _capture_monitor_backend_once(self) -> bool:
+        """バックエンドを優先順に試して 1 回キャプチャする。開始できたら True。"""
+        for backend, name in self._monitor_backends():
+            source = backend.detect_monitor_source()
+            if not source:
+                continue
+            logger.info("%s monitor キャプチャ開始: %s", name, source)
+            self.use_monitor = True
+            try:
+                backend.start_monitor_capture(source, self.monitor_queue, self.stop_event)
+            except FileNotFoundError as e:
+                logger.error("monitor キャプチャコマンドが見つかりません: %s", e)
+                continue
+            except Exception as e:
+                logger.error("%s monitor キャプチャ失敗: %s", name, e)
+                continue
+            if not self.stop_event.is_set():
+                logger.warning("%s monitor キャプチャが予期せず終了しました: %s", name, source)
+            return True
         return False
+
+    def _monitor_backends(self) -> Iterator[tuple[AudioBackend, str]]:
+        """モニターキャプチャに使うバックエンドを優先順に返す"""
+        if self.backend:
+            yield self.backend, self.backend_name
+        # PipeWire (pw-record) が使えない場合に PulseAudio (parec) で再試行する
+        if self.backend_name == "pipewire" and PulseAudioBackend.is_available():
+            yield PulseAudioBackend(), "pulseaudio"
 
     def _vad_thread_for_queue(self, audio_queue: queue.Queue, segmenter: VADSegmenter,
                               label: str):

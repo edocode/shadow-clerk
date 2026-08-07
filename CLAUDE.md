@@ -75,6 +75,9 @@ make dupcheck                    # Duplicate code detection (pylint R0801)
 - **`_api_configured` caching**: Don't cache config-derived flags in `__init__` — read from `load_config()` each time (it has mtime caching).
 - **PTT key stuck**: evdev may report keys as pressed at startup. Check `active_keys()` and set `initially_held` flag.
 - **poll-command blocking**: Use `--timeout <sec>` option to avoid indefinite blocking.
+- **PortAudio device list is cached**: `sd.query_devices()` returns the list enumerated at `Pa_Initialize` time. Nodes added/removed afterwards (suspend/resume, USB unplug) are invisible until `refresh_device_list()` (`sd._terminate()` + `sd._initialize()`). `Pa_Terminate` destroys every open stream, so all capture streams must be closed first — this is why mic and monitor are managed by a single `_audio_capture_thread`.
+- **Audio device indices are unstable**: The same monitor device gets a different index on each daemon start (19/21/22/26…) and can move while running. Compare devices by `AudioDevice.name`, never by index.
+- **Capture streams die silently**: A dead PortAudio stream raises no `PortAudioError` and reports no `status` — the callback just stops firing. A healthy stream fires ~33 callbacks/sec even when the sink is silent, so frame starvation is the only reliable liveness signal (`STREAM_STALL_SEC`).
 
 ## Git Workflow
 

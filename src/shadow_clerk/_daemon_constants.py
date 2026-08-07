@@ -36,6 +36,15 @@ MIN_SEGMENT_DURATION = 0.5  # 最小セグメント長(秒)
 MAX_SEGMENT_DURATION = 30.0  # 最大セグメント長(秒)
 INTERIM_MAX_DURATION = 10.0  # interim 転写に渡す直近音声の最大長(秒)
 
+# 音声ストリーム監視 (サスペンド復帰・出力デバイス切替からの自動復帰)
+# 正常時のコールバックは SAMPLE_RATE/FRAME_SIZE ≒ 33 回/秒 で、無音の sink でも
+# 途切れない。数秒の途絶は即ストリーム死亡を意味する。
+STREAM_STALL_SEC = 15.0  # フレーム途絶をこの秒数で死亡と判定
+STREAM_CHECK_INTERVAL = 2.0  # ウォッチドッグのチェック間隔(秒)
+STREAM_RESOLVE_INTERVAL = 10.0  # デフォルト Sink 変更チェックの間隔(秒)
+STREAM_RETRY_SEC = 5.0  # 再接続失敗時の待機(秒)
+STREAM_DEGRADED_RETRY_SEC = 30.0  # 一部デバイスを開けなかった場合の再試行間隔(秒)
+
 DEFAULT_CONFIG = {
     "translate_language": "en",
     "auto_translate": False,
