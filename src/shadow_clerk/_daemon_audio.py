@@ -10,6 +10,7 @@ import threading
 from typing import Any
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import SAMPLE_RATE, CHANNELS, FRAME_SIZE
+from shadow_clerk.domain import AudioDevice
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -216,7 +217,7 @@ def detect_backend(preferred: str = "auto") -> tuple[str, AudioBackend | None]:
     return "sounddevice", None
 
 
-def _get_default_sink_name() -> str | None:
+def get_default_sink_name() -> str | None:
     """wpctl/pactl でデフォルト Sink の名前を取得"""
     # wpctl (PipeWire)
     if shutil.which("wpctl"):
@@ -412,10 +413,46 @@ class WasapiBackend(AudioBackend):
             p.terminate()
 
 
-def find_monitor_device_sd() -> tuple[int, dict[str, Any]] | None:
+def refresh_device_list() -> None:
+    """PortAudio のデバイス一覧を再列挙する。
+
+    PortAudio は Pa_Initialize 時点の一覧をキャッシュし、以後に現れた/消えた
+    ノードを認識しない（サスペンド復帰や USB オーディオの抜き差しで実際に起きる）。
+    Pa_Terminate は開いている全ストリームを破棄するため、呼び出し側は
+    全ストリームを閉じた状態で呼ぶこと。
+    """
+    import sounddevice as sd
+    sd._terminate()
+    sd._initialize()
+
+
+def resolve_mic_device(index: int | None) -> AudioDevice | None:
+    """マイクデバイスを解決。index=None なら PortAudio のデフォルト入力デバイス。"""
+    import sounddevice as sd
+    try:
+        info = sd.query_devices(index, kind="input")
+    except (ValueError, sd.PortAudioError) as e:
+        logger.warning("マイクデバイスを解決できません (index=%s): %s", index, e)
+        return None
+    return AudioDevice(index=index, name=str(info["name"]))
+
+
+def resolve_monitor_device(index: int | None) -> AudioDevice | None:
+    """モニターデバイスを解決。index 指定時はそれを使い、未指定なら自動検出する。"""
+    import sounddevice as sd
+    if index is None:
+        return find_monitor_device_sd()
+    try:
+        info = sd.query_devices(index)
+    except (ValueError, sd.PortAudioError) as e:
+        logger.warning("モニターデバイスを解決できません (index=%s): %s", index, e)
+        return None
+    return AudioDevice(index=index, name=str(info["name"]))
+
+
+def find_monitor_device_sd() -> AudioDevice | None:
     """sounddevice でモニターデバイスを検索 (Linux のみ)
 
-    戻り値: (デバイスID, sd.InputStream に追加で渡す kwargs) または None。
     Windows は WasapiBackend を使うため None を返す。
     """
     if sys.platform == "win32":
@@ -423,7 +460,7 @@ def find_monitor_device_sd() -> tuple[int, dict[str, Any]] | None:
     return _find_monitor_device_linux()
 
 
-def _find_monitor_device_linux() -> tuple[int, dict[str, Any]] | None:
+def _find_monitor_device_linux() -> AudioDevice | None:
     """Linux (PipeWire/PulseAudio) でモニターデバイスを検索
 
     PipeWire: `.monitor` サフィックスを持つ入力デバイス
@@ -431,34 +468,33 @@ def _find_monitor_device_linux() -> tuple[int, dict[str, Any]] | None:
     デフォルト Sink に対応するモニターを優先する。
     """
     import sounddevice as sd
-    devices = sd.query_devices()
     candidates = []
-    for i, dev in enumerate(devices):
+    for i, dev in enumerate(sd.query_devices()):
         name = dev["name"]
         is_monitor = (
             name.endswith(".monitor")
             or name.lower().startswith("monitor of ")
         )
         if is_monitor and dev["max_input_channels"] > 0:
-            candidates.append((i, name))
-            logger.debug("monitor 候補: #%d %s", i, name)
+            candidates.append(AudioDevice(index=i, name=name))
+            logger.debug("monitor 候補: %s", candidates[-1])
 
     if not candidates:
         logger.debug("monitor 候補なし")
         return None
 
     # デフォルト Sink に対応するモニターを優先
-    default_sink = _get_default_sink_name()
+    default_sink = get_default_sink_name()
     if default_sink:
         expected_monitor = default_sink + ".monitor"
-        for idx, name in candidates:
-            if name == expected_monitor:
-                logger.debug("デフォルト Sink のモニター選択: #%d %s", idx, name)
-                return idx, {}
+        for device in candidates:
+            if device.name == expected_monitor:
+                logger.debug("デフォルト Sink のモニター選択: %s", device)
+                return device
 
     # 見つからなければ最初の候補
-    logger.debug("デフォルト Sink 不明、最初の候補を選択: #%d %s", *candidates[0])
-    return candidates[0][0], {}
+    logger.debug("デフォルト Sink 不明、最初の候補を選択: %s", candidates[0])
+    return candidates[0]
 
 
 def list_all_devices(backend_name: str, backend: AudioBackend | None) -> None:
@@ -472,8 +508,7 @@ def list_all_devices(backend_name: str, backend: AudioBackend | None) -> None:
 
     monitor_sd = find_monitor_device_sd()
     if monitor_sd is not None:
-        device_idx, _ = monitor_sd
-        print(t("rec.auto_detect_sd", device=device_idx))
+        print(t("rec.auto_detect_sd", device=monitor_sd.index))
 
     if backend:
         monitor = backend.detect_monitor_source()

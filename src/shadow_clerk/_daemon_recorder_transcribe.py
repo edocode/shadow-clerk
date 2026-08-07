@@ -312,12 +312,8 @@ class _RecorderTranscribeMixin:
         self.mic_segmenter = VADSegmenter()
         self.monitor_segmenter = VADSegmenter()
 
-        # PortAudio ストリーム作成の排他制御
-        self._stream_lock = threading.Lock()
-
         threads = [
-            threading.Thread(target=self._mic_capture_thread, name="mic-capture", daemon=True),
-            threading.Thread(target=self._monitor_capture_thread, name="monitor-capture", daemon=True),
+            threading.Thread(target=self._audio_capture_thread, name="audio-capture", daemon=True),
             threading.Thread(
                 target=self._vad_thread_for_queue,
                 args=(self.mic_queue, self.mic_segmenter, "mic"),
