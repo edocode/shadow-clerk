@@ -509,8 +509,11 @@ class _RecorderCaptureMixin:
         その場合は例外が飛ばないため、次のバックエンド（PulseAudio）に進めるよう
         「予期せず終了」を失敗として扱う。
         """
+        requested = self._requested_device("monitor")
         for backend, name in self._monitor_backends():
-            source = backend.detect_monitor_source()
+            # config で固定されていればその名前を直接渡す。pw-record --target は
+            # serial または name を、parec --device= は name を受け付ける
+            source = requested or backend.detect_monitor_source()
             if not source:
                 continue
             logger.info("%s monitor キャプチャ開始: %s", name, source)
