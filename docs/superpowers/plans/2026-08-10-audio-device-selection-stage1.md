@@ -648,19 +648,202 @@ git commit -m "Split reconnect trigger into config change and device return"
 
 ---
 
-### Task 3: 張り替えの粒度
+### Task 3: デバイス一覧スナップショットと `/api/audio-devices`
 
 **Files:**
-- Modify: `src/shadow_clerk/_daemon_recorder_capture.py:232-292`（`_audio_capture_thread` を書き換え）
+- Modify: `src/shadow_clerk/_daemon_audio.py`（`snapshot_devices` を追加）
+- Modify: `src/shadow_clerk/_daemon_recorder_capture.py`（`__init__` に `_device_snapshot`）
+- Modify: `src/shadow_clerk/_daemon_dashboard_ops_config.py`（ハンドラを追加）
+- Modify: `src/shadow_clerk/_daemon_dashboard_base.py`（ルーティングを追加、38 行目付近の `elif path == "/api/status":` の並びに追加）
 - Test: `$SCRATCH/test_task3.py`
 
 **Interfaces:**
-- Consumes: Task 2 の `_Reconnect`
-- Produces: `_audio_capture_thread` がストリームを `dict[str, _CaptureStream]` で保持し、`_Reconnect.refresh` が偽なら該当ラベルだけを閉じて開き直す
+- Consumes: なし（既存の `sd.query_devices()` のみ）
+- Produces:
+  - `snapshot_devices() -> dict[str, Any]` — `{"mic": [{"name", "label"}], "monitor": [...], "updated_at": float}`
+  - `_RecorderCaptureMixin._device_snapshot: dict[str, Any]` — `__init__` で初期化する。Task 4 の監視ループがストリームを開くたびに更新する
+  - `GET /api/audio-devices` — `_device_snapshot` に `cli_pinned` を添えて返す
 
 - [ ] **Step 1: 検証スクリプトを書く**
 
 `$SCRATCH/test_task3.py`:
+
+```python
+"""Task 4: デバイス一覧スナップショットと API の検証"""
+from __future__ import annotations
+import json, urllib.request
+
+from shadow_clerk._daemon_audio import snapshot_devices
+
+results: list[bool] = []
+def check(label: str, ok: bool, detail: str = "") -> None:
+    print(f"[{'PASS' if ok else 'FAIL'}] {label} {detail}")
+    results.append(ok)
+
+snap = snapshot_devices()
+check("1. mic と monitor のキーがある", "mic" in snap and "monitor" in snap)
+check("2. updated_at が入る", isinstance(snap.get("updated_at"), float))
+check("3. mic に入力デバイスが 1 つ以上ある", len(snap["mic"]) > 0,
+      f"{len(snap['mic'])} 件")
+check("4. 各要素が name と label を持つ",
+      all("name" in d and "label" in d for d in snap["mic"] + snap["monitor"]))
+check("5. monitor は .monitor / Monitor of だけ",
+      all(d["name"].endswith(".monitor") or d["name"].lower().startswith("monitor of ")
+          for d in snap["monitor"]),
+      f"{[d['name'] for d in snap['monitor']][:3]}")
+check("6. mic に monitor デバイスを含めない",
+      not any(d["name"].endswith(".monitor") for d in snap["mic"]))
+
+# デーモンが動いていれば API も確認する
+try:
+    with urllib.request.urlopen("http://localhost:8765/api/audio-devices", timeout=3) as r:
+        api = json.loads(r.read())
+    check("7. API が mic/monitor/updated_at を返す",
+          all(k in api for k in ("mic", "monitor", "updated_at")), f"{list(api)}")
+    check("8. API が cli_pinned を返す",
+          isinstance(api.get("cli_pinned"), dict)
+          and set(api["cli_pinned"]) == {"mic", "monitor"}, f"{api.get('cli_pinned')}")
+except Exception as e:
+    print(f"[SKIP] 7. API 確認（デーモン未起動）: {e}")
+
+print(f"\n=== {sum(results)}/{len(results)} PASS ===")
+raise SystemExit(0 if all(results) else 1)
+```
+
+- [ ] **Step 2: 失敗を確認する**
+
+Run: `uv run python $SCRATCH/test_task3.py`
+Expected: FAIL（`ImportError: cannot import name 'snapshot_devices'`）
+
+- [ ] **Step 3: `snapshot_devices` を実装する**
+
+`_daemon_audio.py` の `find_monitor_device_sd` の直前に追加する:
+
+```python
+def snapshot_devices() -> dict[str, Any]:
+    """UI に出すデバイス一覧のスナップショットを取る。
+
+    PortAudio のキャッシュを読むだけなので、ストリームを開くたびに呼んでも
+    コストは無視できる。ブラウザからの要求ごとに再列挙はできない
+    （refresh_device_list が全ストリームを破棄するため）ので、監視スレッドが
+    このスナップショットを更新し、API はそれを返す。
+    """
+    import sounddevice as sd
+    import time as _time
+    mic: list[dict[str, str]] = []
+    monitor: list[dict[str, str]] = []
+    try:
+        devices = sd.query_devices()
+    except Exception as e:
+        logger.warning("デバイス一覧を取得できません: %s", e)
+        return {"mic": [], "monitor": [], "updated_at": None}
+    for dev in devices:
+        if dev["max_input_channels"] <= 0:
+            continue
+        name = str(dev["name"])
+        entry = {"name": name, "label": _device_label(name)}
+        if name.endswith(".monitor") or name.lower().startswith("monitor of "):
+            monitor.append(entry)
+        else:
+            mic.append(entry)
+    return {"mic": mic, "monitor": monitor, "updated_at": _time.time()}
+
+
+def _device_label(name: str) -> str:
+    """PipeWire のノード名を人間が読める形に整える。
+
+    例: alsa_input.usb-Shokz_Shokz_Loop110_96D3...-02.mono-fallback
+        → Shokz Shokz Loop110 (usb)
+    整形できない名前はそのまま返す。
+    """
+    body = name
+    for prefix, kind in (("alsa_input.", ""), ("alsa_output.", "")):
+        if body.startswith(prefix):
+            body = body[len(prefix):]
+            break
+    body = body.removesuffix(".monitor")
+    parts = body.split("-")
+    if len(parts) >= 2 and parts[0] in ("usb", "pci", "platform", "bluez"):
+        # usb-Shokz_Shokz_Loop110_96D3...-02.mono-fallback → Shokz Shokz Loop110
+        middle = "-".join(parts[1:])
+        middle = middle.split(".")[0]
+        words = [w for w in middle.split("_") if w and not w.isdigit()]
+        # 末尾のシリアルらしき長い英数字は落とす
+        if words and len(words[-1]) > 12 and any(c.isdigit() for c in words[-1]):
+            words = words[:-1]
+        if words:
+            return f"{' '.join(words)} ({parts[0]})"
+    return name
+```
+
+`_daemon_audio.py` の先頭 import に `from typing import Any` があることを確認する（既にある）。
+
+- [ ] **Step 4: `_device_snapshot` を初期化する**
+
+`_RecorderCaptureMixin.__init__`（`_daemon_recorder_capture.py`）の `self._monitor_backend = None` の直後に追加する:
+
+```python
+        # /api/audio-devices が返すデバイス一覧。Task 4 で監視スレッドが
+        # ストリームを開くたびに更新する。起動直後のごく短い間だけ空になる
+        self._device_snapshot: dict[str, Any] = {
+            "mic": [], "monitor": [], "updated_at": None}
+```
+
+`_daemon_recorder_capture.py` の import に `from typing import Any` があることを確認する（既にある）。
+
+- [ ] **Step 5: API ハンドラを追加する**
+
+`_daemon_dashboard_ops_config.py` の `_serve_config` の直後に追加:
+
+```python
+    def _serve_audio_devices(self) -> None:
+        """GET /api/audio-devices — 監視スレッドが更新したスナップショットを返す"""
+        rec = self.recorder
+        self._send_json({
+            **rec._device_snapshot,
+            # CLI で番号固定されている系統は config を無視するため、UI を操作不能にする
+            "cli_pinned": {"mic": rec.args.mic is not None,
+                           "monitor": rec.args.monitor is not None},
+        })
+```
+
+`_daemon_dashboard_base.py` のルーティングに追加（`elif path == "/api/config":` の直後）:
+
+```python
+        elif path == "/api/audio-devices":
+            self._serve_audio_devices()
+```
+
+- [ ] **Step 6: 検証スクリプトを通す**
+
+Run: `uv run python $SCRATCH/test_task3.py`
+Expected: `=== 6/6 PASS ===`（デーモン未起動なら 7 は SKIP）
+
+- [ ] **Step 7: 構文・重複チェックとコミット**
+
+Run: `uv run python -m py_compile src/shadow_clerk/_daemon_audio.py src/shadow_clerk/_daemon_recorder_capture.py src/shadow_clerk/_daemon_dashboard_ops_config.py src/shadow_clerk/_daemon_dashboard_base.py`
+Run: `uv run --with pylint python -m pylint --disable=all --enable=R0801 src/shadow_clerk/`
+
+```bash
+git add src/shadow_clerk/_daemon_audio.py src/shadow_clerk/_daemon_recorder_capture.py src/shadow_clerk/_daemon_dashboard_ops_config.py src/shadow_clerk/_daemon_dashboard_base.py
+git commit -m "Add device list snapshot and GET /api/audio-devices"
+```
+
+---
+
+### Task 4: 張り替えの粒度
+
+**Files:**
+- Modify: `src/shadow_clerk/_daemon_recorder_capture.py`（`_audio_capture_thread` を書き換え。行番号は Task 1-3 の変更でずれているため、関数名で探すこと）
+- Test: `$SCRATCH/test_task4.py`
+
+**Interfaces:**
+- Consumes: Task 2 の `_Reconnect`、Task 3 の `snapshot_devices()` と `_device_snapshot`
+- Produces: `_audio_capture_thread` がストリームを `dict[str, _CaptureStream]` で保持し、`_Reconnect.refresh` が偽なら該当ラベルだけを閉じて開き直す
+
+- [ ] **Step 1: 検証スクリプトを書く**
+
+`$SCRATCH/test_task4.py`:
 
 ```python
 """Task 3: 張り替えの粒度の検証 — マイクの切替でモニターが途切れないこと"""
@@ -741,12 +924,12 @@ raise SystemExit(0 if all(results) else 1)
 
 - [ ] **Step 2: 失敗を確認する**
 
-Run: `uv run python $SCRATCH/test_task3.py`
+Run: `uv run python $SCRATCH/test_task4.py`
 Expected: FAIL（現状はマイクの設定変更でもモニターごと開き直すため「2. マイクだけが開き直された」が落ちる）
 
 - [ ] **Step 3: `_audio_capture_thread` を書き換える**
 
-232-292 行を次で置き換える:
+既存の `_audio_capture_thread` 全体を次で置き換える:
 
 ```python
     def _audio_capture_thread(self) -> None:
@@ -837,26 +1020,21 @@ Expected: FAIL（現状はマイクの設定変更でもモニターごと開き
                 stream.close()
 ```
 
-`self._device_snapshot` と `snapshot_devices()` は Task 4 で定義する。Task 3 の時点では次の暫定定義を `__init__` と `_daemon_audio.py` に置いておく（Task 4 で中身を実装する）:
-
-`_RecorderCaptureMixin.__init__` に追加:
+`snapshot_devices()` と `self._device_snapshot` は Task 3 で追加済みである。`_daemon_recorder_capture.py` の import に `snapshot_devices` を足すこと:
 
 ```python
-        # /api/audio-devices が返すデバイス一覧のスナップショット
-        self._device_snapshot: dict[str, Any] = {"mic": [], "monitor": [], "updated_at": None}
+from shadow_clerk._daemon_audio import (
+    AudioBackend, PulseAudioBackend, detect_backend, device_exists, find_device_by_name,
+    get_default_sink_name, refresh_device_list, resolve_mic_device, resolve_monitor_device,
+    snapshot_devices,
+)
 ```
 
-`_daemon_audio.py` に追加（Task 4 で本実装）:
-
-```python
-def snapshot_devices() -> dict[str, Any]:
-    """デバイス一覧のスナップショットを取る（Task 4 で実装）"""
-    return {"mic": [], "monitor": [], "updated_at": None}
-```
+この行で `_device_snapshot` が毎オープンごとに更新されるため、設定パネルのセレクトは起動直後から埋まる。
 
 - [ ] **Step 4: 検証スクリプトを通す**
 
-Run: `uv run python $SCRATCH/test_task3.py`
+Run: `uv run python $SCRATCH/test_task4.py`
 Expected: `=== 4/4 PASS ===`
 
 - [ ] **Step 5: 既存のウォッチドッグ検証で退行がないことを確認する**
@@ -866,180 +1044,12 @@ Expected: `=== 7/7 PASS ===`
 
 - [ ] **Step 6: 構文・重複チェックとコミット**
 
-Run: `uv run python -m py_compile src/shadow_clerk/_daemon_recorder_capture.py src/shadow_clerk/_daemon_audio.py`
+Run: `uv run python -m py_compile src/shadow_clerk/_daemon_recorder_capture.py`
 Run: `uv run --with pylint python -m pylint --disable=all --enable=R0801 src/shadow_clerk/`
 
 ```bash
-git add src/shadow_clerk/_daemon_recorder_capture.py src/shadow_clerk/_daemon_audio.py
+git add src/shadow_clerk/_daemon_recorder_capture.py
 git commit -m "Reconnect only the affected stream when no re-enumeration is needed"
-```
-
----
-
-### Task 4: デバイス一覧スナップショットと `/api/audio-devices`
-
-**Files:**
-- Modify: `src/shadow_clerk/_daemon_audio.py`（`snapshot_devices` を本実装）
-- Modify: `src/shadow_clerk/_daemon_dashboard_ops_config.py`（ハンドラを追加）
-- Modify: `src/shadow_clerk/_daemon_dashboard_base.py`（ルーティングを追加、38 行目付近の `elif path == "/api/status":` の並びに追加）
-- Test: `$SCRATCH/test_task4.py`
-
-**Interfaces:**
-- Consumes: Task 3 の `self._device_snapshot`
-- Produces:
-  - `snapshot_devices() -> dict[str, Any]` — `{"mic": [{"name", "label"}], "monitor": [...], "updated_at": float}`
-  - `GET /api/audio-devices` — `self.recorder._device_snapshot` をそのまま返す
-
-- [ ] **Step 1: 検証スクリプトを書く**
-
-`$SCRATCH/test_task4.py`:
-
-```python
-"""Task 4: デバイス一覧スナップショットと API の検証"""
-from __future__ import annotations
-import json, urllib.request
-
-from shadow_clerk._daemon_audio import snapshot_devices
-
-results: list[bool] = []
-def check(label: str, ok: bool, detail: str = "") -> None:
-    print(f"[{'PASS' if ok else 'FAIL'}] {label} {detail}")
-    results.append(ok)
-
-snap = snapshot_devices()
-check("1. mic と monitor のキーがある", "mic" in snap and "monitor" in snap)
-check("2. updated_at が入る", isinstance(snap.get("updated_at"), float))
-check("3. mic に入力デバイスが 1 つ以上ある", len(snap["mic"]) > 0,
-      f"{len(snap['mic'])} 件")
-check("4. 各要素が name と label を持つ",
-      all("name" in d and "label" in d for d in snap["mic"] + snap["monitor"]))
-check("5. monitor は .monitor / Monitor of だけ",
-      all(d["name"].endswith(".monitor") or d["name"].lower().startswith("monitor of ")
-          for d in snap["monitor"]),
-      f"{[d['name'] for d in snap['monitor']][:3]}")
-check("6. mic に monitor デバイスを含めない",
-      not any(d["name"].endswith(".monitor") for d in snap["mic"]))
-
-# デーモンが動いていれば API も確認する
-try:
-    with urllib.request.urlopen("http://localhost:8765/api/audio-devices", timeout=3) as r:
-        api = json.loads(r.read())
-    check("7. API が mic/monitor/updated_at を返す",
-          all(k in api for k in ("mic", "monitor", "updated_at")), f"{list(api)}")
-    check("8. API が cli_pinned を返す",
-          isinstance(api.get("cli_pinned"), dict)
-          and set(api["cli_pinned"]) == {"mic", "monitor"}, f"{api.get('cli_pinned')}")
-except Exception as e:
-    print(f"[SKIP] 7. API 確認（デーモン未起動）: {e}")
-
-print(f"\n=== {sum(results)}/{len(results)} PASS ===")
-raise SystemExit(0 if all(results) else 1)
-```
-
-- [ ] **Step 2: 失敗を確認する**
-
-Run: `uv run python $SCRATCH/test_task4.py`
-Expected: FAIL（暫定実装が空リストと `updated_at: None` を返す）
-
-- [ ] **Step 3: `snapshot_devices` を実装する**
-
-`_daemon_audio.py` の暫定定義を次で置き換える:
-
-```python
-def snapshot_devices() -> dict[str, Any]:
-    """UI に出すデバイス一覧のスナップショットを取る。
-
-    PortAudio のキャッシュを読むだけなので、ストリームを開くたびに呼んでも
-    コストは無視できる。ブラウザからの要求ごとに再列挙はできない
-    （refresh_device_list が全ストリームを破棄するため）ので、監視スレッドが
-    このスナップショットを更新し、API はそれを返す。
-    """
-    import sounddevice as sd
-    import time as _time
-    mic: list[dict[str, str]] = []
-    monitor: list[dict[str, str]] = []
-    try:
-        devices = sd.query_devices()
-    except Exception as e:
-        logger.warning("デバイス一覧を取得できません: %s", e)
-        return {"mic": [], "monitor": [], "updated_at": None}
-    for dev in devices:
-        if dev["max_input_channels"] <= 0:
-            continue
-        name = str(dev["name"])
-        entry = {"name": name, "label": _device_label(name)}
-        if name.endswith(".monitor") or name.lower().startswith("monitor of "):
-            monitor.append(entry)
-        else:
-            mic.append(entry)
-    return {"mic": mic, "monitor": monitor, "updated_at": _time.time()}
-
-
-def _device_label(name: str) -> str:
-    """PipeWire のノード名を人間が読める形に整える。
-
-    例: alsa_input.usb-Shokz_Shokz_Loop110_96D3...-02.mono-fallback
-        → Shokz Shokz Loop110 (usb)
-    整形できない名前はそのまま返す。
-    """
-    body = name
-    for prefix, kind in (("alsa_input.", ""), ("alsa_output.", "")):
-        if body.startswith(prefix):
-            body = body[len(prefix):]
-            break
-    body = body.removesuffix(".monitor")
-    parts = body.split("-")
-    if len(parts) >= 2 and parts[0] in ("usb", "pci", "platform", "bluez"):
-        # usb-Shokz_Shokz_Loop110_96D3...-02.mono-fallback → Shokz Shokz Loop110
-        middle = "-".join(parts[1:])
-        middle = middle.split(".")[0]
-        words = [w for w in middle.split("_") if w and not w.isdigit()]
-        # 末尾のシリアルらしき長い英数字は落とす
-        if words and len(words[-1]) > 12 and any(c.isdigit() for c in words[-1]):
-            words = words[:-1]
-        if words:
-            return f"{' '.join(words)} ({parts[0]})"
-    return name
-```
-
-`_daemon_audio.py` の先頭 import に `from typing import Any` があることを確認する（既にある）。
-
-- [ ] **Step 4: API ハンドラを追加する**
-
-`_daemon_dashboard_ops_config.py` の `_serve_config` の直後に追加:
-
-```python
-    def _serve_audio_devices(self) -> None:
-        """GET /api/audio-devices — 監視スレッドが更新したスナップショットを返す"""
-        rec = self.recorder
-        self._send_json({
-            **rec._device_snapshot,
-            # CLI で番号固定されている系統は config を無視するため、UI を操作不能にする
-            "cli_pinned": {"mic": rec.args.mic is not None,
-                           "monitor": rec.args.monitor is not None},
-        })
-```
-
-`_daemon_dashboard_base.py` のルーティングに追加（`elif path == "/api/config":` の直後）:
-
-```python
-        elif path == "/api/audio-devices":
-            self._serve_audio_devices()
-```
-
-- [ ] **Step 5: 検証スクリプトを通す**
-
-Run: `uv run python $SCRATCH/test_task4.py`
-Expected: `=== 6/6 PASS ===`（デーモン未起動なら 7 は SKIP）
-
-- [ ] **Step 6: 構文・重複チェックとコミット**
-
-Run: `uv run python -m py_compile src/shadow_clerk/_daemon_audio.py src/shadow_clerk/_daemon_dashboard_ops_config.py src/shadow_clerk/_daemon_dashboard_base.py`
-Run: `uv run --with pylint python -m pylint --disable=all --enable=R0801 src/shadow_clerk/`
-
-```bash
-git add src/shadow_clerk/_daemon_audio.py src/shadow_clerk/_daemon_dashboard_ops_config.py src/shadow_clerk/_daemon_dashboard_base.py
-git commit -m "Add device list snapshot and GET /api/audio-devices"
 ```
 
 ---
@@ -1391,7 +1401,7 @@ git commit -m "Document mic_device/monitor_device and /api/audio-devices"
 
 ## 付録: 既存のウォッチドッグ検証スクリプト
 
-Task 2 と Task 3 の退行確認に使う。`$SCRATCH/test_watchdog.py` として保存する。
+Task 2 と Task 4 の退行確認に使う。`$SCRATCH/test_watchdog.py` として保存する。
 
 ```python
 """音声ストリーム・ウォッチドッグの検証（退行確認用）"""
