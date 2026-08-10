@@ -65,6 +65,9 @@ DEFAULT_CONFIG = {
     "claude_cli_model": "haiku",
     "custom_commands": [],
     "initial_prompt": None,
+    # 音声デバイス。null = OS のデフォルトに追従。値はデバイス名（番号は不安定）
+    "mic_device": None,
+    "monitor_device": None,
     "voice_command_key": "f23",
     "wake_word": "シェルク",
     "whisper_beam_size": 5,        # beam_size (1=高速, 5=高精度)

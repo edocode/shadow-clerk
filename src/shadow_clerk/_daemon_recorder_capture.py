@@ -291,23 +291,50 @@ class _RecorderCaptureMixin:
                 if self.stop_event.wait(STREAM_RETRY_SEC):
                     return
 
+    def _requested_device(self, label: str) -> str | None:
+        """config で指定されたデバイス名。CLI で番号指定されている場合は None。
+
+        CLI と config が同時に効くと張り替えが競合するため、CLI を優先して
+        config を無効化する。
+        """
+        if getattr(self.args, label) is not None:
+            return None
+        value = load_config().get(f"{label}_device")
+        return value.strip() if isinstance(value, str) and value.strip() else None
+
     def _resolve(self, label: str, index: int | None) -> AudioDevice | None:
-        """デバイスを解決する。番号指定時は前回開いた名前と一致するものを優先する。
+        """デバイスを解決する。優先順位は CLI 番号 > config のデバイス名 > 自動。
+
+        config の名前が見つからない場合は自動にフォールバックする。設定値は
+        書き換えない（デバイスが戻ったら復帰させるため）。
+        """
+        if index is not None:
+            return self._resolve_index(label, index)
+        if requested := self._requested_device(label):
+            if (found := find_device_by_name(requested, capture=True)) is not None:
+                return found
+            logger.info("%s: 指定デバイス %s が見つかりません。自動で代替します",
+                        label, requested)
+        resolve = resolve_mic_device if label == "mic" else resolve_monitor_device
+        return resolve(None)
+
+    def _resolve_index(self, label: str, index: int) -> AudioDevice | None:
+        """番号指定を解決する。前回開いた名前と一致するものを優先する。
 
         refresh_device_list() の後は同じ番号が別のデバイスを指しうるため、番号だけを
-        頼りにすると無言で別のマイクを掴む（`AudioDevice` を名前で比較する理由）。
+        頼りにすると無言で別のマイクを掴む。
         """
         resolve = resolve_mic_device if label == "mic" else resolve_monitor_device
         device = resolve(index)
         pinned = self._pinned_names.get(label)
-        if index is not None and pinned and device is not None and device.name != pinned:
+        if pinned and device is not None and device.name != pinned:
             if (found := find_device_by_name(pinned, capture=label == "mic")) is not None:
                 logger.info("%s: 番号 %d は %s に変わったため名前で再解決: %s",
                             label, index, device.name, found)
                 return found
             logger.warning("%s: 指定デバイス %s が見つかりません。番号 %d の %s を使います",
                            label, pinned, index, device.name)
-        if device is not None and index is not None:
+        if device is not None:
             self._pinned_names[label] = device.name
         return device
 

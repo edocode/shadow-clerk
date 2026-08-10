@@ -467,6 +467,34 @@ def find_device_by_name(name: str, capture: bool) -> AudioDevice | None:
     return None
 
 
+def device_exists(name: str) -> bool | None:
+    """OS 側の一覧にこの名前のノードがあるか。取得できなければ None。
+
+    PortAudio の一覧はキャッシュで、再列挙には全ストリームの破棄が必要なため、
+    「抜き差しされたデバイスが戻ったか」の判定には使えない。OS 側に直接聞く。
+    PortAudio のデバイス名は PipeWire のノード名と一致する。
+    """
+    if shutil.which("wpctl"):
+        try:
+            result = subprocess.run(["wpctl", "status", "--name"],
+                                    capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout:
+                return name in result.stdout
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+    if shutil.which("pactl"):
+        for kind in ("sources", "sinks"):
+            try:
+                result = subprocess.run(["pactl", "list", "short", kind],
+                                        capture_output=True, text=True, timeout=5)
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                return None
+            if name in result.stdout:
+                return True
+        return False
+    return None
+
+
 def find_monitor_device_sd() -> AudioDevice | None:
     """sounddevice でモニターデバイスを検索 (Linux のみ)
 
