@@ -196,6 +196,8 @@ STRINGS_EN: dict[str, str] = {
         "  - PTT Key / Interim Transcription\n"
     ),
 
+    "dash.audio_device_monitor": "monitor",
+
     # --- cfg.section.* ---
     "cfg.section.general": "General",
     "cfg.section.transcription": "Transcription",

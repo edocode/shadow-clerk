@@ -196,6 +196,8 @@ STRINGS_JA: dict[str, str] = {
         "  - PTTキー / 中間文字起こし\n"
     ),
 
+    "dash.audio_device_monitor": "モニター",
+
     # --- cfg.section.* : 設定セクション ---
     "cfg.section.general": "基本設定",
     "cfg.section.transcription": "文字起こし",

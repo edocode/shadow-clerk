@@ -12,6 +12,14 @@ from typing import Any
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import SAMPLE_RATE, CHANNELS, FRAME_SIZE
 from shadow_clerk.domain import AudioDevice
+# デバイス一覧スナップショット (snapshot_devices) は _daemon_audio_devices.py に
+# 分離した。既存の import 元 (from shadow_clerk._daemon_audio import
+# snapshot_devices) を壊さないよう、ここで re-export する。
+# wpctl_audio_section_lines は device_exists 用のノード名抽出と共通のセクション
+# 追跡ロジック（Audio → Sinks/Sources サブリスト限定）を再利用するため
+from shadow_clerk._daemon_audio_devices import (  # noqa: F401
+    snapshot_devices, wpctl_audio_section_lines,
+)
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -468,8 +476,6 @@ def find_device_by_name(name: str, capture: bool) -> AudioDevice | None:
     return None
 
 
-_WPCTL_TOP_SECTION_RE = re.compile(r'^(Audio|Video|Settings|Jack|Midi)\s*$')
-_WPCTL_LIST_HEADER_RE = re.compile(r'(Devices|Sinks|Sources|Filters|Streams):\s*$')
 _WPCTL_ENTRY_RE = re.compile(r'\*?\s*\d+\.\s+(\S+)')
 
 
@@ -480,25 +486,11 @@ def _wpctl_audio_node_names(stdout: str) -> set[str]:
     行を出す。特に pipewire-pulse は自身を Clients セクションにノード名
     "pipewire" として登録するため、そこを含めて照合すると PortAudio が返す
     デバイス名 "pipewire"（ALSA の pipewire プラグイン別名）と衝突して誤検出
-    する。Audio セクション配下の Sinks:/Sources: サブリストだけに限定して読む。
+    する。Audio セクション配下の Sinks:/Sources: サブリストだけに限定して読む
+    （セクション追跡は wpctl_audio_section_lines と共通）。
     """
-    names: set[str] = set()
-    section: str | None = None
-    subsection: str | None = None
-    for raw_line in stdout.splitlines():
-        line = raw_line.strip(" │└├─")
-        if not line:
-            continue
-        if (m := _WPCTL_TOP_SECTION_RE.match(line)):
-            section, subsection = m.group(1), None
-            continue
-        if (m := _WPCTL_LIST_HEADER_RE.search(line)):
-            subsection = m.group(1)
-            continue
-        if section == "Audio" and subsection in ("Sinks", "Sources"):
-            if (m := _WPCTL_ENTRY_RE.match(line)):
-                names.add(m.group(1))
-    return names
+    return {m.group(1) for line in wpctl_audio_section_lines(stdout)
+            if (m := _WPCTL_ENTRY_RE.match(line))}
 
 
 def device_exists(name: str) -> bool | None:
@@ -541,67 +533,6 @@ def device_exists(name: str) -> bool | None:
                     return True
         return False
     return None
-
-
-def snapshot_devices() -> dict[str, Any]:
-    """UI に出すデバイス一覧のスナップショットを取る。
-
-    PortAudio のキャッシュを読むだけなので、ストリームを開くたびに呼んでも
-    コストは無視できる。ブラウザからの要求ごとに再列挙はできない
-    （refresh_device_list が全ストリームを破棄するため）ので、監視スレッドが
-    このスナップショットを更新し、API はそれを返す。
-    """
-    import sounddevice as sd
-    import time as _time
-    mic: list[dict[str, str]] = []
-    monitor: list[dict[str, str]] = []
-    try:
-        devices = sd.query_devices()
-    except Exception as e:
-        logger.warning("デバイス一覧を取得できません: %s", e)
-        return {"mic": [], "monitor": [], "updated_at": None}
-    inputs = [str(d["name"]) for d in devices if d["max_input_channels"] > 0]
-    # 選択肢は PipeWire/PulseAudio のノードに限る。PortAudio は生 ALSA デバイス
-    # ("HD-Audio Generic: ALC257 Analog (hw:1,0)") も列挙するが、これらは
-    # device_exists で存在を確認できず復帰判定が働かない上、掴むとサウンド
-    # カードを排他確保して他アプリの音を壊す。ノードが 1 つも無い環境
-    # (PipeWire/PulseAudio 不在) でのみ全件にフォールバックする
-    nodes = [n for n in inputs
-             if n.startswith("alsa_input.") or n.startswith("alsa_output.")]
-    for name in (nodes or inputs):
-        entry = {"name": name, "label": _device_label(name)}
-        if name.endswith(".monitor") or name.lower().startswith("monitor of "):
-            monitor.append(entry)
-        else:
-            mic.append(entry)
-    return {"mic": mic, "monitor": monitor, "updated_at": _time.time()}
-
-
-def _device_label(name: str) -> str:
-    """PipeWire のノード名を人間が読める形に整える。
-
-    例: alsa_input.usb-Shokz_Shokz_Loop110_96D3...-02.mono-fallback
-        → Shokz Shokz Loop110 (usb)
-    整形できない名前はそのまま返す。
-    """
-    body = name
-    for prefix in ("alsa_input.", "alsa_output."):
-        if body.startswith(prefix):
-            body = body[len(prefix):]
-            break
-    body = body.removesuffix(".monitor")
-    parts = body.split("-")
-    if len(parts) >= 2 and parts[0] in ("usb", "pci", "platform", "bluez"):
-        # usb-Shokz_Shokz_Loop110_96D3...-02.mono-fallback → Shokz Shokz Loop110
-        middle = "-".join(parts[1:])
-        middle = middle.split(".")[0]
-        words = [w for w in middle.split("_") if w and not w.isdigit()]
-        # 末尾のシリアルらしき長い英数字は落とす
-        if words and len(words[-1]) > 12 and any(c.isdigit() for c in words[-1]):
-            words = words[:-1]
-        if words:
-            return f"{' '.join(words)} ({parts[0]})"
-    return name
 
 
 def find_monitor_device_sd() -> AudioDevice | None:
