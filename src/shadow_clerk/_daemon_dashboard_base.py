@@ -70,6 +70,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._handle_command()
         elif path == "/api/config":
             self._save_config()
+        elif path == "/api/audio-devices/refresh":
+            self._refresh_audio_devices()
         elif path == "/api/glossary":
             self._save_glossary()
         elif path == "/api/summary/notify":

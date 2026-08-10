@@ -189,6 +189,7 @@ const CFG_FIELDS=[
   {type:'section',label:I18N['cfg.section.audio']},
   {key:'mic_device',label:I18N['cfg.mic_device'],type:'device_select'},
   {key:'monitor_device',label:I18N['cfg.monitor_device'],type:'device_select'},
+  {type:'device_refresh',id:'cfgDeviceRefreshBtn'},
   {type:'section',label:I18N['cfg.section.transcription']},
   {key:'default_language',label:I18N['cfg.default_language'],type:'select',opts:['auto',...LANG_OPTS]},
   {key:'default_model',label:I18N['cfg.default_model'],type:'select',opts:['tiny','base','small','medium','large-v3']},
@@ -242,6 +243,16 @@ async function openCfg(){
     if(f.type==='section'){
       const h=document.createElement('div');h.className='cfg-section';h.textContent=f.label;b.appendChild(h);return;
     }
+    if(f.type==='device_refresh'){
+      // key を持たないアクション行。saveCfg() は 'cfg_'+undefined を探すため自然に無視される
+      b.appendChild(document.createElement('label'));
+      const btn=document.createElement('button');btn.type='button';btn.id=f.id;
+      btn.textContent=I18N['cfg.device_refresh'];btn.title=I18N['cfg.device_refresh_title'];
+      btn.style.cssText='width:auto;padding:4px 10px;cursor:pointer;';
+      btn.onclick=refreshAudioDevices;
+      b.appendChild(btn);
+      return;
+    }
     const lbl=document.createElement('label');lbl.textContent=f.label;b.appendChild(lbl);
     let el;const v=(cfgData[f.key]!==undefined)?cfgData[f.key]:f.def;
     if(f.type==='bool'){
@@ -255,7 +266,9 @@ async function openCfg(){
     }else if(f.type==='device_select'){
       // 実際の選択肢は非同期の loadAudioDevices() が /api/audio-devices 取得後に差し替える。
       // ここでは自動＋現在値だけの仮の選択肢を出しておく（保存直後クリック等でも値が保持される）。
-      el=document.createElement('select');el.id='cfg_'+f.key;
+      // 取得完了まで disabled にする — CLI 固定中かどうか判定できるまで保存させないための安全策。
+      // これを外すと、取得待ちの一瞬に保存された場合、固定中の config を null で上書きしてしまう。
+      el=document.createElement('select');el.id='cfg_'+f.key;el.disabled=true;
       const auto=document.createElement('option');auto.value='';auto.textContent=I18N['cfg.device_auto'];el.appendChild(auto);
       if(v){const cur=document.createElement('option');cur.value=String(v);cur.textContent=String(v);cur.selected=true;el.appendChild(cur);}
     }else if(f.type==='api_model'){
@@ -336,6 +349,35 @@ function fillDeviceSelect(id,items,current,cliPinned){
   // 設定済みだが一覧に無い（抜かれている）場合も選択肢として残す
   if(current&&!matched){
     const o=document.createElement('option');o.value=current;o.textContent=current;o.selected=true;sel.appendChild(o);
+  }
+}
+async function refreshAudioDevices(){
+  // 実際の再列挙 (refresh_device_list) はキャプチャスレッドでしか安全に呼べないため、
+  // サーバー側はフラグを立てるだけ。次の監視ティック（2秒間隔）で消費されるまで、
+  // updated_at の変化をポーリングして「再列挙が終わった」ことを確認する。
+  const btn=document.getElementById('cfgDeviceRefreshBtn');
+  const micSel=document.getElementById('cfg_mic_device');
+  const monSel=document.getElementById('cfg_monitor_device');
+  // 保存前でも今表示中の選択（自動決定した値ではなく UI 上の選択）を維持する
+  const cur={
+    mic_device: (micSel&&!micSel.disabled)?(micSel.value||null):cfgData.mic_device,
+    monitor_device: (monSel&&!monSel.disabled)?(monSel.value||null):cfgData.monitor_device,
+  };
+  if(btn)btn.disabled=true;
+  try{
+    let before=null;
+    try{before=(await(await fetch('/api/audio-devices')).json()).updated_at;}catch(e){/* noop */}
+    await fetch('/api/audio-devices/refresh',{method:'POST'});
+    for(let i=0;i<8;i++){
+      await new Promise(r=>setTimeout(r,1000));
+      try{
+        const d=await(await fetch('/api/audio-devices')).json();
+        if(d.updated_at!==before)break;
+      }catch(e){/* noop */}
+    }
+    await loadAudioDevices(cur);
+  }finally{
+    if(btn)btn.disabled=false;
   }
 }
 async function fetchApiModels(){

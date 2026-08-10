@@ -215,6 +215,9 @@ class _RecorderCaptureMixin:
         # 番号指定 (--mic/--monitor) で最後に開いたデバイス名。再列挙で番号が
         # ずれても同じデバイスを掴み直すために使う
         self._pinned_names: dict[str, str] = {}
+        # ダッシュボードからの手動デバイス再検出リクエスト。_watch_streams の次の
+        # 2 秒ティックで消費され、通常の refresh=True 張り替え経路に乗る
+        self._manual_device_refresh = False
         # 遅延起動するため threads リストに載らない。shutdown で join する
         self._monitor_backend: threading.Thread | None = None
         # /api/audio-devices が返すデバイス一覧。Task 4 で監視スレッドが
@@ -334,6 +337,16 @@ class _RecorderCaptureMixin:
             for stream in streams.values():
                 stream.close()
 
+    def request_device_refresh(self) -> None:
+        """ダッシュボードの「一覧を更新」からの手動再列挙リクエスト。
+
+        refresh_device_list() 自体はここで呼ばない。全ストリームが閉じている
+        状態でしか安全に呼べないため、キャプチャスレッド側の通常の
+        refresh=True 張り替え経路（_audio_capture_thread）に乗せる必要がある。
+        ここではフラグを立てるだけで、_watch_streams が次の監視ティックで消費する。
+        """
+        self._manual_device_refresh = True
+
     def _requested_device(self, label: str) -> str | None:
         """config で指定されたデバイス名。CLI で番号指定されている場合は None。
 
@@ -443,6 +456,10 @@ class _RecorderCaptureMixin:
                         f"({stream.device.name})")
             if (req := self._config_changed(streams)) is not None:
                 return req
+            if self._manual_device_refresh:
+                # 消費したら必ずクリアする。1 回のリクエストで再列挙は 1 回だけ起きる
+                self._manual_device_refresh = False
+                return _Reconnect("ダッシュボードから手動デバイス再検出をリクエスト")
             if time.monotonic() < next_resolve:
                 continue
             next_resolve = time.monotonic() + STREAM_RESOLVE_INTERVAL
