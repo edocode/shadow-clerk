@@ -16,8 +16,12 @@ uv sync --extra reazonspeech     # With ReazonSpeech support
 uv run clerk-daemon              # Start daemon (dev)
 uv run clerk-util                # Utility commands (dev)
 
-# Syntax check (no test suite)
+# Syntax check (no test framework)
 uv run python -m py_compile src/shadow_clerk/<file>.py
+
+# Audio capture regression test (~90s, opens real PortAudio streams)
+# Run after touching _daemon_recorder_capture.py / _daemon_audio*.py
+uv run python tests/test_audio_capture_watchdog.py
 
 # Post-implementation checks (run after any non-trivial change)
 make dupcheck                    # Duplicate code detection (pylint R0801)
