@@ -186,6 +186,9 @@ const CFG_FIELDS=[
   {type:'section',label:I18N['cfg.section.general']},
   {key:'ui_language',label:I18N['cfg.ui_language'],type:'select',opts:['ja','en']},
   {key:'output_directory',label:I18N['cfg.output_directory'],type:'text',ph:I18N['cfg.output_directory_ph']},
+  {type:'section',label:I18N['cfg.section.audio']},
+  {key:'mic_device',label:I18N['cfg.mic_device'],type:'device_select'},
+  {key:'monitor_device',label:I18N['cfg.monitor_device'],type:'device_select'},
   {type:'section',label:I18N['cfg.section.transcription']},
   {key:'default_language',label:I18N['cfg.default_language'],type:'select',opts:['auto',...LANG_OPTS]},
   {key:'default_model',label:I18N['cfg.default_model'],type:'select',opts:['tiny','base','small','medium','large-v3']},
@@ -249,6 +252,12 @@ async function openCfg(){
       el=document.createElement('select');el.id='cfg_'+f.key;
       f.opts.forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=o;el.appendChild(op);});
       if(v!==null&&v!==undefined)el.value=String(v);
+    }else if(f.type==='device_select'){
+      // 実際の選択肢は非同期の loadAudioDevices() が /api/audio-devices 取得後に差し替える。
+      // ここでは自動＋現在値だけの仮の選択肢を出しておく（保存直後クリック等でも値が保持される）。
+      el=document.createElement('select');el.id='cfg_'+f.key;
+      const auto=document.createElement('option');auto.value='';auto.textContent=I18N['cfg.device_auto'];el.appendChild(auto);
+      if(v){const cur=document.createElement('option');cur.value=String(v);cur.textContent=String(v);cur.selected=true;el.appendChild(cur);}
     }else if(f.type==='api_model'){
       el=document.createElement('div');el.style.display='flex';el.style.gap='4px';el.style.alignItems='center';el.style.width='100%';
       const sel=document.createElement('select');sel.id='cfg_'+f.key;sel.style.flex='1';sel.style.width='auto';
@@ -298,6 +307,36 @@ async function openCfg(){
   updateCfgDisabled();
   document.getElementById('cfgModal').classList.add('open');
   if(cfgData.api_endpoint){fetchApiModels();}
+  loadAudioDevices(cfgData);
+}
+async function loadAudioDevices(cfg){
+  let d;
+  try{d=await(await fetch('/api/audio-devices')).json();}catch(e){return;}
+  const pinned=d.cli_pinned||{};
+  fillDeviceSelect('cfg_mic_device',d.mic||[],cfg.mic_device,pinned.mic);
+  fillDeviceSelect('cfg_monitor_device',d.monitor||[],cfg.monitor_device,pinned.monitor);
+}
+function fillDeviceSelect(id,items,current,cliPinned){
+  const sel=document.getElementById(id);if(!sel)return;
+  if(cliPinned){
+    // CLI の --mic/--monitor 番号指定が config より優先するため、UI から変えても効かない
+    sel.innerHTML='';
+    const o=document.createElement('option');o.textContent=I18N['cfg.device_cli_pinned'];sel.appendChild(o);
+    sel.disabled=true;
+    return;
+  }
+  sel.disabled=false;sel.innerHTML='';
+  const auto=document.createElement('option');auto.value='';auto.textContent=I18N['cfg.device_auto'];sel.appendChild(auto);
+  let matched=false;
+  for(const it of items){
+    const o=document.createElement('option');o.value=it.name;o.textContent=it.label;o.title=it.name;
+    if(it.name===current){o.selected=true;matched=true;}
+    sel.appendChild(o);
+  }
+  // 設定済みだが一覧に無い（抜かれている）場合も選択肢として残す
+  if(current&&!matched){
+    const o=document.createElement('option');o.value=current;o.textContent=current;o.selected=true;sel.appendChild(o);
+  }
 }
 async function fetchApiModels(){
   const sel=document.getElementById('cfg_api_model');if(!sel)return;
@@ -317,6 +356,11 @@ async function saveCfg(){
     if(f.type==='bool'){d[f.key]=el.value==='true';}
     else if(f.type==='json'){try{d[f.key]=JSON.parse(el.value);}catch(e){d[f.key]=cfgData[f.key];}}
     else if(f.type==='number'){const n=parseInt(el.value,10);d[f.key]=isNaN(n)?cfgData[f.key]:n;}
+    else if(f.type==='device_select'){
+      // CLI 固定中は disabled になっており、送ると null で上書きしてしまうため送らない
+      if(el.disabled)return;
+      d[f.key]=el.value||null;
+    }
     else if(f.type==='select'&&f.num){const sv=el.value;const n=parseInt(sv,10);d[f.key]=isNaN(n)?null:n;}
     else if(f.type==='select'){const sv=el.value;const autoKeys=['default_language','summary_source','summary_language'];d[f.key]=(sv===''||(sv==='auto'&&autoKeys.includes(f.key)))?null:sv;}
     else{const v=el.value.trim();d[f.key]=(v===''||v==='null')?null:v;}

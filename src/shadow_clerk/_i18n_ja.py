@@ -200,6 +200,7 @@ STRINGS_JA: dict[str, str] = {
 
     # --- cfg.section.* : 設定セクション ---
     "cfg.section.general": "基本設定",
+    "cfg.section.audio": "オーディオデバイス",
     "cfg.section.transcription": "文字起こし",
     "cfg.section.interim": "中間処理 (確定前)",
     "cfg.section.translation": "翻訳",
@@ -215,6 +216,12 @@ STRINGS_JA: dict[str, str] = {
     "cfg.default_model": "Whisperモデル",
     "cfg.output_directory": "出力ディレクトリ",
     "cfg.output_directory_ph": "null=データディレクトリ",
+    "cfg.mic_device": "マイク",
+    "cfg.monitor_device": "スピーカー（モニター）",
+    "cfg.device_auto": "自動（OS のデフォルト）",
+    "cfg.device_cli_pinned": "CLI で固定中（--mic / --monitor）",
+    "cfg.device_refresh": "一覧を更新",
+    "cfg.device_refresh_title": "デバイスを再検出します。音が一瞬途切れます",
     "cfg.llm_provider": "LLMプロバイダ",
     "cfg.api_endpoint": "APIエンドポイント",
     "cfg.api_model": "APIモデル",
