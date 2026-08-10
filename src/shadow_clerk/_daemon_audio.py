@@ -3,6 +3,7 @@ from __future__ import annotations
 import collections
 import logging
 import queue
+import re
 import shutil
 import subprocess
 import sys
@@ -467,19 +468,64 @@ def find_device_by_name(name: str, capture: bool) -> AudioDevice | None:
     return None
 
 
+_WPCTL_TOP_SECTION_RE = re.compile(r'^(Audio|Video|Settings|Jack|Midi)\s*$')
+_WPCTL_LIST_HEADER_RE = re.compile(r'(Devices|Sinks|Sources|Filters|Streams):\s*$')
+_WPCTL_ENTRY_RE = re.compile(r'\*?\s*\d+\.\s+(\S+)')
+
+
+def _wpctl_audio_node_names(stdout: str) -> set[str]:
+    """wpctl status --name の出力から Audio → Sinks/Sources のノード名集合を取る。
+
+    wpctl status は Clients/Streams など無関係なセクションにも "NN. 名前" 形式の
+    行を出す。特に pipewire-pulse は自身を Clients セクションにノード名
+    "pipewire" として登録するため、そこを含めて照合すると PortAudio が返す
+    デバイス名 "pipewire"（ALSA の pipewire プラグイン別名）と衝突して誤検出
+    する。Audio セクション配下の Sinks:/Sources: サブリストだけに限定して読む。
+    """
+    names: set[str] = set()
+    section: str | None = None
+    subsection: str | None = None
+    for raw_line in stdout.splitlines():
+        line = raw_line.strip(" │└├─")
+        if not line:
+            continue
+        if (m := _WPCTL_TOP_SECTION_RE.match(line)):
+            section, subsection = m.group(1), None
+            continue
+        if (m := _WPCTL_LIST_HEADER_RE.search(line)):
+            subsection = m.group(1)
+            continue
+        if section == "Audio" and subsection in ("Sinks", "Sources"):
+            if (m := _WPCTL_ENTRY_RE.match(line)):
+                names.add(m.group(1))
+    return names
+
+
 def device_exists(name: str) -> bool | None:
     """OS 側の一覧にこの名前のノードがあるか。取得できなければ None。
 
     PortAudio の一覧はキャッシュで、再列挙には全ストリームの破棄が必要なため、
     「抜き差しされたデバイスが戻ったか」の判定には使えない。OS 側に直接聞く。
     PortAudio のデバイス名は PipeWire のノード名と一致する。
+
+    `.monitor` で終わる名前は PulseAudio 互換レイヤーが合成する仮想ソースで、
+    PipeWire ネイティブのノードとしては存在せず wpctl の一覧に出てこない。
+    そのためサフィックスを外し、対応する Sink の存在で代用判定する:
+    モニターソースは、その元になる Sink が存在する場合にのみ存在する。
+
+    一覧との照合は部分一致ではなく、Audio セクションの Sinks:/Sources: に列挙
+    されたノード名（wpctl）/ タブ区切りフィールドのデバイス名（pactl）との
+    完全一致で行う。部分一致や無関係セクションを含めた一致だと、例えば
+    "pipewire" が wpctl の Clients セクションにある pipewire-pulse 自身の
+    ノード名と誤ってマッチしてしまう。
     """
+    target = name[: -len(".monitor")] if name.endswith(".monitor") else name
     if shutil.which("wpctl"):
         try:
             result = subprocess.run(["wpctl", "status", "--name"],
                                     capture_output=True, text=True, timeout=5)
             if result.returncode == 0 and result.stdout:
-                return name in result.stdout
+                return target in _wpctl_audio_node_names(result.stdout)
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
     if shutil.which("pactl"):
@@ -489,8 +535,10 @@ def device_exists(name: str) -> bool | None:
                                         capture_output=True, text=True, timeout=5)
             except (subprocess.TimeoutExpired, FileNotFoundError):
                 return None
-            if name in result.stdout:
-                return True
+            for line in result.stdout.splitlines():
+                fields = line.split("\t")
+                if len(fields) >= 2 and fields[1] == target:
+                    return True
         return False
     return None
 
