@@ -28,6 +28,16 @@ class _DashboardHandlerConfigOps:
     def _serve_config(self) -> None:
         self._send_json(load_config())
 
+    def _serve_audio_devices(self) -> None:
+        """GET /api/audio-devices — 監視スレッドが更新したスナップショットを返す"""
+        rec = self.recorder
+        self._send_json({
+            **rec._device_snapshot,
+            # CLI で番号固定されている系統は config を無視するため、UI を操作不能にする
+            "cli_pinned": {"mic": rec.args.mic is not None,
+                           "monitor": rec.args.monitor is not None},
+        })
+
     def _serve_models(self) -> None:
         """GET /api/models — api_endpoint から利用可能なモデル一覧を取得"""
         config = load_config()

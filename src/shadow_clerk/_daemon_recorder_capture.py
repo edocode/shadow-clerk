@@ -216,6 +216,10 @@ class _RecorderCaptureMixin:
         self._pinned_names: dict[str, str] = {}
         # 遅延起動するため threads リストに載らない。shutdown で join する
         self._monitor_backend: threading.Thread | None = None
+        # /api/audio-devices が返すデバイス一覧。Task 4 で監視スレッドが
+        # ストリームを開くたびに更新する。起動直後のごく短い間だけ空になる
+        self._device_snapshot: dict[str, Any] = {
+            "mic": [], "monitor": [], "updated_at": None}
 
         # 会議セッション（進行中は MeetingSession、それ以外は None）
         self.current_session: MeetingSession | None = None
