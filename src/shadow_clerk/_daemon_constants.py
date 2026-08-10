@@ -44,6 +44,8 @@ STREAM_CHECK_INTERVAL = 2.0  # ウォッチドッグのチェック間隔(秒)
 STREAM_RESOLVE_INTERVAL = 10.0  # デフォルト Sink 変更チェックの間隔(秒)
 STREAM_RETRY_SEC = 5.0  # 再接続失敗時の待機(秒)
 STREAM_DEGRADED_RETRY_SEC = 30.0  # 一部デバイスを開けなかった場合の再試行間隔(秒)
+# 再試行は全ストリームの張り替えを伴い音が欠ける。空振りが続く間は指数的に伸ばす
+STREAM_DEGRADED_RETRY_MAX_SEC = 300.0
 
 DEFAULT_CONFIG = {
     "translate_language": "en",
