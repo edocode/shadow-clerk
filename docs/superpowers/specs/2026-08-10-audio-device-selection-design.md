@@ -81,7 +81,14 @@ CLI の `--mic` / `--monitor`（番号指定）は互換性のため残し、指
 
 PortAudio の一覧はキャッシュであり、再列挙には全ストリームの破棄が必要になる。したがって「ヘッドセットを挿し直したか」をキャッシュで判定することはできない。
 
-そこで復帰判定には **OS 側の一覧**（`wpctl status` / `pactl list short`）を使う。PortAudio のデバイス名は PipeWire のノード名と一致するため、名前でそのまま照合できる（実測で確認済み: `alsa_input.usb-Shokz_Shokz_Loop110_...mono-fallback`）。`_daemon_audio.py` に `device_exists(name) -> bool | None` を追加する。`None` は OS 側の一覧を取得できなかったことを表し、その場合は復帰判定を行わず、既存の degraded 再試行（指数バックオフ）に任せる。
+そこで復帰判定には **OS 側の一覧**（`wpctl status --name` / `pactl list short`）を使う。`_daemon_audio.py` に `device_exists(name) -> bool | None` を追加する。`None` は OS 側の一覧を取得できなかったことを表し、その場合は復帰判定を行わず、既存の degraded 再試行（指数バックオフ）に任せる。
+
+照合には 2 つの実測上の注意がある。初版はどちらも見落としており、モニターの復帰判定が常に失敗していた。
+
+- **`.monitor` は OS の一覧に出ない**。マイクの名前は PipeWire のノード名と一致するが（`alsa_input.usb-Shokz_..._mono-fallback`）、モニターの PortAudio 名は「sink 名 + `.monitor`」であり、`wpctl status --name` は sink（`alsa_output.usb-Shokz_...analog-stereo`）しか列挙しない。したがって名前が `.monitor` で終わる場合は接尾辞を落として sink の存在を見る。モニターソースは対応する sink があれば必ず存在する
+- **部分一致は誤判定する**。PortAudio は `pipewire` や `default` という名前のデバイスを持ち、`wpctl` の出力にはヘッダ行の `pipewire-0` が含まれる。行をトークンに分割してノード名と完全一致で比較する
+
+**選択肢は PipeWire ノード名のデバイスに限る**。PortAudio は生 ALSA デバイス（`HD-Audio Generic: ALC257 Analog (hw:1,0)`）も列挙するが、これらは wpctl のノードではないため `device_exists` で検証できず、復帰判定が働かない。加えて生 ALSA デバイスを掴むとサウンドカードを排他確保し、他アプリの音を壊す。したがって UI に出すのは `alsa_input.` / `alsa_output.` で始まる名前だけとし、そのようなデバイスが 1 つも無い環境（PipeWire/PulseAudio 不在）でのみ全件表示にフォールバックする。
 
 これは `get_default_sink_name()` と同じく 10 秒ごとに 1 回のサブプロセス呼び出しで済む。
 

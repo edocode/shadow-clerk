@@ -694,17 +694,32 @@ check("5. monitor は .monitor / Monitor of だけ",
 check("6. mic に monitor デバイスを含めない",
       not any(d["name"].endswith(".monitor") for d in snap["mic"]))
 
+# 生 ALSA デバイスは選択肢に出さない（device_exists で検証できず、掴むと
+# サウンドカードを排他確保して他アプリの音を壊すため）
+import sounddevice as sd
+node_inputs = [str(d["name"]) for d in sd.query_devices()
+               if d["max_input_channels"] > 0
+               and (str(d["name"]).startswith("alsa_input.")
+                    or str(d["name"]).startswith("alsa_output."))]
+if node_inputs:
+    check("7. 生 ALSA デバイスを含めない",
+          all(d["name"].startswith(("alsa_input.", "alsa_output."))
+              for d in snap["mic"] + snap["monitor"]),
+          f"{[d['name'] for d in snap['mic'] + snap['monitor']][:4]}")
+else:
+    print("[SKIP] 7. 生 ALSA 除外（ノード名デバイスが無い環境）")
+
 # デーモンが動いていれば API も確認する
 try:
     with urllib.request.urlopen("http://localhost:8765/api/audio-devices", timeout=3) as r:
         api = json.loads(r.read())
-    check("7. API が mic/monitor/updated_at を返す",
+    check("8. API が mic/monitor/updated_at を返す",
           all(k in api for k in ("mic", "monitor", "updated_at")), f"{list(api)}")
-    check("8. API が cli_pinned を返す",
+    check("9. API が cli_pinned を返す",
           isinstance(api.get("cli_pinned"), dict)
           and set(api["cli_pinned"]) == {"mic", "monitor"}, f"{api.get('cli_pinned')}")
 except Exception as e:
-    print(f"[SKIP] 7. API 確認（デーモン未起動）: {e}")
+    print(f"[SKIP] 8-9. API 確認（デーモン未起動）: {e}")
 
 print(f"\n=== {sum(results)}/{len(results)} PASS ===")
 raise SystemExit(0 if all(results) else 1)
@@ -737,10 +752,15 @@ def snapshot_devices() -> dict[str, Any]:
     except Exception as e:
         logger.warning("デバイス一覧を取得できません: %s", e)
         return {"mic": [], "monitor": [], "updated_at": None}
-    for dev in devices:
-        if dev["max_input_channels"] <= 0:
-            continue
-        name = str(dev["name"])
+    inputs = [str(d["name"]) for d in devices if d["max_input_channels"] > 0]
+    # 選択肢は PipeWire/PulseAudio のノードに限る。PortAudio は生 ALSA デバイス
+    # ("HD-Audio Generic: ALC257 Analog (hw:1,0)") も列挙するが、これらは
+    # device_exists で存在を確認できず復帰判定が働かない上、掴むとサウンド
+    # カードを排他確保して他アプリの音を壊す。ノードが 1 つも無い環境
+    # (PipeWire/PulseAudio 不在) でのみ全件にフォールバックする
+    nodes = [n for n in inputs
+             if n.startswith("alsa_input.") or n.startswith("alsa_output.")]
+    for name in (nodes or inputs):
         entry = {"name": name, "label": _device_label(name)}
         if name.endswith(".monitor") or name.lower().startswith("monitor of "):
             monitor.append(entry)
@@ -817,7 +837,7 @@ def _device_label(name: str) -> str:
 - [ ] **Step 6: 検証スクリプトを通す**
 
 Run: `uv run python $SCRATCH/test_task3.py`
-Expected: `=== 6/6 PASS ===`（デーモン未起動なら 7 は SKIP）
+Expected: `=== 7/7 PASS ===`（デーモン未起動なら 8-9 は SKIP）
 
 - [ ] **Step 7: 構文・重複チェックとコミット**
 
