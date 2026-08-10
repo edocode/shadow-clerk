@@ -486,7 +486,7 @@ clerk-util write-config-value summary_language ja   # summarize in Japanese
 
 `mic_device` / `monitor_device` pin capture to a device by **name**, not device number — device numbers shift between daemon runs and can even change while the daemon is running. `null` (the default) follows the OS default device. Pick a device from the dashboard settings panel.
 
-If the configured device disappears (unplugged, sink removed), the daemon falls back to the automatic device and keeps recording, then switches back on its own once the device reappears. The configured value is never overwritten by the fallback.
+If the configured device disappears (unplugged, sink removed), the daemon falls back to the automatic device and keeps recording, then switches back on its own once the device reappears. The configured value is never overwritten by the fallback. If the device never actually disappeared — another application just grabbed it exclusively — the daemon won't retry on its own; use "Refresh list" to force a retry once it's free.
 
 The `--mic` / `--monitor` CLI flags (device numbers, see CLI options above) take priority over `mic_device` / `monitor_device`. While a flag is in effect, the corresponding dropdown is disabled on the dashboard.
 

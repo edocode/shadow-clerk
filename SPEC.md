@@ -11,7 +11,7 @@ Ubuntu 環境で Web会議の音声をリアルタイムで録音・文字起こ
 Python スクリプト。常駐してリアルタイムに文字起こしを行う。
 
 - **音声キャプチャ**: マイク（自分）とシステム音声モニター（相手）を同時キャプチャ
-- **デバイス選択**: `mic_device` / `monitor_device`（config、デバイス**名**で指定。null=OS デフォルトに追従。ダッシュボード設定パネルから選択可）と `--mic` / `--monitor`（CLI、番号指定）。優先順位は CLI 番号 > config の名前 > 自動。指定デバイスが見つからない場合は自動デバイスにフォールバックして録音を継続し、復帰次第自動で戻す（config の値は書き換えない）
+- **デバイス選択**: `mic_device` / `monitor_device`（config、デバイス**名**で指定。null=OS デフォルトに追従。ダッシュボード設定パネルから選択可）と `--mic` / `--monitor`（CLI、番号指定）。優先順位は CLI 番号 > config の名前 > 自動。指定デバイスが見つからない場合は自動デバイスにフォールバックして録音を継続する（config の値は書き換えない）。復帰の自動検知はキャッシュから消えたデバイスの再出現時のみ発火し、キャッシュ上に残ったまま open に失敗している場合（他アプリの排他利用など）は `/api/audio-devices/refresh` の手動再列挙が必要
 - **バックエンド**: PipeWire → PulseAudio → sounddevice の順で自動検出
 - **VAD**: webrtcvad によるセグメンテーション（発話区間の検出・分割）
 - **文字起こし**: faster-whisper（CPU, int8）。モデルサイズは tiny/base/small/medium/large-v3 から選択
