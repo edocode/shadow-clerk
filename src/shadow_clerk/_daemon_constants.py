@@ -47,6 +47,13 @@ STREAM_DEGRADED_RETRY_SEC = 30.0  # 一部デバイスを開けなかった場�
 # 再試行は全ストリームの張り替えを伴い音が欠ける。空振りが続く間は指数的に伸ばす
 STREAM_DEGRADED_RETRY_MAX_SEC = 300.0
 
+# wpctl / pactl / pw-dump などローカル IPC の呼び出しタイムアウト(秒)。
+# いずれもローカルのサウンドサーバーに聞くだけで通常は数十ミリ秒で返る。
+# 待たされる = サーバーが刺さっているということなので、長い上限を置いても
+# 復帰は早まらない。これらはキャプチャスレッド上で同期的に走り、shutdown の
+# join は 5 秒なので、その予算に収まる長さにしておく必要がある
+IPC_TIMEOUT_SEC = 1.5
+
 DEFAULT_CONFIG = {
     "translate_language": "en",
     "auto_translate": False,

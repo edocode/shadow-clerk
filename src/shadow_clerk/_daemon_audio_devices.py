@@ -1,5 +1,6 @@
 """Shadow-clerk daemon: 音声デバイス一覧のスナップショット（ダッシュボードのデバイス選択用）"""
 from __future__ import annotations
+import json
 import logging
 import re
 import shutil
@@ -7,6 +8,7 @@ import subprocess
 from collections.abc import Iterator
 from typing import Any
 from shadow_clerk.i18n import t
+from shadow_clerk._daemon_constants import IPC_TIMEOUT_SEC
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -23,10 +25,56 @@ def _wpctl_status(args: list[str]) -> str:
         return ""
     try:
         result = subprocess.run(["wpctl", "status", *args],
-                                capture_output=True, text=True, timeout=5)
+                                capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC)
         return result.stdout if result.returncode == 0 else ""
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return ""
+
+
+def sink_serial(node_name: str) -> str | None:
+    """PipeWire の Sink ノード名を `pw-record --target` 用の object.serial に解決する。
+
+    pw-record の --target は、名前で指定した場合 Source ノードとしか照合しない。
+    Sink 名（や "<Sink 名>.monitor"）を渡すと一致せず、警告も非ゼロ終了も無いまま
+    既定の Source ＝ ユーザーのマイクにフォールバックする。モニターのはずの系統が
+    マイクを録り、全発言が二重に転写される。Sink を確実に指す方法は数値の
+    object.serial を渡すことだけ（object.id では駄目。両者は別の番号空間）。
+
+    ノード名 → serial の引き当てに pw-dump を使うのは、`wpctl inspect` が
+    ノード名を受け付けず（数値 ID か @DEFAULT_*@ のみ）、名前から引くには
+    `wpctl status --name` ＋ ノード数ぶんの `wpctl inspect` が必要になるため。
+    pw-dump なら 1 回の呼び出しで全ノードの node.name / object.serial /
+    media.class が構造化 JSON で取れる。
+    """
+    for props in _pw_dump_node_props():
+        if (props.get("media.class") == "Audio/Sink"
+                and props.get("node.name") == node_name
+                and (serial := props.get("object.serial")) is not None):
+            return str(serial)
+    return None
+
+
+def _pw_dump_node_props() -> Iterator[dict[str, Any]]:
+    """pw-dump から Node オブジェクトの props を順に yield する。
+
+    pw-dump が無い/失敗した場合は何も yield しない（呼び出し側がフォールバック）。
+    """
+    if not shutil.which("pw-dump"):
+        return
+    try:
+        result = subprocess.run(["pw-dump"], capture_output=True, text=True,
+                                timeout=IPC_TIMEOUT_SEC)
+        objects = json.loads(result.stdout) if result.returncode == 0 else []
+    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError) as e:
+        logger.warning("pw-dump からノード情報を取得できません: %s", e)
+        return
+    if not isinstance(objects, list):
+        return
+    for obj in objects:
+        if isinstance(obj, dict) and obj.get("type") == "PipeWire:Interface:Node":
+            props = (obj.get("info") or {}).get("props")
+            if isinstance(props, dict):
+                yield props
 
 
 def wpctl_audio_section_lines(stdout: str) -> Iterator[str]:
@@ -68,20 +116,43 @@ def _wpctl_audio_entries(stdout: str) -> dict[str, str]:
     return entries
 
 
+_description_cache: dict[str, str] | None = None
+
+
+def invalidate_description_cache() -> None:
+    """デバイス再列挙時に呼ぶ。次の snapshot_devices で wpctl を引き直させる。
+
+    デバイス構成が変わるのは再列挙（refresh_device_list）を伴う場面だけなので、
+    そこだけ捨てれば十分。
+    """
+    global _description_cache  # pylint: disable=global-statement
+    _description_cache = None
+
+
 def _wpctl_description_map() -> dict[str, str]:
-    """PipeWire ノード名 → OS の人間向け description の対応表を作る。
+    """PipeWire ノード名 → OS の人間向け description の対応表を返す（キャッシュ付き）。
 
     `wpctl status --name` はノード名、`wpctl status`（--name 無し）は
     description を同じノード ID に対して出す。両方を取得して ID で対応付ける。
     wpctl が無い/取得できない環境では空の辞書を返し、呼び出し側はヒューリス
     ティックにフォールバックする。
+
+    snapshot_devices はキャプチャスレッドがストリームを開くたびに呼ぶため、
+    毎回 wpctl を 2 回 fork していると shutdown の join 予算を圧迫する。
+    結果は再列挙まで変わらないのでキャッシュする。取得できなかった場合
+    （空）はキャッシュせず次回引き直す — wpctl 不在なら subprocess は起きない
+    ので、再試行のコストは無い。
     """
+    global _description_cache  # pylint: disable=global-statement
+    if _description_cache is not None:
+        return _description_cache
     names = _wpctl_audio_entries(_wpctl_status(["--name"]))
     if not names:
         return {}
     descriptions = _wpctl_audio_entries(_wpctl_status([]))
-    return {name: descriptions[node_id]
-            for node_id, name in names.items() if node_id in descriptions}
+    _description_cache = {name: descriptions[node_id]
+                          for node_id, name in names.items() if node_id in descriptions}
+    return _description_cache
 
 
 def snapshot_devices() -> dict[str, Any]:

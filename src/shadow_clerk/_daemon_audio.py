@@ -8,9 +8,11 @@ import shutil
 import subprocess
 import sys
 import threading
-from typing import Any
+from typing import Any, Protocol
 from shadow_clerk.i18n import t
-from shadow_clerk._daemon_constants import SAMPLE_RATE, CHANNELS, FRAME_SIZE
+from shadow_clerk._daemon_constants import (
+    SAMPLE_RATE, CHANNELS, FRAME_SIZE, IPC_TIMEOUT_SEC,
+)
 from shadow_clerk.domain import AudioDevice
 # デバイス一覧スナップショット (snapshot_devices) は _daemon_audio_devices.py に
 # 分離した。既存の import 元 (from shadow_clerk._daemon_audio import
@@ -18,14 +20,37 @@ from shadow_clerk.domain import AudioDevice
 # wpctl_audio_section_lines は device_exists 用のノード名抽出と共通のセクション
 # 追跡ロジック（Audio → Sinks/Sources サブリスト限定）を再利用するため
 from shadow_clerk._daemon_audio_devices import (  # noqa: F401
-    snapshot_devices, wpctl_audio_section_lines,
+    snapshot_devices, wpctl_audio_section_lines, sink_serial,
+    invalidate_description_cache,
 )
 
 logger = logging.getLogger("shadow-clerk")
 
 
+class StopSignal(Protocol):
+    """停止要求の読み取りインターフェース（threading.Event が構造的に満たす）。
+
+    バックエンドのモニターキャプチャは、デーモン全体の停止だけでなく
+    monitor_device の設定変更による再起動要求でも止める必要があるため、
+    複数のイベントを束ねたビューも渡せるようにしてある。
+    """
+
+    def is_set(self) -> bool:
+        ...
+
+
+def _wpctl_prop(stdout: str, key: str) -> str | None:
+    """`wpctl inspect` の出力から `key = "value"` の値を取り出す。"""
+    for raw_line in stdout.splitlines():
+        line = raw_line.strip().lstrip("* ")
+        name, sep, value = line.partition("=")
+        if sep and name.strip() == key:
+            return value.strip().strip('"')
+    return None
+
+
 def _capture_pcm_stream(cmd: list[str], name: str, audio_queue: queue.Queue,
-                        stop_event: threading.Event) -> None:
+                        stop_event: StopSignal) -> None:
     """コマンドの stdout から PCM フレームを読み続けて audio_queue に流す。
 
     stderr は別スレッドで読み捨てつつ末尾のみ保持する。読まずに放置すると
@@ -70,6 +95,16 @@ class AudioBackend:
     def list_devices(self) -> None:
         raise NotImplementedError
 
+    def start_monitor_capture(self, source: str, audio_queue: queue.Queue,
+                              stop_event: StopSignal) -> None:
+        """モニター音声を audio_queue に流し続ける。stop_event が立つまで戻らない。
+
+        source が何を指すかはバックエンドごとに違う（PipeWire は Sink の
+        object.serial、PulseAudio はモニターソース名、WASAPI は loopback
+        デバイス名の部分一致）。何を渡すかは呼び出し側が決める。
+        """
+        raise NotImplementedError
+
 
 class PipeWireBackend(AudioBackend):
     """PipeWire バックエンド"""
@@ -79,24 +114,30 @@ class PipeWireBackend(AudioBackend):
         return shutil.which("pw-record") is not None
 
     def detect_monitor_source(self) -> str | None:
-        # wpctl でデフォルト Sink のノード ID を取得
+        """デフォルト Sink の object.serial を返す（pw-record --target 用）。
+
+        以前はここで 1 行目の "id NN" ＝ object.id を返していたが、--target が
+        数値として解釈するのは object.serial であり、両者は別番号（この機材では
+        既定 Sink が id 44 / serial 64）。object.id を渡すと一致するノードが無く、
+        pw-record は警告も非ゼロ終了も出さずに既定の Source ＝ マイクへ
+        フォールバックする（pw-link で実測確認済み）。自動検出のフォールバック
+        経路は、この取り違えのせいで常にマイクを録っていた。
+        """
         if shutil.which("wpctl"):
             try:
                 result = subprocess.run(
                     ["wpctl", "inspect", "@DEFAULT_AUDIO_SINK@"],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC,
                 )
-                # 1行目: "id 74, type PipeWire:Interface:Node"
-                first = result.stdout.split("\n", 1)[0]
-                if first.startswith("id "):
-                    node_id = first.split(",")[0].split()[1]
-                    logger.info("PipeWire デフォルト Sink ノード ID: %s (wpctl)", node_id)
-                    return node_id
-            except (subprocess.TimeoutExpired, FileNotFoundError, IndexError, ValueError):
+                if (serial := _wpctl_prop(result.stdout, "object.serial")):
+                    logger.info("PipeWire デフォルト Sink の object.serial: %s (wpctl)", serial)
+                    return serial
+            except (subprocess.TimeoutExpired, FileNotFoundError):
                 pass
-        # wpctl でノード ID が取れなかった場合は pw-record では使えないため None を返す。
-        # 呼び出し側が PulseAudio バックエンドへフォールバックする。
-        logger.debug("PipeWire: wpctl からノード ID を取得できませんでした。PulseAudio にフォールバックします。")
+        # serial が取れなかった場合は pw-record では安全に指定できないため None を
+        # 返す。呼び出し側が PulseAudio バックエンドへフォールバックする。
+        logger.debug("PipeWire: wpctl から object.serial を取得できませんでした。"
+                     "PulseAudio にフォールバックします。")
         return None
 
     def list_devices(self) -> None:
@@ -105,7 +146,7 @@ class PipeWireBackend(AudioBackend):
             try:
                 result = subprocess.run(
                     ["wpctl", "status"],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC,
                 )
                 if result.stdout.strip():
                     print(result.stdout)
@@ -118,7 +159,7 @@ class PipeWireBackend(AudioBackend):
             try:
                 result = subprocess.run(
                     ["pactl", "list", "short", "sinks"],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC,
                 )
                 if result.stdout.strip():
                     print(result.stdout)
@@ -129,11 +170,16 @@ class PipeWireBackend(AudioBackend):
                 pass
         print(t("rec.pw_unavailable"))
 
-    def start_monitor_capture(self, target: str, audio_queue: queue.Queue,
-                              stop_event: threading.Event) -> None:
-        """pw-record でモニターソースをキャプチャ"""
+    def start_monitor_capture(self, source: str, audio_queue: queue.Queue,
+                              stop_event: StopSignal) -> None:
+        """pw-record でモニターをキャプチャ。
+
+        source は Sink の object.serial（数値文字列）であること。ノード名を渡すと
+        pw-record は Source としか照合せず、一致しないまま既定の Source ＝ マイクに
+        フォールバックする（sink_serial の docstring 参照）。
+        """
         cmd = [
-            "pw-record", "--target", target,
+            "pw-record", "--target", source,
             "--rate", str(SAMPLE_RATE),
             "--channels", str(CHANNELS),
             "--format", "s16",
@@ -153,7 +199,7 @@ class PulseAudioBackend(AudioBackend):
         try:
             result = subprocess.run(
                 ["pactl", "list", "short", "sources"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC,
             )
             for line in result.stdout.splitlines():
                 if ".monitor" in line:
@@ -169,7 +215,7 @@ class PulseAudioBackend(AudioBackend):
         try:
             result = subprocess.run(
                 ["pactl", "list", "short", "sources"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC,
             )
             if result.stdout.strip():
                 print(result.stdout)
@@ -179,7 +225,7 @@ class PulseAudioBackend(AudioBackend):
             print(t("rec.pa_unavailable"))
 
     def start_monitor_capture(self, source: str, audio_queue: queue.Queue,
-                              stop_event: threading.Event) -> None:
+                              stop_event: StopSignal) -> None:
         """parec でモニターソースをキャプチャ"""
         cmd = [
             "parec",
@@ -227,24 +273,26 @@ def detect_backend(preferred: str = "auto") -> tuple[str, AudioBackend | None]:
 
 
 def get_default_sink_name() -> str | None:
-    """wpctl/pactl でデフォルト Sink の名前を取得"""
+    """wpctl/pactl でデフォルト Sink の名前を取得。
+
+    device_exists と同じ理由で、wpctl がタイムアウトした場合は pactl に進まず
+    即座に諦める（同じサーバーに聞くので待つだけ無駄）。
+    """
     # wpctl (PipeWire)
     if shutil.which("wpctl"):
         try:
             result = subprocess.run(
                 ["wpctl", "inspect", "@DEFAULT_AUDIO_SINK@"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC,
             )
-            for line in result.stdout.splitlines():
-                line = line.strip().lstrip("* ")
-                if line.startswith("node.name"):
-                    # node.name = "alsa_output.usb-Shokz..."
-                    parts = line.split("=", 1)
-                    if len(parts) == 2:
-                        name = parts[1].strip().strip('"')
-                        logger.debug("デフォルト Sink (wpctl): %s", name)
-                        return name
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+            # node.name = "alsa_output.usb-Shokz..."
+            if (name := _wpctl_prop(result.stdout, "node.name")):
+                logger.debug("デフォルト Sink (wpctl): %s", name)
+                return name
+        except subprocess.TimeoutExpired:
+            logger.warning("wpctl inspect がタイムアウトしました")
+            return None
+        except FileNotFoundError:
             pass
 
     # pactl (PulseAudio)
@@ -252,7 +300,7 @@ def get_default_sink_name() -> str | None:
         try:
             result = subprocess.run(
                 ["pactl", "get-default-sink"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC,
             )
             name = result.stdout.strip()
             if name:
@@ -366,7 +414,7 @@ class WasapiBackend(AudioBackend):
             print(t("rec.wasapi_soundcard_unavailable"))
 
     def start_monitor_capture(self, source: str, audio_queue: queue.Queue,
-                              stop_event: threading.Event) -> None:
+                              stop_event: StopSignal) -> None:
         """PyAudioWPatch の WASAPI loopback でキャプチャ (polling)。
 
         デバイスの native rate / channels で開き、Python 側で 16kHz mono に
@@ -433,6 +481,8 @@ def refresh_device_list() -> None:
     import sounddevice as sd
     sd._terminate()
     sd._initialize()
+    # デバイス構成が変わる唯一の契機。ラベル用 description のキャッシュを捨てる
+    invalidate_description_cache()
 
 
 def resolve_mic_device(index: int | None) -> AudioDevice | None:
@@ -510,21 +560,29 @@ def device_exists(name: str) -> bool | None:
     完全一致で行う。部分一致や無関係セクションを含めた一致だと、例えば
     "pipewire" が wpctl の Clients セクションにある pipewire-pulse 自身の
     ノード名と誤ってマッチしてしまう。
+
+    これはキャプチャスレッド上で同期的に走る。wpctl がタイムアウトした場合に
+    pactl へ進まないのは、両者とも同じ PipeWire サーバーに聞いており、片方が
+    刺さっているならもう片方も刺さるため。無駄に待って shutdown の join
+    （5 秒）を食い潰すだけなので、判定不能 (None) として即座に返す。
     """
     target = name[: -len(".monitor")] if name.endswith(".monitor") else name
     if shutil.which("wpctl"):
         try:
             result = subprocess.run(["wpctl", "status", "--name"],
-                                    capture_output=True, text=True, timeout=5)
+                                    capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC)
             if result.returncode == 0 and result.stdout:
                 return target in _wpctl_audio_node_names(result.stdout)
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except subprocess.TimeoutExpired:
+            logger.warning("wpctl status がタイムアウトしました (%s)", name)
+            return None
+        except FileNotFoundError:
             pass
     if shutil.which("pactl"):
         for kind in ("sources", "sinks"):
             try:
                 result = subprocess.run(["pactl", "list", "short", kind],
-                                        capture_output=True, text=True, timeout=5)
+                                        capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC)
             except (subprocess.TimeoutExpired, FileNotFoundError):
                 return None
             for line in result.stdout.splitlines():
