@@ -327,8 +327,8 @@ custom_commands:
 | `--output`, `-o` | 出力ファイルパス | `~/.local/share/shadow-clerk/transcript-YYYYMMDD.txt` |
 | `--model`, `-m` | Whisper モデルサイズ (`tiny`, `base`, `small`, `medium`, `large-v3`) | `small` |
 | `--language`, `-l` | 言語コード (`ja`, `en` 等)。省略で自動検出 | 自動 |
-| `--mic` | マイクデバイス番号 | 自動検出 |
-| `--monitor` | モニターデバイス番号 (sounddevice) | 自動検出 |
+| `--mic` | マイクデバイス番号 | 自動検出（または `mic_device` 設定） |
+| `--monitor` | モニターデバイス番号 (sounddevice) | 自動検出（または `monitor_device` 設定） |
 | `--backend` | 音声バックエンド (`auto`, `pipewire`, `pulseaudio`, `sounddevice`) | `auto` |
 | `--list-devices` | デバイス一覧を表示して終了 | - |
 | `--verbose`, `-v` | 詳細ログ出力 | - |
@@ -423,6 +423,8 @@ auto_summary: false           # end meeting 時に自動 summary 生成
 default_language: null        # clerk-daemon のデフォルト言語 (null=自動検出)
 default_model: small          # clerk-daemon のデフォルト Whisper モデル
 output_directory: null        # transcript 出力先ディレクトリ (null=データディレクトリ)
+mic_device: null              # マイクデバイス名 (null=OS デフォルトに追従。番号ではない — 番号は起動ごとに変わり、稼働中にも移動する)
+monitor_device: null          # スピーカー（モニター）デバイス名 (null=OS デフォルトに追従)。ダッシュボードの設定パネルから選択できる
 llm_provider: claude          # 要約の LLM ("claude" or "api")
 translation_provider: null    # 翻訳プロバイダ (null=llm_provider を使用, "claude", "api", "libretranslate")
 api_endpoint: null            # OpenAI Compatible API の base URL
@@ -481,6 +483,16 @@ clerk-util write-config-value summary_source translate    # 強制的に transla
 clerk-util write-config-value summary_language en   # 英語で要約
 clerk-util write-config-value summary_language ja   # 日本語で要約
 ```
+
+### 音声デバイスの選択
+
+`mic_device` / `monitor_device` はデバイスを**名前**で固定する（番号ではない — 番号は daemon 起動ごとに変わり、稼働中にも移動しうる）。デフォルトの `null` は OS のデフォルトデバイスに追従する。ダッシュボードの設定パネルから選択できる。
+
+指定したデバイスが見つからなくなった場合（抜線、シンク削除など）、daemon は自動デバイスにフォールバックして録音を継続し、デバイスが復帰すると自動で元に戻る。設定値はフォールバック中も書き換えられない。
+
+`--mic` / `--monitor` CLI オプション（番号指定、上記の CLI オプション参照）は `mic_device` / `monitor_device` より優先される。CLI オプションが有効な間は、ダッシュボードの対応するドロップダウンは操作不能になる。
+
+daemon 起動後に接続したデバイスは、一覧を更新するまでドロップダウンに表示されない（設定パネルの「一覧を更新」ボタン）。更新中は両方のキャプチャストリームが一瞬途切れる。
 
 ## ファイル構成
 
