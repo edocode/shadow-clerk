@@ -25,6 +25,7 @@ from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_audio import (
     AudioBackend, PulseAudioBackend, detect_backend, device_exists, find_device_by_name,
     get_default_sink_name, refresh_device_list, resolve_mic_device, resolve_monitor_device,
+    snapshot_devices,
 )
 from shadow_clerk._daemon_vad import VADSegmenter
 from shadow_clerk._daemon_transcriber import Transcriber, GlossaryReplacer
@@ -249,64 +250,89 @@ class _RecorderCaptureMixin:
         signal.signal(signal.SIGTERM, handler)
 
     def _audio_capture_thread(self) -> None:
-        """マイク/モニターをキャプチャし、フレーム途絶・出力先変更を検知して再接続する。
+        """マイク/モニターをキャプチャし、途絶・出力先変更・設定変更で再接続する。
 
         マイクとモニターを 1 スレッドでまとめて管理するのは、デバイス一覧の再列挙
         (refresh_device_list) が開いている PortAudio ストリームを全て破棄するため。
+        逆に再列挙が要らない張り替え（設定で選び直した先がキャッシュ上にある）では
+        該当する系統だけを開き直し、もう一方の音声を途切れさせない。
         """
+        streams: dict[str, _CaptureStream] = {}
         backend_started = False
-        first = True
+        need_refresh = False
         degraded_wait = STREAM_DEGRADED_RETRY_SEC
-        while not self.stop_event.is_set():
-            try:
-                if not first:
-                    # サスペンド復帰・抜き差し後は PortAudio のキャッシュが陳腐化している
-                    try:
-                        refresh_device_list()
-                    except Exception as e:
-                        logger.warning("デバイス一覧の再列挙に失敗: %s", e)
-                first = False
+        try:
+            while not self.stop_event.is_set():
+                try:
+                    if need_refresh:
+                        # サスペンド復帰・抜き差し後はキャッシュが陳腐化している。
+                        # 全ストリームが閉じている状態でのみ呼べる
+                        try:
+                            refresh_device_list()
+                        except Exception as e:
+                            logger.warning("デバイス一覧の再列挙に失敗: %s", e)
+                        need_refresh = False
 
-                mic = self._open_requested("mic", self.args.mic, self.mic_queue)
-                self.use_mic = mic is not None
+                    if "mic" not in streams:
+                        if (s := self._open_requested(
+                                "mic", self.args.mic, self.mic_queue)) is not None:
+                            streams["mic"] = s
+                    self.use_mic = "mic" in streams
 
-                monitor = None
-                if not backend_started:
-                    monitor = self._open_requested(
-                        "monitor", self.args.monitor, self.monitor_queue,
-                        follow_sink=self._should_follow_sink())
-                    self.use_monitor = monitor is not None
-                    if monitor is None:
-                        logger.info("sounddevice でモニターを開けません、%s バックエンドにフォールバック",
-                                    self.backend_name)
-                        self._monitor_backend = threading.Thread(
-                            target=self._monitor_backend_thread,
-                            name="monitor-backend", daemon=True)
-                        self._monitor_backend.start()
-                        backend_started = True
+                    if "monitor" not in streams and not backend_started:
+                        s = self._open_requested(
+                            "monitor", self.args.monitor, self.monitor_queue,
+                            follow_sink=self._should_follow_sink())
+                        if s is not None:
+                            streams["monitor"] = s
+                        else:
+                            logger.info("sounddevice でモニターを開けません、"
+                                        "%s バックエンドにフォールバック", self.backend_name)
+                            self._monitor_backend = threading.Thread(
+                                target=self._monitor_backend_thread,
+                                name="monitor-backend", daemon=True)
+                            self._monitor_backend.start()
+                            backend_started = True
+                        self.use_monitor = "monitor" in streams
 
-                live = [s for s in (mic, monitor) if s is not None]
-                # 開けなかった系統は戻ってくる可能性があるので定期的に開き直す。
-                # ただし再列挙は全ストリームの張り替えを伴うため、空振りが続く間は
-                # 間隔を伸ばして音の欠落頻度を抑える
-                degraded = mic is None or (monitor is None and not backend_started)
-                req = self._watch_streams(live, degraded_wait if degraded else None)
-                for stream in live:
-                    stream.close()
-                if req is None:
-                    return
-                degraded_wait = (min(degraded_wait * 2, STREAM_DEGRADED_RETRY_MAX_SEC)
-                                 if degraded else STREAM_DEGRADED_RETRY_SEC)
-                logger.warning("音声ストリーム再接続: %s", req.reason)
-                # 直前に生きたストリームがあった場合は待たずに張り替える。
-                # 待機は「開き直しても失敗する」状態でのビジーループ防止のため
-                if not live and self.stop_event.wait(STREAM_RETRY_SEC):
-                    return
-            except Exception:
-                # 1 スレッドで両系統を持つため、ここで落とすと録音が全て止まる
-                logger.exception("音声キャプチャで予期しないエラー、再試行します")
-                if self.stop_event.wait(STREAM_RETRY_SEC):
-                    return
+                    self._device_snapshot = snapshot_devices()
+
+                    degraded = "mic" not in streams or (
+                        "monitor" not in streams and not backend_started)
+                    req = self._watch_streams(list(streams.values()),
+                                              degraded_wait if degraded else None)
+                    if req is None:
+                        return
+                    logger.warning("音声ストリーム再接続: %s", req.reason)
+                    degraded_wait = (min(degraded_wait * 2, STREAM_DEGRADED_RETRY_MAX_SEC)
+                                     if degraded else STREAM_DEGRADED_RETRY_SEC)
+                    had_live = bool(streams)
+                    if req.refresh:
+                        # 再列挙は全ストリームを破棄するので、全部閉じてから
+                        for stream in streams.values():
+                            stream.close()
+                        streams.clear()
+                        need_refresh = True
+                    else:
+                        for label in (req.labels or frozenset(streams)):
+                            if (stream := streams.pop(label, None)) is not None:
+                                stream.close()
+                    # 待機は「開き直しても失敗する」状態でのビジーループ防止。
+                    # 直前に生きたストリームがあったなら待たずに張り替える
+                    if not had_live and self.stop_event.wait(STREAM_RETRY_SEC):
+                        return
+                except Exception:
+                    # 1 スレッドで両系統を持つため、ここで落とすと録音が全て止まる
+                    logger.exception("音声キャプチャで予期しないエラー、再試行します")
+                    for stream in streams.values():
+                        stream.close()
+                    streams.clear()
+                    need_refresh = True
+                    if self.stop_event.wait(STREAM_RETRY_SEC):
+                        return
+        finally:
+            for stream in streams.values():
+                stream.close()
 
     def _requested_device(self, label: str) -> str | None:
         """config で指定されたデバイス名。CLI で番号指定されている場合は None。
