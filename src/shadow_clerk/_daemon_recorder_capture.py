@@ -469,12 +469,19 @@ class _RecorderCaptureMixin:
         return None
 
     def _requested_returned(self, streams: list[_CaptureStream]) -> _Reconnect | None:
-        """フォールバック中の指定デバイスが戻っていれば張り替えを要求する（10 秒ごと）
+        """フォールバック中の指定デバイスが抜き差し等で戻っていれば張り替えを要求する
+        （10 秒ごと）。
 
-        戻ったばかりのデバイスは PortAudio のキャッシュに無いので再列挙が要る。
+        再列挙が要るのは、そのデバイスがまだ PortAudio のキャッシュに無い場合だけ。
+        キャッシュ上には既にあるのにフォールバック中なら、開こうとして失敗した
+        （他アプリに排他的に掴まれている等）ということであり、再列挙しても開ける
+        ようにはならない。ここで検知すると 10 秒ごとに無意味な張り替えが起き、
+        もう一方の健全なストリームまで巻き込んで破棄してしまう
         """
         for stream in streams:
             if not stream.requested or stream.device.name == stream.requested:
+                continue
+            if find_device_by_name(stream.requested, capture=True) is not None:
                 continue
             if device_exists(stream.requested) is True:
                 return _Reconnect(
