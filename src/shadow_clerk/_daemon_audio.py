@@ -450,6 +450,23 @@ def resolve_monitor_device(index: int | None) -> AudioDevice | None:
     return AudioDevice(index=index, name=str(info["name"]))
 
 
+def find_device_by_name(name: str, capture: bool) -> AudioDevice | None:
+    """デバイス名で検索する。capture=True なら入力デバイスに限る。
+
+    デバイス番号は再列挙で入れ替わるため、同じデバイスを掴み直す唯一の手掛かり。
+    """
+    import sounddevice as sd
+    try:
+        devices = sd.query_devices()
+    except Exception as e:
+        logger.warning("デバイス一覧を取得できません: %s", e)
+        return None
+    for i, dev in enumerate(devices):
+        if dev["name"] == name and (not capture or dev["max_input_channels"] > 0):
+            return AudioDevice(index=i, name=name)
+    return None
+
+
 def find_monitor_device_sd() -> AudioDevice | None:
     """sounddevice でモニターデバイスを検索 (Linux のみ)
 
@@ -468,8 +485,15 @@ def _find_monitor_device_linux() -> AudioDevice | None:
     デフォルト Sink に対応するモニターを優先する。
     """
     import sounddevice as sd
+    try:
+        devices = sd.query_devices()
+    except Exception as e:
+        # 呼び出し元は全キャプチャを持つ 1 スレッドなので、ここで例外を漏らすと
+        # マイクごと録音が止まる
+        logger.warning("デバイス一覧を取得できません: %s", e)
+        return None
     candidates = []
-    for i, dev in enumerate(sd.query_devices()):
+    for i, dev in enumerate(devices):
         name = dev["name"]
         is_monitor = (
             name.endswith(".monitor")

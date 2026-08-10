@@ -389,7 +389,10 @@ class _RecorderTranscribeMixin:
             self.stop_event.set()
 
         logger.info("スレッド終了待機中...")
-        for th in threads:
-            th.join(timeout=5.0)
+        # monitor-backend は遅延起動で threads に載らないが、join しないと
+        # pw-record/parec の子プロセスが finally を通らず取り残される
+        for th in threads + [self._monitor_backend]:
+            if th is not None:
+                th.join(timeout=5.0)
 
         logger.info("Shadow-clerk recorder 終了")

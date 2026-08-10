@@ -197,8 +197,8 @@ graph TB
 graph TB
     main["Main Thread<br/>(Recorder.run)"]
 
-    mic["mic-capture<br/><i>sounddevice InputStream</i>"]
-    mon["monitor-capture<br/><i>PipeWire/PulseAudio subprocess</i>"]
+    mic["audio-capture<br/><i>mic/monitor の sounddevice InputStream を<br/>1 スレッドで開き、途絶・出力先変更を監視して再接続</i>"]
+    mon["monitor-backend<br/><i>sounddevice で monitor を開けない場合のみ起動<br/>PipeWire/PulseAudio subprocess</i>"]
     vadm["vad-mic<br/><i>mic_queue → VADSegmenter</i>"]
     vadmon["vad-monitor<br/><i>monitor_queue → VADSegmenter</i>"]
     trans["transcribe<br/><i>faster-whisper + 音声コマンド検出</i>"]
@@ -517,8 +517,8 @@ sequenceDiagram
     actor User as ユーザー
     participant Sig as Signal Handler
     participant Main as Main Thread (Recorder.run)
-    participant Mic as mic-capture
-    participant Mon as monitor-capture
+    participant Mic as audio-capture
+    participant Mon as monitor-backend
     participant VAD as vad-mic / vad-monitor
     participant Trans as transcribe
     participant Aux as cmd-watch / key-listener

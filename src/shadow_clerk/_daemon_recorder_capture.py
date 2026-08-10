@@ -17,13 +17,13 @@ from shadow_clerk._daemon_constants import (
     SAMPLE_RATE, FRAME_SIZE, CHANNELS, DTYPE,
     SESSION_FILE,
     STREAM_STALL_SEC, STREAM_CHECK_INTERVAL, STREAM_RESOLVE_INTERVAL, STREAM_RETRY_SEC,
-    STREAM_DEGRADED_RETRY_SEC,
+    STREAM_DEGRADED_RETRY_SEC, STREAM_DEGRADED_RETRY_MAX_SEC,
     build_wake_word_patterns,
 )
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_audio import (
-    AudioBackend, PulseAudioBackend, detect_backend, get_default_sink_name,
-    refresh_device_list, resolve_mic_device, resolve_monitor_device,
+    AudioBackend, PulseAudioBackend, detect_backend, find_device_by_name,
+    get_default_sink_name, refresh_device_list, resolve_mic_device, resolve_monitor_device,
 )
 from shadow_clerk._daemon_vad import VADSegmenter
 from shadow_clerk._daemon_transcriber import Transcriber, GlossaryReplacer
@@ -44,6 +44,7 @@ class _CaptureStream:
                  follow_sink: bool = False) -> None:
         self.label = label
         self.device = device
+        self.follow_sink = follow_sink
         self.sink = get_default_sink_name() if follow_sink else None
         self._queue = audio_queue
         self._stream: Any = None
@@ -86,10 +87,17 @@ class _CaptureStream:
 
     def changed_sink(self) -> str | None:
         """デフォルト Sink が開いた時点から変わっていれば新しい名前を返す"""
-        if self.sink is None:
+        if not self.follow_sink:
             return None
         current = get_default_sink_name()
-        return current if current and current != self.sink else None
+        if not current:
+            return None
+        if self.sink is None:
+            # オープン時に Sink 名を取れなかった（レジューム直後で wireplumber が
+            # 再起動中など）。取れた時点を基準にしないと追従が永久に無効化される
+            self.sink = current
+            return None
+        return current if current != self.sink else None
 
     def close(self) -> None:
         import sounddevice as sd
@@ -188,6 +196,12 @@ class _RecorderCaptureMixin:
         self.mute_mic = False
         self.mute_monitor = False
 
+        # 番号指定 (--mic/--monitor) で最後に開いたデバイス名。再列挙で番号が
+        # ずれても同じデバイスを掴み直すために使う
+        self._pinned_names: dict[str, str] = {}
+        # 遅延起動するため threads リストに載らない。shutdown で join する
+        self._monitor_backend: threading.Thread | None = None
+
         # 会議セッション（進行中は MeetingSession、それ以外は None）
         self.current_session: MeetingSession | None = None
 
@@ -223,44 +237,79 @@ class _RecorderCaptureMixin:
         """
         backend_started = False
         first = True
+        degraded_wait = STREAM_DEGRADED_RETRY_SEC
         while not self.stop_event.is_set():
-            if not first:
-                # サスペンド復帰・抜き差し後は PortAudio のキャッシュが陳腐化している
-                try:
-                    refresh_device_list()
-                except Exception as e:
-                    logger.warning("デバイス一覧の再列挙に失敗: %s", e)
-            first = False
+            try:
+                if not first:
+                    # サスペンド復帰・抜き差し後は PortAudio のキャッシュが陳腐化している
+                    try:
+                        refresh_device_list()
+                    except Exception as e:
+                        logger.warning("デバイス一覧の再列挙に失敗: %s", e)
+                first = False
 
-            mic = self._open_capture("mic", resolve_mic_device(self.args.mic), self.mic_queue)
-            self.use_mic = mic is not None
+                mic = self._open_capture("mic", self._resolve("mic", self.args.mic),
+                                         self.mic_queue)
+                self.use_mic = mic is not None
 
-            monitor = None
-            if not backend_started:
-                monitor = self._open_capture(
-                    "monitor", resolve_monitor_device(self.args.monitor), self.monitor_queue,
-                    follow_sink=self.args.monitor is None,
-                )
-                self.use_monitor = monitor is not None
-                if monitor is None:
-                    logger.info("sounddevice でモニターを開けません、%s バックエンドにフォールバック",
-                                self.backend_name)
-                    threading.Thread(target=self._monitor_backend_thread,
-                                     name="monitor-backend", daemon=True).start()
-                    backend_started = True
+                monitor = None
+                if not backend_started:
+                    monitor = self._open_capture(
+                        "monitor", self._resolve("monitor", self.args.monitor),
+                        self.monitor_queue, follow_sink=self.args.monitor is None,
+                    )
+                    self.use_monitor = monitor is not None
+                    if monitor is None:
+                        logger.info("sounddevice でモニターを開けません、%s バックエンドにフォールバック",
+                                    self.backend_name)
+                        self._monitor_backend = threading.Thread(
+                            target=self._monitor_backend_thread,
+                            name="monitor-backend", daemon=True)
+                        self._monitor_backend.start()
+                        backend_started = True
 
-            reason = self._watch_streams(
-                [s for s in (mic, monitor) if s is not None],
-                degraded=mic is None or (monitor is None and not backend_started),
-            )
-            for stream in (mic, monitor):
-                if stream is not None:
+                live = [s for s in (mic, monitor) if s is not None]
+                # 開けなかった系統は戻ってくる可能性があるので定期的に開き直す。
+                # ただし再列挙は全ストリームの張り替えを伴うため、空振りが続く間は
+                # 間隔を伸ばして音の欠落頻度を抑える
+                degraded = mic is None or (monitor is None and not backend_started)
+                reason = self._watch_streams(live, degraded_wait if degraded else None)
+                for stream in live:
                     stream.close()
-            if reason is None:
-                return
-            logger.warning("音声ストリーム再接続: %s", reason)
-            if self.stop_event.wait(STREAM_RETRY_SEC):
-                return
+                if reason is None:
+                    return
+                degraded_wait = (min(degraded_wait * 2, STREAM_DEGRADED_RETRY_MAX_SEC)
+                                 if degraded else STREAM_DEGRADED_RETRY_SEC)
+                logger.warning("音声ストリーム再接続: %s", reason)
+                # 直前に生きたストリームがあった場合は待たずに張り替える。
+                # 待機は「開き直しても失敗する」状態でのビジーループ防止のため
+                if not live and self.stop_event.wait(STREAM_RETRY_SEC):
+                    return
+            except Exception:
+                # 1 スレッドで両系統を持つため、ここで落とすと録音が全て止まる
+                logger.exception("音声キャプチャで予期しないエラー、再試行します")
+                if self.stop_event.wait(STREAM_RETRY_SEC):
+                    return
+
+    def _resolve(self, label: str, index: int | None) -> AudioDevice | None:
+        """デバイスを解決する。番号指定時は前回開いた名前と一致するものを優先する。
+
+        refresh_device_list() の後は同じ番号が別のデバイスを指しうるため、番号だけを
+        頼りにすると無言で別のマイクを掴む（`AudioDevice` を名前で比較する理由）。
+        """
+        resolve = resolve_mic_device if label == "mic" else resolve_monitor_device
+        device = resolve(index)
+        pinned = self._pinned_names.get(label)
+        if index is not None and pinned and device is not None and device.name != pinned:
+            if (found := find_device_by_name(pinned, capture=label == "mic")) is not None:
+                logger.info("%s: 番号 %d は %s に変わったため名前で再解決: %s",
+                            label, index, device.name, found)
+                return found
+            logger.warning("%s: 指定デバイス %s が見つかりません。番号 %d の %s を使います",
+                           label, pinned, index, device.name)
+        if device is not None and index is not None:
+            self._pinned_names[label] = device.name
+        return device
 
     def _open_capture(self, label: str, device: AudioDevice | None, audio_queue: queue.Queue,
                       follow_sink: bool = False) -> _CaptureStream | None:
@@ -275,15 +324,18 @@ class _RecorderCaptureMixin:
                 break
         return None
 
-    def _watch_streams(self, streams: list[_CaptureStream], degraded: bool = False) -> str | None:
+    def _watch_streams(self, streams: list[_CaptureStream],
+                       degraded_wait: float | None = None) -> str | None:
         """ストリームを監視し、再接続が必要になった理由を返す。停止要求なら None。
 
-        degraded=True は一部のデバイスを開けていない状態。開けなかった側が
-        戻ってくる可能性があるので、途絶を待たず定期的に開き直す。
+        degraded_wait は一部のデバイスを開けていない場合の再試行間隔。
         """
         if not streams:
+            # 1 本も開けていない。即座に返すと再列挙のビジーループになるので待つ
+            if self.stop_event.wait(degraded_wait or STREAM_DEGRADED_RETRY_SEC):
+                return None
             return "キャプチャデバイスを取得できません"
-        retry_at = time.monotonic() + STREAM_DEGRADED_RETRY_SEC if degraded else None
+        retry_at = time.monotonic() + degraded_wait if degraded_wait else None
         next_resolve = time.monotonic() + STREAM_RESOLVE_INTERVAL
         while not self.stop_event.wait(STREAM_CHECK_INTERVAL):
             if retry_at is not None and time.monotonic() >= retry_at:
@@ -313,13 +365,19 @@ class _RecorderCaptureMixin:
                 return
 
     def _capture_monitor_backend_once(self) -> bool:
-        """バックエンドを優先順に試して 1 回キャプチャする。開始できたら True。"""
+        """バックエンドを優先順に試して 1 回キャプチャする。キャプチャできたら True。
+
+        コマンドは起動できても即座に終了することがある（ノード ID が古い等）。
+        その場合は例外が飛ばないため、次のバックエンド（PulseAudio）に進めるよう
+        「予期せず終了」を失敗として扱う。
+        """
         for backend, name in self._monitor_backends():
             source = backend.detect_monitor_source()
             if not source:
                 continue
             logger.info("%s monitor キャプチャ開始: %s", name, source)
             self.use_monitor = True
+            started = time.monotonic()
             try:
                 backend.start_monitor_capture(source, self.monitor_queue, self.stop_event)
             except FileNotFoundError as e:
@@ -328,8 +386,12 @@ class _RecorderCaptureMixin:
             except Exception as e:
                 logger.error("%s monitor キャプチャ失敗: %s", name, e)
                 continue
-            if not self.stop_event.is_set():
-                logger.warning("%s monitor キャプチャが予期せず終了しました: %s", name, source)
+            if self.stop_event.is_set():
+                return True
+            logger.warning("%s monitor キャプチャが予期せず終了しました: %s", name, source)
+            if time.monotonic() - started < STREAM_STALL_SEC:
+                # すぐ死んだ = このバックエンドでは掴めない。次を試す
+                continue
             return True
         return False
 
