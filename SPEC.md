@@ -98,7 +98,7 @@ clerk-daemon に統合された Web ダッシュボード。ブラウザから t
 - **有効化**: デフォルトで有効（`--no-dashboard` で無効化）
 - **エンドポイント (GET)**:
   - `/` — ダッシュボード HTML
-  - `/api/events` — SSE イベントストリーム（transcript/translation/log/recorder_status/session/command/response/config/interim/summary/gcal）
+  - `/api/events` — SSE イベントストリーム（transcript/translation/log/recorder_status/level/session/command/response/config/interim/summary/gcal）
   - `/api/status` — recorder 状態 JSON
   - `/api/files` — transcript ファイル一覧 + アクティブファイル
   - `/api/transcript?file=xxx` — transcript の末尾 N 行
@@ -124,7 +124,8 @@ clerk-daemon に統合された Web ダッシュボード。ブラウザから t
   - `/api/transcript/split-by-silence` — 無音検出で分割
   - `/api/transcript/rename-meeting` — 会議名変更（対応する translation/summary も追従）
   - `/api/transcript/merge-to-daily` — 会議ファイルを日次ファイルにマージ
-- **UI**: ダークテーマ、transcript/翻訳/要約の3ペイン（speaker 色分け）、ログパネル、コマンドボタン、会議一覧・検索タブ
+- **`level` イベント**: 1 秒周期で入力レベルを配信。ペイロードは `mic`/`monitor` をキーとする辞書で、キャプチャ自体が開いていない系統は `null`。各エントリは `rms`/`peak`/`crest`/`device`（実際に使用中のデバイス名）/`requested`（config が指定したデバイス名、無指定なら `null`）/`fallback`（指定デバイスが使えず自動デバイスで代替中なら true）を持つ。`crest`（= `peak / rms`）は「デバイスは開けているが音声ではなくノイズしか来ていない」状態を見分ける指標で、音声は 3〜10 以上、内蔵マイクのハムのような定常ノイズは 1〜2 に落ちる。ダッシュボードはこれを使って、`rms >= 100 && crest < 2` が 10 秒続く「定常ノイズ」警告と、`rms === 0 && peak === 0` が 30 秒続く「無音デバイス」警告をレベルバー上に出す（生きたデバイスはノイズフロアを持つため厳密なゼロが続くことはない）
+- **UI**: ダークテーマ、transcript/翻訳/要約の3ペイン（speaker 色分け）、ログパネル、コマンドボタン、会議一覧・検索タブ、ヘッダーの入力レベルバー
 
 ### モジュール E: Google Calendar 連携（オプション、`gcal_monitor.py`）
 
@@ -201,7 +202,7 @@ graph TB
     main["Main Thread<br/>(Recorder.run)"]
 
     mic["audio-capture<br/><i>mic/monitor の sounddevice InputStream を<br/>1 スレッドで開き、途絶・出力先変更を監視して再接続</i>"]
-    mon["monitor-backend<br/><i>sounddevice で monitor を開けない場合のみ起動<br/>PipeWire/PulseAudio subprocess</i>"]
+    mon["monitor-backend<br/><i>sounddevice で monitor を開けない場合のみ起動<br/>PipeWire/PulseAudio subprocess、フレーム途絶を監視して再接続</i>"]
     vadm["vad-mic<br/><i>mic_queue → VADSegmenter</i>"]
     vadmon["vad-monitor<br/><i>monitor_queue → VADSegmenter</i>"]
     trans["transcribe<br/><i>faster-whisper + 音声コマンド検出</i>"]
