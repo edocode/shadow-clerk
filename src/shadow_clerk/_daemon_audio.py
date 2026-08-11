@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import sys
 from shadow_clerk.i18n import t
-from shadow_clerk._daemon_constants import IPC_TIMEOUT_SEC, STREAM_STALL_SEC
+from shadow_clerk._daemon_constants import IPC_TIMEOUT_SEC
 from shadow_clerk.domain import AudioDevice
 # デバイス一覧スナップショット (snapshot_devices) は _daemon_audio_devices.py に
 # 分離した。既存の import 元 (from shadow_clerk._daemon_audio import

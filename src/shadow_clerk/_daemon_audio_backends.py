@@ -15,10 +15,11 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from typing import Any, Protocol
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import (
-    SAMPLE_RATE, CHANNELS, FRAME_SIZE, IPC_TIMEOUT_SEC,
+    SAMPLE_RATE, CHANNELS, FRAME_SIZE, IPC_TIMEOUT_SEC, STREAM_STALL_SEC,
 )
 from shadow_clerk._daemon_audio_level import CaptureLevel
 
@@ -76,18 +77,18 @@ def _wait_stall_aware(fileno: int, timeout: float) -> bool:
 
 def _capture_pcm_stream(cmd: list[str], name: str, audio_queue: queue.Queue,
                         stop_event: StopSignal,
-                        level: CaptureLevel | None = None) -> None:
+                        level: CaptureLevel | None = None,
+                        stall_sec: float = STREAM_STALL_SEC) -> None:
     """コマンドの stdout から PCM フレームを読み続けて audio_queue に流す。
 
     stderr は別スレッドで読み捨てつつ末尾のみ保持する。読まずに放置すると
     子プロセスが警告を大量出力した際に OS パイプバッファが充満して
     stdout への音声出力ごとブロックし、キャプチャが無音停止する。
+
+    stall_sec はテストが停滞判定までの待ち時間を短縮するための引数
+    （既定値は本番と同じ STREAM_STALL_SEC）。
     """
     import numpy as np
-    # 遅延 import: _daemon_audio は本モジュールをトップレベルで import する
-    # ため、循環 import を避けつつ STREAM_STALL_SEC を都度読む（テストが
-    # audio.STREAM_STALL_SEC を書き換えて停滞判定時間を短縮できるようにする）
-    from shadow_clerk import _daemon_audio
     logger.info("%s monitor capture: %s", name, " ".join(cmd))
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     assert proc.stdout is not None and proc.stderr is not None
@@ -101,16 +102,25 @@ def _capture_pcm_stream(cmd: list[str], name: str, audio_queue: queue.Queue,
     drain_thread.start()
     frame_bytes = FRAME_SIZE * 2
     buf = bytearray()
+    last_frame = time.monotonic()
     try:
         while not stop_event.is_set():
-            # select で待つのは、フレームが来なくなった pw-record が read() で
-            # 永久にブロックするのを防ぐため。無音の sink でも正常なら毎秒
-            # 約33フレーム届くので、途絶は死亡を意味する
-            stall_sec = _daemon_audio.STREAM_STALL_SEC
-            if not _wait_stall_aware(proc.stdout.fileno(), stall_sec):
+            # 締切は直前に「フレームが完成した」時刻を基準にする。select は
+            # 1バイトでも届けば ready を返すため、バイト到着だけで締切を
+            # 延ばすと（例: 0.5秒ごとに1バイトのトリクル）フレームが一向に
+            # 完成しないまま無限に待ち続けてしまう。無音の sink でも正常なら
+            # 毎秒約33フレーム届くので、フレーム完成の途絶は死亡を意味する
+            since_last_frame = time.monotonic() - last_frame
+            if since_last_frame >= stall_sec:
                 logger.warning("%s: %.0f 秒フレームが途絶。キャプチャを再開します",
                                name, stall_sec)
                 break
+            # select の待ちは最大1秒に区切る。stall_sec (既定15秒) をそのまま
+            # 渡すと、フレームが全く来ない間 stop_event の反映が最大 stall_sec
+            # 秒遅れてしまう
+            wait = min(1.0, stall_sec - since_last_frame)
+            if not _wait_stall_aware(proc.stdout.fileno(), wait):
+                continue
             # select が読み出し可能を報告しても、read(n) は n バイト未満しか
             # 届いていない場合にそこでブロックしうる。os.read で届いた分だけ
             # 読み、フレーム境界は自前のバッファで管理する
@@ -121,12 +131,21 @@ def _capture_pcm_stream(cmd: list[str], name: str, audio_queue: queue.Queue,
             while len(buf) >= frame_bytes:
                 samples = np.frombuffer(bytes(buf[:frame_bytes]), dtype=np.int16)
                 del buf[:frame_bytes]
+                last_frame = time.monotonic()
                 if level is not None:
                     level.add(samples)
                 audio_queue.put(samples)
     finally:
         proc.terminate()
-        proc.wait()
+        try:
+            proc.wait(timeout=IPC_TIMEOUT_SEC)
+        except subprocess.TimeoutExpired:
+            # SIGTERM が効かない子プロセス（USB オーディオが引き抜かれて
+            # ハードウェアアクセスにブロックされた pw-record など）を
+            # 無期限に待ち続けないよう、SIGKILL に切り替えて待つ
+            logger.warning("%s: terminate() に応答なし、kill() します", cmd[0])
+            proc.kill()
+            proc.wait()
         drain_thread.join(timeout=2)
         err = b"".join(stderr_tail)
         if err:
