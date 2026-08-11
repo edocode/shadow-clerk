@@ -8,7 +8,9 @@ _daemon_audio.py から、device リスト分離 (_daemon_audio_devices.py) と
 from __future__ import annotations
 import collections
 import logging
+import os
 import queue
+import select
 import shutil
 import subprocess
 import sys
@@ -59,6 +61,19 @@ def _wpctl_inspect_default_sink() -> str:
     ).stdout
 
 
+def _wait_stall_aware(fileno: int, timeout: float) -> bool:
+    """fd が timeout 秒以内に読み出し可能になったか。
+
+    select は Windows ではソケットにしか使えないため、そちらでは常に True を
+    返し従来通りのブロッキング読み出しに委ねる（WasapiBackend はこのパスを
+    使わないため実害は無い）。
+    """
+    if sys.platform == "win32":
+        return True
+    ready, _, _ = select.select([fileno], [], [], timeout)
+    return bool(ready)
+
+
 def _capture_pcm_stream(cmd: list[str], name: str, audio_queue: queue.Queue,
                         stop_event: StopSignal,
                         level: CaptureLevel | None = None) -> None:
@@ -69,6 +84,10 @@ def _capture_pcm_stream(cmd: list[str], name: str, audio_queue: queue.Queue,
     stdout への音声出力ごとブロックし、キャプチャが無音停止する。
     """
     import numpy as np
+    # 遅延 import: _daemon_audio は本モジュールをトップレベルで import する
+    # ため、循環 import を避けつつ STREAM_STALL_SEC を都度読む（テストが
+    # audio.STREAM_STALL_SEC を書き換えて停滞判定時間を短縮できるようにする）
+    from shadow_clerk import _daemon_audio
     logger.info("%s monitor capture: %s", name, " ".join(cmd))
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     assert proc.stdout is not None and proc.stderr is not None
@@ -80,13 +99,28 @@ def _capture_pcm_stream(cmd: list[str], name: str, audio_queue: queue.Queue,
 
     drain_thread = threading.Thread(target=_drain, name=f"{cmd[0]}-stderr", daemon=True)
     drain_thread.start()
+    frame_bytes = FRAME_SIZE * 2
+    buf = bytearray()
     try:
         while not stop_event.is_set():
-            data = proc.stdout.read(FRAME_SIZE * 2)
-            if not data:
+            # select で待つのは、フレームが来なくなった pw-record が read() で
+            # 永久にブロックするのを防ぐため。無音の sink でも正常なら毎秒
+            # 約33フレーム届くので、途絶は死亡を意味する
+            stall_sec = _daemon_audio.STREAM_STALL_SEC
+            if not _wait_stall_aware(proc.stdout.fileno(), stall_sec):
+                logger.warning("%s: %.0f 秒フレームが途絶。キャプチャを再開します",
+                               name, stall_sec)
                 break
-            if len(data) == FRAME_SIZE * 2:
-                samples = np.frombuffer(data, dtype=np.int16)
+            # select が読み出し可能を報告しても、read(n) は n バイト未満しか
+            # 届いていない場合にそこでブロックしうる。os.read で届いた分だけ
+            # 読み、フレーム境界は自前のバッファで管理する
+            chunk = os.read(proc.stdout.fileno(), frame_bytes)
+            if not chunk:
+                break
+            buf.extend(chunk)
+            while len(buf) >= frame_bytes:
+                samples = np.frombuffer(bytes(buf[:frame_bytes]), dtype=np.int16)
+                del buf[:frame_bytes]
                 if level is not None:
                     level.add(samples)
                 audio_queue.put(samples)
