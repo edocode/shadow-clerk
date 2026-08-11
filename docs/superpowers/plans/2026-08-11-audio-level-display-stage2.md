@@ -824,7 +824,14 @@ git commit -m "Broadcast capture levels as a level SSE event"
 
 **ミュートボタンとは別の要素にすること。** `updateMuteBtn`（`_daemon_dashboard_js_core.py`）が 10 秒ごとにボタンの `title` と class を無条件に書き直すため、同じ要素に 1Hz で書き込むと奪い合いになる。所有権を分ける。
 
-**定常ノイズ警告:** 直近 10 回（= 10 秒）の `level` がすべて「`rms >= 100` かつ `crest < 2`」を満たしたらバーを警告色にする。`rms` の下限を課すのは、無音時に `crest` が 0 になって誤検知するのを防ぐため。判定はブラウザ側で行い、サーバは生の値だけを送る。
+**2 種類の警告を出す。** どちらも判定はブラウザ側で行い、サーバは生の値だけを送る。
+
+1. **定常ノイズ**: 直近 10 回（= 10 秒）の `level` がすべて「`rms >= 100` かつ `crest < 2`」。`rms` の下限を課すのは、無音時に `crest` が 0 になって誤検知するのを防ぐため。この機の内蔵 Digital Microphone（常時 RMS 約2760・crest 1.3）がこれに当たる。
+2. **完全無音**: 直近 30 回（= 30 秒）の `level` がすべて `rms == 0`。
+
+**なぜ完全無音を別扱いするか。** 生きたマイクは静かな部屋でも必ずノイズフロアを持つ（RMS 数〜数十）。厳密にゼロが続くのは「デバイスは開けているが音が届いていない」状態——電源オフのヘッドセット、切断されたドングル、権限を失ったストリーム——を意味する。2026-08-11 に Shokz の電源が入っておらず、48000 サンプルすべてがゼロという状態が実際に起きている。定常ノイズ判定は `rms >= 100` を要求するのでこれを捕まえられない。
+
+窓を 30 秒と長くとるのは、会議中に全員が黙っている時間との誤検知を避けるため。ただし**生きたマイクなら黙っていてもノイズフロアで `rms > 0` になる**ので、厳密なゼロ判定であれば 30 秒は十分に安全側である。
 
 - [ ] **Step 0: 既存のヘッダ構造を読む**
 
@@ -842,6 +849,7 @@ Run: `grep -n "\.toggle\|\.ph " src/shadow_clerk/_daemon_dashboard_css.py | head
     "dash.level_mic": "マイク入力レベル",
     "dash.level_monitor": "スピーカー入力レベル",
     "dash.level_noise": "定常ノイズのみ検出（デバイスを確認してください）",
+    "dash.level_silent": "音が届いていません（デバイスの電源・接続を確認してください）",
     "dash.level_fallback": "指定デバイスが見つからないため自動で代替中",
 ```
 
@@ -851,6 +859,7 @@ Run: `grep -n "\.toggle\|\.ph " src/shadow_clerk/_daemon_dashboard_css.py | head
     "dash.level_mic": "Mic input level",
     "dash.level_monitor": "Speaker input level",
     "dash.level_noise": "Only steady noise detected (check the device)",
+    "dash.level_silent": "No audio arriving (check the device is on and connected)",
     "dash.level_fallback": "Chosen device not found; using the automatic one",
 ```
 
@@ -888,7 +897,8 @@ Run: `grep -n "\.toggle\|\.ph " src/shadow_clerk/_daemon_dashboard_css.py | head
 `_daemon_dashboard_js_core.py` の既存 `es.addEventListener(...)` の並びに追加する:
 
 ```javascript
-const LV_HIST = {mic: [], monitor: []};
+const LV_NOISE = {mic: [], monitor: []};
+const LV_SILENT = {mic: [], monitor: []};
 es.addEventListener('level', e => {
   const d = JSON.parse(e.data);
   for (const label of ['mic', 'monitor']) updateLevel(label, d[label]);
@@ -901,12 +911,21 @@ function updateLevel(label, v){
   // 対数スケール: 十分な入力で満杯、無音で 0 になるよう圧縮する
   const pct = v.rms <= 1 ? 0 : Math.min(100, Math.max(0, 20 * Math.log10(v.rms) - 10));
   fill.style.width = pct.toFixed(0) + '%';
-  const hist = LV_HIST[label];
-  hist.push(v.rms >= 100 && v.crest < 2);
-  if(hist.length > 10) hist.shift();
-  const noisy = hist.length === 10 && hist.every(Boolean);
-  bar.className = 'lv' + (v.fallback ? ' lv-fallback' : '') + (noisy ? ' lv-warn' : '');
+  // 定常ノイズ: 10秒すべてが「音量はあるが crest が低い」
+  const noiseHist = LV_NOISE[label];
+  noiseHist.push(v.rms >= 100 && v.crest < 2);
+  if(noiseHist.length > 10) noiseHist.shift();
+  const noisy = noiseHist.length === 10 && noiseHist.every(Boolean);
+  // 完全無音: 30秒すべてが厳密にゼロ。生きたマイクはノイズフロアを持つので
+  // 黙っているだけならゼロにはならない
+  const silHist = LV_SILENT[label];
+  silHist.push(v.rms === 0);
+  if(silHist.length > 30) silHist.shift();
+  const silent = silHist.length === 30 && silHist.every(Boolean);
+  bar.className = 'lv' + (v.fallback ? ' lv-fallback' : '')
+                + (noisy || silent ? ' lv-warn' : '');
   bar.title = (noisy ? I18N['dash.level_noise'] + ' ' : '')
+            + (silent ? I18N['dash.level_silent'] + ' ' : '')
             + (v.fallback ? I18N['dash.level_fallback'] + ': ' + v.requested + ' ' : '')
             + (label === 'mic' ? I18N['dash.level_mic'] : I18N['dash.level_monitor']);
 }
