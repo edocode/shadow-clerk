@@ -6,12 +6,21 @@ import logging
 import os
 import queue
 import threading
+import time
 from typing import Any
 from shadow_clerk import DATA_DIR, CONFIG_FILE
-from shadow_clerk._daemon_constants import SESSION_FILE
+from shadow_clerk._daemon_audio import get_default_source_name
+from shadow_clerk._daemon_constants import SESSION_FILE, STREAM_RESOLVE_INTERVAL
 from shadow_clerk._daemon_config import load_config
 
 logger = logging.getLogger("shadow-clerk")
+
+# device 名がこれらのエイリアスの場合のみ OS に実名を問い合わせる。実デバイス名
+# (例: "alsa_input.usb-Shokz...") はそのまま素通しし、無駄な subprocess を呼ばない
+_ALIAS_DEVICE_NAMES = {"default", "pipewire"}
+
+# 同じ例外が毎秒起きてもログが溢れないよう、抑制した回数をまとめて出す間隔
+_POLL_ERROR_LOG_INTERVAL_SEC = 60.0
 
 
 class LogBuffer(logging.Handler):
@@ -60,6 +69,12 @@ class FileWatcher(threading.Thread):
         self._log_counter = 0
         self._last_status: bool | None = None
         self._last_ptt: bool | None = None
+        # エイリアス名 → (解決済み名, 解決時刻) のキャッシュ。STREAM_RESOLVE_INTERVAL
+        # 秒だけ再利用し、_poll_levels の毎秒呼び出しで subprocess を叩き続けない
+        self._alias_cache: dict[str, tuple[str, float]] = {}
+        self._last_poll_error: str | None = None
+        self._last_poll_error_at = 0.0
+        self._poll_error_suppressed = 0
 
     def add_client(self) -> queue.Queue[tuple[str, str]]:
         q: queue.Queue[tuple[str, str]] = queue.Queue()
@@ -129,11 +144,49 @@ class FileWatcher(threading.Thread):
         self._log_counter = self._log_buffer.counter
 
         while not self._recorder.stop_event.is_set():
-            try:
-                self._poll()
-            except Exception:
-                pass
+            self._poll_iteration()
             self._recorder.stop_event.wait(timeout=1.0)
+
+    def _poll_iteration(self) -> None:
+        """1 回分のポーリングを行う。
+
+        _poll_levels() は _poll() の最後の文として置いていたため、transcript
+        読み取りや翻訳など無関係な処理が _poll() の途中で例外を投げると、
+        レベル配信そのものが永久に止まっていた。フリーズしたレベルバーは
+        最後に描いた値のまま緑で止まるため、「音声は正常」に見えてしまう
+        （fail unsafe）。呼び出しを分離し、どちらが失敗しても他方は必ず動く
+        ようにする
+        """
+        try:
+            self._poll()
+        except Exception as e:  # pylint: disable=broad-except
+            self._log_poll_exception(e)
+        try:
+            self._poll_levels()
+        except Exception as e:  # pylint: disable=broad-except
+            self._log_poll_exception(e)
+
+    def _log_poll_exception(self, exc: BaseException) -> None:
+        """ポーリング中の想定外の例外を記録する。
+
+        以前は run() が `except Exception: pass` で無条件に握り潰し、原因が
+        全く分からなかった。ここでは記録してループを継続するが、同じ例外が
+        毎秒起きてもログを溢れさせないよう、同一メッセージは
+        _POLL_ERROR_LOG_INTERVAL_SEC 秒に一度だけ出し、その間の発生回数は
+        まとめて次のログに添える。
+        """
+        key = f"{type(exc).__name__}: {exc}"
+        now = time.monotonic()
+        if (key == self._last_poll_error
+                and now - self._last_poll_error_at < _POLL_ERROR_LOG_INTERVAL_SEC):
+            self._poll_error_suppressed += 1
+            return
+        suffix = (f"（直近 {self._poll_error_suppressed} 回抑制）"
+                  if self._poll_error_suppressed else "")
+        logger.warning("FileWatcher のポーリングで例外%s: %s", suffix, key, exc_info=exc)
+        self._last_poll_error = key
+        self._last_poll_error_at = now
+        self._poll_error_suppressed = 0
 
     def _poll(self):
         # Transcript
@@ -209,8 +262,6 @@ class FileWatcher(threading.Thread):
             self._broadcast("log", json.dumps(
                 {"line": line}, ensure_ascii=False))
 
-        self._poll_levels()
-
     def _poll_levels(self) -> None:
         """入力レベルを 1 秒ごとに配信する"""
         levels = getattr(self._recorder, "levels", None)
@@ -238,12 +289,38 @@ class FileWatcher(threading.Thread):
                 }
                 continue
             requested = stream.requested
+            raw_name = stream.device.name
             payload[label] = {
                 "rms": round(snap.rms, 1),
                 "peak": round(snap.peak),
                 "crest": round(snap.crest, 1),
-                "device": stream.device.name,
+                "device": self._resolve_device_name(raw_name),
                 "requested": requested,
-                "fallback": bool(requested) and stream.device.name != requested,
+                "fallback": bool(requested) and raw_name != requested,
             }
         self._broadcast("level", json.dumps(payload, ensure_ascii=False))
+
+    def _resolve_device_name(self, name: str) -> str:
+        """PortAudio が返すデバイス名がエイリアスなら OS 側の実名に解決する。
+
+        device 未指定でマイクを開くと PortAudio は "default" のような
+        エイリアスしか返さない。ツールチップにそのまま出すと、OS のデフォルト
+        入力が死んだ内蔵マイクにすり替わっていても気づけない——この
+        レベルバー機能のきっかけになった障害そのものが再現する。
+
+        解決には subprocess 呼び出しが要るため、キャプチャスレッドを避けて
+        ここ（1 秒ごとに呼ばれる _poll_levels）で行うが、毎秒叩くのは無駄
+        なので STREAM_RESOLVE_INTERVAL 秒（キャプチャ監視スレッドが自身の
+        デフォルト Sink 変更チェックに使う周期と同じ）だけキャッシュする。
+        実デバイス名はエイリアス集合に含まれないため lookup 自体を行わない。
+        解決に失敗した場合はエイリアス名のまま返す（何も出さないより良い）。
+        """
+        if name not in _ALIAS_DEVICE_NAMES:
+            return name
+        cached = self._alias_cache.get(name)
+        now = time.monotonic()
+        if cached and now - cached[1] < STREAM_RESOLVE_INTERVAL:
+            return cached[0]
+        resolved = get_default_source_name() or name
+        self._alias_cache[name] = (resolved, now)
+        return resolved

@@ -120,17 +120,32 @@ fw5._poll_levels()
 monitor5 = json.loads(sent5[0][1]).get("monitor")
 check("16. ストリームもバックエンドソースも無ければ null", monitor5 is None, f"{monitor5}")
 
-# _poll_levels() を直接呼ぶテストだけでは、_poll() からの呼び出しを消しても
-# 8/8 のまま通ってしまう (Finding 3)。配線自体を _poll() 経由で検証する
+# _poll_levels() を直接呼ぶテストだけでは、run() からの呼び出しを消しても
+# 8/8 のまま通ってしまう (Finding 3)。配線自体を _poll_iteration() 経由で検証する。
+# _poll_levels() は以前 _poll() の最後の文だったが、_poll() 中の無関係な例外が
+# レベル配信そのものを止めてしまう問題 (Finding B) を切るため、run() が両者を
+# 別々に guard する _poll_iteration() に分離した
 rec6 = FakeRecorder()
 rec6.levels["mic"].add(np.full(480, 3000, dtype=np.int16))
 rec6.open_streams["mic"] = FakeStream("alsa_input.wired", requested=None)
 fw6 = FileWatcher(rec6, LogBuffer())
 sent6: list[tuple[str, str]] = []
 fw6._broadcast = lambda event, data: sent6.append((event, data))  # type: ignore[method-assign]
-fw6._poll()
-check("17. _poll() 経由でも level イベントが配信される",
+fw6._poll_iteration()
+check("17. _poll_iteration() 経由でも level イベントが配信される",
       any(e == "level" for e, _ in sent6), f"{[e for e, _ in sent6]}")
+
+# _poll() が無関係な例外を投げても、_poll_levels() は独立して動く (Finding B)
+rec6b = FakeRecorder()
+rec6b.levels["mic"].add(np.full(480, 3000, dtype=np.int16))
+rec6b.open_streams["mic"] = FakeStream("alsa_input.wired", requested=None)
+fw6b = FileWatcher(rec6b, LogBuffer())
+sent6b: list[tuple[str, str]] = []
+fw6b._broadcast = lambda event, data: sent6b.append((event, data))  # type: ignore[method-assign]
+fw6b._poll = lambda: (_ for _ in ()).throw(RuntimeError("boom"))  # type: ignore[method-assign]
+fw6b._poll_iteration()
+check("17b. _poll() が例外を投げても level イベントは配信される",
+      any(e == "level" for e, _ in sent6b), f"{[e for e, _ in sent6b]}")
 
 # Step 0a: backend_source に書き込む表示名が PipeWire の object.serial
 # （意味のない数字文字列。例 "80"）そのままにならないこと。pw-record に渡す
@@ -163,6 +178,67 @@ check("20. 指定デバイス経路: 表示名が serial 単体の数字文字�
       req_target is not None and not req_target[1].isdigit(), f"{req_target}")
 check("21. 指定デバイス経路: pw-record に渡す値は serial のまま",
       req_target is not None and req_target[0] == "64", f"{req_target}")
+
+# Step A: device=None でマイクを開くと PortAudio は "default" のような
+# エイリアスしか返さない。ツールチップにそのまま出すと、OS のデフォルト入力が
+# 死んだデバイスにすり替わっていても気づけない (今回の障害そのもの)。
+# _poll_levels は FileWatcher._resolve_device_name でこれを OS 側の実名に
+# 解決する
+
+# 22. エイリアス名は OS 報告の実名に解決される
+rec7 = FakeRecorder()
+rec7.levels["mic"].add(np.full(480, 1500, dtype=np.int16))
+rec7.open_streams["mic"] = FakeStream("default", requested=None)
+fw7 = FileWatcher(rec7, LogBuffer())
+sent7: list[tuple[str, str]] = []
+fw7._broadcast = lambda event, data: sent7.append((event, data))  # type: ignore[method-assign]
+with patch("shadow_clerk._daemon_log_buffer.get_default_source_name",
+           return_value="Shokz Loop110 モノ") as mock_resolve7:
+    fw7._poll_levels()
+mic7 = json.loads(sent7[0][1])["mic"]
+check("22. エイリアス device 名が OS 報告の実名に解決される",
+      mic7.get("device") == "Shokz Loop110 モノ", f"{mic7.get('device')}")
+
+# 23. 実デバイス名はそのまま素通しし、解決を試みない (無駄な subprocess を呼ばない)
+rec8 = FakeRecorder()
+rec8.levels["mic"].add(np.full(480, 1500, dtype=np.int16))
+rec8.open_streams["mic"] = FakeStream("alsa_input.real", requested=None)
+fw8 = FileWatcher(rec8, LogBuffer())
+sent8: list[tuple[str, str]] = []
+fw8._broadcast = lambda event, data: sent8.append((event, data))  # type: ignore[method-assign]
+with patch("shadow_clerk._daemon_log_buffer.get_default_source_name") as mock_resolve8:
+    fw8._poll_levels()
+mic8 = json.loads(sent8[0][1])["mic"]
+check("23. 実デバイス名は素通し（解決は呼ばれない）",
+      mic8.get("device") == "alsa_input.real" and mock_resolve8.call_count == 0,
+      f"device={mic8.get('device')} calls={mock_resolve8.call_count}")
+
+# 24. 解決に失敗した (None) 場合はエイリアス名のままフォールバックする
+rec9 = FakeRecorder()
+rec9.levels["mic"].add(np.full(480, 1500, dtype=np.int16))
+rec9.open_streams["mic"] = FakeStream("default", requested=None)
+fw9 = FileWatcher(rec9, LogBuffer())
+sent9: list[tuple[str, str]] = []
+fw9._broadcast = lambda event, data: sent9.append((event, data))  # type: ignore[method-assign]
+with patch("shadow_clerk._daemon_log_buffer.get_default_source_name", return_value=None):
+    fw9._poll_levels()
+mic9 = json.loads(sent9[0][1])["mic"]
+check("24. 解決失敗時はエイリアス名 'default' にフォールバックする",
+      mic9.get("device") == "default", f"{mic9.get('device')}")
+
+# 25. 解決は毎回行わない (TTL キャッシュ) — 短時間の連続呼び出しでは1回だけ呼ぶ
+rec10 = FakeRecorder()
+rec10.levels["mic"].add(np.full(480, 1500, dtype=np.int16))
+rec10.open_streams["mic"] = FakeStream("default", requested=None)
+fw10 = FileWatcher(rec10, LogBuffer())
+fw10._broadcast = lambda event, data: None  # type: ignore[method-assign]
+with patch("shadow_clerk._daemon_log_buffer.get_default_source_name",
+           return_value="Shokz Loop110 モノ") as mock_resolve10:
+    for _ in range(5):
+        rec10.levels["mic"].add(np.full(480, 1500, dtype=np.int16))
+        fw10._poll_levels()
+check("25. TTL 内の連続呼び出しでは解決を1回しか呼ばない",
+      mock_resolve10.call_count == 1, f"calls={mock_resolve10.call_count}")
 
 print(f"\n=== {sum(results)}/{len(results)} PASS ===")
 raise SystemExit(0 if all(results) else 1)
