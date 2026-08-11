@@ -449,6 +449,40 @@ es.addEventListener('interim_clear',e=>{
   const itp=document.getElementById('itp');
   if(itp)itp.innerHTML='';
 });
+/* --- 入力レベルバー（ミュートボタンとは別要素。updateMuteBtn の10秒ごと
+   上書きと1Hzの本更新が競合しないようにする） --- */
+const LV_NOISE = {mic: [], monitor: []};
+const LV_SILENT = {mic: [], monitor: []};
+es.addEventListener('level', e => {
+  const d = JSON.parse(e.data);
+  for (const label of ['mic', 'monitor']) updateLevel(label, d[label]);
+});
+function updateLevel(label, v){
+  const bar = document.getElementById('lv_' + label);
+  if(!bar) return;
+  const fill = bar.firstElementChild;
+  if(!v){ fill.style.width = '0%'; bar.className = 'lv'; bar.title = ''; return; }
+  // 対数スケール: 十分な入力で満杯、無音で 0 になるよう圧縮する
+  const pct = v.rms <= 1 ? 0 : Math.min(100, Math.max(0, 20 * Math.log10(v.rms) - 10));
+  fill.style.width = pct.toFixed(0) + '%';
+  // 定常ノイズ: 10秒すべてが「音量はあるが crest が低い」
+  const noiseHist = LV_NOISE[label];
+  noiseHist.push(v.rms >= 100 && v.crest < 2);
+  if(noiseHist.length > 10) noiseHist.shift();
+  const noisy = noiseHist.length === 10 && noiseHist.every(Boolean);
+  // 完全無音: 30秒すべてが厳密にゼロ。生きたマイクはノイズフロアを持つので
+  // 黙っているだけならゼロにはならない
+  const silHist = LV_SILENT[label];
+  silHist.push(v.rms === 0 && v.peak === 0);
+  if(silHist.length > 30) silHist.shift();
+  const silent = silHist.length === 30 && silHist.every(Boolean);
+  bar.className = 'lv' + (v.fallback ? ' lv-fallback' : '')
+                + (noisy || silent ? ' lv-warn' : '');
+  bar.title = (noisy ? I18N['dash.level_noise'] + ' ' : '')
+            + (silent ? I18N['dash.level_silent'] + ' ' : '')
+            + (v.fallback ? I18N['dash.level_fallback'] + ': ' + v.requested + ' ' : '')
+            + (label === 'mic' ? I18N['dash.level_mic'] : I18N['dash.level_monitor']);
+}
 function _todayYestStr(){
   const nd=new Date();
   const fd=d=>`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
