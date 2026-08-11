@@ -16,7 +16,7 @@
 
 - Python は必ず `uv run python` で実行する（`python3` / `python` を直接使わない）
 - 全ファイル先頭に `from __future__ import annotations`。関数シグネチャの引数・戻り値に型注釈は必須
-- **1 ファイル最大 700 行。** `_daemon_dashboard_js_panels.py` は現在 696 行で余裕がない。Task 1 で分割してから UI に着手する
+- **1 ファイル最大 700 行。** `_daemon_dashboard_js_panels.py` は現在 696 行で余裕がない。Task 1 で分割してから UI に着手する。`_daemon_audio.py` も 666 行あり、Task 3（`level` 引数）と Task 4（読み出しループの書き換え）で 700 行に達する見込みである。超えたら `_capture_pcm_stream` とバックエンド 3 クラスを `_daemon_audio_backends.py` へ切り出すこと（デバイス列挙を `_daemon_audio_devices.py` に切り出した第1段階と同じ考え方）。分割したタスクの報告に、分割前後の行数を必ず書くこと
 - ユーザー向け文字列は `t()` 経由。新規キーは `_i18n_ja.py` と `_i18n_en.py` の**両方**に追加する
 - ログは logger 経由（`print` を使わない）。日本語コメントは可、周囲のスタイルに合わせる
 - 値オブジェクトは `src/shadow_clerk/domain/` に `@dataclass(frozen=True)` で置く（DDD 規約）
@@ -751,6 +751,10 @@ Expected: FAIL（`FileWatcher` に `_poll_levels` が無い、`recorder.open_str
 ```
 
 `_audio_capture_thread` のローカル `streams` を `self.open_streams` に置き換える（別の dict を作らないこと。二重管理は必ずずれる）。`finally` でのクリアも忘れないこと。
+
+**この関数は最も安全性が要求される箇所である。** `refresh_device_list()` は開いている全 PortAudio ストリームを破棄するため、`streams.clear()` してからでないと呼べない。ローカル変数を属性に替えるだけの機械的な置換に留め、制御フローを触らないこと。
+
+**`tests/test_audio_capture_watchdog.py` の `Host` にも `open_streams` を足すこと。** この Host は `Recorder.__init__` を通さず属性を手で用意しているため、足し忘れると監視ループが AttributeError を起こす。テスト側の検出器がそれを報告するので気付けるが、Step 7 の回帰ゲートで初めて落ちるより先に直しておくのが早い。
 
 - [ ] **Step 4: `_poll_levels` を実装する**
 
