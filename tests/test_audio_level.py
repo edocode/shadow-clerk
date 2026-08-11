@@ -46,46 +46,50 @@ check("4. 定常ノイズの crest < 5", noise.crest < 5.0, f"{noise.crest:.2f}"
 # バースト（音声相当）: 大半が無音で一部だけ大きい → crest が高い
 burst = np.zeros(n, dtype=np.int16)
 burst[:800] = 15000
-check("5. バーストの crest > 3", measure(burst).crest > 3.0, f"{measure(burst).crest:.2f}")
+check("5. バースト（正方向）の crest > 3", measure(burst).crest > 3.0,
+      f"{measure(burst).crest:.2f}")
+
+# 負方向のバースト。peak は np.abs() を通さないと data.max() が 0 のまま
+# crest=0 になってしまう（符号の取り扱いを固定するための対称チェック）
+burst_neg = np.zeros(n, dtype=np.int16)
+burst_neg[:800] = -15000
+check("6. バースト（負方向）の crest > 3", measure(burst_neg).crest > 3.0,
+      f"{measure(burst_neg).crest:.2f}")
 
 # snapshot は窓をリセットする
 lv = CaptureLevel()
 lv.add(np.full(1000, 5000, dtype=np.int16))
 first = lv.snapshot()
 second = lv.snapshot()
-check("6. snapshot で窓がリセットされる", first.rms > 0 and second.rms == 0.0,
+check("7. snapshot で窓がリセットされる", first.rms > 0 and second.rms == 0.0,
       f"1回目={first.rms:.0f} 2回目={second.rms:.0f}")
 
 # idle_sec は add からの経過を返す
 lv2 = CaptureLevel()
 lv2.add(np.zeros(10, dtype=np.int16))
 time.sleep(0.2)
-check("7. idle_sec が経過を返す", 0.15 < lv2.idle_sec() < 1.0, f"{lv2.idle_sec():.2f}")
+check("8. idle_sec が経過を返す", 0.15 < lv2.idle_sec() < 1.0, f"{lv2.idle_sec():.2f}")
 
 # AudioLevel は不変
 try:
     AudioLevel(rms=1.0, peak=2.0, crest=2.0).rms = 9.0  # type: ignore[misc]
-    check("8. AudioLevel は不変", False, "代入できてしまった")
+    check("9. AudioLevel は不変", False, "代入できてしまった")
 except Exception:
-    check("8. AudioLevel は不変", True)
+    check("9. AudioLevel は不変", True)
 
-# --- recorder が両ラベルの CaptureLevel を持つ ---
-import argparse
+# 元の check「levels に mic と monitor がある」は、_RecorderCaptureMixin.__init__
+# を呼ばず levels を自分で代入する偽ホストを使っていたため、実際の __init__ が
+# それを作ることは何も検証していなかった（Finding C: tautological）。
+# 実 __init__ は argparse.Namespace・Transcriber・backend 検出・config 読み込みなど
+# 重い依存を要求し、この軽量テストで構築するのは割に合わない。ソースを読んで
+# 「__init__ はこう書かれているはず」と断定するのも実行時の検証にならないため、
+# 何も保証しないチェックを残すより削除する方を選んだ。
+
+# --- _CaptureStream のコールバックが level を更新する ---
 import queue as _queue
-import threading as _threading
 
 from shadow_clerk import _daemon_recorder_capture as cap
 
-
-class _Host(cap._RecorderCaptureMixin):
-    def __init__(self) -> None:  # pylint: disable=super-init-not-called
-        self.levels = {"mic": CaptureLevel(), "monitor": CaptureLevel()}
-
-
-check("9. levels に mic と monitor がある",
-      set(_Host().levels) == {"mic", "monitor"})
-
-# --- _CaptureStream のコールバックが level を更新する ---
 dev = __import__("shadow_clerk.domain", fromlist=["AudioDevice"]).AudioDevice(index=0, name="x")
 lv = CaptureLevel()
 st = cap._CaptureStream("mic", dev, _queue.Queue(), level=lv)
