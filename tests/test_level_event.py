@@ -6,11 +6,14 @@
 from __future__ import annotations
 import json
 import threading
+from unittest.mock import patch
 
 import numpy as np
 
+from shadow_clerk._daemon_audio_backends import PipeWireBackend
 from shadow_clerk._daemon_audio_level import CaptureLevel
 from shadow_clerk._daemon_log_buffer import FileWatcher, LogBuffer
+from shadow_clerk._daemon_recorder_monitor import _RecorderMonitorBackendMixin
 
 results: list[bool] = []
 
@@ -128,6 +131,38 @@ fw6._broadcast = lambda event, data: sent6.append((event, data))  # type: ignore
 fw6._poll()
 check("17. _poll() 経由でも level イベントが配信される",
       any(e == "level" for e, _ in sent6), f"{[e for e, _ in sent6]}")
+
+# Step 0a: backend_source に書き込む表示名が PipeWire の object.serial
+# （意味のない数字文字列。例 "80"）そのままにならないこと。pw-record に渡す
+# 値 (serial) 自体は変えてはいけないので、そちらは維持されているかも確認する
+
+
+class _MonitorHost(_RecorderMonitorBackendMixin):
+    def _requested_device(self, label: str) -> str | None:
+        return None
+
+
+host = _MonitorHost()
+
+# 自動検出経路 (requested なし): detect_monitor_source は serial の生数字を
+# 返すが、表示名には get_default_sink_name() の結果を使う
+with patch("shadow_clerk._daemon_recorder_monitor.get_default_sink_name",
+           return_value="alsa_output.pci-0000_c4_00.6.HiFi__hw_Interface__sink"), \
+     patch.object(PipeWireBackend, "detect_monitor_source", return_value="80"):
+    auto_target = host._monitor_target(PipeWireBackend(), None)
+check("18. 自動検出経路: 表示名が serial 単体の数字文字列にならない",
+      auto_target is not None and not auto_target[1].isdigit(), f"{auto_target}")
+check("19. 自動検出経路: pw-record に渡す値は serial のまま",
+      auto_target is not None and auto_target[0] == "80", f"{auto_target}")
+
+# 指定デバイス経路: sink_serial で解決できれば表示名は Sink 名 (".monitor" 抜き)
+with patch("shadow_clerk._daemon_recorder_monitor.sink_serial", return_value="64"):
+    req_target = host._monitor_target(
+        PipeWireBackend(), "alsa_output.usb-Shokz.monitor")
+check("20. 指定デバイス経路: 表示名が serial 単体の数字文字列にならない",
+      req_target is not None and not req_target[1].isdigit(), f"{req_target}")
+check("21. 指定デバイス経路: pw-record に渡す値は serial のまま",
+      req_target is not None and req_target[0] == "64", f"{req_target}")
 
 print(f"\n=== {sum(results)}/{len(results)} PASS ===")
 raise SystemExit(0 if all(results) else 1)
