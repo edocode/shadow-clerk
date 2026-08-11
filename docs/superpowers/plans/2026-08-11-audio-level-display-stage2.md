@@ -835,6 +835,14 @@ git commit -m "Broadcast capture levels as a level SSE event"
 
 **`peak` も併せて見ること。** `rms` は小数第1位に丸めて配信されるため、16kHz で毎秒 39 サンプルまでの微小信号（±1 LSB 等）は `0.0` に丸められる。ノイズ抑制ゲートの後段など、動いているのに極小の入力を「音が届いていない」と誤判定しうる。`peak` は整数に丸めた最大絶対値なので、デジタル無音の厳密な判別子になる（実測: `rms` が `0.0` に丸まる全ケースで `peak` は 1 以上だった）。
 
+- [ ] **Step 0a: バックエンド経路の表示名を用意する**
+
+Task 5 で追加した `backend_source["monitor"]` には、`pw-record --target` に渡す文字列がそのまま入っている。PipeWire では**数値の `object.serial`（例 `"80"`）**であり、tooltip にそのまま出すとユーザーには無意味である。
+
+読める名前は書き込み地点で既に手元にある。`_daemon_recorder_monitor.py` の `_monitor_target` は、指定デバイス経路では `requested.removesuffix(".monitor")` を serial に変換する直前に sink 名を持っており、自動検出経路では既存の `get_default_sink_name()` が使える。
+
+`backend_source` に**表示名を入れる**よう変更すること（`pw-record` に渡す値は従来どおり serial のまま）。名前が取れなかった場合のみ元の文字列にフォールバックし、その旨をログに残す。`tests/test_level_event.py` に、バックエンド経路の `device` が数字だけの文字列にならないことを確かめるチェックを足すこと。
+
 - [ ] **Step 0: 既存のヘッダ構造を読む**
 
 Run: `grep -n "btnMuteMic" src/shadow_clerk/_daemon_dashboard_html.py`
