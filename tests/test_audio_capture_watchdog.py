@@ -93,6 +93,7 @@ class Host(cap._RecorderCaptureMixin):
         self._monitor_restart = threading.Event()
         self._monitor_backend_requested: str | None = None
         self.levels = {"mic": CaptureLevel(), "monitor": CaptureLevel()}
+        self.open_streams: dict = {}
 
 
 def drain(host: Host) -> tuple[int, int]:

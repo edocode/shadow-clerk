@@ -208,3 +208,29 @@ class FileWatcher(threading.Thread):
         for line in new_lines:
             self._broadcast("log", json.dumps(
                 {"line": line}, ensure_ascii=False))
+
+        self._poll_levels()
+
+    def _poll_levels(self) -> None:
+        """入力レベルを 1 秒ごとに配信する"""
+        levels = getattr(self._recorder, "levels", None)
+        if not levels:
+            return
+        streams = getattr(self._recorder, "open_streams", {})
+        payload: dict[str, dict | None] = {}
+        for label, level in levels.items():
+            snap = level.snapshot()
+            stream = streams.get(label)
+            if stream is None:
+                payload[label] = None
+                continue
+            requested = stream.requested
+            payload[label] = {
+                "rms": round(snap.rms, 1),
+                "peak": round(snap.peak),
+                "crest": round(snap.crest, 1),
+                "device": stream.device.name,
+                "requested": requested,
+                "fallback": bool(requested) and stream.device.name != requested,
+            }
+        self._broadcast("level", json.dumps(payload, ensure_ascii=False))

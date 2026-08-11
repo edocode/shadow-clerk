@@ -248,6 +248,10 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         self.levels: dict[str, CaptureLevel] = {
             "mic": CaptureLevel(), "monitor": CaptureLevel()}
 
+        # 現在開いているキャプチャストリーム。FileWatcher がレベル配信時に
+        # デバイス名とフォールバック状態を読む
+        self.open_streams: dict[str, _CaptureStream] = {}
+
         # 会議セッション（進行中は MeetingSession、それ以外は None）
         self.current_session: MeetingSession | None = None
 
@@ -283,7 +287,7 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         逆に再列挙が要らない張り替え（設定で選び直した先がキャッシュ上にある）では
         該当する系統だけを開き直し、もう一方の音声を途切れさせない。
         """
-        streams: dict[str, _CaptureStream] = {}
+        streams = self.open_streams
         backend_started = False
         need_refresh = False
         degraded_wait = STREAM_DEGRADED_RETRY_SEC
