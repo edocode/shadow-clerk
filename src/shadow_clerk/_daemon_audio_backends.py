@@ -62,6 +62,17 @@ def _wpctl_inspect_default_sink() -> str:
     ).stdout
 
 
+def _wpctl_inspect_default_source() -> str:
+    """`wpctl inspect @DEFAULT_AUDIO_SOURCE@` の stdout を返す。
+
+    _wpctl_inspect_default_sink の Source 版。get_default_source_name が読む。
+    """
+    return subprocess.run(
+        ["wpctl", "inspect", "@DEFAULT_AUDIO_SOURCE@"],
+        capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC,
+    ).stdout
+
+
 def _wait_stall_aware(fileno: int, timeout: float) -> bool:
     """fd が timeout 秒以内に読み出し可能になったか。
 

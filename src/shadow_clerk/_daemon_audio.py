@@ -23,7 +23,8 @@ from shadow_clerk._daemon_audio_devices import (  # noqa: F401
 # ここで re-export する
 from shadow_clerk._daemon_audio_backends import (  # noqa: F401
     StopSignal, AudioBackend, PipeWireBackend, PulseAudioBackend, WasapiBackend,
-    _wpctl_prop, _wpctl_inspect_default_sink, _capture_pcm_stream,
+    _wpctl_prop, _wpctl_inspect_default_sink, _wpctl_inspect_default_source,
+    _capture_pcm_stream,
 )
 
 logger = logging.getLogger("shadow-clerk")
@@ -94,6 +95,45 @@ def get_default_sink_name() -> str | None:
             name = result.stdout.strip()
             if name:
                 logger.debug("デフォルト Sink (pactl): %s", name)
+                return name
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+    return None
+
+
+def get_default_source_name() -> str | None:
+    """wpctl/pactl でデフォルト Source の人間向け名前を取得。
+
+    get_default_sink_name の Source 版。ただし用途が異なる: get_default_sink_name
+    はモニター名 (".monitor" の元) を突き合わせるための node.name が必須だが、
+    ここはレベルバーのツールチップに出す表示専用なので、wpctl が返す
+    node.description（例:「Shokz Loop110 モノ」）を node.name より優先する。
+    device=None でマイクを開くと PortAudio は "default" のようなエイリアスしか
+    返さないため、呼び出し側 (FileWatcher) がこの結果でそれを解決する。
+    """
+    if shutil.which("wpctl"):
+        try:
+            stdout = _wpctl_inspect_default_source()
+            name = _wpctl_prop(stdout, "node.description") or _wpctl_prop(stdout, "node.name")
+            if name:
+                logger.debug("デフォルト Source (wpctl): %s", name)
+                return name
+        except subprocess.TimeoutExpired:
+            logger.warning("wpctl inspect がタイムアウトしました")
+            return None
+        except FileNotFoundError:
+            pass
+
+    if shutil.which("pactl"):
+        try:
+            result = subprocess.run(
+                ["pactl", "get-default-source"],
+                capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC,
+            )
+            name = result.stdout.strip()
+            if name:
+                logger.debug("デフォルト Source (pactl): %s", name)
                 return name
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
