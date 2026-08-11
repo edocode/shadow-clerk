@@ -480,11 +480,23 @@ function updateLevel(label, v){
   if(noiseHist.length > 10) noiseHist.shift();
   const noisy = noiseHist.length === 10 && noiseHist.every(Boolean);
   // 完全無音: 30秒すべてが厳密にゼロ。生きたマイクはノイズフロアを持つので
-  // 黙っているだけならゼロにはならない
+  // 黙っているだけならゼロにはならない。この理屈は mic にしか成立しない
+  // ――sink monitor は再生中の音を折り返すだけなので、何も再生されていない
+  // （会議前後・相手側が無言・資料を読んでいる間 等、1日の大半）だけで
+  // rms=peak=0 が何十秒も続くのが monitor の正常な待機状態であり、故障では
+  // ない。monitor にも同じ判定を適用すると speaker バーが1日のほとんど赤に
+  // なり、本当にヘッドセットの電源が切れているときの赤が「いつもの赤」に
+  // 埋もれてしまう（オオカミ少年化）。そのため無音検出は mic 限定とする
+  // （monitor は steady-noise / fallback の警告とバー表示自体は維持する）。
   const silHist = LV_SILENT[label];
-  silHist.push(v.rms === 0 && v.peak === 0);
-  if(silHist.length > 30) silHist.shift();
-  const silent = silHist.length === 30 && silHist.every(Boolean);
+  let silent = false;
+  if(label === 'mic'){
+    silHist.push(v.rms === 0 && v.peak === 0);
+    if(silHist.length > 30) silHist.shift();
+    silent = silHist.length === 30 && silHist.every(Boolean);
+  } else {
+    silHist.length = 0;
+  }
   // 警告はバー本体（コンテナ）の背景・枠線で示す。塗り(<i>)は無音時に幅0%に
   // なり見た目が変化しないため、塗りに乗せると無音警告が視認不能になる
   // （fix round 1 finding 1）。silent は noisy より深刻な状態なので、両方の
