@@ -11,6 +11,7 @@ Ubuntu 環境で Web会議の音声をリアルタイムで録音・文字起こ
 Python スクリプト。常駐してリアルタイムに文字起こしを行う。
 
 - **音声キャプチャ**: マイク（自分）とシステム音声モニター（相手）を同時キャプチャ
+- **デバイス選択**: `mic_device` / `monitor_device`（config、デバイス**名**で指定。null=OS デフォルトに追従。ダッシュボード設定パネルから選択可）と `--mic` / `--monitor`（CLI、番号指定）。優先順位は CLI 番号 > config の名前 > 自動。指定デバイスが見つからない場合は自動デバイスにフォールバックして録音を継続する（config の値は書き換えない）。復帰の自動検知はキャッシュから消えたデバイスの再出現時のみ発火し、キャッシュ上に残ったまま open に失敗している場合（他アプリの排他利用など）は `/api/audio-devices/refresh` の手動再列挙が必要
 - **バックエンド**: PipeWire → PulseAudio → sounddevice の順で自動検出
 - **VAD**: webrtcvad によるセグメンテーション（発話区間の検出・分割）
 - **文字起こし**: faster-whisper（CPU, int8）。モデルサイズは tiny/base/small/medium/large-v3 から選択
@@ -107,11 +108,13 @@ clerk-daemon に統合された Web ダッシュボード。ブラウザから t
   - `/api/config` — `config.yaml` を JSON で返却
   - `/api/glossary` — 用語集（glossary.txt）を返却
   - `/api/models` — 利用可能な ASR モデル一覧
+  - `/api/audio-devices` — 選択可能な音声デバイス一覧（監視スレッドが保持するスナップショット、CLI 固定情報を含む）
   - `/api/gcal-events` — Google Calendar イベント一覧（gcal_integration 有効時）
   - `/api/search?q=...` — transcript の全文検索
 - **エンドポイント (POST)**:
   - `/api/command` — コマンド送信（`.clerk_command` に書き込み）
   - `/api/config` — 設定を更新（config.yaml に書き込み）
+  - `/api/audio-devices/refresh` — 音声デバイスの再検出をリクエスト（次の監視ティックでキャプチャスレッドが両ストリームを閉じて再列挙、一瞬中断する）
   - `/api/glossary` — 用語集を更新
   - `/api/summary` — 議事録を生成・更新
   - `/api/summary/notify` — 議事録生成完了通知を SSE で配信
@@ -578,6 +581,8 @@ auto_summary: false               # end meeting 時に自動 summary 生成
 default_language: null            # clerk-daemon のデフォルト言語 (null=自動検出)
 default_model: small              # デフォルト Whisper モデル (tiny/base/small/medium/large-v3)
 output_directory: null            # transcript 出力先ディレクトリ (null=データディレクトリ)
+mic_device: null                  # マイクデバイス名 (null=OS デフォルトに追従。番号ではない)
+monitor_device: null              # モニター（スピーカー）デバイス名 (null=OS デフォルトに追従)
 ui_language: ja                   # UI言語 (ja/en) — ダッシュボード・ターミナル出力・LLMプロンプト
 
 # --- LLM / 翻訳プロバイダ ---

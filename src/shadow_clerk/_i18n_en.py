@@ -196,8 +196,11 @@ STRINGS_EN: dict[str, str] = {
         "  - PTT Key / Interim Transcription\n"
     ),
 
+    "dash.audio_device_monitor": "monitor",
+
     # --- cfg.section.* ---
     "cfg.section.general": "General",
+    "cfg.section.audio": "Audio Devices",
     "cfg.section.transcription": "Transcription",
     "cfg.section.interim": "Interim (pre-confirmed)",
     "cfg.section.translation": "Translation",
@@ -213,6 +216,12 @@ STRINGS_EN: dict[str, str] = {
     "cfg.default_model": "Whisper Model",
     "cfg.output_directory": "Output Directory",
     "cfg.output_directory_ph": "null=data directory",
+    "cfg.mic_device": "Microphone",
+    "cfg.monitor_device": "Speaker (monitor)",
+    "cfg.device_auto": "Auto (OS default)",
+    "cfg.device_cli_pinned": "Pinned by CLI (--mic / --monitor)",
+    "cfg.device_refresh": "Refresh list",
+    "cfg.device_refresh_title": "Re-detect devices. Audio drops briefly.",
     "cfg.llm_provider": "LLM Provider",
     "cfg.api_endpoint": "API Endpoint",
     "cfg.api_model": "API Model",

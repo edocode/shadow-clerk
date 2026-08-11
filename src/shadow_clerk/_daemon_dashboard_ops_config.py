@@ -28,6 +28,28 @@ class _DashboardHandlerConfigOps:
     def _serve_config(self) -> None:
         self._send_json(load_config())
 
+    def _serve_audio_devices(self) -> None:
+        """GET /api/audio-devices — 監視スレッドが更新したスナップショットを返す"""
+        rec = self.recorder
+        self._send_json({
+            **rec._device_snapshot,
+            # CLI で番号固定されている系統は config を無視するため、UI を操作不能にする
+            "cli_pinned": {"mic": rec.args.mic is not None,
+                           "monitor": rec.args.monitor is not None},
+        })
+
+    def _refresh_audio_devices(self) -> None:
+        """POST /api/audio-devices/refresh — 手動でのデバイス再検出をリクエストする
+
+        実際の再列挙 (refresh_device_list) はキャプチャスレッドでしか安全に呼べない
+        （全ストリームが閉じている必要がある）ため、ここではフラグを立てるだけ。
+        次の監視ティックで _watch_streams が消費し、通常の refresh=True 張り替え
+        経路（両ストリームを閉じてから再列挙、開き直す）に乗る。
+        """
+        self.recorder.request_device_refresh()
+        logger.info("ダッシュボードから手動デバイス再検出をリクエスト")
+        self._send_json({"status": "ok"})
+
     def _serve_models(self) -> None:
         """GET /api/models — api_endpoint から利用可能なモデル一覧を取得"""
         config = load_config()

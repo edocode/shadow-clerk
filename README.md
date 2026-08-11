@@ -325,8 +325,8 @@ If a voice command doesn't match any built-in or custom command and `api_endpoin
 | `--output`, `-o` | Output file path | `~/.local/share/shadow-clerk/transcript-YYYYMMDD.txt` |
 | `--model`, `-m` | Whisper model size (`tiny`, `base`, `small`, `medium`, `large-v3`) | `small` |
 | `--language`, `-l` | Language code (`ja`, `en`, etc.). Auto-detect if omitted | Auto |
-| `--mic` | Microphone device number | Auto-detect |
-| `--monitor` | Monitor device number (sounddevice) | Auto-detect |
+| `--mic` | Microphone device number | Auto-detect (or `mic_device` config) |
+| `--monitor` | Monitor device number (sounddevice) | Auto-detect (or `monitor_device` config) |
 | `--backend` | Audio backend (`auto`, `pipewire`, `pulseaudio`, `sounddevice`) | `auto` |
 | `--list-devices` | List devices and exit | - |
 | `--verbose`, `-v` | Verbose logging | - |
@@ -421,6 +421,8 @@ auto_summary: false           # Auto-generate summary on end meeting
 default_language: null        # Default language for clerk-daemon (null=auto-detect)
 default_model: small          # Default Whisper model for clerk-daemon
 output_directory: null        # Transcript output directory (null=data directory)
+mic_device: null              # Microphone device name (null=OS default; not an index — indices shift between runs)
+monitor_device: null          # Monitor/speaker device name (null=OS default). Selectable from the dashboard settings panel
 llm_provider: claude          # LLM for summary ("claude" or "api")
 translation_provider: null    # Translation provider (null=use llm_provider, "claude", "api", "libretranslate")
 api_endpoint: null            # OpenAI Compatible API base URL
@@ -479,6 +481,16 @@ clerk-util write-config-value summary_source translate    # always use translati
 clerk-util write-config-value summary_language en   # summarize in English
 clerk-util write-config-value summary_language ja   # summarize in Japanese
 ```
+
+### Audio device selection
+
+`mic_device` / `monitor_device` pin capture to a device by **name**, not device number — device numbers shift between daemon runs and can even change while the daemon is running. `null` (the default) follows the OS default device. Pick a device from the dashboard settings panel.
+
+If the configured device disappears (unplugged, sink removed), the daemon falls back to the automatic device and keeps recording, then switches back on its own once the device reappears. The configured value is never overwritten by the fallback. If the device never actually disappeared — another application just grabbed it exclusively — the daemon won't retry on its own; use "Refresh list" to force a retry once it's free.
+
+The `--mic` / `--monitor` CLI flags (device numbers, see CLI options above) take priority over `mic_device` / `monitor_device`. While a flag is in effect, the corresponding dropdown is disabled on the dashboard.
+
+A device connected after the daemon started won't appear in the dropdown until the list is refreshed ("Refresh list" in the settings panel); refreshing briefly interrupts both capture streams.
 
 ## File structure
 
