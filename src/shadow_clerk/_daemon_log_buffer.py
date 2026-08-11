@@ -222,7 +222,20 @@ class FileWatcher(threading.Thread):
             snap = level.snapshot()
             stream = streams.get(label)
             if stream is None:
-                payload[label] = None
+                # sounddevice 経路が開けていない。pw-record/parec バックエンド経路
+                # (backend_source) で開いている可能性があり、そちらのレベルも
+                # 同じ CaptureLevel に積まれているので、破棄せず配信する。
+                # PipeWire は名前でなく object.serial を渡すため、requested/
+                # fallback は判定不能として None/false のままにする
+                src = getattr(self._recorder, "backend_source", {}).get(label)
+                payload[label] = None if src is None else {
+                    "rms": round(snap.rms, 1),
+                    "peak": round(snap.peak),
+                    "crest": round(snap.crest, 1),
+                    "device": src,
+                    "requested": None,
+                    "fallback": False,
+                }
                 continue
             requested = stream.requested
             payload[label] = {

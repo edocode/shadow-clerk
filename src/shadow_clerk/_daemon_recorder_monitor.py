@@ -48,6 +48,7 @@ class _RecorderMonitorBackendMixin:
     use_monitor: bool
     _monitor_restart: threading.Event
     levels: dict[str, CaptureLevel]
+    backend_source: dict[str, str]
 
     def _requested_device(self, label: str) -> str | None:
         raise NotImplementedError
@@ -90,6 +91,7 @@ class _RecorderMonitorBackendMixin:
             logger.info("%s monitor キャプチャ開始: %s", name, source)
             self.use_monitor = True
             started = time.monotonic()
+            self.backend_source["monitor"] = source
             try:
                 backend.start_monitor_capture(source, self.monitor_queue, stop,
                                               self.levels["monitor"])
@@ -99,6 +101,8 @@ class _RecorderMonitorBackendMixin:
             except Exception as e:
                 logger.error("%s monitor キャプチャ失敗: %s", name, e)
                 continue
+            finally:
+                self.backend_source.pop("monitor", None)
             if self.stop_event.is_set() or self._monitor_restart.is_set():
                 return True
             logger.warning("%s monitor キャプチャが予期せず終了しました: %s", name, source)

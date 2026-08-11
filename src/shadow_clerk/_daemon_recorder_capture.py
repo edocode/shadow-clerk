@@ -251,6 +251,9 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         # 現在開いているキャプチャストリーム。FileWatcher がレベル配信時に
         # デバイス名とフォールバック状態を読む
         self.open_streams: dict[str, _CaptureStream] = {}
+        # バックエンド経路 (pw-record/parec) で開いているモニターソース。
+        # バックエンドスレッドだけが書き、FileWatcher が読む
+        self.backend_source: dict[str, str] = {}
 
         # 会議セッション（進行中は MeetingSession、それ以外は None）
         self.current_session: MeetingSession | None = None
@@ -365,6 +368,7 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         finally:
             for stream in streams.values():
                 stream.close()
+            streams.clear()
 
     def request_device_refresh(self) -> None:
         """ダッシュボードの「一覧を更新」からの手動再列挙リクエスト。
