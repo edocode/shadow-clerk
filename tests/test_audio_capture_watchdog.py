@@ -36,6 +36,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(mes
 
 from shadow_clerk import _daemon_recorder_capture as cap  # noqa: E402
 from shadow_clerk._daemon_audio import detect_backend  # noqa: E402
+from shadow_clerk._daemon_audio_level import CaptureLevel  # noqa: E402
 
 opened: list[cap._CaptureStream] = []
 _orig_open = cap._CaptureStream.open
@@ -91,6 +92,7 @@ class Host(cap._RecorderCaptureMixin):
         self._return_backoff: dict = {}
         self._monitor_restart = threading.Event()
         self._monitor_backend_requested: str | None = None
+        self.levels = {"mic": CaptureLevel(), "monitor": CaptureLevel()}
 
 
 def drain(host: Host) -> tuple[int, int]:

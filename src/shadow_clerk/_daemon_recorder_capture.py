@@ -20,6 +20,7 @@ from shadow_clerk._daemon_constants import (
     STREAM_DEGRADED_RETRY_SEC, STREAM_DEGRADED_RETRY_MAX_SEC,
     build_wake_word_patterns,
 )
+from shadow_clerk._daemon_audio_level import CaptureLevel
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_audio import (
     detect_backend, device_exists, find_device_by_name, get_default_sink_name,
@@ -55,13 +56,15 @@ class _CaptureStream:
     """
 
     def __init__(self, label: str, device: AudioDevice, audio_queue: queue.Queue,
-                 follow_sink: bool = False, requested: str | None = None) -> None:
+                 follow_sink: bool = False, requested: str | None = None,
+                 level: CaptureLevel | None = None) -> None:
         self.label = label
         self.device = device
         self.requested = requested   # 開いた時点で config が要求していたデバイス名
         self.follow_sink = follow_sink
         self.sink = get_default_sink_name() if follow_sink else None
         self._queue = audio_queue
+        self.level = level
         self._stream: Any = None
         self.last_frame = time.monotonic()
 
@@ -69,7 +72,10 @@ class _CaptureStream:
         if status:
             logger.warning("%s status: %s", self.label, status)
         self.last_frame = time.monotonic()
-        self._queue.put(indata[:, 0].copy().astype(np.int16))
+        mono = indata[:, 0].copy().astype(np.int16)
+        if self.level is not None:
+            self.level.add(mono)
+        self._queue.put(mono)
 
     def open(self) -> bool:
         """ストリームを開いて開始する。成功なら True。"""
@@ -237,6 +243,10 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         # ストリームを開くたびに更新する。起動直後のごく短い間だけ空になる
         self._device_snapshot: dict[str, Any] = {
             "mic": [], "monitor": [], "updated_at": None}
+
+        # 入力レベル。sounddevice 経路とバックエンド経路の両方が更新する
+        self.levels: dict[str, CaptureLevel] = {
+            "mic": CaptureLevel(), "monitor": CaptureLevel()}
 
         # 会議セッション（進行中は MeetingSession、それ以外は None）
         self.current_session: MeetingSession | None = None
@@ -424,7 +434,8 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         if device is None:
             return None
         for attempt in range(2):
-            stream = _CaptureStream(label, device, audio_queue, follow_sink, requested)
+            stream = _CaptureStream(label, device, audio_queue, follow_sink, requested,
+                                    level=self.levels[label])
             if stream.open():
                 return stream
             if attempt == 0 and self.stop_event.wait(1.0):

@@ -10,6 +10,7 @@ import queue
 import threading
 import time
 from collections.abc import Iterator
+from shadow_clerk._daemon_audio_level import CaptureLevel
 from shadow_clerk._daemon_constants import STREAM_RETRY_SEC, STREAM_STALL_SEC
 from shadow_clerk._daemon_audio import (
     AudioBackend, PipeWireBackend, PulseAudioBackend, sink_serial,
@@ -46,6 +47,7 @@ class _RecorderMonitorBackendMixin:
     backend_name: str
     use_monitor: bool
     _monitor_restart: threading.Event
+    levels: dict[str, CaptureLevel]
 
     def _requested_device(self, label: str) -> str | None:
         raise NotImplementedError
@@ -89,7 +91,8 @@ class _RecorderMonitorBackendMixin:
             self.use_monitor = True
             started = time.monotonic()
             try:
-                backend.start_monitor_capture(source, self.monitor_queue, stop)
+                backend.start_monitor_capture(source, self.monitor_queue, stop,
+                                              self.levels["monitor"])
             except FileNotFoundError as e:
                 logger.error("monitor キャプチャコマンドが見つかりません: %s", e)
                 continue

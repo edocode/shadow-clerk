@@ -69,5 +69,29 @@ try:
 except Exception:
     check("8. AudioLevel は不変", True)
 
+# --- recorder が両ラベルの CaptureLevel を持つ ---
+import argparse
+import queue as _queue
+import threading as _threading
+
+from shadow_clerk import _daemon_recorder_capture as cap
+
+
+class _Host(cap._RecorderCaptureMixin):
+    def __init__(self) -> None:  # pylint: disable=super-init-not-called
+        self.levels = {"mic": CaptureLevel(), "monitor": CaptureLevel()}
+
+
+check("9. levels に mic と monitor がある",
+      set(_Host().levels) == {"mic", "monitor"})
+
+# --- _CaptureStream のコールバックが level を更新する ---
+dev = __import__("shadow_clerk.domain", fromlist=["AudioDevice"]).AudioDevice(index=0, name="x")
+lv = CaptureLevel()
+st = cap._CaptureStream("mic", dev, _queue.Queue(), level=lv)
+st._callback(np.full((480, 1), 3000, dtype=np.int16), 480, None, None)
+snap = lv.snapshot()
+check("10. コールバックが level を更新する", snap.rms > 0, f"rms={snap.rms:.0f}")
+
 print(f"\n=== {sum(results)}/{len(results)} PASS ===")
 raise SystemExit(0 if all(results) else 1)
