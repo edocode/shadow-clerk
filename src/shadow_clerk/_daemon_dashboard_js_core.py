@@ -461,9 +461,18 @@ function updateLevel(label, v){
   const bar = document.getElementById('lv_' + label);
   if(!bar) return;
   const fill = bar.firstElementChild;
-  if(!v){ fill.style.width = '0%'; bar.className = 'lv'; bar.title = ''; return; }
-  // 対数スケール: 十分な入力で満杯、無音で 0 になるよう圧縮する
-  const pct = v.rms <= 1 ? 0 : Math.min(100, Math.max(0, 20 * Math.log10(v.rms) - 10));
+  if(!v){
+    // キャプチャ断絶（バックエンド再接続・デバイス設定変更等）。窓の連続性が
+    // 途切れるので両方の履歴をリセットする。リセットせずに続けると、断絶を
+    // 挟んだ寄せ集めの30サンプルが「30秒間ずっと無音」と誤認される
+    LV_NOISE[label].length = 0; LV_SILENT[label].length = 0;
+    fill.style.width = '0%'; bar.className = 'lv'; bar.title = ''; return;
+  }
+  // 対数スケール。16bit PCM の目安で rms=100(静かな部屋の床) を0%、
+  // rms=20000(大声・クリップ間際) を100%とし、その中間 rms≈1414 が50%になる
+  // ように圧縮する（以前は 20*log10(rms)-10 で rms≈316000 まで到達しないと
+  // 満杯にならず、16bit の実用域では上四分の一が常に埋まらなかった）
+  const pct = v.rms <= 100 ? 0 : Math.min(100, (Math.log10(v.rms) - 2) / 2.301 * 100);
   fill.style.width = pct.toFixed(0) + '%';
   // 定常ノイズ: 10秒すべてが「音量はあるが crest が低い」
   const noiseHist = LV_NOISE[label];
@@ -476,12 +485,24 @@ function updateLevel(label, v){
   silHist.push(v.rms === 0 && v.peak === 0);
   if(silHist.length > 30) silHist.shift();
   const silent = silHist.length === 30 && silHist.every(Boolean);
+  // 警告はバー本体（コンテナ）の背景・枠線で示す。塗り(<i>)は無音時に幅0%に
+  // なり見た目が変化しないため、塗りに乗せると無音警告が視認不能になる
+  // （fix round 1 finding 1）。silent は noisy より深刻な状態なので、両方の
+  // 条件が成立した場合は silent を優先する（定義上ほぼ排他だが念のため）。
+  // lv-fallback は box-shadow を使うので border-color/background を使う
+  // lv-noise/lv-silent と衝突せず、両方同時に成立しても互いを隠さない
   bar.className = 'lv' + (v.fallback ? ' lv-fallback' : '')
-                + (noisy || silent ? ' lv-warn' : '');
-  bar.title = (noisy ? I18N['dash.level_noise'] + ' ' : '')
-            + (silent ? I18N['dash.level_silent'] + ' ' : '')
-            + (v.fallback ? I18N['dash.level_fallback'] + ': ' + v.requested + ' ' : '')
-            + (label === 'mic' ? I18N['dash.level_mic'] : I18N['dash.level_monitor']);
+                + (silent ? ' lv-silent' : noisy ? ' lv-noise' : '');
+  // どのデバイスを測っているかは常にツールチップに出す。fallback 時は
+  // 指定した名前と実際に使われているデバイスの両方を出す（fix round 1
+  // finding 3: Step 0a で用意した読める表示名がそれまで一度も使われていなかった）
+  const deviceInfo = v.fallback
+    ? I18N['dash.level_fallback'] + ': ' + v.requested + ' -> ' + v.device
+    : v.device;
+  bar.title = (silent ? I18N['dash.level_silent'] + ' ' : '')
+            + (noisy ? I18N['dash.level_noise'] + ' ' : '')
+            + (label === 'mic' ? I18N['dash.level_mic'] : I18N['dash.level_monitor'])
+            + ': ' + deviceInfo;
 }
 function _todayYestStr(){
   const nd=new Date();
