@@ -1,4 +1,11 @@
-"""Shadow-clerk daemon: 音声バックエンド"""
+"""Shadow-clerk daemon: 音声デバイスの解決とデフォルト Sink/Source 名の取得
+
+バックエンド検出 (detect_backend) に加え、PortAudio 経由のマイク/モニター
+デバイス解決、OS 側の存在確認 (device_exists)、デフォルト Sink/Source 名の
+取得を持つ。バックエンド実装 (pw-record/parec/WASAPI) は
+_daemon_audio_backends.py、デバイス一覧のスナップショットは
+_daemon_audio_devices.py に分離済み。
+"""
 from __future__ import annotations
 import logging
 import re
