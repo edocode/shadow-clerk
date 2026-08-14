@@ -199,17 +199,20 @@ mic7 = json.loads(sent7[0][1])["mic"]
 check("22. エイリアス device 名が OS 報告の実名に解決される",
       mic7.get("device") == "Shokz Loop110 モノ", f"{mic7.get('device')}")
 
-# 23. 実デバイス名はそのまま素通しし、解決を試みない (無駄な subprocess を呼ばない)
+# 23. 実デバイス名はエイリアス解決 (get_default_source_name) を経由しない。
+# ラベル化は _device_label 経由で行うため、wpctl の対応表に無い名前は
+# raw のまま返る（_wpctl_description_map を空にして決定的に検証する）
 rec8 = FakeRecorder()
 rec8.levels["mic"].add(np.full(480, 1500, dtype=np.int16))
 rec8.open_streams["mic"] = FakeStream("alsa_input.real", requested=None)
 fw8 = FileWatcher(rec8, LogBuffer())
 sent8: list[tuple[str, str]] = []
 fw8._broadcast = lambda event, data: sent8.append((event, data))  # type: ignore[method-assign]
-with patch("shadow_clerk._daemon_log_buffer.get_default_source_name") as mock_resolve8:
+with patch("shadow_clerk._daemon_log_buffer.get_default_source_name") as mock_resolve8, \
+     patch("shadow_clerk._daemon_log_buffer._wpctl_description_map", return_value={}):
     fw8._poll_levels()
 mic8 = json.loads(sent8[0][1])["mic"]
-check("23. 実デバイス名は素通し（解決は呼ばれない）",
+check("23. 実デバイス名はエイリアス解決を経由しない（get_default_source_name は呼ばれない）",
       mic8.get("device") == "alsa_input.real" and mock_resolve8.call_count == 0,
       f"device={mic8.get('device')} calls={mock_resolve8.call_count}")
 
@@ -239,6 +242,82 @@ with patch("shadow_clerk._daemon_log_buffer.get_default_source_name",
         fw10._poll_levels()
 check("25. TTL 内の連続呼び出しでは解決を1回しか呼ばない",
       mock_resolve10.call_count == 1, f"calls={mock_resolve10.call_count}")
+
+# Step B: モニターの実デバイス名 (".monitor" ノード) はエイリアス集合に
+# 含まれないため以前は raw のままツールチップに出ていた。デバイス選択 UI の
+# picker と同じ _device_label を通し、表記を揃える
+
+from shadow_clerk.i18n import t as _t  # noqa: E402  pylint: disable=wrong-import-position
+
+_MONITOR_NODE = ("alsa_output.usb-Shokz_Shokz_Loop110_96D3893CFDB00E2D69C7"
+                  "-02.analog-stereo.monitor")
+_SINK_NODE = _MONITOR_NODE.removesuffix(".monitor")
+
+# 26. .monitor ノード名は raw のままではなく、picker と同じ表示名になる
+rec11 = FakeRecorder()
+rec11.levels["monitor"].add(np.full(480, 2000, dtype=np.int16))
+rec11.open_streams["monitor"] = FakeStream(_MONITOR_NODE, requested=None)
+fw11 = FileWatcher(rec11, LogBuffer())
+sent11: list[tuple[str, str]] = []
+fw11._broadcast = lambda event, data: sent11.append((event, data))  # type: ignore[method-assign]
+with patch("shadow_clerk._daemon_log_buffer._wpctl_description_map",
+           return_value={_SINK_NODE: "Shokz Loop110 アナログステレオ"}):
+    fw11._poll_levels()
+monitor11 = json.loads(sent11[0][1])["monitor"]
+expected11 = f"Shokz Loop110 アナログステレオ ({_t('dash.audio_device_monitor')})"
+check("26. .monitor ノード名は picker と同じ表示名になる (raw のままにならない)",
+      monitor11.get("device") == expected11 and monitor11.get("device") != _MONITOR_NODE,
+      f"{monitor11.get('device')}")
+
+# 27. wpctl に対応が無い（未知の）実デバイス名は _fallback_label でも整形
+# できず raw 名のままフォールバックする（何も出さないより良い）
+rec12 = FakeRecorder()
+rec12.levels["mic"].add(np.full(480, 1500, dtype=np.int16))
+rec12.open_streams["mic"] = FakeStream("unknown-totally-made-up-name", requested=None)
+fw12 = FileWatcher(rec12, LogBuffer())
+sent12: list[tuple[str, str]] = []
+fw12._broadcast = lambda event, data: sent12.append((event, data))  # type: ignore[method-assign]
+with patch("shadow_clerk._daemon_log_buffer._wpctl_description_map", return_value={}):
+    fw12._poll_levels()
+mic12 = json.loads(sent12[0][1])["mic"]
+check("27. wpctl 未対応の実デバイス名は raw 名のままフォールバックする",
+      mic12.get("device") == "unknown-totally-made-up-name", f"{mic12.get('device')}")
+
+# 28. 実デバイス名のラベル化も TTL 内の連続呼び出しでは _wpctl_description_map
+# を1回しか呼ばない（毎秒呼ばれる _poll_levels で subprocess を叩き続けない）
+rec13 = FakeRecorder()
+rec13.levels["mic"].add(np.full(480, 1500, dtype=np.int16))
+rec13.open_streams["mic"] = FakeStream(_SINK_NODE, requested=None)
+fw13 = FileWatcher(rec13, LogBuffer())
+fw13._broadcast = lambda event, data: None  # type: ignore[method-assign]
+with patch("shadow_clerk._daemon_log_buffer._wpctl_description_map",
+           return_value={_SINK_NODE: "Shokz Loop110 アナログステレオ"}) as mock_map13:
+    for _ in range(5):
+        rec13.levels["mic"].add(np.full(480, 1500, dtype=np.int16))
+        fw13._poll_levels()
+check("28. 実デバイス名のラベル化も TTL 内は1回しか lookup しない",
+      mock_map13.call_count == 1, f"calls={mock_map13.call_count}")
+
+# 29. 同一インスタンスでエイリアス (mic) と実デバイス名 (monitor) を同時に
+# 扱っても、統合した TTL キャッシュ (_name_cache) がキーを混同しない
+rec14 = FakeRecorder()
+rec14.levels["mic"].add(np.full(480, 1500, dtype=np.int16))
+rec14.levels["monitor"].add(np.full(480, 2000, dtype=np.int16))
+rec14.open_streams["mic"] = FakeStream("default", requested=None)
+rec14.open_streams["monitor"] = FakeStream(_MONITOR_NODE, requested=None)
+fw14 = FileWatcher(rec14, LogBuffer())
+sent14: list[tuple[str, str]] = []
+fw14._broadcast = lambda event, data: sent14.append((event, data))  # type: ignore[method-assign]
+with patch("shadow_clerk._daemon_log_buffer.get_default_source_name",
+           return_value="Shokz Loop110 モノ"), \
+     patch("shadow_clerk._daemon_log_buffer._wpctl_description_map",
+           return_value={_SINK_NODE: "Shokz Loop110 アナログステレオ"}):
+    fw14._poll_levels()
+payload14 = json.loads(sent14[0][1])
+check("29. エイリアス経路 (mic) は実デバイス名経路 (monitor) と混同しない",
+      payload14["mic"].get("device") == "Shokz Loop110 モノ"
+      and payload14["monitor"].get("device") == expected11,
+      f"mic={payload14['mic'].get('device')} monitor={payload14['monitor'].get('device')}")
 
 print(f"\n=== {sum(results)}/{len(results)} PASS ===")
 raise SystemExit(0 if all(results) else 1)

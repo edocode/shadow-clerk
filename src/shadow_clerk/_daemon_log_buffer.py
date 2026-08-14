@@ -10,13 +10,15 @@ import time
 from typing import Any
 from shadow_clerk import DATA_DIR, CONFIG_FILE
 from shadow_clerk._daemon_audio import get_default_source_name
+from shadow_clerk._daemon_audio_devices import _device_label, _wpctl_description_map
 from shadow_clerk._daemon_constants import SESSION_FILE, STREAM_RESOLVE_INTERVAL
 from shadow_clerk._daemon_config import load_config
 
 logger = logging.getLogger("shadow-clerk")
 
-# device 名がこれらのエイリアスの場合のみ OS に実名を問い合わせる。実デバイス名
-# (例: "alsa_input.usb-Shokz...") はそのまま素通しし、無駄な subprocess を呼ばない
+# device 名がこれらのエイリアスの場合は get_default_source_name で OS 側の実名を
+# 問い合わせる。それ以外の実デバイス名 (例: "alsa_output...monitor") はデバイス
+# 選択 UI と同じ _device_label でラベル化する（_resolve_device_name 参照）
 _ALIAS_DEVICE_NAMES = {"default", "pipewire"}
 
 # 同じ例外が毎秒起きてもログが溢れないよう、抑制した回数をまとめて出す間隔
@@ -69,9 +71,11 @@ class FileWatcher(threading.Thread):
         self._log_counter = 0
         self._last_status: bool | None = None
         self._last_ptt: bool | None = None
-        # エイリアス名 → (解決済み名, 解決時刻) のキャッシュ。STREAM_RESOLVE_INTERVAL
-        # 秒だけ再利用し、_poll_levels の毎秒呼び出しで subprocess を叩き続けない
-        self._alias_cache: dict[str, tuple[str, float]] = {}
+        # device 名 → (表示名, 解決時刻) のキャッシュ。エイリアス ("default" 等)
+        # の実名解決だけでなく、実デバイス名のラベル化（_device_label 経由）も
+        # ここを通す。STREAM_RESOLVE_INTERVAL 秒だけ再利用し、_poll_levels の
+        # 毎秒呼び出しで subprocess を叩き続けない
+        self._name_cache: dict[str, tuple[str, float]] = {}
         self._last_poll_error: str | None = None
         self._last_poll_error_at = 0.0
         self._poll_error_suppressed = 0
@@ -301,26 +305,37 @@ class FileWatcher(threading.Thread):
         self._broadcast("level", json.dumps(payload, ensure_ascii=False))
 
     def _resolve_device_name(self, name: str) -> str:
-        """PortAudio が返すデバイス名がエイリアスなら OS 側の実名に解決する。
+        """ツールチップ用にデバイス名を表示用ラベルへ解決する。
 
-        device 未指定でマイクを開くと PortAudio は "default" のような
-        エイリアスしか返さない。ツールチップにそのまま出すと、OS のデフォルト
-        入力が死んだ内蔵マイクにすり替わっていても気づけない——この
-        レベルバー機能のきっかけになった障害そのものが再現する。
+        2 通りの名前が来る。
+        - エイリアス ("default" 等): device 未指定でマイクを開くと PortAudio は
+          これしか返さない。そのまま出すと、OS のデフォルト入力が死んだ内蔵
+          マイクにすり替わっていても気づけない——このレベルバー機能の
+          きっかけになった障害そのものが再現するため、get_default_source_name
+          で OS 側の実名に解決する。
+        - 実デバイス名 (例 "alsa_output...monitor"): ノード名そのものはツール
+          チップに出すには長すぎる壁の文字列なので、デバイス選択 UI と同じ
+          _device_label（_daemon_audio_devices.py）に通し、picker と表記を
+          揃える。ラベル化できない場合は生の名前をそのまま返す（何も出さない
+          より良い）。
 
-        解決には subprocess 呼び出しが要るため、キャプチャスレッドを避けて
-        ここ（1 秒ごとに呼ばれる _poll_levels）で行うが、毎秒叩くのは無駄
-        なので STREAM_RESOLVE_INTERVAL 秒（キャプチャ監視スレッドが自身の
-        デフォルト Sink 変更チェックに使う周期と同じ）だけキャッシュする。
-        実デバイス名はエイリアス集合に含まれないため lookup 自体を行わない。
-        解決に失敗した場合はエイリアス名のまま返す（何も出さないより良い）。
+        どちらの経路も subprocess 呼び出しを伴いうる（wpctl）。
+        _wpctl_description_map 側にもモジュールレベルのキャッシュがあるが、
+        それは「取得に成功した場合だけ」キャッシュするため、wpctl が異常系で
+        空を返し続けると _poll_levels の毎秒呼び出しのたびに subprocess が
+        起き続ける恐れがある。そこをこのメソッド自身の TTL キャッシュ
+        （STREAM_RESOLVE_INTERVAL 秒。キャプチャ監視スレッドが自身のデフォルト
+        Sink 変更チェックに使う周期と同じ）で必ず抑える——2 層のキャッシュの
+        責務を分けず「ここで引いたら STREAM_RESOLVE_INTERVAL 秒は再利用する」
+        という単純な取り決め 1 つに寄せている。
         """
-        if name not in _ALIAS_DEVICE_NAMES:
-            return name
-        cached = self._alias_cache.get(name)
+        cached = self._name_cache.get(name)
         now = time.monotonic()
         if cached and now - cached[1] < STREAM_RESOLVE_INTERVAL:
             return cached[0]
-        resolved = get_default_source_name() or name
-        self._alias_cache[name] = (resolved, now)
+        if name in _ALIAS_DEVICE_NAMES:
+            resolved = get_default_source_name() or name
+        else:
+            resolved = _device_label(name, _wpctl_description_map())
+        self._name_cache[name] = (resolved, now)
         return resolved
