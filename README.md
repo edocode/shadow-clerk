@@ -492,6 +492,12 @@ The `--mic` / `--monitor` CLI flags (device numbers, see CLI options above) take
 
 A device connected after the daemon started won't appear in the dropdown until the list is refreshed ("Refresh list" in the settings panel); refreshing briefly interrupts both capture streams.
 
+### Audio level meters
+
+The dashboard header shows a level bar for each capture path (mic/speaker), next to the mute buttons. The bars use the crest factor — peak level divided by RMS — to tell real speech from noise: speech runs 3–10 or higher, while steady electrical noise (a dead built-in mic emitting only hum, say) sits at 1–2.
+
+A bar highlights yellow after 10 seconds of loud-but-flat audio (steady noise, no speech dynamics) — this applies to both mic and monitor. The mic bar additionally turns red after 30 seconds of exact silence: a live microphone always has some noise floor, so true zero means nothing is reaching it at all (e.g. a powered-off headset whose dongle still shows up as a device). The monitor skips this check — a sink monitor reads back exactly zero whenever nothing is playing, which is its normal idle state, not a fault. Both bars also get a fallback outline when the configured device for that path is unavailable and the automatic one is in use, matching the fallback described above.
+
 ## File structure
 
 ```

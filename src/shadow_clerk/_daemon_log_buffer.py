@@ -6,12 +6,23 @@ import logging
 import os
 import queue
 import threading
+import time
 from typing import Any
 from shadow_clerk import DATA_DIR, CONFIG_FILE
-from shadow_clerk._daemon_constants import SESSION_FILE
+from shadow_clerk._daemon_audio import get_default_source_name
+from shadow_clerk._daemon_audio_devices import _device_label, _wpctl_description_map
+from shadow_clerk._daemon_constants import SESSION_FILE, STREAM_RESOLVE_INTERVAL
 from shadow_clerk._daemon_config import load_config
 
 logger = logging.getLogger("shadow-clerk")
+
+# device 名がこれらのエイリアスの場合は get_default_source_name で OS 側の実名を
+# 問い合わせる。それ以外の実デバイス名 (例: "alsa_output...monitor") はデバイス
+# 選択 UI と同じ _device_label でラベル化する（_resolve_device_name 参照）
+_ALIAS_DEVICE_NAMES = {"default", "pipewire"}
+
+# 同じ例外が毎秒起きてもログが溢れないよう、抑制した回数をまとめて出す間隔
+_POLL_ERROR_LOG_INTERVAL_SEC = 60.0
 
 
 class LogBuffer(logging.Handler):
@@ -60,6 +71,14 @@ class FileWatcher(threading.Thread):
         self._log_counter = 0
         self._last_status: bool | None = None
         self._last_ptt: bool | None = None
+        # device 名 → (表示名, 解決時刻) のキャッシュ。エイリアス ("default" 等)
+        # の実名解決だけでなく、実デバイス名のラベル化（_device_label 経由）も
+        # ここを通す。STREAM_RESOLVE_INTERVAL 秒だけ再利用し、_poll_levels の
+        # 毎秒呼び出しで subprocess を叩き続けない
+        self._name_cache: dict[str, tuple[str, float]] = {}
+        self._last_poll_error: str | None = None
+        self._last_poll_error_at = 0.0
+        self._poll_error_suppressed = 0
 
     def add_client(self) -> queue.Queue[tuple[str, str]]:
         q: queue.Queue[tuple[str, str]] = queue.Queue()
@@ -129,11 +148,49 @@ class FileWatcher(threading.Thread):
         self._log_counter = self._log_buffer.counter
 
         while not self._recorder.stop_event.is_set():
-            try:
-                self._poll()
-            except Exception:
-                pass
+            self._poll_iteration()
             self._recorder.stop_event.wait(timeout=1.0)
+
+    def _poll_iteration(self) -> None:
+        """1 回分のポーリングを行う。
+
+        _poll_levels() は _poll() の最後の文として置いていたため、transcript
+        読み取りや翻訳など無関係な処理が _poll() の途中で例外を投げると、
+        レベル配信そのものが永久に止まっていた。フリーズしたレベルバーは
+        最後に描いた値のまま緑で止まるため、「音声は正常」に見えてしまう
+        （fail unsafe）。呼び出しを分離し、どちらが失敗しても他方は必ず動く
+        ようにする
+        """
+        try:
+            self._poll()
+        except Exception as e:  # pylint: disable=broad-except
+            self._log_poll_exception(e)
+        try:
+            self._poll_levels()
+        except Exception as e:  # pylint: disable=broad-except
+            self._log_poll_exception(e)
+
+    def _log_poll_exception(self, exc: BaseException) -> None:
+        """ポーリング中の想定外の例外を記録する。
+
+        以前は run() が `except Exception: pass` で無条件に握り潰し、原因が
+        全く分からなかった。ここでは記録してループを継続するが、同じ例外が
+        毎秒起きてもログを溢れさせないよう、同一メッセージは
+        _POLL_ERROR_LOG_INTERVAL_SEC 秒に一度だけ出し、その間の発生回数は
+        まとめて次のログに添える。
+        """
+        key = f"{type(exc).__name__}: {exc}"
+        now = time.monotonic()
+        if (key == self._last_poll_error
+                and now - self._last_poll_error_at < _POLL_ERROR_LOG_INTERVAL_SEC):
+            self._poll_error_suppressed += 1
+            return
+        suffix = (f"（直近 {self._poll_error_suppressed} 回抑制）"
+                  if self._poll_error_suppressed else "")
+        logger.warning("FileWatcher のポーリングで例外%s: %s", suffix, key, exc_info=exc)
+        self._last_poll_error = key
+        self._last_poll_error_at = now
+        self._poll_error_suppressed = 0
 
     def _poll(self):
         # Transcript
@@ -208,3 +265,77 @@ class FileWatcher(threading.Thread):
         for line in new_lines:
             self._broadcast("log", json.dumps(
                 {"line": line}, ensure_ascii=False))
+
+    def _poll_levels(self) -> None:
+        """入力レベルを 1 秒ごとに配信する"""
+        levels = getattr(self._recorder, "levels", None)
+        if not levels:
+            return
+        streams = getattr(self._recorder, "open_streams", {})
+        payload: dict[str, dict | None] = {}
+        for label, level in levels.items():
+            snap = level.snapshot()
+            stream = streams.get(label)
+            if stream is None:
+                # sounddevice 経路が開けていない。pw-record/parec バックエンド経路
+                # (backend_source) で開いている可能性があり、そちらのレベルも
+                # 同じ CaptureLevel に積まれているので、破棄せず配信する。
+                # PipeWire は名前でなく object.serial を渡すため、requested/
+                # fallback は判定不能として None/false のままにする
+                src = getattr(self._recorder, "backend_source", {}).get(label)
+                payload[label] = None if src is None else {
+                    "rms": round(snap.rms, 1),
+                    "peak": round(snap.peak),
+                    "crest": round(snap.crest, 1),
+                    "device": src,
+                    "requested": None,
+                    "fallback": False,
+                }
+                continue
+            requested = stream.requested
+            raw_name = stream.device.name
+            payload[label] = {
+                "rms": round(snap.rms, 1),
+                "peak": round(snap.peak),
+                "crest": round(snap.crest, 1),
+                "device": self._resolve_device_name(raw_name),
+                "requested": requested,
+                "fallback": bool(requested) and raw_name != requested,
+            }
+        self._broadcast("level", json.dumps(payload, ensure_ascii=False))
+
+    def _resolve_device_name(self, name: str) -> str:
+        """ツールチップ用にデバイス名を表示用ラベルへ解決する。
+
+        2 通りの名前が来る。
+        - エイリアス ("default" 等): device 未指定でマイクを開くと PortAudio は
+          これしか返さない。そのまま出すと、OS のデフォルト入力が死んだ内蔵
+          マイクにすり替わっていても気づけない——このレベルバー機能の
+          きっかけになった障害そのものが再現するため、get_default_source_name
+          で OS 側の実名に解決する。
+        - 実デバイス名 (例 "alsa_output...monitor"): ノード名そのものはツール
+          チップに出すには長すぎる壁の文字列なので、デバイス選択 UI と同じ
+          _device_label（_daemon_audio_devices.py）に通し、picker と表記を
+          揃える。ラベル化できない場合は生の名前をそのまま返す（何も出さない
+          より良い）。
+
+        どちらの経路も subprocess 呼び出しを伴いうる（wpctl）。
+        _wpctl_description_map 側にもモジュールレベルのキャッシュがあるが、
+        それは「取得に成功した場合だけ」キャッシュするため、wpctl が異常系で
+        空を返し続けると _poll_levels の毎秒呼び出しのたびに subprocess が
+        起き続ける恐れがある。そこをこのメソッド自身の TTL キャッシュ
+        （STREAM_RESOLVE_INTERVAL 秒。キャプチャ監視スレッドが自身のデフォルト
+        Sink 変更チェックに使う周期と同じ）で必ず抑える——2 層のキャッシュの
+        責務を分けず「ここで引いたら STREAM_RESOLVE_INTERVAL 秒は再利用する」
+        という単純な取り決め 1 つに寄せている。
+        """
+        cached = self._name_cache.get(name)
+        now = time.monotonic()
+        if cached and now - cached[1] < STREAM_RESOLVE_INTERVAL:
+            return cached[0]
+        if name in _ALIAS_DEVICE_NAMES:
+            resolved = get_default_source_name() or name
+        else:
+            resolved = _device_label(name, _wpctl_description_map())
+        self._name_cache[name] = (resolved, now)
+        return resolved

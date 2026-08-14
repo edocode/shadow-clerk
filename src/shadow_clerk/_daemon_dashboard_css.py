@@ -116,6 +116,18 @@ main {
 .toggle.off { opacity:.4; text-decoration:line-through; }
 .toggle.unavail { color:#e44; opacity:1; position:relative; cursor:help; }
 .toggle.unavail::after { content:'\U0001f6ab'; position:absolute; top:-2px; right:-4px; font-size:9px; }
+.lv{display:inline-block;width:34px;height:6px;border:1px solid var(--border);
+    border-radius:3px;overflow:hidden;vertical-align:middle;margin:0 4px 0 1px}
+.lv i{display:block;height:100%;width:0;background:var(--green);
+      transition:width .25s linear}
+/* 警告はコンテナ自体の背景・枠線で示す。無音時は塗り(<i>)の幅が0%になり
+   塗りの色を変えても見た目が変わらないため（fix round 1 finding 1）。
+   lv-fallback は box-shadow でリングを描くので、border-color/background を
+   変える lv-noise/lv-silent と別のプロパティになり、両方成立しても互いを
+   隠さない */
+.lv.lv-noise{border-color:var(--yellow);background:var(--yellow)}
+.lv.lv-silent{border-color:var(--red);background:var(--red)}
+.lv.lv-fallback{box-shadow:0 0 0 1px var(--yellow)}
 .panel.hidden { display:none; }
 .summary-body { white-space:pre-wrap; font-size:12px; line-height:1.7; }
 .summary-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; }

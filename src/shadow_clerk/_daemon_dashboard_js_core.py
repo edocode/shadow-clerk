@@ -449,6 +449,73 @@ es.addEventListener('interim_clear',e=>{
   const itp=document.getElementById('itp');
   if(itp)itp.innerHTML='';
 });
+/* --- 入力レベルバー（ミュートボタンとは別要素。updateMuteBtn の10秒ごと
+   上書きと1Hzの本更新が競合しないようにする） --- */
+const LV_NOISE = {mic: [], monitor: []};
+const LV_SILENT = {mic: [], monitor: []};
+es.addEventListener('level', e => {
+  const d = JSON.parse(e.data);
+  for (const label of ['mic', 'monitor']) updateLevel(label, d[label]);
+});
+function updateLevel(label, v){
+  const bar = document.getElementById('lv_' + label);
+  if(!bar) return;
+  const fill = bar.firstElementChild;
+  if(!v){
+    // キャプチャ断絶（バックエンド再接続・デバイス設定変更等）。窓の連続性が
+    // 途切れるので両方の履歴をリセットする。リセットせずに続けると、断絶を
+    // 挟んだ寄せ集めの30サンプルが「30秒間ずっと無音」と誤認される
+    LV_NOISE[label].length = 0; LV_SILENT[label].length = 0;
+    fill.style.width = '0%'; bar.className = 'lv'; bar.title = ''; return;
+  }
+  // 対数スケール。16bit PCM の目安で rms=100(静かな部屋の床) を0%、
+  // rms=20000(大声・クリップ間際) を100%とし、その中間 rms≈1414 が50%になる
+  // ように圧縮する（以前は 20*log10(rms)-10 で rms≈316000 まで到達しないと
+  // 満杯にならず、16bit の実用域では上四分の一が常に埋まらなかった）
+  const pct = v.rms <= 100 ? 0 : Math.min(100, (Math.log10(v.rms) - 2) / 2.301 * 100);
+  fill.style.width = pct.toFixed(0) + '%';
+  // 定常ノイズ: 10秒すべてが「音量はあるが crest が低い」
+  const noiseHist = LV_NOISE[label];
+  noiseHist.push(v.rms >= 100 && v.crest < 2);
+  if(noiseHist.length > 10) noiseHist.shift();
+  const noisy = noiseHist.length === 10 && noiseHist.every(Boolean);
+  // 完全無音: 30秒すべてが厳密にゼロ。生きたマイクはノイズフロアを持つので
+  // 黙っているだけならゼロにはならない。この理屈は mic にしか成立しない
+  // ――sink monitor は再生中の音を折り返すだけなので、何も再生されていない
+  // （会議前後・相手側が無言・資料を読んでいる間 等、1日の大半）だけで
+  // rms=peak=0 が何十秒も続くのが monitor の正常な待機状態であり、故障では
+  // ない。monitor にも同じ判定を適用すると speaker バーが1日のほとんど赤に
+  // なり、本当にヘッドセットの電源が切れているときの赤が「いつもの赤」に
+  // 埋もれてしまう（オオカミ少年化）。そのため無音検出は mic 限定とする
+  // （monitor は steady-noise / fallback の警告とバー表示自体は維持する）。
+  const silHist = LV_SILENT[label];
+  let silent = false;
+  if(label === 'mic'){
+    silHist.push(v.rms === 0 && v.peak === 0);
+    if(silHist.length > 30) silHist.shift();
+    silent = silHist.length === 30 && silHist.every(Boolean);
+  } else {
+    silHist.length = 0;
+  }
+  // 警告はバー本体（コンテナ）の背景・枠線で示す。塗り(<i>)は無音時に幅0%に
+  // なり見た目が変化しないため、塗りに乗せると無音警告が視認不能になる
+  // （fix round 1 finding 1）。silent は noisy より深刻な状態なので、両方の
+  // 条件が成立した場合は silent を優先する（定義上ほぼ排他だが念のため）。
+  // lv-fallback は box-shadow を使うので border-color/background を使う
+  // lv-noise/lv-silent と衝突せず、両方同時に成立しても互いを隠さない
+  bar.className = 'lv' + (v.fallback ? ' lv-fallback' : '')
+                + (silent ? ' lv-silent' : noisy ? ' lv-noise' : '');
+  // どのデバイスを測っているかは常にツールチップに出す。fallback 時は
+  // 指定した名前と実際に使われているデバイスの両方を出す（fix round 1
+  // finding 3: Step 0a で用意した読める表示名がそれまで一度も使われていなかった）
+  const deviceInfo = v.fallback
+    ? I18N['dash.level_fallback'] + ': ' + v.requested + ' -> ' + v.device
+    : v.device;
+  bar.title = (silent ? I18N['dash.level_silent'] + ' ' : '')
+            + (noisy ? I18N['dash.level_noise'] + ' ' : '')
+            + (label === 'mic' ? I18N['dash.level_mic'] : I18N['dash.level_monitor'])
+            + ': ' + deviceInfo;
+}
 function _todayYestStr(){
   const nd=new Date();
   const fd=d=>`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;

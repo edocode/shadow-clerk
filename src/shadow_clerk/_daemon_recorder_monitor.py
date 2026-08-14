@@ -10,9 +10,10 @@ import queue
 import threading
 import time
 from collections.abc import Iterator
+from shadow_clerk._daemon_audio_level import CaptureLevel
 from shadow_clerk._daemon_constants import STREAM_RETRY_SEC, STREAM_STALL_SEC
 from shadow_clerk._daemon_audio import (
-    AudioBackend, PipeWireBackend, PulseAudioBackend, sink_serial,
+    AudioBackend, PipeWireBackend, PulseAudioBackend, get_default_sink_name, sink_serial,
 )
 
 logger = logging.getLogger("shadow-clerk")
@@ -46,6 +47,8 @@ class _RecorderMonitorBackendMixin:
     backend_name: str
     use_monitor: bool
     _monitor_restart: threading.Event
+    levels: dict[str, CaptureLevel]
+    backend_source: dict[str, str]
 
     def _requested_device(self, label: str) -> str | None:
         raise NotImplementedError
@@ -82,20 +85,25 @@ class _RecorderMonitorBackendMixin:
         requested = self._requested_device("monitor")
         stop = _AnyStop(self.stop_event, self._monitor_restart)
         for backend, name in self._monitor_backends():
-            source = self._monitor_target(backend, requested)
-            if not source:
+            target = self._monitor_target(backend, requested)
+            if not target:
                 continue
-            logger.info("%s monitor キャプチャ開始: %s", name, source)
+            source, display_name = target
+            logger.info("%s monitor キャプチャ開始: %s", name, display_name)
             self.use_monitor = True
             started = time.monotonic()
+            self.backend_source["monitor"] = display_name
             try:
-                backend.start_monitor_capture(source, self.monitor_queue, stop)
+                backend.start_monitor_capture(source, self.monitor_queue, stop,
+                                              self.levels["monitor"])
             except FileNotFoundError as e:
                 logger.error("monitor キャプチャコマンドが見つかりません: %s", e)
                 continue
             except Exception as e:
                 logger.error("%s monitor キャプチャ失敗: %s", name, e)
                 continue
+            finally:
+                self.backend_source.pop("monitor", None)
             if self.stop_event.is_set() or self._monitor_restart.is_set():
                 return True
             logger.warning("%s monitor キャプチャが予期せず終了しました: %s", name, source)
@@ -105,8 +113,11 @@ class _RecorderMonitorBackendMixin:
             return True
         return False
 
-    def _monitor_target(self, backend: AudioBackend, requested: str | None) -> str | None:
-        """バックエンドに渡すモニターキャプチャ先を決める。
+    def _monitor_target(self, backend: AudioBackend,
+                        requested: str | None) -> tuple[str, str] | None:
+        """バックエンドに渡すモニターキャプチャ先と、UI 表示用の名前を決める。
+
+        戻り値は (backend.start_monitor_capture に渡す値, 表示名) のタプル。
 
         PipeWire: `pw-record --target` は名前で指定した場合 Source ノードとしか
         照合しない。ダッシュボードが保存する monitor_device は PortAudio 名
@@ -116,8 +127,11 @@ class _RecorderMonitorBackendMixin:
         数値の object.serial を渡すしかないので、".monitor" を外した Sink 名を
         serial に解決する。解決できなければ、判っていて間違った値を渡すより
         自動検出（既定 Sink の serial）に落とす方が安全なのでそうする。
+        表示名には serial ではなく Sink 名（判明していればデフォルト Sink 名）
+        を使う。serial はユーザーには無意味な数字（例 "80"）にしかならない。
 
-        PulseAudio: `parec --device=` はモニターソース名をそのまま受け付ける。
+        PulseAudio: `parec --device=` はモニターソース名をそのまま受け付け、
+        その名前自体が既に読める表示名になっている。
 
         WASAPI (Windows): mic_device/monitor_device は Linux 向けの設定という
         設計上の非目標なので、requested は渡さず無視する。渡すと loopback
@@ -125,15 +139,25 @@ class _RecorderMonitorBackendMixin:
         """
         if requested:
             if isinstance(backend, PulseAudioBackend):
-                return requested
+                return requested, requested
             if isinstance(backend, PipeWireBackend):
                 sink = requested.removesuffix(".monitor")
                 if (serial := sink_serial(sink)) is not None:
                     logger.info("monitor: Sink %s → object.serial %s", sink, serial)
-                    return serial
+                    return serial, sink
                 logger.warning("monitor: 指定 Sink %s の object.serial を解決できません。"
                                "自動検出にフォールバックします", sink)
-        return backend.detect_monitor_source()
+        source = backend.detect_monitor_source()
+        if source is None:
+            return None
+        if isinstance(backend, PipeWireBackend):
+            display_name = get_default_sink_name()
+            if display_name is None:
+                logger.warning("monitor: デフォルト Sink 名を解決できません。"
+                               "object.serial %s を表示名として使用します", source)
+                display_name = source
+            return source, display_name
+        return source, source
 
     def _monitor_backends(self) -> Iterator[tuple[AudioBackend, str]]:
         """モニターキャプチャに使うバックエンドを優先順に返す"""
