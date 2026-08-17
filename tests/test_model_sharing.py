@@ -245,5 +245,51 @@ check("19. interim の作り直しで参照数が増え続けない",
 check("20. 作り直した interim も main と同じモデルを共有する",
       new.model is main.model, f"{new.model!r} / {main.model!r}")
 
+# --- 7. モデル差し替え中にロードが失敗しても旧共有モデルを握ったままにしない ---
+# reload_model()/ensure_model_for_language() は呼び出し前に self.model = None するため
+# この事故を踏まない。だが _load_model_locked() 自身が「self.model が None でない間は
+# 必ず参照カウント済み」という規約を守っていないと、将来 load_model() をロード済みの
+# インスタンスへ直接呼ぶ経路が現れた時に、返却済みで誰にもカウントされていない旧モデル
+# を self.model が握ったまま動き続け、後続の acquire が同じキーを二重ロードしてしまう。
+
+
+class _BoomWhisperModel:
+    """WhisperModel の代役。生成時に必ず例外を投げてロード失敗を再現する"""
+
+    def __init__(self, model_id: str, device: str = "cpu", compute_type: str = "int8") -> None:
+        raise RuntimeError("boom-whisper-load")
+
+
+reset()
+cfg2: dict[str, Any] = dict(K2_CFG)
+with patch.object(tr, "load_config", side_effect=lambda: cfg2):
+    main = make("main", "japanese_asr_model")
+    main.load_model()
+    key_a = ("reazonspeech-k2", "reazonspeech-k2", "cpu", "fp32")
+
+    cfg2["japanese_asr_model"] = "default"  # backend/model_id を変え、再ロードを起こす
+    load_raised = False
+    with patch.object(_fw, "WhisperModel", _BoomWhisperModel):
+        try:
+            main.load_model()
+        except RuntimeError:
+            load_raised = True
+
+check("21. 失敗するロードは例外を伝播する", load_raised)
+check("22. 失敗後、旧キーの共有エントリは返却済みで残らない",
+      key_a not in tr._MODEL_CACHE, f"{list(tr._MODEL_CACHE)}")
+check("23. ロード失敗後、self.model は返却済みの旧モデルを握ったままにならない (None)",
+      main.model is None, f"{main.model!r}")
+
+# 旧モデルを握りっぱなしなら、別インスタンスが同じキーを取得した時に二重ロードになる
+k2_load_calls.clear()
+cfg2["japanese_asr_model"] = "reazonspeech-k2"
+with patch.object(tr, "load_config", side_effect=lambda: cfg2):
+    interim = make("interim", "japanese_asr_model")
+    interim.load_model()
+check("24. 解放済みキーの再取得はロード1回で済み、旧モデルと別オブジェクトである",
+      len(k2_load_calls) == 1 and interim.model is not None,
+      f"{k2_load_calls} interim.model={interim.model!r}")
+
 print(f"\n=== {sum(results)}/{len(results)} PASS ===")
 raise SystemExit(0 if all(results) else 1)

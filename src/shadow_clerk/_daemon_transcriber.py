@@ -142,7 +142,15 @@ class Transcriber:
         backend, model_id = self._resolve_model_id()
         if self.model is not None and self._loaded_model_id == model_id and self._backend == backend:
             return
-        # 別モデルに載せ替えるので、借りていた共有モデルは先に返却する
+        # 所有権規約: self.model が None でない間は必ず参照カウント済みである
+        # (self._shared_key があれば _MODEL_CACHE に、なければ Whisper の専有インスタンス)。
+        # 別モデルに載せ替える前に self.model を None にしてから共有参照を返却する。
+        # ここで先に None にしておけば、この後のロードが例外を投げても
+        # 「返却済みで誰にもカウントされていない旧モデルを握ったまま動き続ける」
+        # 事故にならない — 失敗時は self.model が None のまま残り、次回 transcribe()
+        # が自然に再ロードを試みる。
+        self.model = None
+        self._loaded_model_id = None
         self._release_shared_locked()
         if backend == "reazonspeech-k2":
             try:
