@@ -270,7 +270,7 @@ sequenceDiagram
         VAD->>VAD: webrtcvad.is_speech(frame)
         alt 発話検出 (speech frames >= 10)
             VAD->>VAD: 音声フレームを蓄積
-            alt 無音検出 (silence frames >= 30) or 最大30秒
+            alt 無音検出 (silence frames >= 30) or 最大20秒
                 VAD->>TQ: (segment, timestamp, label, command_mode)
             end
         end

@@ -24,6 +24,14 @@ _ALIAS_DEVICE_NAMES = {"default", "pipewire"}
 # 同じ例外が毎秒起きてもログが溢れないよう、抑制した回数をまとめて出す間隔
 _POLL_ERROR_LOG_INTERVAL_SEC = 60.0
 
+# SSE クライアント 1 人あたりのキュー上限。イベントは小さな JSON 文字列
+# (数十〜数百バイト、transcript の diff でも通常は数KB) なので、200件分を
+# 保持しても最悪数百KB〜数MB 程度でトリビアル。level イベントは毎秒配信され
+# transcript/translation/log が同時に飛ぶこともあるバーストを吸収しつつ、
+# 詰まったクライアント (読み出しが止まっている) を十分な余裕を持って検出できる
+# 大きさとして選んだ
+_CLIENT_QUEUE_MAXSIZE = 200
+
 
 class LogBuffer(logging.Handler):
     """ログ用の循環バッファ（メモリ内でログ行を保持）"""
@@ -81,7 +89,7 @@ class FileWatcher(threading.Thread):
         self._poll_error_suppressed = 0
 
     def add_client(self) -> queue.Queue[tuple[str, str]]:
-        q: queue.Queue[tuple[str, str]] = queue.Queue()
+        q: queue.Queue[tuple[str, str]] = queue.Queue(maxsize=_CLIENT_QUEUE_MAXSIZE)
         running = not self._recorder.stop_event.is_set()
         q.put(("recorder_status", json.dumps({"running": running})))
         with self._clients_lock:
@@ -96,12 +104,36 @@ class FileWatcher(threading.Thread):
                 pass
 
     def _broadcast(self, event: str, data: str) -> None:
+        """全クライアントへ配信する。
+
+        キューが満杯になるのは一時的に忙しいクライアントではなく、読み出しが
+        止まっている（=切断済みか、ソケットが詰まっている）クライアントで
+        ある。ダッシュボードは再接続時に /api/status 等で状態を再取得するため、
+        イベントを読み損ねても壊れず古くなるだけ。よって個々のイベントを
+        黙って捨てるのではなく、そのクライアントを以後の配信対象から外す
+        （実ソケットの後始末は _serve_sse 側のソケット書き込みタイムアウトが
+        別途担う）。
+        put_nowait が queue.Full 以外の例外を出すのは想定外なので、以前のように
+        黙って握り潰さずログに残す。
+        """
         with self._clients_lock:
-            for q in self._clients:
-                try:
-                    q.put_nowait((event, data))
-                except Exception:
-                    pass
+            clients = list(self._clients)
+        dead: list[queue.Queue[tuple[str, str]]] = []
+        for q in clients:
+            try:
+                q.put_nowait((event, data))
+            except queue.Full:
+                dead.append(q)
+            except Exception:  # pylint: disable=broad-except
+                logger.warning("SSE クライアントへの配信で想定外の例外", exc_info=True)
+                dead.append(q)
+        if dead:
+            with self._clients_lock:
+                for q in dead:
+                    try:
+                        self._clients.remove(q)
+                    except ValueError:
+                        pass
 
     def _get_size(self, path: str) -> int:
         try:

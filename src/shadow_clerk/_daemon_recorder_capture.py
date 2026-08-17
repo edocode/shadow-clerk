@@ -144,7 +144,6 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         self.stop_event = threading.Event()
         self.mic_queue: queue.Queue = queue.Queue()
         self.monitor_queue: queue.Queue = queue.Queue()
-        self.vad_queue: queue.Queue = queue.Queue()
         self.transcribe_queue: queue.Queue = queue.Queue()
         self.interim_queue: queue.Queue = queue.Queue(maxsize=2)
         self.transcript_lock = threading.Lock()  # トランスクリプトファイル読み書きの排他制御
