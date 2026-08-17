@@ -235,6 +235,9 @@ class _RecorderTranscribeMixin:
             ja_asr = config.get("interim_japanese_asr_model", "default")
             if interim_transcriber is None or interim_model_name != model_name or interim_ja_asr != ja_asr:
                 logger.info("中間文字起こし: %s モデル読み込み中...", model_name)
+                if interim_transcriber is not None:
+                    # 旧インスタンスが借りている共有モデルの参照を返す
+                    interim_transcriber.release()
                 interim_transcriber = Transcriber(
                     model_size=model_name,
                     language=self.transcriber.language,
