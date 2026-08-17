@@ -17,6 +17,14 @@ from shadow_clerk._transcript_name import TranscriptName
 
 logger = logging.getLogger("shadow-clerk")
 
+# SSE 接続専用のソケット書き込みタイムアウト。相手が読み出しを止めても
+# write()/sendall() が無期限にブロックしないための保険。アイドル時は15秒
+# ごとに keepalive を書き込むが、健全な接続なら送信バッファはすぐ空くので
+# その write 自体はほぼ瞬時に終わる。15秒 keepalive 間隔に対して十分な余裕
+# (約1.3倍) を持たせ、遅いネットワークの誤検知を避けつつ、詰まった接続は
+# この秒数で確実に検出してクライアントを回収する
+_SSE_WRITE_TIMEOUT_SEC = 20.0
+
 
 class _DashboardHandlerBase(BaseHTTPRequestHandler):
     """ダッシュボード HTTP ハンドラー（ルーティング・基本エンドポイント）"""
@@ -120,6 +128,10 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "keep-alive")
         self.end_headers()
+        # このソケットだけ書き込みタイムアウトを設定する。socket.timeout は
+        # OSError のサブクラスなので、下の except (..., OSError) がそのまま
+        # 拾い、finally でクライアントを確実に取り除く
+        self.connection.settimeout(_SSE_WRITE_TIMEOUT_SEC)
         client_q = self.file_watcher.add_client()
         try:
             while not self.recorder.stop_event.is_set():
