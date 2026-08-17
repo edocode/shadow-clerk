@@ -33,7 +33,10 @@ VAD_MODE = 3  # 0-3, 3が最も積極的に音声検出
 SPEECH_FRAMES_THRESHOLD = 10  # 発話検出に必要な連続フレーム数 (~300ms)
 SILENCE_FRAMES_THRESHOLD = 30  # 無音検出に必要な連続フレーム数 (~900ms)
 MIN_SEGMENT_DURATION = 0.5  # 最小セグメント長(秒)
-MAX_SEGMENT_DURATION = 30.0  # 最大セグメント長(秒)
+MAX_SEGMENT_DURATION = 20.0  # 最大セグメント長(秒)
+# 30秒→20秒に短縮 (2026-08): ASR 推論アリーナは最長セグメント長にスケールし、
+# 実測で 10秒 segment は +165MB、30秒 segment は +457MB。20秒はその中間で
+# ピークメモリを抑えつつ、20秒を超える発話は強制分割されるトレードオフを許容する。
 INTERIM_MAX_DURATION = 10.0  # interim 転写に渡す直近音声の最大長(秒)
 
 # 音声ストリーム監視 (サスペンド復帰・出力デバイス切替からの自動復帰)
