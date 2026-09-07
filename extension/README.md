@@ -25,6 +25,18 @@ Click the toolbar icon. The badge reports the result.
 
 No icon image is bundled, so Chrome shows its default placeholder.
 
+## Settings
+
+Open the extension's options page ("Details" -> "Extension options") to point it
+at a different port. Defaults to `http://127.0.0.1:8765`.
+
+Only `127.0.0.1` and `localhost` are accepted, because the save API refuses
+anything else. "Test connection" hits `/api/status` and reports what the daemon
+is currently recording, so the port can be verified before saving.
+
+Chrome match patterns cannot carry a port number, so `host_permissions` lists
+the hosts alone — changing the port needs no manifest edit.
+
 ## What gets written
 
 Images land in the data directory (`~/.local/share/shadow-clerk/` by default,
@@ -68,5 +80,5 @@ The write target is resolved in two steps: the transcript named by
 current output path (the daily transcript).
 
 Because the endpoint writes files, **it only accepts requests from localhost**,
-independently of how the dashboard itself is bound. If the port differs, update
-`ENDPOINT` in `background.js` and `host_permissions` in `manifest.json` together.
+independently of how the dashboard itself is bound. A non-default port goes in
+the options page, not the manifest.

@@ -1,0 +1,84 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>shadow-clerk screenshot の設定</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1a1f24;
+    --muted: #5d6b7a;
+    --border: #d7dbdf;
+    --accent: #35586d;
+    --ok: #2e7d32;
+    --err: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a2026;
+      --fg: #e4e7ea;
+      --muted: #97a3ad;
+      --border: #2e373f;
+      --accent: #86aec8;
+      --ok: #82b195;
+      --err: #d68d85;
+    }
+  }
+  body {
+    margin: 0;
+    padding: 1.25rem;
+    min-width: 22rem;
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.7 system-ui, sans-serif;
+  }
+  h1 { font-size: 1rem; margin: 0 0 0.25rem; }
+  p.note { margin: 0 0 1rem; font-size: 0.82rem; color: var(--muted); }
+  label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.25rem; }
+  input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.45rem 0.55rem;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font: inherit;
+    font-family: ui-monospace, monospace;
+  }
+  input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+  button {
+    padding: 0.4rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--bg);
+    color: var(--fg);
+    font: inherit;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  #status { margin-top: 0.85rem; font-size: 0.84rem; min-height: 1.7em; }
+  #status.ok { color: var(--ok); }
+  #status.err { color: var(--err); }
+  code { font-family: ui-monospace, monospace; font-size: 0.9em; }
+</style>
+
+<h1>shadow-clerk の接続先</h1>
+<p class="note">
+  ダッシュボードのポートを変えている場合はここを直す。保存 API は localhost からのみ
+  受け付けるので、<code>127.0.0.1</code> または <code>localhost</code> のみ指定できる。
+</p>
+
+<label for="origin">URL(ホストとポート)</label>
+<input id="origin" type="text" spellcheck="false" placeholder="http://127.0.0.1:8765">
+
+<div class="row">
+  <button id="save" class="primary" type="button">保存</button>
+  <button id="test" type="button">接続テスト</button>
+  <button id="reset" type="button">既定に戻す</button>
+</div>
+
+<div id="status" role="status" aria-live="polite"></div>
+
+<script type="module" src="options.js"></script>
