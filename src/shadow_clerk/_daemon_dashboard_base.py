@@ -90,6 +90,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._rename_meeting()
         elif path == "/api/transcript/merge-to-daily":
             self._merge_meeting_to_daily()
+        elif path == "/api/screenshot":
+            self._save_screenshot()
         else:
             self.send_error(404)
 
