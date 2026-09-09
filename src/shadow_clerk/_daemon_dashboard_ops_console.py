@@ -8,10 +8,11 @@ import re
 from urllib.parse import urlparse, parse_qs
 
 from shadow_clerk._daemon_console import get_console, start_console_for
-from shadow_clerk._daemon_constants import FORBID_ANALYZE_FILE
+from shadow_clerk._daemon_constants import FORBID_ANALYZE_FILE, MISHEARD_FILE
 from shadow_clerk._daemon_dashboard_base import is_localhost_client, is_same_origin_request
 from shadow_clerk._markdown import render_markdown
 from shadow_clerk._transcript_name import TranscriptName
+from shadow_clerk.domain import misheard
 from shadow_clerk.domain.forbid_analyze import ForbidAnalyze
 from shadow_clerk.domain.mtg_config import MtgConfig
 
@@ -217,6 +218,24 @@ class _DashboardHandlerConsoleOps:
             self._send_json({"status": "error", "message": "failed to save"})
             return
         self._send_json({"status": "ok", "items": list(fa.items)})
+
+    def _serve_misheard(self) -> None:
+        """GET /api/misheard — 聞き間違い候補の一覧"""
+        self._send_json({
+            "status": "ok", "path": MISHEARD_FILE,
+            "entries": [{"actual": e.actual, "heard": e.heard, "note": e.note}
+                        for e in misheard.load()],
+        })
+
+    def _save_misheard(self) -> None:
+        """POST /api/misheard — まだ無い対だけを足す（置き換えではない）"""
+        data = self._console_body()
+        if data is None:
+            return
+        added = misheard.append(data.get("entries"))
+        self._send_json({"status": "ok",
+                         "added": [{"actual": e.actual, "heard": e.heard,
+                                    "note": e.note} for e in added]})
 
     def _serve_mtg_config(self) -> None:
         """GET /api/mtg-config — 会議ごとの workdir 設定"""

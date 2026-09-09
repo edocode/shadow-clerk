@@ -73,6 +73,9 @@ CONSOLE_COLS_FILE = os.path.join(DATA_DIR, "console.cols")
 # AI 分析の対象外にする話題。空・不在なら「どんな会話でも分析する」。
 # スキル (skills/mtg) がこのファイルを読む
 FORBID_ANALYZE_FILE = os.path.join(DATA_DIR, "forbid-ai-analyze.txt")
+# 聞き間違い候補。glossary が訳語の表なのに対し、こちらは「読み取るときに
+# 文脈で判断が要る対」を貯める。どちらも transcript には適用しない
+MISHEARD_FILE = os.path.join(DATA_DIR, "misheard.tsv")
 CONSOLE_TICK_SEC = 0.1            # grid の差分を配信する間隔(秒)
 CONSOLE_READY_QUIET_SEC = 0.5     # grid が非空でこの秒数変化しなければ TUI 起動完了とみなす
 CONSOLE_READY_TIMEOUT_SEC = 15.0  # ready 判定の上限(秒)。超えたら諦めて送る

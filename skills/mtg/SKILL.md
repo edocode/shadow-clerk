@@ -99,8 +99,32 @@ curl -s "$SHADOW_CLERK/api/mtg-config/resolve?meeting=<会議名>"
 
 崩れの型: 同音の別語に化ける / カタカナが音の近い別のカタカナ語になる /
 複合語の前半が落ちる / 頭字語だけが残る。いずれも用語集に登録済みの語で起きる。
+型ごとの説明は `references/transcript-quirks.md` にある。
 
-用語集にない誤認識のパターンは `references/transcript-quirks.md` にまとめてある。
+## 聞き間違い候補 — 読んで、増やす
+
+用語集とは別に、**これまでに観測した「実際の語 ↔ 崩れた表記」の対**が貯まっている。
+
+```bash
+curl -s "$SHADOW_CLERK/api/misheard"
+```
+
+`{"entries":[{"actual":"工数","heard":"個数","note":"…"}, …]}` が返る。
+**用語集と一緒に、監視を始める前に読むこと。**
+
+用語集と同じく **transcript には適用されない**。同音の一般語が本当にその意味で
+使われている箇所と切り分けられるのは読み手だけなので、置換ではなく判断材料として使う。
+
+**文脈から崩れを特定できたら、その場で足す。**
+
+```bash
+curl -s -X POST "$SHADOW_CLERK/api/misheard" -H 'Content-Type: application/json' \
+  -d '{"entries":[{"actual":"遷移","heard":"繊維","note":"推定"}]}'
+```
+
+- **推定なら `note` に「推定」と書く。** あとで消せるので、確信が持てないものも残してよい
+- 既にある対は無視されるので、重複を気にせず送ってよい
+- 対にできないもの（何の語か分からない崩れ）は送らない
 
 ## 起動
 
