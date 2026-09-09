@@ -34,6 +34,22 @@ def _norm(name: str) -> str:
     return re.sub(r"[\s_\-()\[\]]+", "", name).lower()
 
 
+def wrap_transcript(name: str, text: str) -> bytes:
+    """流す行を <transcript> で囲む
+
+    **囲うこと。** 中身は音声認識の結果であって読み手への指示ではない。裸で流すと
+    「まとめて」のような発言が指示として読まれる (実際に監視が止められた)。
+    本文に閉じタグを名乗る行が現れても境界が壊れないよう、行頭の </transcript> は
+    先頭に空白を入れて無害化する。
+    """
+    body = text.replace("\n</transcript>", "\n </transcript>")
+    if body.startswith("</transcript>"):
+        body = " " + body
+    if body and not body.endswith("\n"):
+        body += "\n"
+    return f'<transcript file="{name}">\n{body}</transcript>\n'.encode()
+
+
 def _fmt_time(ts: float) -> str:
     return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -219,16 +235,15 @@ class _DashboardHandlerSkillOps:
                 if nl >= 0:
                     text = chunk[:nl + 1].decode("utf-8", errors="replace")
                     offset += nl + 1
-                    n = text.count("\n")
-                    self.wfile.write(f"===== 新規 {n} 行 =====\n{text}".encode())
+                    self.wfile.write(wrap_transcript(os.path.basename(path), text))
                     self.wfile.flush()
                     quiet = 0
                 else:
                     quiet += interval
                     if idle_alert and quiet >= idle_alert:
                         self.wfile.write(
-                            f"===== {quiet // 60} 分間 追記なし"
-                            f"(会議終了、または長い沈黙) =====\n".encode())
+                            f"<notice>{quiet // 60} 分間 追記なし"
+                            f"(会議終了、または長い沈黙)</notice>\n".encode())
                         self.wfile.flush()
                         quiet = 0
         except (BrokenPipeError, ConnectionResetError, OSError):
