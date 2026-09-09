@@ -217,6 +217,15 @@ def main() -> None:
     finally:
         if gcal_monitor:
             gcal_monitor.stop()
+        # PTY の子は daemon の子プロセスなので、明示的に落とさないと残る。
+        # デフォルトの timeout (3.0) だと SIGTERM/SIGKILL 待ちや tick/reader
+        # スレッドの join が積み重なり、clerk-util restart の予算
+        # (20 * 0.5 秒) を daemon 終了待ちだけで食いつぶしうる。
+        # ローカル IPC と同じ IPC_TIMEOUT_SEC を使い、「変更→再起動→確認」
+        # のループがアシスタントのツール実行中でも間欠的に失敗しないようにする
+        from shadow_clerk._daemon_console import get_console
+        from shadow_clerk._daemon_constants import IPC_TIMEOUT_SEC
+        get_console().stop(timeout=IPC_TIMEOUT_SEC)
 
 
 if __name__ == "__main__":

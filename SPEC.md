@@ -140,6 +140,20 @@ clerk-daemon に統合された Web ダッシュボード。ブラウザから t
 
 依存: `google-auth-oauthlib`, `google-api-python-client`（`uv sync --extra gcal` で追加）
 
+### モジュール F: AI Console（AI アシスタントを PTY 上で動かす、`_daemon_console.py`）
+
+ダッシュボードの `[Logs][AI Console]` タブのうち AI Console 側で、AI アシスタント（`claude` / `codex`）を PTY 上で動かし、会議の文字起こしを監視させて生成物を書かせる。
+
+- **PTY セッション**: `_daemon_console.py` が子プロセスを PTY 上で起動し、`pyte.Screen` の 10000 行仮想 grid（`VIRTUAL_ROWS`）に描画内容を蓄積する。`_daemon_console_render.py` が grid を配信用の差分ペイロードに変換する
+- **起動**: 会議開始時（`auto_analyze: true`）または「分析開始」ボタンで起動。起動コマンドは `ai_assistant_command` + `ai_assistant_args`（`domain/ai_assistant.py` の値オブジェクトで保持）、既定の起動ディレクトリは `ai_assistant_workdir`（会議ごとの上書きは mtg スキルの `config.yaml` の `meetings[].workdir`、`domain/mtg_config.py` で表現）
+- **初期プロンプト**: TUI 準備完了後に `ai_assistant_init_prompt`（デフォルト `/mtg {transcript}`）を PTY に送る。`{transcript}` / `{meeting}` はアクティブなファイルパスに置換される
+- **生成物**: アシスタントは `advice-<stem>.md`（未解決の提案、上書き更新）と `analysis-<stem>.md`（確定した事実、追記）の2種類を書く。ダッシュボードの Summary パネルは `[議事録][AI分析]` の2タブで、AI分析タブが提案（上）と分析（下）を上下に並べる（仕切りはドラッグで高さを変えられ、`localStorage` に残る）。
+  どちらも Markdown なので、サーバが `markdown-it-py` で HTML に起こして配る（`_markdown.py`）。生成物は AI が書いた任意テキストなので、レンダラは `html: False` でソース中の生 HTML を実体参照に落とす。SSE の `advice` / `analysis` は どちらも**全文の HTML**を送る——差分だけを単独で Markdown として解釈できないため
+- **セッションのライフサイクル**: 1 セッションを使い回し、会議終了では止まらない（議事録作成にそのまま使える）。停止は Console タブの停止ボタンのみ
+- **エンドポイント**: `_daemon_dashboard_ops_console.py` が `/api/console`（GET）、`/api/console/start` / `/api/console/stop` / `/api/console/input` / `/api/console/resize`（POST）、および mtg スキルの会議別起動ディレクトリ設定エンドポイントを提供する
+- **フロントエンド**: `_daemon_dashboard_js_console.py` が AI Console の描画・キー入力・起動ディレクトリ設定 UI を実装する
+- **既知の制約**: alt-screen は実装していないため、Console 内で `less` / `vim` を開くと表示が崩れる
+
 ## アーキテクチャ図
 
 ### システム全体構成
@@ -567,6 +581,10 @@ sequenceDiagram
 | `.clerk_response` | LLM フォールバックの回答（最新の1件） |
 | `gcal_token.json` | Google Calendar OAuth 認証トークン（`gcal_token_file` で変更可） |
 | `.env` | API キー等の環境変数（llm_client.py が読み込む） |
+| `advice-<stem>.md` | AI アシスタントが書く未解決の提案（上書き更新） |
+| `analysis-<stem>.md` | AI アシスタントが書く確定した事実（追記） |
+
+生成物の命名は `TranscriptName` が一手に持つ（`summary_filename` / `advice_filename` / `analysis_filename`）。スキル側に規則を持たせると二重管理になり、会議のリネームで黙ってずれるため、`GET /api/generated?file=<transcript>` が transcript に対応する 3 つの絶対パスを返す。リネーム (`rename_plan`) と削除 (`_related_file_names`) も同じ命名を使うので追随する。
 
 ## 設定ファイル (config.yaml)
 
@@ -631,6 +649,13 @@ gcal_token_file: null             # 認証済みトークン保存先 (デフォ
 gcal_calendar_id: primary         # 監視対象カレンダー ID
 gcal_buffer_minutes: 2            # 開始 N 分前に start_meeting を送信
 gcal_end_buffer_minutes: 1        # 終了 N 分後に end_meeting を送信
+
+# --- AI Console ---
+auto_analyze: false               # start meeting 時に AI アシスタントを自動起動
+ai_assistant_command: claude      # AI Console で起動するコマンド (claude/codex 等)
+ai_assistant_args: ''             # そのコマンドの引数 (shlex で分割)
+ai_assistant_init_prompt: /mtg {transcript}  # TUI 準備完了後に PTY へ送るプロンプト ({transcript}/{meeting} を置換)
+ai_assistant_workdir: ''          # 既定の起動ディレクトリ (会議ごとの上書きは mtg スキルの meetings[].workdir)
 ```
 
 - clerk-daemon 起動時に config.yaml を読み込み、CLI 引数が未指定の場合のみ `default_model`、`default_language`、`output_directory` を適用する
@@ -656,3 +681,18 @@ gcal_end_buffer_minutes: 1        # 終了 N 分後に end_meeting を送信
 
 ### フォールバック挙動
 - `pynput` / `evdev` のどちらも利用不可の場合、Push-to-Talk は無効になりウェイクワード方式のみで動作
+
+
+### mtg スキル向け API
+
+スキルが shell スクリプトで持っていた判定をデーモン側に寄せた（`_daemon_dashboard_ops_skill.py`）。
+同じ規則を shell と Python の両方に置くと片方だけ直したときに黙ってずれるため。
+
+| エンドポイント | 置き換えたもの |
+|---|---|
+| `GET /api/session` | `find-active-transcript.sh`。`in_meeting` は SESSION_FILE の有無で、mtime 推測ではない |
+| `GET /api/mtg-config/resolve?meeting=` | `get-config.sh`。判定は `MtgConfig.resolve()` の 1 か所 |
+| `GET /api/meeting-history?meeting=&count=` | `find-meeting-history.sh`。会議名の正規化一致 |
+| `GET /api/watch?interval=&idle=` | `watch-transcript.sh`。接続を保って新規行を流す |
+
+AI コンソールで起こす子プロセスには `SHADOW_CLERK_URL` を渡すので、スキルはポートを推測しない。

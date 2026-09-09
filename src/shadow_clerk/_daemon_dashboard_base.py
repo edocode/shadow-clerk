@@ -11,11 +11,61 @@ from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from shadow_clerk.i18n import t, t_all
 from shadow_clerk._daemon_constants import SESSION_FILE
+from shadow_clerk._daemon_log_buffer import _SSE_CLOSE_EVENT
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_dashboard_html import _HTML_TEMPLATE
 from shadow_clerk._transcript_name import TranscriptName
 
 logger = logging.getLogger("shadow-clerk")
+
+# 書き込み系エンドポイント（AI Console の入出力、画面キャプチャ受け取り等）を
+# localhost だけに絞るための許可アドレス一覧。
+# _daemon_dashboard_ops_console.py と _daemon_dashboard_ops_screenshot.py の
+# 両方が使う共通ヘルパなので、両方から素直に import できるここに置く
+_ALLOWED_CLIENTS = ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+
+
+def is_localhost_client(client_address: tuple | None) -> bool:
+    """client_address がこのマシン自身からの接続かどうかを判定する"""
+    client = client_address[0] if client_address else ""
+    return client in _ALLOWED_CLIENTS
+
+
+def is_same_origin_request(headers: Any) -> bool:
+    """クロスオリジンの POST を弾くための Origin ヘッダ判定。
+
+    client_address ベースの localhost 判定は、ユーザー自身が開いた任意の
+    ブラウザタブ・訪問しただけの Web ページからの fetch に対しては無力
+    (ブラウザ経由の接続は常にこのマシンの 127.0.0.1 から届くため)。
+    ブラウザはクロスオリジン POST に Origin ヘッダを必ず付けるので、
+    それを自分自身のオリジンと突き合わせて拒否する。
+
+    - Origin ヘッダが無ければ通す。curl 等の非ブラウザクライアントは
+      Origin を送らないため、README に載せた起動レシピ
+      (`curl -sX POST localhost:8765/api/console/start`) を壊さない
+    - Origin があり、Host から組み立てた自分のオリジンと一致しなければ拒否
+    - Host が無ければ判定できないので保守的に拒否
+    - Sec-Fetch-Site があれば same-origin 以外は拒否する
+      (対応ブラウザでの多層防御。無ければ何もしない)
+    """
+    origin = headers.get("Origin")
+    if origin is None:
+        return True
+    host = headers.get("Host")
+    if not host:
+        return False
+    if origin != f"http://{host}":
+        return False
+    sec_fetch_site = headers.get("Sec-Fetch-Site")
+    if sec_fetch_site is not None and sec_fetch_site != "same-origin":
+        return False
+    return True
+
+
+def _console_running() -> bool:
+    """AI Console が動いているか。循環 import を避けてここで遅延 import する"""
+    from shadow_clerk._daemon_console import get_console
+    return get_console().is_running()
 
 
 class _DashboardHandlerBase(BaseHTTPRequestHandler):
@@ -61,6 +111,24 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_attendees()
         elif path == "/api/search":
             self._serve_search()
+        elif path == "/api/console":
+            self._serve_console()
+        elif path == "/api/session":
+            self._serve_session()
+        elif path == "/api/mtg-config/resolve":
+            self._serve_mtg_config_resolve()
+        elif path == "/api/meeting-history":
+            self._serve_meeting_history()
+        elif path == "/api/watch":
+            self._serve_watch()
+        elif path == "/api/generated":
+            self._serve_generated_paths()
+        elif path == "/api/advice":
+            self._serve_advice()
+        elif path == "/api/analysis":
+            self._serve_analysis()
+        elif path == "/api/mtg-config":
+            self._serve_mtg_config()
         else:
             self.send_error(404)
 
@@ -92,6 +160,16 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._merge_meeting_to_daily()
         elif path == "/api/screenshot":
             self._save_screenshot()
+        elif path == "/api/console/start":
+            self._start_console()
+        elif path == "/api/console/stop":
+            self._stop_console()
+        elif path == "/api/console/input":
+            self._console_input()
+        elif path == "/api/console/resize":
+            self._console_resize()
+        elif path == "/api/mtg-config":
+            self._save_mtg_config()
         else:
             self.send_error(404)
 
@@ -127,6 +205,10 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             while not self.recorder.stop_event.is_set():
                 try:
                     event, data = client_q.get(timeout=15)
+                    if event == _SSE_CLOSE_EVENT:
+                        # _broadcast がこのクライアントを追いつけないと判断して
+                        # 切断した合図。EventSource の自動再接続に委ねる
+                        break
                     self.wfile.write(
                         f"event: {event}\ndata: {data}\n\n".encode())
                     self.wfile.flush()
@@ -163,6 +245,10 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             "asr_backend": self.recorder.transcriber._backend,
             "asr_model_id": self.recorder.transcriber._loaded_model_id or self.recorder.transcriber.model_size,
             "gcal_enabled": self.__class__.gcal_monitor is not None,
+            # 分析ボタンの開始/停止表示に使う。console の SSE は状態が
+            # 変わったときしか飛ばないので、後から開いたページにも届く
+            # 定期取得のこちらに載せる
+            "console_running": _console_running(),
         })
 
     def _serve_files(self) -> None:
@@ -185,6 +271,10 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             info = tn.file_info()
             info["has_translation"] = tn.translation_filename(lang) in all_files
             info["has_summary"] = tn.summary_filename in all_files
+            # AI アシスタントの生成物。どちらか一方しか無いこともある
+            # (提案だけ残して終わった / 確定事項だけ書かれた)
+            info["has_advice"] = tn.advice_filename in all_files
+            info["has_analysis"] = tn.analysis_filename in all_files
             # 削除確認モーダル用: 実際に一緒に削除される関連ファイル一覧
             info["related"] = self._related_file_names(
                 os.path.join(output_dir, f), tn, all_files)

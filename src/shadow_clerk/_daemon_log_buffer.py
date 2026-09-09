@@ -11,8 +11,11 @@ from typing import Any
 from shadow_clerk import DATA_DIR, CONFIG_FILE
 from shadow_clerk._daemon_audio import get_default_source_name
 from shadow_clerk._daemon_audio_devices import _device_label, _wpctl_description_map
-from shadow_clerk._daemon_constants import SESSION_FILE, STREAM_RESOLVE_INTERVAL
+from shadow_clerk._daemon_constants import (
+    SESSION_FILE, SSE_QUEUE_MAXSIZE, STREAM_RESOLVE_INTERVAL,
+)
 from shadow_clerk._daemon_config import load_config
+from shadow_clerk._transcript_name import TranscriptName
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -23,6 +26,11 @@ _ALIAS_DEVICE_NAMES = {"default", "pipewire"}
 
 # 同じ例外が毎秒起きてもログが溢れないよう、抑制した回数をまとめて出す間隔
 _POLL_ERROR_LOG_INTERVAL_SEC = 60.0
+
+# _broadcast が追いつけないクライアントを切断したことを、そのクライアントの
+# SSE ハンドラスレッドに伝える合図イベント。_serve_sse はこれを受け取ったら
+# ループを抜ける
+_SSE_CLOSE_EVENT = "__close__"
 
 
 class LogBuffer(logging.Handler):
@@ -81,7 +89,7 @@ class FileWatcher(threading.Thread):
         self._poll_error_suppressed = 0
 
     def add_client(self) -> queue.Queue[tuple[str, str]]:
-        q: queue.Queue[tuple[str, str]] = queue.Queue()
+        q: queue.Queue[tuple[str, str]] = queue.Queue(maxsize=SSE_QUEUE_MAXSIZE)
         running = not self._recorder.stop_event.is_set()
         q.put(("recorder_status", json.dumps({"running": running})))
         with self._clients_lock:
@@ -96,12 +104,38 @@ class FileWatcher(threading.Thread):
                 pass
 
     def _broadcast(self, event: str, data: str) -> None:
+        """全 SSE クライアントへ配信する。
+
+        追いつけないクライアントは切る。古いイベントを捨てて詰め直すのは
+        console の grid 差分では整合性が壊れる（欠けた行が二度と来ない）ので
+        採れない。切られた側は EventSource の自動再接続で
+        GET /api/console の full snapshot から復帰する。
+        """
+        dropped: list[queue.Queue[tuple[str, str]]] = []
         with self._clients_lock:
             for q in self._clients:
                 try:
                     q.put_nowait((event, data))
-                except Exception:
+                except queue.Full:
+                    dropped.append(q)
+            for q in dropped:
+                try:
+                    self._clients.remove(q)
+                except ValueError:
                     pass
+        for q in dropped:
+            # ハンドラスレッドを解放する。キューは満杯なので、まず空けてから
+            # 終了の合図を入れる
+            try:
+                while True:
+                    q.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                q.put_nowait((_SSE_CLOSE_EVENT, "{}"))
+            except queue.Full:
+                pass
+            logger.warning("SSE クライアントが追いつけないため切断しました")
 
     def _get_size(self, path: str) -> int:
         try:
@@ -229,6 +263,32 @@ class FileWatcher(threading.Thread):
             self._file_offsets[key] = new_size
             self._broadcast("translation", json.dumps(
                 {"file": tr_name, "diff": diff}, ensure_ascii=False))
+
+        # AI アシスタントの生成物
+        # どちらも Markdown なので、行の差分ではなく全文を HTML にして送る。
+        # advice は上書き、analysis は追記だが、差分だけを単独で Markdown として
+        # 解釈できない（複数行にまたがる箇条書きが切れる）ため方式を揃える。
+        tn = TranscriptName.parse(os.path.basename(t_path))
+        if tn is not None:
+            from shadow_clerk._markdown import render_markdown
+            out_dir = os.path.dirname(t_path)
+            for event, name in (("advice", tn.advice_filename),
+                                ("analysis", tn.analysis_filename)):
+                path = os.path.join(out_dir, name)
+                mtime = self._get_mtime(path)
+                # mtime のキーはパスで持つ。会議を切り替えたときに前の会議の
+                # mtime と比べてしまわないようにする
+                key = f"{event}:{path}"
+                if mtime == self._mtimes.get(key, 0):
+                    continue
+                self._mtimes[key] = mtime
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        text = f.read()
+                except OSError:
+                    text = ""
+                self._broadcast(event, json.dumps(
+                    {"file": name, "html": render_markdown(text)}, ensure_ascii=False))
 
         # Metadata files (mtime-based)
         for evt, path in [

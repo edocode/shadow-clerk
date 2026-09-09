@@ -22,6 +22,7 @@ from shadow_clerk._daemon_constants import (
     pynput_keyboard, _HAS_PYNPUT, evdev, _ecodes, _HAS_EVDEV,
 )
 from shadow_clerk._daemon_config import load_config, get_translation_provider, _builtin_command_descs
+from shadow_clerk._daemon_console import request_summary_from_console, start_console_for
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -152,6 +153,41 @@ class _RecorderCommandMixin:
             logger.info("参加予定者を保存: %s (%d名)", out_path, len(attendees))
         except OSError as e:
             logger.warning("参加予定者の保存に失敗: %s", e)
+
+    def _start_auto_summary(self, config: dict, transcript_path: str) -> None:
+        """議事録を誰に作らせるか決める。
+
+        AI コンソールが走っていればそちらに頼む——会議を生で見ていて過去回も
+        読んでいるぶん質が上がるうえ、shadow-clerk 側の LLM と二重に作られない。
+        走っていなければ従来どおり LLM で作る。落とさないと議事録が 1 つも
+        出来ないので、フォールバックは必須。
+        """
+        if config.get("auto_summary_via_console"):
+            try:
+                if request_summary_from_console(transcript_path):
+                    return
+                logger.info("AI コンソールが走っていないので LLM で議事録を作ります")
+            except Exception as e:  # pylint: disable=broad-except
+                logger.warning("AI コンソールへの議事録依頼に失敗: %s", e, exc_info=e)
+        logger.info("自動要約開始: provider=%s", config.get("llm_provider", "claude"))
+        threading.Thread(
+            target=self._auto_summarize,
+            args=(transcript_path,),
+            name="auto-summary", daemon=True,
+        ).start()
+
+    def _maybe_start_analysis(self, transcript_path: str) -> bool:
+        """auto_analyze が有効なら AI アシスタントを起動して初期プロンプトを送る。
+
+        起動に失敗しても会議そのものは続けたいので、例外は外に出さない。
+        """
+        if not load_config().get("auto_analyze"):
+            return False
+        try:
+            return bool(start_console_for(transcript_path, auto=True))
+        except Exception as e:  # pylint: disable=broad-except
+            logger.warning("AI Console の自動起動に失敗: %s", e, exc_info=e)
+            return False
 
     def _auto_summarize(self, transcript_path: str) -> None:
         """会議終了時に自動で議事録を生成する"""
@@ -482,6 +518,7 @@ class _RecorderCommandMixin:
             logger.info("会議開始: %s", self.output_path)
             print(t("rec.meeting_start", path=self.output_path))
             self._save_attendees_for_session(self.output_path)
+            self._maybe_start_analysis(self.output_path)
 
         elif cmd == "end_meeting":
             marker = "--- 会議終了 ---\n"
@@ -509,12 +546,7 @@ class _RecorderCommandMixin:
             # auto_summary: 会議終了時に自動で議事録を生成
             config = load_config()
             if config.get("auto_summary"):
-                logger.info("自動要約開始: provider=%s", config.get("llm_provider", "claude"))
-                threading.Thread(
-                    target=self._auto_summarize,
-                    args=(session_transcript,),
-                    name="auto-summary", daemon=True,
-                ).start()
+                self._start_auto_summary(config, session_transcript)
 
         elif cmd.startswith("set_model "):
             model_size = cmd.split(None, 1)[1].strip()

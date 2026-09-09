@@ -312,6 +312,15 @@ custom_commands:
 - `pattern`: 正規表現（大文字小文字を区別しない）
 - `action`: 実行するシェルコマンド
 
+音声で分析を開始することもできる — 用語集にはすでに `クラーク` がウェイクワードの
+バリアントとして登録されているので、PTT キーを押しながらこう発話すると発火する:
+
+```yaml
+custom_commands:
+  - pattern: (クラーク|クラーク、)?分析(開始|して)
+    action: curl -sX POST localhost:8765/api/console/start
+```
+
 #### LLM フォールバック
 
 組み込みコマンドにもカスタムコマンドにもマッチしない場合、`api_endpoint` が設定されていれば LLM にクエリとして送信される。回答は stdout に表示され、`.clerk_response` ファイルに保存される。
@@ -411,6 +420,25 @@ clerk-util command translate_stop                  # 翻訳ループ停止
 
 生成された議事録は `~/.local/share/shadow-clerk/summary-YYYYMMDD.md` に保存される。
 
+### AI コンソール
+- アシスタントは `$SHADOW_CLERK_URL`（コンソールが子プロセスに渡す）で API に届くので、ポートを推測しない。
+
+ダッシュボードの **AI Console** タブ（**Logs** タブの隣）で、AI アシスタント（`claude` または `codex`）を PTY 上で動かし、会議の文字起こしを監視させて生成物を書かせることができる。
+
+- **起動**: 会議開始時（`auto_analyze: true
+auto_summary_via_console: true   # コンソールが走っていれば議事録をそちらに作らせる`）または「分析開始」ボタンで手動起動。いずれの場合もアシスタントの TUI が準備できたタイミングで `ai_assistant_init_prompt`（デフォルト `/mtg {transcript} {lang}`）が PTY に送られる。`{transcript}` と `{meeting}` は実際のファイルパスに、`{lang}` は `translate_language` に置き換えられ、スキルは読みたい言語で書く
+- **生成物**: Summary パネルの `[Summary][提案][分析]` タブに表示される
+  - `advice-<stem>.md` — 未解決の質問・提案（毎回上書き）
+  - `analysis-<stem>.md` — 確定した事実（追記）
+
+  どちらも Markdown で、サーバ側で HTML に起こしてから配る。生成物に混ざった
+  生 HTML はレンダリングせず、実体参照に落とす。
+- **セッションのライフサイクル**: 1 つの PTY セッションを使い回し、会議が終わっても停止しない — 会議後の議事録作成にもそのまま使える。停止するには Console タブの停止ボタンを押す
+- **起動ディレクトリ**: `ai_assistant_workdir` が既定の起動ディレクトリを決める。会議ごとの上書きは mtg スキルの `config.yaml`（`meetings[].workdir`）にあり、会議一覧の各行の ⚙ アイコンから編集できる。shadow-clerk が自分で作ったのではない `config.yaml` を初めて書き換えるときは、隣に一度だけ `<path>.bak` を残す（YAML の書き出しはキーは保つが、手書きのコメントは保たないため）
+- **権限**: アシスタントは mtg スキルのシェルスクリプトを実行するので、その起動ディレクトリの `.claude/settings.json` で許可しておくこと — しないと会議中に承認プロンプトで止まる
+- **SIGKILL 時に残るプロセス**: 通常の終了ではデーモンがアシスタントを止めるが、デーモン自体が SIGKILL（`kill -9`）で落ちた場合、アシスタントのプロセスが端末から切り離されたまま残ることがある。`pgrep -af claude`（または `codex`）で探して手で kill すること
+- **ダッシュボードを外部公開する場合の注意**: AI Console の端末内容（アシスタントがファイルから読んだ・出力した内容を含む）は他のダッシュボード機能と同じ `/api/events` の SSE に相乗りして配信されており、この SSE のファンアウトはクライアント単位の絞り込みを持たない。ダッシュボードを localhost 以外にバインドすると、到達できる相手はアシスタントの端末をそのまま覗ける。Console への入力系（`/api/console/input` 等）自体は localhost 限定に加え、`Origin` ヘッダを見て自分のブラウザからのクロスオリジンリクエストも拒否する
+
 ### 設定ファイル
 
 `~/.local/share/shadow-clerk/config.yaml` でデフォルト値や自動機能を設定できる:
@@ -420,6 +448,11 @@ clerk-util command translate_stop                  # 翻訳ループ停止
 translate_language: en        # 翻訳先言語 (ja/en/etc)
 auto_translate: false         # start meeting 時に自動翻訳を開始
 auto_summary: false           # end meeting 時に自動 summary 生成
+auto_analyze: false           # 会議開始と同時に AI アシスタントを起動し mtg スキルを走らせる
+ai_assistant_command: claude  # AI Console で起動するコマンド (claude, codex, ...)
+ai_assistant_args: ''         # そのコマンドの引数 (shlex で分割)
+ai_assistant_init_prompt: /mtg {transcript} {lang}  # TUI 準備完了後に PTY へ送るプロンプト。{transcript} {meeting} {lang} が置換される（{lang} は translate_language）
+ai_assistant_workdir: ''      # 既定の起動ディレクトリ。会議ごとの上書きは mtg スキルの meetings[].workdir にある
 default_language: null        # clerk-daemon のデフォルト言語 (null=自動検出)
 default_model: small          # clerk-daemon のデフォルト Whisper モデル
 output_directory: null        # transcript 出力先ディレクトリ (null=データディレクトリ)
@@ -465,6 +498,7 @@ clerk-util write-config-value auto_translate true     # 自動翻訳を有効化
 
 `auto_translate: true` にすると、会議セッション開始時に自動で翻訳が開始される。
 `auto_summary: true` にすると、会議セッション終了時に自動で議事録が生成される。
+`auto_analyze: true` にすると、会議セッション開始時に AI Console で AI アシスタントが起動する。
 
 ### 翻訳ファイルからの要約生成
 

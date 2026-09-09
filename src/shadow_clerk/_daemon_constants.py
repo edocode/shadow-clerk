@@ -54,6 +54,43 @@ STREAM_DEGRADED_RETRY_MAX_SEC = 300.0
 # join は 5 秒なので、その予算に収まる長さにしておく必要がある
 IPC_TIMEOUT_SEC = 1.5
 
+# 終了時、全スレッドの join に使える合計時間(秒)。個別に上限を持たせると
+# 応答しないスレッドの数だけ待ち時間が積み上がり、clerk-util restart の
+# 停止待ち予算を超えてしまうため、全体の期限として使う
+SHUTDOWN_JOIN_BUDGET_SEC = 5.0
+
+# --- AI Console (PTY) ---
+# 実表示行数ぶんしか grid が無いと、TUI の cursor up による再描画が
+# スクロールアウトした行に届かず、古い版がスクロールバックに残る。
+# grid を長く取れば cursor up が必ず届くのでこの重複は起きない。
+# PTY は1本しか立てず、pyte の buffer は疎なので長くしても実害がない。
+# 押し出された行を退避する処理はあえて持たない。
+VIRTUAL_ROWS = 10000
+DEFAULT_COLS = 120
+# ブラウザが決めた列数を覚えておく先。デーモンを再起動するたびに 120 桁へ
+# 戻ると、子はページが幅を報せてくるまでその幅で描き、その履歴が残る
+CONSOLE_COLS_FILE = os.path.join(DATA_DIR, "console.cols")
+CONSOLE_TICK_SEC = 0.1            # grid の差分を配信する間隔(秒)
+CONSOLE_READY_QUIET_SEC = 0.5     # grid が非空でこの秒数変化しなければ TUI 起動完了とみなす
+CONSOLE_READY_TIMEOUT_SEC = 15.0  # ready 判定の上限(秒)。超えたら諦めて送る
+# 初期プロンプトの本文と Enter の間に置く待ち。TUI (Ink 等) は 1 回の read で
+# 届いた末尾の CR を「送信」ではなく貼り付けの一部として吸収してしまうため、
+# 本文が入力欄に収まったのを見てから Enter を別の書き込みとして送る
+CONSOLE_BELOW_CURSOR_ROWS = 8     # カーソルより下に TUI が描く行を拾う窓の深さ
+CONSOLE_SUBMIT_DELAY_SEC = 0.4
+
+# SSE クライアントごとのキューの上限。tick スレッドが 100ms ごとに console
+# イベントを積むため、追いつけないクライアント（タブが背景に回った、
+# ネットワークが詰まった等）を無制限のキューで放置すると際限なくメモリを
+# 食う。上限を超えたクライアントは _broadcast 側で切断し、EventSource の
+# 自動再接続 + full snapshot での復帰に委ねる。
+# console のペイロードは 1 件が大きくなりうる（グリッドの dirty 行を
+# render_rows したもの）ため、件数の上限だけでは実質的なメモリ上限に
+# ならない。grid が VIRTUAL_ROWS に達したときのリセットでペイロードを
+# 小さく保つ対策（_daemon_console._emit_diff）と合わせても、上限の桁数
+# 自体を1桁下げて安全側に倒しておく
+SSE_QUEUE_MAXSIZE = 100
+
 DEFAULT_CONFIG = {
     "translate_language": "en",
     "auto_translate": False,
@@ -106,6 +143,16 @@ DEFAULT_CONFIG = {
     "gcal_calendar_id": "primary",
     "gcal_buffer_minutes": 2,        # 開始 N 分前に start_meeting を送信
     "gcal_end_buffer_minutes": 1,    # 終了 N 分後に end_meeting を送信
+    # AI Console
+    "auto_analyze": False,
+    # 議事録を AI コンソール側に作らせる。会議を生で見ていて過去回も
+    # 読んでいるぶん質が上がる。コンソールが走っていなければ従来どおり
+    # LLM で作る——落とさないと議事録が 1 つも出来ない
+    "auto_summary_via_console": True,
+    "ai_assistant_command": "claude",
+    "ai_assistant_args": "",
+    "ai_assistant_init_prompt": "/mtg {transcript} {lang}",
+    "ai_assistant_workdir": "",
 }
 
 # セッションファイル

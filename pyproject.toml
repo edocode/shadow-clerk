@@ -47,6 +47,8 @@ dependencies = [
     "evdev>=1.6.0; sys_platform == 'linux'",
     "PyAudioWPatch>=0.2.12; sys_platform == 'win32'",
     "langdetect>=1.0.9",
+    "pyte>=0.8.2",
+    "markdown-it-py>=3.0",
 ]
 
 [project.urls]

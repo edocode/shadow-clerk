@@ -112,6 +112,22 @@ def _is_recorder_running() -> bool:
     return bool(pid and is_clerk_daemon_process(pid))
 
 
+# 停止待ちの上限(秒)。SIGTERM 後の graceful shutdown を待つ時間と、
+# それを過ぎて SIGKILL した後にプロセスが消えるのを待つ時間
+_STOP_GRACE_SEC = 20.0
+_STOP_KILL_SEC = 5.0
+
+
+def _wait_stopped(timeout: float) -> bool:
+    """clerk-daemon が停止するまで待つ。時間内に止まれば True"""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        time.sleep(0.2)
+        if not _is_recorder_running():
+            return True
+    return not _is_recorder_running()
+
+
 def cmd_recorder_status(args: list[str]) -> None:
     print("running" if _is_recorder_running() else "stopped")
 
@@ -275,14 +291,20 @@ def cmd_restart(args: list[str]) -> None:
             subprocess.run(["pkill", "-f", _PKILL_PATTERN])
         else:
             print("warning: PIDファイルが見つかりません。実行中の clerk-daemon を特定できません。", file=sys.stderr)
-        # 終了待機（最大10秒）
-        for _ in range(20):
-            time.sleep(0.5)
-            if not _is_recorder_running():
-                break
-        else:
-            print("warning: clerk-daemon が停止しませんでした", file=sys.stderr)
-            sys.exit(1)
+        # 終了待機。daemon の graceful shutdown はスレッドの join と
+        # AI Console (PTY) の子プロセス停止を含むので数秒かかる
+        if not _wait_stopped(_STOP_GRACE_SEC):
+            print(f"warning: clerk-daemon が {_STOP_GRACE_SEC:.0f} 秒で停止しないため強制終了します",
+                  file=sys.stderr)
+            if pid and sys.platform != "win32":
+                import signal as _signal
+                try:
+                    os.kill(pid, _signal.SIGKILL)
+                except OSError:
+                    pass
+            if not _wait_stopped(_STOP_KILL_SEC):
+                print("warning: clerk-daemon が停止しませんでした", file=sys.stderr)
+                sys.exit(1)
     # 起動 (exec)
     _exec_clerk_daemon(list(args))
 

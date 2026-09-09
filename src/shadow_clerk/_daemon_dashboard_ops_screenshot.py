@@ -8,6 +8,7 @@ import logging
 import os
 from shadow_clerk import DATA_DIR
 from shadow_clerk._daemon_constants import SESSION_FILE
+from shadow_clerk._daemon_dashboard_base import is_localhost_client
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -15,8 +16,6 @@ logger = logging.getLogger("shadow-clerk")
 _DATA_URL_PREFIX = "data:image/png;base64,"
 # 4K のフルスクリーン png でも 12MB は超えないため、それ以上は不正とみなす
 _MAX_IMAGE_BYTES = 12 * 1024 * 1024
-# 書き込みを伴うので、ダッシュボードの bind とは別に、このエンドポイントだけ localhost に限る
-_ALLOWED_CLIENTS = ("127.0.0.1", "::1", "::ffff:127.0.0.1")
 
 
 class _DashboardHandlerScreenshotOps:
@@ -24,9 +23,9 @@ class _DashboardHandlerScreenshotOps:
 
     def _save_screenshot(self) -> None:
         """POST /api/screenshot — 拡張が撮ったタブのキャプチャを保存し、transcript に1行残す"""
-        client = self.client_address[0] if self.client_address else ""
-        if client not in _ALLOWED_CLIENTS:
+        if not is_localhost_client(self.client_address):
             # ダッシュボード自体は外部からも見られる設定でありうるが、書き込みは通さない
+            client = self.client_address[0] if self.client_address else ""
             logger.warning("screenshot: 拒否 (client=%s)", client)
             self._send_json({"status": "error", "message": "screenshot API is localhost only"})
             return

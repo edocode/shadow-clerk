@@ -310,6 +310,15 @@ custom_commands:
 - `pattern`: Regular expression (case-insensitive)
 - `action`: Shell command to execute
 
+Start the meeting analysis by voice — glossary already has `クラーク` as a
+wake word, so this pattern fires when you say it while holding the PTT key:
+
+```yaml
+custom_commands:
+  - pattern: (クラーク|クラーク、)?分析(開始|して)
+    action: curl -sX POST localhost:8765/api/console/start
+```
+
 #### LLM fallback
 
 If a voice command doesn't match any built-in or custom command and `api_endpoint` is configured, the utterance is sent to the LLM as a query. The response is printed to stdout and saved to `.clerk_response`.
@@ -409,6 +418,25 @@ Meeting start/end is also available via **voice commands** ("clerk, start meetin
 
 Generated meeting minutes are saved to `~/.local/share/shadow-clerk/summary-YYYYMMDD.md`.
 
+### AI Console
+- The assistant reaches these APIs at `$SHADOW_CLERK_URL`, injected into the console's environment, so it never has to guess the port.
+
+An AI assistant (`claude` or `codex`) can run inside a PTY under the dashboard's **AI Console** tab (next to **Logs**), watching the meeting transcript and writing generated documents back for the dashboard to display.
+
+- **Starting**: automatically when a meeting starts (`auto_analyze: true
+auto_summary_via_console: true   # let the console write the minutes when it is running`), or manually via the "Start Analysis" button. Either way, `ai_assistant_init_prompt` (default `/mtg {transcript} {lang}`) is sent to the PTY once the assistant's TUI is ready — `{transcript}` and `{meeting}` are substituted with the active file paths, and `{lang}` with `translate_language`, so the skill writes in the language you read.
+- **Generated documents**: shown in the Summary panel's `[Summary][Advice][Analysis]` tabs:
+  - `advice-<stem>.md` — open questions and suggestions (overwritten each time)
+  - `analysis-<stem>.md` — confirmed facts (appended)
+
+  Both are Markdown and are rendered to HTML server-side. Raw HTML inside them
+  is escaped, never rendered.
+- **Session lifecycle**: one PTY session is reused for the whole run; it is **not** stopped when the meeting ends, so it stays available for writing up minutes afterward. Stop it from the Console tab's stop button.
+- **Working directory**: `ai_assistant_workdir` sets the default launch directory. Per-meeting overrides live in the mtg skill's `config.yaml` (`meetings[].workdir`), editable from the gear icon (⚙) on each meeting's row in the meeting list. The first time shadow-clerk writes to a `config.yaml` it didn't create itself, it saves a one-time `<path>.bak` copy alongside it, since the YAML writer preserves keys but not your hand-written comments.
+- **Permissions**: the assistant runs shell scripts from the mtg skill, so allow them in that working directory's `.claude/settings.json` — otherwise it stops mid-meeting at a permission prompt.
+- **Orphaned process on SIGKILL**: the daemon stops the assistant on normal shutdown, but if the daemon itself is killed with SIGKILL (`kill -9`), the assistant process can be left running (it is detached from any terminal). Find and kill it manually with `pgrep -af claude` (or `codex`).
+- **Security note if you expose the dashboard**: the AI Console's terminal content (including whatever the assistant reads or prints from your files) is streamed over the same `/api/events` SSE used by the rest of the dashboard, and that SSE fan-out has no per-client filtering. If you bind the dashboard beyond localhost, anyone who can reach it can watch the assistant's terminal live. Console input (`/api/console/input` etc.) itself stays localhost-only and additionally checks the `Origin` header to reject cross-origin requests from your own browser.
+
 ### Configuration file
 
 Customize defaults and auto-features in `~/.local/share/shadow-clerk/config.yaml`:
@@ -418,6 +446,11 @@ Customize defaults and auto-features in `~/.local/share/shadow-clerk/config.yaml
 translate_language: en        # Translation target language (ja/en/etc)
 auto_translate: false         # Auto-start translation on start meeting
 auto_summary: false           # Auto-generate summary on end meeting
+auto_analyze: false           # Launch the AI assistant and run the meeting skill when a meeting starts
+ai_assistant_command: claude  # Command to run in the AI Console (claude, codex, ...)
+ai_assistant_args: ''         # Arguments for that command, split with shlex
+ai_assistant_init_prompt: /mtg {transcript} {lang}  # Sent to the PTY once the TUI is ready. {transcript}, {meeting} and {lang} are substituted ({lang} = translate_language)
+ai_assistant_workdir: ''      # Default working directory. Per-meeting overrides live in the mtg skill's meetings[].workdir
 default_language: null        # Default language for clerk-daemon (null=auto-detect)
 default_model: small          # Default Whisper model for clerk-daemon
 output_directory: null        # Transcript output directory (null=data directory)
@@ -463,6 +496,7 @@ clerk-util write-config-value auto_translate true     # Enable auto-translation
 
 With `auto_translate: true`, translation starts automatically when a meeting session begins.
 With `auto_summary: true`, meeting minutes are generated automatically when a meeting session ends.
+With `auto_analyze: true`, the AI assistant is launched in the AI Console when a meeting session begins.
 
 ### Summary source selection
 

@@ -112,7 +112,7 @@ function renderMtgPane(){
     });
     mp.innerHTML=files.map(f=>{
       const fi=fileInfo[f];
-      return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(escJs(f))}')" title="${escAttr(f)}"><span class="mg-file-label">${esc((fi?.label||f))}</span>${_badges(fi)}</div>`;
+      return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(escJs(f))}')" title="${escAttr(f)}"><span class="mg-file-label">${esc((fi?.label||f))}</span>${_badges(fi)}${_wdBtn(f)}</div>`;
     }).join('');
   }
 }
@@ -133,9 +133,6 @@ function selectMtgFile(file){
     });
   fsel.value=file;onSel();_updateRenameMtgBtn();
 }
-// ファイル切替直後に前リクエストの遅延応答が届いてパネルを上書きしないよう、
-// 各 load 関数は世代カウンタで最新リクエストの応答のみ描画する
-let _tGen=0,_rGen=0;
 async function loadT(file){
   const g=++_tGen;
   try{const u=file?'/api/transcript?file='+encodeURIComponent(file):'/api/transcript';
@@ -162,7 +159,7 @@ async function loadLogs(){
     el.insertAdjacentHTML('beforeend','<div class="ll '+c+'">'+esc(l)+'</div>');});
   el.scrollTop=el.scrollHeight;}catch(e){}
 }
-function onSel(){deselectAll();curFile=document.getElementById('fsel').value;_setHashFile(curFile);loadT(curFile);loadR(curFile);loadS(curFile);renderMtgPane();_updateRenameMtgBtn();}
+function onSel(){deselectAll();curFile=document.getElementById('fsel').value;_setHashFile(curFile);loadT(curFile);loadR(curFile);loadS(curFile);loadAdvice(curFile);loadAnalysis(curFile);renderMtgPane();_updateRenameMtgBtn();}
 function goActive(){if(!activeFile)return;const s=document.getElementById('fsel');s.value=activeFile;onSel();}
 async function cmd(c){try{await fetch('/api/command',{method:'POST',
   headers:{'Content-Type':'application/json'},body:JSON.stringify({command:c})});}catch(e){}}
@@ -177,7 +174,9 @@ es.addEventListener('alert',e=>{
   const d=JSON.parse(e.data);if(d.message){alert(d.message);loadS(curFile);openSumPane();}
 });
 function hideResp(){document.getElementById('resp').classList.remove('show');}
-initSearchSelects();switchLeftTab('dates');loadFiles();if(!_hashFile()){loadT('');loadR('');loadS('');}loadLogs();
+// ペインの初回読み込みは loadFiles() に一本化する。ここでも読むと、
+// ハッシュの有無で「二重に読む」と「一度も読まない」に分かれてしまう
+initSearchSelects();switchLeftTab('dates');switchSumTab('summary');loadFiles();loadLogs();
 // 翻訳・ミュート等のボタン状態は SSE に載らないため、定期的にステータスも同期する
 setInterval(()=>{loadFiles();fetchStatus();},10000);
 window.addEventListener('hashchange',()=>{const f=_hashFile();if(f&&fileInfo[f]&&f!==curFile)selectMtgFile(f);});
@@ -228,6 +227,13 @@ const CFG_FIELDS=[
   {key:'api_model',label:I18N['cfg.api_model'],type:'api_model'},
   {key:'api_key_env',label:I18N['cfg.api_key_env'],type:'text',ph:'SHADOW_CLERK_API_KEY'},
   {key:'api_disable_thinking',label:I18N['cfg.api_disable_thinking'],type:'bool',def:false},
+  {type:'section',label:I18N['cfg.section.ai_console']},
+  {key:'auto_analyze',label:I18N['cfg.auto_analyze'],type:'bool'},
+  {key:'ai_assistant_command',label:I18N['cfg.ai_assistant_command'],type:'text',ph:'claude'},
+  {key:'ai_assistant_args',label:I18N['cfg.ai_assistant_args'],type:'text',ph:I18N['cfg.ai_assistant_args_ph']},
+  {key:'ai_assistant_init_prompt',label:I18N['cfg.ai_assistant_init_prompt'],type:'text',ph:I18N['cfg.ai_assistant_init_prompt_ph']},
+  {key:'ai_assistant_workdir',label:I18N['cfg.ai_assistant_workdir'],type:'text',ph:I18N['cfg.ai_assistant_workdir_ph'],
+    warn:{when:'',msgKey:'cfg.ai_assistant_workdir_warn'}},
   {type:'section',label:I18N['cfg.section.gcal']},
   {key:'gcal_integration',label:I18N['cfg.gcal_integration'],type:'bool'},
   {key:'gcal_credentials_file',label:I18N['cfg.gcal_credentials_file'],type:'text',ph:I18N['cfg.gcal_credentials_file_ph']},
@@ -436,7 +442,6 @@ function _renderAttendees(list){
     +(note?'<div style="font-size:11px;color:var(--muted);margin-top:2px">'+esc(note)+'</div>':'')
     +'</div>';
 }
-let _sGen=0;
 async function loadS(file){
   const el=document.getElementById('sp');if(!el)return;
   const g=++_sGen;
@@ -456,6 +461,40 @@ async function loadS(file){
         +'<button class="pri" onclick="genSummary()">'+esc(I18N['dash.summary']||'Summary')+'</button></div>';
     }
   }catch(e){el.innerHTML='';}
+}
+async function loadAdvice(file){
+  const g=++_adGen;
+  const f=file?'?file='+encodeURIComponent(file):'';
+  try{const d=await(await fetch('/api/advice'+f)).json();if(g!==_adGen)return;
+    _renderGenerated('adp','adf',d,'dash.no_advice');
+  }catch(e){}
+}
+async function loadAnalysis(file){
+  const g=++_anGen;
+  const f=file?'?file='+encodeURIComponent(file):'';
+  try{const d=await(await fetch('/api/analysis'+f)).json();if(g!==_anGen)return;
+    _renderGenerated('anp','anf',d,'dash.no_analysis');
+    const el=document.getElementById('anp');if(el)el.scrollTop=el.scrollHeight;
+  }catch(e){}
+}
+/* 開始と停止を1つのボタンで受ける。走っているかは _consoleRunning が持つ */
+async function toggleAnalysis(){
+  // 連打すると「分析開始」が多重送信され、起動途中の PTY に2回目の初期
+  // プロンプトが即 write されて消えうる(I1)。送信中はボタンを無効化する
+  const btn=document.getElementById('btnStartAnalysis');
+  if(btn){if(btn.disabled)return;btn.disabled=true;}
+  if(_consoleRunning){
+    try{await stopConsole();}finally{if(btn)btn.disabled=false;}
+    return;
+  }
+  const body=curFile?JSON.stringify({transcript:curFile}):'{}';
+  try{const r=await fetch('/api/console/start',{method:'POST',
+    headers:{'Content-Type':'application/json'},body});
+    const d=await r.json();
+    if(d.status!=='ok')alert(I18N['dash.console_start_failed']||'Failed to start the AI assistant.');
+    else switchLogTab('console');
+  }catch(e){}
+  finally{if(btn)btn.disabled=false;}
 }
 async function genSummary(){
   const f=curFile||undefined;
