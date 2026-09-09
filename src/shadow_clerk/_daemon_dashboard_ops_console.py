@@ -8,9 +8,11 @@ import re
 from urllib.parse import urlparse, parse_qs
 
 from shadow_clerk._daemon_console import get_console, start_console_for
+from shadow_clerk._daemon_constants import FORBID_ANALYZE_FILE
 from shadow_clerk._daemon_dashboard_base import is_localhost_client, is_same_origin_request
 from shadow_clerk._markdown import render_markdown
 from shadow_clerk._transcript_name import TranscriptName
+from shadow_clerk.domain.forbid_analyze import ForbidAnalyze
 from shadow_clerk.domain.mtg_config import MtgConfig
 
 logger = logging.getLogger("shadow-clerk")
@@ -198,6 +200,23 @@ class _DashboardHandlerConsoleOps:
     def _serve_analysis(self) -> None:
         """GET /api/analysis — 確定した事実（全文）"""
         self._serve_generated(1)
+
+    def _serve_forbid_analyze(self) -> None:
+        """GET /api/forbid-analyze — AI 分析の対象外にする話題"""
+        fa = ForbidAnalyze.load()
+        self._send_json({"status": "ok", "path": FORBID_ANALYZE_FILE,
+                         "items": list(fa.items)})
+
+    def _save_forbid_analyze(self) -> None:
+        """POST /api/forbid-analyze — 一覧をまるごと置き換える"""
+        data = self._console_body()
+        if data is None:
+            return
+        fa = ForbidAnalyze.from_items(data.get("items"))
+        if not fa.save():
+            self._send_json({"status": "error", "message": "failed to save"})
+            return
+        self._send_json({"status": "ok", "items": list(fa.items)})
 
     def _serve_mtg_config(self) -> None:
         """GET /api/mtg-config — 会議ごとの workdir 設定"""

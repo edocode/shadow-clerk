@@ -70,6 +70,9 @@ DEFAULT_COLS = 120
 # ブラウザが決めた列数を覚えておく先。デーモンを再起動するたびに 120 桁へ
 # 戻ると、子はページが幅を報せてくるまでその幅で描き、その履歴が残る
 CONSOLE_COLS_FILE = os.path.join(DATA_DIR, "console.cols")
+# AI 分析の対象外にする話題。空・不在なら「どんな会話でも分析する」。
+# スキル (skills/mtg) がこのファイルを読む
+FORBID_ANALYZE_FILE = os.path.join(DATA_DIR, "forbid-ai-analyze.txt")
 CONSOLE_TICK_SEC = 0.1            # grid の差分を配信する間隔(秒)
 CONSOLE_READY_QUIET_SEC = 0.5     # grid が非空でこの秒数変化しなければ TUI 起動完了とみなす
 CONSOLE_READY_TIMEOUT_SEC = 15.0  # ready 判定の上限(秒)。超えたら諦めて送る

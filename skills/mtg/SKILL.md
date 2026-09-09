@@ -71,7 +71,7 @@ curl -s "$SHADOW_CLERK/api/mtg-config/resolve?meeting=<会議名>"
 | Linux / macOS | `~/.local/share/shadow-clerk/forbid-ai-analyze.txt` |
 | Windows | `%APPDATA%\\shadow-clerk\\forbid-ai-analyze.txt` |
 
-1 行 1 項目で書かれている。
+1 行 1 項目で書かれている。Dashboard の設定（AI コンソールの節）から編集できる。
 
 ```
 - 個人の評価

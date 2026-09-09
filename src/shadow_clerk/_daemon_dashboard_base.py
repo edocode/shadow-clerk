@@ -129,6 +129,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_analysis()
         elif path == "/api/mtg-config":
             self._serve_mtg_config()
+        elif path == "/api/forbid-analyze":
+            self._serve_forbid_analyze()
         else:
             self.send_error(404)
 
@@ -170,6 +172,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._console_resize()
         elif path == "/api/mtg-config":
             self._save_mtg_config()
+        elif path == "/api/forbid-analyze":
+            self._save_forbid_analyze()
         else:
             self.send_error(404)
 

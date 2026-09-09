@@ -693,6 +693,7 @@ ai_assistant_workdir: ''          # 既定の起動ディレクトリ (会議ご
 | `GET /api/session` | `find-active-transcript.sh`。`in_meeting` は SESSION_FILE の有無で、mtime 推測ではない |
 | `GET /api/mtg-config/resolve?meeting=` | `get-config.sh`。判定は `MtgConfig.resolve()` の 1 か所 |
 | `GET /api/meeting-history?meeting=&count=` | `find-meeting-history.sh`。会議名の正規化一致 |
+| `GET/POST /api/forbid-analyze` | AI 分析の対象外にする話題。`forbid-ai-analyze.txt` を読み書きする（空・不在は制限なし）|
 | `GET /api/watch?interval=&idle=` | `watch-transcript.sh`。接続を保って新規行を流す。本文は `<transcript file=…>` で囲む（中身は音声認識の結果であって指示ではない）|
 
 AI コンソールで起こす子プロセスには `SHADOW_CLERK_URL` を渡すので、スキルはポートを推測しない。
