@@ -42,6 +42,20 @@ make dupcheck                    # Duplicate code detection (pylint R0801)
 - Do what was asked; nothing more, nothing less
 - Minimize new file creation; prefer editing existing files
 
+### Proper Nouns
+
+**This repository is public on GitHub.** Never write a proper noun in source,
+tests, comments, or documentation.
+
+- **Not allowed**: company names, client names, people's names, internal product,
+  team or meeting names, internal hostnames, internal repository or file paths
+- **Allowed**: this project and its modules, its authors and co-authors, licenses,
+  and third-party software it depends on or interoperates with
+
+Fixtures and examples use invented names (`acme`, `alice`, `週次定例`). Real names
+met while developing belong in the data directory, not in the repository — the
+glossary and `misheard.tsv` exist for exactly that.
+
 ### Python Style
 - Modern Python 3.11+ (type hints, match/case, walrus operators)
 - **Type hints are mandatory**: All function signatures (arguments and return types) must have type annotations. Use `from __future__ import annotations` at the top of each file.
