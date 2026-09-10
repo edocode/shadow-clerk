@@ -179,6 +179,8 @@ function updateConsoleStatus(running){
   const b=document.getElementById('btnConsoleStop');
   if(s)s.textContent=running?'\\u25cf running':'\\u25cb stopped';
   if(b)b.style.display=running?'':'none';
+  const l=document.getElementById('btnConsoleLaunch');
+  if(l)l.style.display=running?'none':'';
   // 開始/停止は1つのボタンで受ける
   const t=document.getElementById('btnStartAnalysis');
   if(t){
@@ -213,13 +215,36 @@ async function loadConsole(){
   }catch(e){}
 }
 
+/* 初期プロンプトを送らずに端末だけ出す。前のセッションを /resume で
+   拾い直したいときに使う——プロンプトが入ると拾う前に会話が始まる */
+async function launchConsole(){
+  const btn=document.getElementById('btnConsoleLaunch');
+  if(btn){if(btn.disabled)return;btn.disabled=true;}
+  const body=JSON.stringify(curFile?{transcript:curFile,prompt:false}:{prompt:false});
+  try{const d=await(await fetch('/api/console/start',{method:'POST',
+    headers:{'Content-Type':'application/json'},body})).json();
+    if(d.status!=='ok')alert(I18N['dash.console_start_failed']||'Failed to start the AI assistant.');
+    else switchLogTab('console');
+  }catch(e){}
+  finally{if(btn)btn.disabled=false;}
+}
 async function stopConsole(){
   if(!confirm(I18N['dash.console_stop_confirm']||'Stop?'))return;
   try{await fetch('/api/console/stop',{method:'POST',
     headers:{'Content-Type':'application/json'},body:'{}'});}catch(e){}
 }
 
-async function sendConsole(data){
+/* キー入力は**必ず打った順に**届ける。1打ごとに fetch を投げっぱなしにすると、
+   同時に飛んだ POST がサーバ側で別スレッドに載って追い越す——実測で "hello123"
+   が "holle123" になった。前の送信が終わってから次を送る。localhost なので
+   1往復は 1ms 程度で、直列にしても打鍵に追いつく */
+let _consoleSendQ=Promise.resolve();
+function sendConsole(data){
+  const next=()=>_postConsole(data);
+  _consoleSendQ=_consoleSendQ.then(next,next);   // 失敗しても列は止めない
+  return _consoleSendQ;
+}
+async function _postConsole(data){
   try{await fetch('/api/console/input',{method:'POST',
     headers:{'Content-Type':'application/json'},body:JSON.stringify({data})});}catch(e){}
 }
@@ -255,6 +280,29 @@ function onConsoleKey(e){
 }
 /* サーバの上限(8192文字)を超える貼り付けは、切り捨てずにチャンク分割して順に送る */
 const CONSOLE_INPUT_CHUNK=8192;
+/* 変換中の文字列が占めるセル数。CJK は 2 セル分の幅を取る。
+   端末と同じ数え方(East Asian Wide / Fullwidth)にしておかないと、
+   変換中の箱が文字より狭くなって末尾が隠れる */
+function _consoleCells(s){
+  let n=0;
+  for(const ch of s){
+    const c=ch.codePointAt(0);
+    const wide=c>=0x1100&&(c<=0x115f||c===0x2329||c===0x232a
+      ||(c>=0x2e80&&c<=0xa4cf&&c!==0x303f)||(c>=0xac00&&c<=0xd7a3)
+      ||(c>=0xf900&&c<=0xfaff)||(c>=0xfe30&&c<=0xfe6f)
+      ||(c>=0xff00&&c<=0xff60)||(c>=0xffe0&&c<=0xffe6));
+    n+=wide?2:1;
+  }
+  return n;
+}
+/* 変換中の文字を見せる。textarea は opacity:0 で重ねてあるので、何もしないと
+   確定するまで画面に一文字も出ない。確定前の文字は端末にはまだ送っていない
+   (送ると変換のたびに端末側が書き換わる) ので、ここで見せるしかない */
+function onConsoleComposing(e){
+  const t=e.target;if(!t)return;
+  t.classList.add('composing');
+  t.style.width=Math.max(2,_consoleCells(e.data||'')+1)+'ch';
+}
 /* IME で確定したテキストを送る。onConsoleKey は合成中のキーを捨てるだけなので、
    これが無いと日本語がひとつも入らない。keydown で拾える文字ではないため
    compositionend の data を使う */
@@ -262,7 +310,11 @@ function onConsoleComposition(e){
   const t=e.data;
   // textarea には変換中の文字が残っている。送ったあと必ず空にする——
   // 残すと次の入力に混ざり、送信済みの文字が二重に届く
-  if(e.target)e.target.value='';
+  if(e.target){
+    e.target.value='';
+    e.target.classList.remove('composing');
+    e.target.style.width='';
+  }
   if(t)sendConsole(t);
 }
 /* 端末の入力は textarea が受ける。#consolec をクリックしたときもそちらへ移す */
@@ -329,52 +381,78 @@ function initLogResize(){
   });
 }
 
-/* 提案(上) と分析(下) の仕切り。logResize と同じ流儀で高さを localStorage に残す */
-/* 提案/分析の上下分割。SUM_SPLIT_MIN はどちらのペインにも残す最低の高さ */
+/* 提案 と 分析 の仕切り。logResize と同じ流儀で大きさを localStorage に残す */
+/* SUM_SPLIT_MIN はどちらのペインにも残す最低の高さ/幅 */
 const SUM_SPLIT_MIN=60;
-let _adviceWant=0;      // ユーザーが決めた高さ。容器に合わせて挟むが、この値自体は動かさない
-/* 保存した高さは「保存した時点のペイン高さ」に対する値でしかない。ウィンドウを
-   狭めたり下部ペインを広げたりすると容器を超え、下の分析ペインが 0 近くまで
-   潰れる（実際 aiWrap 745px に対し advWrap が 923px になっていた）。
-   容器の高さが変わるたびに挟み直す。_adviceWant は書き換えないので、
-   容器が広がれば元の高さに戻る */
+/* 左右に並べ替える幅。入りと戻りをずらして、境目での往復を防ぐ */
+const SUM_ROW_ON=660, SUM_ROW_OFF=600;
+let _adviceWant=0, _adviceWantW=0;  // ユーザーが決めた高さ/幅。容器に合わせて挟むが、この値自体は動かさない
+/* 縦積みと横並びでいじる軸が変わる。判定を 1 か所に集める */
+function _sumRow(){const w=document.getElementById('aiWrap');return !!w&&w.classList.contains('row');}
+function _sumProp(row){return row?'width':'height';}
+function _sumWant(row){return row?_adviceWantW:_adviceWant;}
+/* 保存した値は「保存した時点のペインの大きさ」に対するものでしかない。ウィンドウを
+   狭めたり下部ペインを広げたりすると容器を超え、もう一方が 0 近くまで潰れる
+   （実際 aiWrap 745px に対し advWrap が 923px になっていた）。
+   容器の大きさが変わるたびに挟み直す。want は書き換えないので、
+   容器が広がれば元の大きさに戻る */
 function clampSumSplit(){
   const top=document.getElementById('advWrap'),wrap=document.getElementById('aiWrap');
   if(!top||!wrap)return;
-  const avail=wrap.getBoundingClientRect().height;
+  const row=_sumRow(),prop=_sumProp(row);
+  const avail=wrap.getBoundingClientRect()[prop];
   if(avail<SUM_SPLIT_MIN*2+10)return;   // 畳んでいる、または測れない
-  const cur=parseInt(top.style.height,10)||Math.round(top.getBoundingClientRect().height);
+  const cur=parseInt(top.style[prop],10)||Math.round(top.getBoundingClientRect()[prop]);
   const h=Math.round(Math.max(SUM_SPLIT_MIN,
-                              Math.min(avail-SUM_SPLIT_MIN-10,_adviceWant||cur)));
-  if(h!==cur)top.style.height=h+'px';
+                              Math.min(avail-SUM_SPLIT_MIN-10,_sumWant(row)||cur)));
+  if(h!==cur)top.style[prop]=h+'px';
 }
+/* 幅で縦積みと横並びを決める。狭いまま左右に割ると 1 ペインが数十文字になり、
+   広いまま縦に積むと 1 ペインが数行になる。切り替えたら使わない軸のインラインを
+   消す——残っていると縦積みなのに幅まで固定され、分析ペインが痩せたままになる */
+function applySumOrientation(){
+  const top=document.getElementById('advWrap'),wrap=document.getElementById('aiWrap');
+  if(!top||!wrap)return;
+  const w=wrap.getBoundingClientRect().width;
+  if(!w)return;                          // 非表示。表に出たときに測り直す
+  const row=_sumRow(),want=w>=(row?SUM_ROW_OFF:SUM_ROW_ON);
+  if(want===row)return;
+  wrap.classList.toggle('row',want);
+  top.style.width='';top.style.height='';
+  const v=_sumWant(want);
+  if(v>=SUM_SPLIT_MIN)top.style[_sumProp(want)]=v+'px';
+}
+/* 向きを決めてから挟む。外から呼ぶのはこれだけ */
+function updateSumSplit(){applySumOrientation();clampSumSplit();}
 function initSumSplit(){
   const bar=document.getElementById('sumSplit'),top=document.getElementById('advWrap'),
         wrap=document.getElementById('aiWrap');
   if(!bar||!top||!wrap)return;
-  try{_adviceWant=parseInt(localStorage.getItem('adviceHeight')||'0',10)||0;}catch(e){}
+  try{_adviceWant=parseInt(localStorage.getItem('adviceHeight')||'0',10)||0;
+      _adviceWantW=parseInt(localStorage.getItem('adviceWidth')||'0',10)||0;}catch(e){}
   if(_adviceWant>=SUM_SPLIT_MIN)top.style.height=_adviceWant+'px';
-  clampSumSplit();
+  updateSumSplit();
   if(window.ResizeObserver){
-    _sumSplitRO=new ResizeObserver(()=>clampSumSplit());
+    _sumSplitRO=new ResizeObserver(()=>updateSumSplit());
     _sumSplitRO.observe(wrap);
   }
   // ResizeObserver は描画に紐づくので背景タブでは動かない。window の resize も繋ぐ
-  window.addEventListener('resize',clampSumSplit);
+  window.addEventListener('resize',updateSumSplit);
   let dragging=false;
   bar.addEventListener('mousedown',e=>{dragging=true;e.preventDefault();});
   window.addEventListener('mousemove',e=>{
     if(!dragging)return;
-    const r=wrap.getBoundingClientRect();
-    const h=Math.max(SUM_SPLIT_MIN,
-                     Math.min(r.height-SUM_SPLIT_MIN-10,e.clientY-r.top));
-    top.style.height=h+'px';
+    const row=_sumRow(),prop=_sumProp(row),r=wrap.getBoundingClientRect();
+    const pos=row?e.clientX-r.left:e.clientY-r.top;
+    top.style[prop]=Math.max(SUM_SPLIT_MIN,
+                             Math.min(r[prop]-SUM_SPLIT_MIN-10,pos))+'px';
   });
   window.addEventListener('mouseup',()=>{
     if(!dragging)return;
     dragging=false;
-    _adviceWant=parseInt(top.style.height,10)||0;
-    try{localStorage.setItem('adviceHeight',String(_adviceWant));}catch(e){}
+    const row=_sumRow(),v=parseInt(top.style[_sumProp(row)],10)||0;
+    if(row)_adviceWantW=v;else _adviceWant=v;
+    try{localStorage.setItem(row?'adviceWidth':'adviceHeight',String(v));}catch(e){}
   });
 }
 
@@ -387,6 +465,8 @@ es.addEventListener('console',e=>{
     // div は編集可能でないので composition イベントが来ない。入力は textarea が受ける
     ti.addEventListener('keydown',onConsoleKey);
     ti.addEventListener('paste',onConsolePaste);
+    ti.addEventListener('compositionstart',onConsoleComposing);
+    ti.addEventListener('compositionupdate',onConsoleComposing);
     ti.addEventListener('compositionend',onConsoleComposition);
   }
   // **mousedown ではなく click。** mousedown で focus しても、その後に走る
@@ -401,6 +481,11 @@ es.addEventListener('console',e=>{
     c.title=I18N['dash.console_hint']||'';}
   initLogResize();
   initSumSplit();
+  // 前回の T|R|AI をここで適用する。**panels の初期化では早すぎる**——
+  // AI は分割の復元を伴い、SUM_SPLIT_MIN はこのファイルの const なので、
+  // 先に呼ぶと TDZ で初期化ごと止まる
+  applyPanelMode();
+  applyFontSize();   // ここも同じ理由で console の初期化から（列の測り直しを伴う）
   switchLogTab('logs',{expand:false});  // 初期化ではタブの見た目だけ整え、折りたたみは変えない
   // AI 分析 (auto_analyze) が有効なときだけ、下部ペインの既定を
   // AI コンソールにする。無効なら従来どおりログのまま——コンソールを

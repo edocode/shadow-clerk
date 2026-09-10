@@ -88,6 +88,9 @@ class ConsoleSession:
         self._seq = 0
         self._last_running: bool | None = None
         self._has_output = False
+        # 最後に配信したカーソル位置。**矢印キーや Ctrl-B は行を汚さない**ので、
+        # dirty だけを見ているとカーソル移動が一度もクライアントに届かない
+        self._last_cursor: list[int] = [0, 0]
 
     # --- ライフサイクル ---
 
@@ -386,15 +389,21 @@ class ConsoleSession:
             else:
                 dirty = sorted(y for y in self.screen.dirty if y <= self.max_row)
                 self.screen.dirty.clear()
-                if dirty:
+                cursor = [self.screen.cursor.y, self.screen.cursor.x]
+                # カーソルが動いただけでも配信する。pyte は cursor_back /
+                # cursor_position で dirty を触らないため、`dirty` だけを条件に
+                # すると矢印キーや Ctrl-B での移動が画面に反映されない
+                if dirty or cursor != self._last_cursor:
                     payload = {
                         "seq": self._seq,
                         "rows": render_rows(self.screen, dirty),
                         "max_row": self.max_row,
-                        "cursor": [self.screen.cursor.y, self.screen.cursor.x],
+                        "cursor": cursor,
                         "running": self.is_running(),
                     }
                     self._seq += 1
+            if payload is not None:
+                self._last_cursor = list(payload["cursor"])
         if payload is not None:
             fn("console", json.dumps(payload, ensure_ascii=False))
         self._emit_running()

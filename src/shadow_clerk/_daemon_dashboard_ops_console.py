@@ -71,7 +71,10 @@ class _DashboardHandlerConsoleOps:
         self._send_json(get_console().snapshot())
 
     def _start_console(self) -> None:
-        """POST /api/console/start — アシスタントを起動して初期プロンプトを送る"""
+        """POST /api/console/start — アシスタントを起動して初期プロンプトを送る。
+
+        `{"prompt": false}` なら端末を出すだけで何も打ち込まない (`/resume` 用)。
+        """
         data = self._console_body()
         if data is None:
             return
@@ -88,7 +91,7 @@ class _DashboardHandlerConsoleOps:
             transcript = os.path.join(self.recorder._output_dir, transcript)
         else:
             transcript = self.recorder.output_path
-        ok = start_console_for(transcript)
+        ok = start_console_for(transcript, send_prompt=data.get("prompt") is not False)
         self._send_json({"status": "ok" if ok else "error",
                          "running": get_console().is_running()})
 

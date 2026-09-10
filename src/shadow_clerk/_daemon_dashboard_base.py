@@ -15,6 +15,7 @@ from shadow_clerk._daemon_log_buffer import _SSE_CLOSE_EVENT
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_dashboard_html import _HTML_TEMPLATE
 from shadow_clerk._transcript_name import TranscriptName
+from shadow_clerk._markdown import render_markdown
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -419,9 +420,12 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         try:
             with open(summary_path, "r", encoding="utf-8") as f:
                 content = f.read()
-            self._send_json({"file": summary_name, "content": content})
         except FileNotFoundError:
-            self._send_json({"file": summary_name, "content": ""})
+            content = ""
+        # 議事録も advice/analysis と同じ Markdown なので HTML で配る。
+        # 生の Markdown も添えるのは、画面から Markdown のままコピーするため
+        self._send_json({"file": summary_name, "content": content,
+                         "html": render_markdown(content)})
 
     def _generate_summary(self) -> None:
         """POST /api/summary — 要約生成をトリガーする"""

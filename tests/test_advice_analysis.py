@@ -15,6 +15,11 @@ os.environ.setdefault("SHADOW_CLERK_DATA_DIR", DATA)
 from shadow_clerk._daemon_dashboard_ops_console import (  # noqa: E402
     _DashboardHandlerConsoleOps as Ops)
 from shadow_clerk._transcript_name import TranscriptName  # noqa: E402
+from shadow_clerk._daemon_dashboard_base import _DashboardHandlerBase as Base  # noqa: E402
+from shadow_clerk._daemon_dashboard_html import _HTML_TEMPLATE as _HTML  # noqa: E402
+from shadow_clerk._daemon_dashboard_js_panels import _JS_TEMPLATE_PANELS as _JS  # noqa: E402
+from shadow_clerk._i18n_ja import STRINGS_JA as _JA  # noqa: E402
+from shadow_clerk._i18n_en import STRINGS_EN as _EN  # noqa: E402
 
 results: list[bool] = []
 
@@ -148,6 +153,59 @@ def test_bad_filename_is_rejected() -> None:
     check("パスを含むファイル名を拒否する", h.sent.get("html") == "", repr(h.sent))
 
 
+class _FakeSummaryHandler(Base):
+    """_serve_summary だけを叩く。BaseHTTPRequestHandler の __init__ は使わない"""
+
+    def __init__(self, query: str = "") -> None:
+        self.path = "/api/summary" + (f"?{query}" if query else "")
+        self.sent: dict = {}
+        self.recorder = type("_Rec", (), {"_output_dir": DATA})()
+
+    def _send_json(self, data: dict) -> None:
+        self.sent = data
+
+
+def test_summary_is_delivered_as_html() -> None:
+    """議事録も Markdown。画面には HTML を出すが、コピー用に生も要る"""
+    with open(os.path.join(DATA, "summary-202608271610@Board.md"),
+              "w", encoding="utf-8") as f:
+        f.write("# 議事録\n\n- 決めたこと\n")
+    h = _FakeSummaryHandler("file=transcript-202608271610@Board.txt")
+    h._serve_summary()
+    check("生の Markdown を返す", h.sent.get("content", "").startswith("# 議事録"),
+          repr(h.sent.get("content")))
+    html = h.sent.get("html") or ""
+    check("HTML にも起こす", "<h1>" in html and "<li>" in html, repr(html))
+
+
+def test_summary_missing_is_empty() -> None:
+    h = _FakeSummaryHandler("file=transcript-20990101@None.txt")
+    h._serve_summary()
+    check("無ければ両方とも空",
+          h.sent.get("content") == "" and h.sent.get("html") == "", repr(h.sent))
+
+
+def test_dashboard_shows_and_copies_summary() -> None:
+    """再生成しか無いと、PTY 側が書いた議事録を取り込む手段が無い"""
+    check("再読み込みボタンがある",
+          'onclick="loadS(curFile)"' in _HTML and "dash.summary_reload" in _HTML, "")
+    check("Markdown コピーのボタンがある",
+          'onclick="copySummaryMd()"' in _HTML and "dash.summary_copy" in _HTML, "")
+    _load = _JS[_JS.index("async function loadS("):_JS.index("async function copySummaryMd(")]
+    check("HTML で描く", "'<div class=\"md-body\">'+sumD.html" in _load, "")
+    check("レンダラが落ちたら生を出す", "summary-body" in _load, "")
+    check("コピー用に生を持つ", "_sumMd=sumD.content" in _load, "")
+    _copy = _JS[_JS.index("async function copySummaryMd("):]
+    check("クリップボードへ Markdown を渡す",
+          "navigator.clipboard.writeText(_sumMd)" in _copy, "")
+    # localhost 以外の http では clipboard API が無い
+    check("使えないときの逃げ道がある", "ok=document.execCommand('copy')" in _copy, "")
+    # 失敗しても ✓ を出すと、貼り付けて初めて空だと気づくことになる
+    check("成否で印を変える", "ok?'\u2713':'\u2717'" in _copy, "")
+    for k in ("dash.summary_reload", "dash.summary_copy"):
+        check(f"i18n に {k} がある", k in _JA and k in _EN, "")
+
+
 def main() -> int:
     test_filenames()
     test_generated_paths_endpoint()
@@ -159,6 +217,9 @@ def main() -> int:
     test_generated_html_escapes_raw_html()
     test_generated_html_renders_tables()
     test_bad_filename_is_rejected()
+    test_summary_is_delivered_as_html()
+    test_summary_missing_is_empty()
+    test_dashboard_shows_and_copies_summary()
     print(f"\n{sum(results)}/{len(results)} passed")
     return 0 if all(results) else 1
 

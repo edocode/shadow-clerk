@@ -20,7 +20,11 @@ let curFile='', activeFile='';
 let leftTab='dates'; // 左ペインのアクティブタブ
 let meetingActive=false, translating=false, muteMic=false, muteMonitor=false, pttActive=false;
 let audioBackend='';
-let panelMode=0; // 0=T|R, 1=T, 2=R
+/* 中央ペインの見せ方。AI は T/R を伏せて AI 分析だけを出す */
+const PANEL_MODES=['T|R','T','R','AI'];
+let panelMode=0;
+try{const _pm=parseInt(localStorage.getItem('panelMode')||'0',10);
+    if(_pm>=0&&_pm<PANEL_MODES.length)panelMode=_pm;}catch(e){}
 let meetingGroups={}, curGroup=null; // 会議グループ管理
 const as={tp:true,rp:true,sp:true,logc:true};
 ['tp','rp','sp','logc'].forEach(id=>{
@@ -164,13 +168,47 @@ function togPTT(){
   cmd(pttActive?'ptt_on':'ptt_off');
   updatePTT(pttActive);
 }
-/* --- Panel cycling (T|R -> T -> R) --- S は sumChevron で個別に開閉 */
+/* --- 読む面の文字サイズ (小|中|大) --- */
+/* 変えるのは --fs だけ。ヘッダやボタンまで大きくすると折り返して行が増え、
+   肝心の読む面が狭くなる。中 = これまでの 12px */
+const FONT_SIZES=[['dash.font_s','11px'],['dash.font_m','12px'],['dash.font_l','15px']];
+let fontStep=1;
+try{const _fs=parseInt(localStorage.getItem('fontStep')||'1',10);
+    if(_fs>=0&&_fs<FONT_SIZES.length)fontStep=_fs;}catch(e){}
+function applyFontSize(){
+  const [key,px]=FONT_SIZES[fontStep];
+  document.documentElement.style.setProperty('--fs',px);
+  const b=document.getElementById('togFont');
+  if(b)b.textContent=I18N[key]||key;
+  // 1文字の幅が変わる。コンソールは幅から列数を出しているので測り直す
+  scheduleConsoleCols();
+}
+function cycleFont(){
+  fontStep=(fontStep+1)%FONT_SIZES.length;
+  try{localStorage.setItem('fontStep',String(fontStep));}catch(e){}
+  applyFontSize();
+}
+
+/* --- Panel cycling (T|R -> T -> R -> AI) --- S は sumChevron で個別に開閉 */
+function applyPanelMode(){
+  const t=document.getElementById('pnlT'),r=document.getElementById('pnlR'),
+        btn=document.getElementById('togTR');
+  if(!t||!r||!btn)return;
+  const ai=panelMode===3;
+  t.classList.toggle('hidden',ai||panelMode===2);
+  r.classList.toggle('hidden',ai||panelMode===1);
+  btn.textContent=PANEL_MODES[panelMode];
+  // AI のときは S ペインが唯一の中身。畳んだままだと画面が空になる。
+  // 畳む取っ手も伏せる——押せてしまうと、押した先に何も残らない
+  if(ai){openSumPane();switchSumTab('ai');}
+  const ch=document.getElementById('sumChevron');
+  if(ch)ch.style.display=ai?'none':'';
+  updateSumSplit();
+}
 function cyclePanel(){
-  panelMode=(panelMode+1)%3;
-  const t=document.getElementById('pnlT'),r=document.getElementById('pnlR'),btn=document.getElementById('togTR');
-  if(panelMode===0){t.classList.remove('hidden');r.classList.remove('hidden');btn.textContent='T|R';}
-  else if(panelMode===1){t.classList.remove('hidden');r.classList.add('hidden');btn.textContent='T';}
-  else{t.classList.add('hidden');r.classList.remove('hidden');btn.textContent='R';}
+  panelMode=(panelMode+1)%PANEL_MODES.length;
+  try{localStorage.setItem('panelMode',String(panelMode));}catch(e){}
+  applyPanelMode();
 }
 /* --- Logs toggle --- */
 function togLogs(){
@@ -418,8 +456,8 @@ function togSumPane(){
   const collapsed=p.classList.toggle('collapsed');
   const ch=document.getElementById('sumChevron');
   if(ch)ch.innerHTML=collapsed?'&#x25C4;':'&#x25BA;';
-  // 畳んでいる間は高さを測れない。開いたところで分割を挟み直す
-  if(!collapsed)clampSumSplit();
+  // 畳んでいる間は大きさを測れない。開いたところで分割を挟み直す
+  if(!collapsed)updateSumSplit();
 }
 function openSumPane(){
   const p=document.getElementById('pnlS');if(!p||!p.classList.contains('collapsed'))return;
@@ -439,8 +477,8 @@ function switchSumTab(tab){
     if(btn)btn.classList.toggle('active',t===tab);
     if(wrap)wrap.style.display=(t===tab)?'flex':'none';
   });
-  // 表示に切り替わるまで aiWrap の高さは 0 で測れない。ここでも挟み直す
-  if(tab==='ai')clampSumSplit();
+  // 表示に切り替わるまで aiWrap の大きさは 0 で測れない。ここでも挟み直す
+  if(tab==='ai')updateSumSplit();
 }
 
 /* --- 左ペイン タブ切替 --- */

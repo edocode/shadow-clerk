@@ -328,14 +328,20 @@ check("35. 非表示のときは触らない",
 # 保存した高さが容器を超えると、下の分析ペインが 0 近くまで潰れる
 
 SPLIT_ENV = """
-let _adviceWant=0, availH=745, topH=0, topStyleH='';
+let _adviceWant=0, _adviceWantW=0, availH=745, availW=400, topH=0, topW=0,
+    topStyleH='', topStyleW='', rowCls=false;
 const els={
-  advWrap:{style:{get height(){return topStyleH;},set height(v){topStyleH=v;}},
-           getBoundingClientRect(){return {height:topH};}},
-  aiWrap:{getBoundingClientRect(){return {height:availH};}},
+  advWrap:{style:{get height(){return topStyleH;},set height(v){topStyleH=v;},
+                  get width(){return topStyleW;},set width(v){topStyleW=v;}},
+           getBoundingClientRect(){return {height:topH,width:topW};}},
+  aiWrap:{classList:{contains(){return rowCls;},toggle(c,v){rowCls=v;}},
+          getBoundingClientRect(){return {height:availH,width:availW};}},
 };
 const document={getElementById(id){return els[id]||null;}};
 """
+# 軸の判定は 3 つの小関数に分かれているので、切り出しでも一括で連れて行く
+SPLIT_FNS = (extract("_sumRow") + extract("_sumProp") + extract("_sumWant")
+             + extract("clampSumSplit"))
 
 out = run("""
 _adviceWant=923; els.advWrap.style.height='923px';
@@ -343,7 +349,7 @@ clampSumSplit();
 out.push(topStyleH);
 availH=2000; clampSumSplit();
 out.push(topStyleH);
-""", extra=SPLIT_ENV + extract_const("SUM_SPLIT_MIN") + extract("clampSumSplit"))
+""", extra=SPLIT_ENV + extract_const("SUM_SPLIT_MIN") + SPLIT_FNS)
 check("36. 容器を超える保存値は挟み込む", out[0] == "675px", out[0])
 check("37. 容器が広がれば元の高さに戻る", out[1] == "923px", out[1])
 
@@ -353,13 +359,169 @@ clampSumSplit();
 out.push(topStyleH);
 availH=50; els.advWrap.style.height='40px'; clampSumSplit();
 out.push(topStyleH);
-""", extra=SPLIT_ENV + extract_const("SUM_SPLIT_MIN") + extract("clampSumSplit"))
+""", extra=SPLIT_ENV + extract_const("SUM_SPLIT_MIN") + SPLIT_FNS)
 check("38. 小さすぎる値は最低値まで戻す", out[0] == "60px", out[0])
 check("39. 容器が測れないときは触らない", out[1] == "40px", out[1])
 
 check("41. AI分析タブに切り替えたら分割を挟み直す",
-      "clampSumSplit()" in _TC[_TC.index("function switchSumTab("):_TC.index("function switchLeftTab(")], "")
-check("40. 畳みを開いたら分割を挟み直す", "clampSumSplit()" in _TC[_TC.index("function togSumPane()"):_TC.index("function openSumPane()")], "")
+      "updateSumSplit()" in _TC[_TC.index("function switchSumTab("):_TC.index("function switchLeftTab(")], "")
+check("40. 畳みを開いたら分割を挟み直す", "updateSumSplit()" in _TC[_TC.index("function togSumPane()"):_TC.index("function openSumPane()")], "")
+
+# --- 幅で上下/左右を切り替える ---
+# 縦に積んだままだと広い画面で 1 ペインが数行、横に割ったままだと狭い画面で
+# 1 ペインが数十文字になる。どちらも読めない
+
+ORIENT = (SPLIT_ENV + extract_const("SUM_SPLIT_MIN") + extract_const("SUM_ROW_ON")
+          + extract("_sumRow") + extract("_sumProp") + extract("_sumWant")
+          + extract("applySumOrientation"))
+
+out = run("""
+_adviceWantW=300; topStyleH='400px'; availW=800;
+applySumOrientation();
+out.push([rowCls,topStyleH,topStyleW]);
+""", extra=ORIENT)
+check("48. 広ければ左右に並べる", out[0][0] is True, str(out[0]))
+check("49. 使わない軸のインラインを消す", out[0][1] == "", str(out[0]))
+check("50. その軸の保存値を復元する", out[0][2] == "300px", str(out[0]))
+
+out = run("""
+rowCls=true; _adviceWant=400; topStyleW='300px';
+availW=620; applySumOrientation(); out.push([rowCls,topStyleW]);
+availW=590; applySumOrientation(); out.push([rowCls,topStyleH,topStyleW]);
+""", extra=ORIENT)
+check("51. 戻す幅は入る幅より狭くしてばたつきを防ぐ",
+      out[0][0] is True and out[0][1] == "300px", str(out[0]))
+check("52. 十分狭くなったら縦に戻す",
+      out[1][0] is False and out[1][1] == "400px" and out[1][2] == "", str(out[1]))
+
+out = run("""
+availW=0; applySumOrientation(); out.push(rowCls);
+""", extra=ORIENT)
+check("53. 測れないとき(非表示)は触らない", out[0] is False, str(out[0]))
+
+out = run("""
+rowCls=true; _adviceWantW=923; topStyleW='923px'; availW=745;
+clampSumSplit();
+out.push(topStyleW);
+""", extra=SPLIT_ENV + extract_const("SUM_SPLIT_MIN") + SPLIT_FNS)
+check("54. 横並びでも容器を超える値は挟み込む", out[0] == "675px", out[0])
+
+check("61. 左右のときは仕切りも横向きになる",
+      "#aiWrap.row { flex-direction:row; }" in _CSS and "ew-resize" in _CSS, "")
+
+# --- 打鍵の順序 ---
+# 1打ごとに fetch を投げっぱなしにすると、同時に飛んだ POST がサーバ側で
+# 別スレッドに載って追い越す。実測で "hello123" が "holle123" になった
+
+
+def run_async(scenario: str, extra: str = "") -> list:
+    """非同期の筋書き用。node -e はトップレベル await を許さないので包む"""
+    js = (extra + "\nconst out=[];\n(async()=>{\n" + scenario
+          + "\nconsole.log(JSON.stringify(out));\n})();\n")
+    p = subprocess.run(["node", "-e", js], capture_output=True, text=True, timeout=30)
+    if p.returncode != 0:
+        print(p.stderr, file=sys.stderr)
+        raise SystemExit(1)
+    return json.loads(p.stdout)
+
+
+# extract() は "async function" の async を落とすので足し直す
+SEND_FNS = extract("sendConsole") + "async " + extract("_postConsole")
+SEND_ENV = """
+let log=[], _consoleSendQ=Promise.resolve();
+// 2文字目だけ極端に遅い応答にして、追い越しが起きれば必ず露見するようにする
+function fetch(url,opt){
+  const d=JSON.parse(opt.body).data;
+  return new Promise(res=>setTimeout(()=>{log.push(d);res({});}, d==='e'?30:1));
+}
+"""
+
+out = run_async("""
+for(const ch of 'hello')sendConsole(ch);
+await new Promise(r=>setTimeout(r,300));
+out.push(log.join(''));
+""", extra=SEND_ENV + SEND_FNS)
+check("71. 打った順にサーバへ届く", out[0] == "hello", out[0])
+
+out = run_async("""
+// 途中で失敗しても列は止めない
+fetch=(u,o)=>{const d=JSON.parse(o.body).data;
+  if(d==='l')return Promise.reject(new Error('boom'));
+  log.push(d);return Promise.resolve({});};
+for(const ch of 'hello')sendConsole(ch);
+await new Promise(r=>setTimeout(r,200));
+out.push(log.join(''));
+""", extra=SEND_ENV + SEND_FNS)
+check("72. 1つ失敗しても後続を送り続ける", out[0] == "heo", out[0])
+
+# --- IME の変換中表示 ---
+# textarea は opacity:0 で重ねてあるので、何もしないと確定するまで一文字も
+# 見えない。「日本語入力時、確定まで文字が見えない」と報告された
+
+out = run("""
+out.push([_consoleCells('a'), _consoleCells('あ'), _consoleCells('あa'),
+          _consoleCells('（）'), _consoleCells('')]);
+""", extra=extract("_consoleCells"))
+check("73. CJK は 2 セルで数える", out[0] == [1, 2, 3, 4, 0], str(out[0]))
+
+_comp = _T[_T.index("function onConsoleComposing("):_T.index("/* IME で確定した")]
+check("74. 変換中は見える状態にする", "classList.add('composing')" in _comp, "")
+check("75. 箱の幅を変換中の文字に合わせる",
+      "_consoleCells(e.data" in _comp and "'ch'" in _comp, "")
+_end = _T[_T.index("function onConsoleComposition("):_T.index("/* 端末の入力は textarea")]
+check("76. 確定したら元に戻す",
+      "classList.remove('composing')" in _end and "style.width=''" in _end, "")
+check("77. start と update の両方で拾う",
+      "'compositionstart',onConsoleComposing" in _T
+      and "'compositionupdate',onConsoleComposing" in _T, "")
+_ci = _CSS[_CSS.index("#consoleInput.composing {"):] if "#consoleInput.composing {" in _CSS else ""
+check("78. CSS が変換中だけ不透明にする",
+      "opacity:1" in _ci[:_ci.index("}") + 1] if _ci else False, "")
+
+# --- 文字サイズ (小|中|大) ---
+# 変えるのは読む面だけ。ヘッダまで大きくすると折り返して行が増える
+
+check("62. 中は今までの 12px", "['dash.font_m','12px']" in _TC, "")
+check("63. 変えるのは --fs だけ",
+      "setProperty('--fs',px)" in _TC and _TC.count("setProperty('--fs'") == 1, "")
+_fnt = _TC[_TC.index("function applyFontSize("):_TC.index("/* --- Panel cycling")]
+check("64. 1文字の幅が変わるので列を測り直す", "scheduleConsoleCols()" in _fnt, "")
+check("65. 選択を localStorage に残す", "localStorage.setItem('fontStep'" in _fnt
+      or "localStorage.setItem('fontStep'" in _TC, "")
+check("66. 起動時に前回の選択を読む", "localStorage.getItem('fontStep')" in _TC, "")
+check("67. 適用は console の初期化から呼ぶ",
+      "applyFontSize();" in _T[_T.index("function initConsole()"):], "")
+# 読む面が --fs を見ていないと、ボタンだけ切り替わって何も変わらない
+def _block(sel: str) -> str:
+    # 行頭のものを取る。" #consolec {" のような別ルールの一部に当てないため
+    i = _CSS.index("\n" + sel + " {") + 1
+    return _CSS[i:_CSS.index("}", i)]
+
+
+for sel in ("#logc", "#consolec", ".interim"):
+    check(f"68. {sel} が --fs に追従する", "var(--fs)" in _block(sel), "")
+check("69. .pc が --fs に追従する", "font-size: var(--fs)" in _block(".pc"), "")
+# .md-body は .pc の中。px を残すと本文だけ大きくなって見出しが置いていかれる
+check("70. md-body の見出しは相対指定",
+      "font-size:1.25em" in _CSS and "font-size:15px" not in _CSS, "")
+
+# --- T|R|AI ---
+# AI は T/R を伏せて AI 分析だけを出す。最後の状態を localStorage に残す
+
+_cyc = _TC[_TC.index("function applyPanelMode("):_TC.index("/* --- Logs toggle")]
+check("55. AI を含む 4 状態を回す", "const PANEL_MODES=['T|R','T','R','AI']" in _TC, "")
+check("56. AI では T も R も隠す",
+      "t.classList.toggle('hidden',ai" in _cyc and "r.classList.toggle('hidden',ai" in _cyc, "")
+check("57. AI では S ペインを開いて AI タブにする",
+      "openSumPane()" in _cyc and "switchSumTab('ai')" in _cyc, "")
+check("57b. AI では畳む取っ手を伏せる",
+      "sumChevron" in _cyc and "ai?'none':''" in _cyc, "")
+check("58. 切り替えを localStorage に残す", "localStorage.setItem('panelMode'" in _cyc, "")
+check("59. 起動時に前回の状態を読む", "localStorage.getItem('panelMode')" in _TC, "")
+# **panels の初期化では早すぎる**: SUM_SPLIT_MIN は console 側の const で、
+# 先に applyPanelMode を呼ぶと TDZ で初期化ごと止まる
+check("60. 適用は console の初期化から呼ぶ",
+      "applyPanelMode();" in _T[_T.index("function initConsole()"):], "")
 
 # --- 幅の揺れとキー入力 ---
 

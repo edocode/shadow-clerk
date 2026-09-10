@@ -126,7 +126,7 @@ def test_start_console_rejects_path_escape() -> None:
     recorded: list[str] = []
     orig = _ops_mod.start_console_for
 
-    def _stub(transcript_path: str) -> bool:
+    def _stub(transcript_path: str, send_prompt: bool = True) -> bool:
         recorded.append(transcript_path)
         return True
 
@@ -173,6 +173,60 @@ def test_start_console_for_always_uses_send_after_ready() -> None:
             _console_mod.get_console = orig_get_console
 
 
+def test_start_console_can_skip_the_prompt() -> None:
+    """`/resume` で前のセッションを拾いたいときは、端末だけ出して何も打たない"""
+    import shadow_clerk._daemon_dashboard_ops_console as _ops_mod
+    seen: list[bool] = []
+    orig = _ops_mod.start_console_for
+
+    def _stub(transcript_path: str, send_prompt: bool = True) -> bool:
+        seen.append(send_prompt)
+        return True
+
+    _ops_mod.start_console_for = _stub
+    try:
+        _FakeHandler({"prompt": False})._start_console()
+        check("prompt:false なら初期プロンプトを送らない", seen[-1] is False, str(seen))
+        _FakeHandler({})._start_console()
+        check("既定は今までどおり送る", seen[-1] is True, str(seen))
+        _FakeHandler({"prompt": "no"})._start_console()
+        check("false 以外は送る側に倒す", seen[-1] is True, str(seen))
+    finally:
+        _ops_mod.start_console_for = orig
+
+
+def test_start_console_for_without_prompt_writes_nothing() -> None:
+    import shadow_clerk._daemon_console as _console_mod
+    fake = _FakeConsole(running=False)
+    orig_get_console = _console_mod.get_console
+    _console_mod.get_console = lambda: fake
+    try:
+        ok = _console_mod.start_console_for("", send_prompt=False)
+        check("起動は成功する", ok, str(fake.calls))
+        check("端末は起こす", "start_if_stopped" in fake.calls, str(fake.calls))
+        check("何も打ち込まない",
+              not any(c.startswith(("send_after_ready:", "write:")) for c in fake.calls),
+              str(fake.calls))
+    finally:
+        _console_mod.get_console = orig_get_console
+
+
+def test_launch_button_is_on_the_console() -> None:
+    from shadow_clerk._daemon_dashboard_html import _HTML_TEMPLATE as H
+    from shadow_clerk._daemon_dashboard_js_console import _JS_TEMPLATE_CONSOLE as J
+    from shadow_clerk._i18n_ja import STRINGS_JA
+    from shadow_clerk._i18n_en import STRINGS_EN
+    check("コンソールに起動ボタンがある",
+          'id="btnConsoleLaunch"' in H and 'onclick="launchConsole()"' in H, "")
+    fn = J[J.index("async function launchConsole("):J.index("async function stopConsole(")]
+    check("初期プロンプト無しで叩く", "prompt:false" in fn, "")
+    check("押したらコンソールタブを開く", "switchLogTab('console')" in fn, "")
+    upd = J[J.index("function updateConsoleStatus("):J.index("async function launchConsole(")]
+    check("走っている間は隠す", "btnConsoleLaunch" in upd and "running?'none':''" in upd, "")
+    for k in ("dash.console_launch", "dash.console_launch_title"):
+        check(f"i18n に {k} がある", k in STRINGS_JA and k in STRINGS_EN, "")
+
+
 def test_console_input_rejects_cross_origin() -> None:
     """C2: Origin が自分自身と異なる POST を拒否する(CSRF)"""
     h = _FakeHandler({"data": "x"}, headers={
@@ -215,6 +269,9 @@ def main() -> int:
     test_stop_when_not_running()
     test_start_console_rejects_path_escape()
     test_start_console_for_always_uses_send_after_ready()
+    test_start_console_can_skip_the_prompt()
+    test_start_console_for_without_prompt_writes_nothing()
+    test_launch_button_is_on_the_console()
     test_console_input_rejects_cross_origin()
     test_console_input_allows_same_origin()
     test_console_input_allows_missing_origin()

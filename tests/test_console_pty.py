@@ -613,6 +613,40 @@ def test_cols_persist_across_daemon_restart() -> None:
     console_mod.CONSOLE_COLS_FILE = saved
 
 
+def test_cursor_move_alone_is_broadcast() -> None:
+    """矢印キーや Ctrl-B は行を汚さない。
+
+    pyte は cursor_back / cursor_position で dirty を触らないので、
+    dirty だけを条件にすると「カーソルが動いたのに画面が変わらない」になる。
+    実際に矢印キーでカーソルが動かないと報告された。
+    """
+    sess = ConsoleSession()
+    sent: list[dict] = []
+    sess.set_broadcaster(lambda ev, data: sent.append(json.loads(data)))
+    sess._stream.feed("abcdef")  # pylint: disable=protected-access
+    sess.max_row = 0
+    sess._emit_diff()  # pylint: disable=protected-access
+    sent.clear()
+
+    sess._stream.feed("\x1b[D")  # 左矢印  # pylint: disable=protected-access
+    check("(前提)行は汚れていない",
+          not [y for y in sess.screen.dirty if y <= sess.max_row],
+          str(sorted(sess.screen.dirty)))
+    sess._emit_diff()  # pylint: disable=protected-access
+    moves = [p for p in sent if not p.get("status_only")]
+    check("カーソルだけ動いても配信する", len(moves) == 1, str(sent))
+    if moves:
+        check("新しいカーソル位置が入っている", moves[0].get("cursor") == [0, 5],
+              str(moves[0].get("cursor")))
+        check("行は空のまま送る(内容は変わっていない)", moves[0].get("rows") == {},
+              str(moves[0].get("rows")))
+
+    sent.clear()
+    sess._emit_diff()  # pylint: disable=protected-access
+    check("動いていなければ送らない",
+          not [p for p in sent if not p.get("status_only")], str(sent))
+
+
 def test_child_gets_controlling_terminal() -> None:
     """子が PTY を制御端末として持つこと
 
@@ -668,6 +702,7 @@ def main() -> int:
     test_rows_below_cursor_reach_client()
     test_cols_survive_child_restart()
     test_cols_persist_across_daemon_restart()
+    test_cursor_move_alone_is_broadcast()
     test_child_gets_controlling_terminal()
     test_resize_matches_child_and_grid()
     test_stop_joins_reader_thread()

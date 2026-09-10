@@ -18,6 +18,9 @@ _CSS_TEMPLATE = """\
   --other: #ffa657;
   --btn: #21262d;
   --btn-h: #30363d;
+  /* 読む面(文字起こし・議事録・コンソール)の基準サイズ。「小中大」で差し替える。
+     ヘッダやボタンは動かさない——動かすと折り返して行が増え、読む面が狭くなる */
+  --fs: 12px;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 a { color: var(--accent); text-decoration: none; }
@@ -62,7 +65,7 @@ main {
 .pc {
   flex:1; overflow-y:auto; padding:8px 12px;
   font-family: 'SF Mono','Monaco','Menlo','Consolas',monospace;
-  font-size: 12px; line-height: 1.6;
+  font-size: var(--fs); line-height: 1.6;
 }
 .ln { margin-bottom:2px; word-break:break-word; display:flex; align-items:flex-start; }
 .ln .ln-text { flex:1; }
@@ -89,13 +92,13 @@ main {
 #logc {
   flex:1; overflow-y:auto; padding:4px 12px;
   font-family: 'SF Mono','Monaco','Menlo','Consolas',monospace;
-  font-size:11px; line-height:1.5; color:var(--muted);
+  font-size:calc(var(--fs) - 1px); line-height:1.5; color:var(--muted);
 }
 .ll { white-space:pre-wrap; word-break:break-word; }
 .ll.e { color:var(--red); }
 .ll.w { color:var(--yellow); }
 .interim {
-  color: var(--muted); font-style: italic; opacity: 0.7;
+  color: var(--muted); font-style: italic; opacity: 0.7; font-size: var(--fs);
   border-left: 2px solid var(--yellow); padding-left: 8px; margin-top: 4px;
 }
 #resp {
@@ -129,7 +132,7 @@ main {
 .lv.lv-silent{border-color:var(--red);background:var(--red)}
 .lv.lv-fallback{box-shadow:0 0 0 1px var(--yellow)}
 .panel.hidden { display:none; }
-.summary-body { white-space:pre-wrap; font-size:12px; line-height:1.7; }
+.summary-body { white-space:pre-wrap; line-height:1.7; }
 .summary-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; }
 #logp.collapsed #logc, #logp.collapsed #consolec { display:none; }
 /* !important が要る。ドラッグでリサイズすると initLogResize が
@@ -149,7 +152,7 @@ main {
      画面が崩れる */
   flex:1; overflow:auto; scrollbar-gutter:stable; padding:4px 8px; background:var(--bg);
   font-family: var(--console-font);
-  font-size:12px; line-height:1.35; white-space:pre; outline:none;
+  font-size:var(--fs); line-height:1.35; white-space:pre; outline:none;
 }
 #consolec:focus-within { box-shadow: inset 0 0 0 1px var(--accent); }
 /* IME の入力先。div は編集可能でないため composition イベントが来ず、日本語が
@@ -158,6 +161,14 @@ main {
 #consoleInput { position:absolute; opacity:0; z-index:1; width:1ch; height:1.35em;
   padding:0; margin:0; border:none; outline:none; resize:none; overflow:hidden;
   font:inherit; line-height:inherit; color:transparent; background:transparent; }
+/* 変換中だけ textarea を見せる。透明のままだと確定するまで画面に何も出ず、
+   打てているのか分からない。下線は「まだ確定していない」という IME の慣習。
+   幅は変換中の文字数から JS が入れる——textarea の width:auto は cols 属性の
+   既定(20文字)になってしまい、1文字でも広い箱が出る */
+#consoleInput.composing {
+  opacity:1; color:var(--text); background:var(--bg);
+  text-decoration:underline; z-index:2;
+}
 .cr { min-height:1.35em; }
 .ccursor { position:absolute; width:1ch; height:1.35em; background:var(--accent); opacity:.35; pointer-events:none; }
 .cs-bold { font-weight:700; }
@@ -257,20 +268,28 @@ main {
 #anaWrap { flex:1; display:flex; flex-direction:column; min-height:60px; }
 #sumSplit { height:5px; cursor:ns-resize; background:var(--border); flex-shrink:0; }
 #sumSplit:hover { background:var(--accent); }
+/* 幅が広いときは左右に並べる。縦に積んだままだと 1 ペインあたりの行数が
+   足りず、提案も分析も数行しか読めない。切り替えは幅を見て JS が行う。
+   height/width のインラインは軸を変えるときに JS が消すので、ここは素の
+   値でよい（!important で殴ると、こんどはドラッグが効かなくなる） */
+#aiWrap.row { flex-direction:row; }
+#aiWrap.row #advWrap { height:auto; width:45%; min-height:0; min-width:60px; }
+#aiWrap.row #anaWrap { min-height:0; min-width:60px; }
+#aiWrap.row #sumSplit { height:auto; width:5px; cursor:ew-resize; }
 /* 生成物 (Markdown → HTML) の体裁。会議中に目で追う画面なので、行間を詰めて
    見出しと箇条書きの階層が一目で分かる程度に留める */
 .md-body { word-break:break-word; line-height:1.6; }
 .md-body h1, .md-body h2, .md-body h3,
 .md-body h4, .md-body h5, .md-body h6 {
-  margin:10px 0 4px; font-size:13px; color:var(--accent); font-weight:600; }
-.md-body h1 { font-size:15px; }
-.md-body h2 { font-size:14px; }
+  margin:10px 0 4px; font-size:1.08em; color:var(--accent); font-weight:600; }
+.md-body h1 { font-size:1.25em; }
+.md-body h2 { font-size:1.17em; }
 .md-body p { margin:4px 0; }
 .md-body ul, .md-body ol { margin:4px 0; padding-left:20px; }
 .md-body li { margin:2px 0; }
-.md-body code { background:var(--bg); padding:1px 4px; border-radius:3px; font-size:11px; }
+.md-body code { background:var(--bg); padding:1px 4px; border-radius:3px; font-size:.92em; }
 .md-body pre { background:var(--bg); padding:6px 8px; border-radius:4px;
-  overflow-x:auto; margin:6px 0; font-size:11px; }
+  overflow-x:auto; margin:6px 0; font-size:.92em; }
 .md-body pre code { background:transparent; padding:0; }
 .md-body blockquote { margin:6px 0; padding-left:8px; border-left:3px solid var(--border);
   color:var(--muted); }
@@ -279,7 +298,7 @@ main {
 .md-body strong { color:var(--text); }
 /* ペインは画面の一部しか使えないので、広いテーブルは横スクロールに逃がす */
 .md-body table { border-collapse:collapse; margin:6px 0; display:block;
-  overflow-x:auto; max-width:100%; font-size:11px; }
+  overflow-x:auto; max-width:100%; font-size:.92em; }
 .md-body th, .md-body td { border:1px solid var(--border); padding:2px 6px;
   white-space:nowrap; }
 .md-body th { background:var(--bg); font-weight:600; }

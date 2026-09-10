@@ -253,6 +253,7 @@ function _renderAttendees(list){
     +(note?'<div style="font-size:11px;color:var(--muted);margin-top:2px">'+esc(note)+'</div>':'')
     +'</div>';
 }
+let _sumMd='';   // 画面には HTML を出すので、コピー用に生の Markdown を持っておく
 async function loadS(file){
   const el=document.getElementById('sp');if(!el)return;
   const g=++_sGen;
@@ -264,14 +265,39 @@ async function loadS(file){
     ]);
     if(g!==_sGen)return;
     document.getElementById('sf').textContent=sumD.file||'';
+    _sumMd=sumD.content||'';
+    const cp=document.getElementById('btnCopySum');if(cp)cp.style.display=_sumMd?'':'none';
     const attHtml=_renderAttendees(attD.attendees||[]);
     if(sumD.content){
-      el.innerHTML=attHtml+'<div class="summary-body">'+esc(sumD.content)+'</div>';
+      // html はサーバが起こしたもの。レンダラが落ちたときだけ生の Markdown を出す
+      el.innerHTML=attHtml+(sumD.html
+        ?'<div class="md-body">'+sumD.html+'</div>'
+        :'<div class="summary-body">'+esc(sumD.content)+'</div>');
     }else{
       el.innerHTML=attHtml+'<div class="summary-empty"><div style="color:var(--muted);margin-bottom:8px">'+esc(I18N['dash.no_summary']||'No summary.')+'</div>'
         +'<button class="pri" onclick="genSummary()">'+esc(I18N['dash.summary']||'Summary')+'</button></div>';
     }
   }catch(e){el.innerHTML='';}
+}
+/* 画面は HTML なので、選択してコピーすると書式が落ちる。元の Markdown を渡す */
+async function copySummaryMd(){
+  if(!_sumMd)return;
+  let ok=false;
+  try{await navigator.clipboard.writeText(_sumMd);ok=true;}
+  catch(e){
+    // localhost 以外の http では clipboard API が無い。textarea 経由に落とす
+    const ta=document.createElement('textarea');
+    ta.value=_sumMd;ta.style.position='fixed';ta.style.opacity='0';
+    document.body.appendChild(ta);ta.select();
+    try{ok=document.execCommand('copy');}catch(e2){}
+    ta.remove();
+  }
+  // 失敗しても ✓ を出すと、貼り付けて初めて空だと気づくことになる
+  const b=document.getElementById('btnCopySum');
+  if(b&&!b.dataset.copied){
+    b.dataset.copied='1';const o=b.textContent;b.textContent=ok?'\u2713':'\u2717';
+    setTimeout(()=>{b.textContent=o;delete b.dataset.copied;},1200);
+  }
 }
 async function loadAdvice(file){
   const g=++_adGen;
