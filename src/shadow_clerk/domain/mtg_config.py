@@ -74,14 +74,11 @@ class MtgConfig:
         return [MtgRule(str(e.get("pattern") or ""), str(e.get("workdir") or ""))
                 for e in self._meetings() if e.get("pattern")]
 
-    #: 設定が無くても動くための組み込み既定。get-config.sh と同じ値
+    #: 設定が無くても動くための組み込み既定。get-config.sh と同じ値。
+    #: `research`(調べものの当て先)が空なのは、このマシンの外へ問い合わせるものを
+    #: 明示的に許可されたものだけにするため。どの当て先が社内かは環境ごとに違う
     DEFAULTS = {"analyze": True, "verbosity": "normal", "interval": 25,
                 "publish": True, "workdir": "", "history": 3, "research": []}
-
-    # 調べものに使ってよい外部の当て先。**既定は空**——このマシンの外へ問い合わせる
-    # ものは、明示的に許可されたものだけにする。どの MCP が社内かは環境ごとに違い、
-    # ここでしか分からない
-    RESEARCH_KEYS = ("name", "public_filter", "note")
 
     def resolve(self, meeting_name: str) -> dict:
         """会議名に対する設定を解決する。
@@ -123,7 +120,7 @@ class MtgConfig:
     def _research(cls, value: object) -> list[dict]:
         """調べものの当て先を正規化する。
 
-        `public_filter` の既定は **True**（社外向けとして扱う）。社内の当て先だと
+        `allow_private` の既定は **False**（社外向けとして扱う）。社内の当て先だと
         書き忘れたときに、社内の固有名詞をそのまま外へ出してしまう向きに倒れない
         ようにする。
         """
@@ -137,7 +134,7 @@ class MtgConfig:
             if not name:
                 continue
             out.append({"name": name,
-                        "public_filter": bool(item.get("public_filter", True)),
+                        "allow_private": bool(item.get("allow_private", False)),
                         "note": str(item.get("note") or "")})
         return out
 

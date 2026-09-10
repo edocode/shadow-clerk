@@ -130,7 +130,7 @@ def test_research_destinations() -> None:
     check("未設定なら空", c.resolve("X")["research"] == [], str(c.resolve("X")["research"]))
 
     c = MtgConfig("x", {"defaults": {"research": [
-        {"name": "bigquery", "public_filter": False, "note": "社内DWH"},
+        {"name": "bigquery", "allow_private": True, "note": "社内DWH"},
         "web",
         {"name": "  "},
         {"name": "wiki"},
@@ -142,14 +142,14 @@ def test_research_destinations() -> None:
     check("文字列だけでも当て先になる", "web" in names, str(names))
     check("名前が空のものは落とす", "" not in names and "  " not in names, str(names))
     check("dict でも文字列でもないものは落とす", 42 not in names, str(names))
-    check("社内の当て先はフィルタなし",
-          got[names.index("bigquery")]["public_filter"] is False)
+    check("社内の当て先はそのまま聞ける",
+          got[names.index("bigquery")]["allow_private"] is True)
     check("備考を持てる", got[names.index("bigquery")]["note"] == "社内DWH")
 
     # **書き忘れは社外側に倒す。** 逆だと社内の固有名詞をそのまま外へ出す
-    check("public_filter の既定は True",
-          got[names.index("wiki")]["public_filter"] is True)
-    check("文字列指定も既定は True", got[names.index("web")]["public_filter"] is True)
+    check("allow_private の既定は False",
+          got[names.index("wiki")]["allow_private"] is False)
+    check("文字列指定も既定は False", got[names.index("web")]["allow_private"] is False)
 
     # 会議ごとに上書きできる
     c = MtgConfig("x", {"defaults": {"research": ["web"]},

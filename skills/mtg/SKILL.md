@@ -417,7 +417,7 @@ curl -s "$SHADOW_CLERK/api/mtg-config/resolve?meeting=<会議名>"
 | `history` | 起動時に読む過去回の数(既定 3、`0` で読まない)。定例で前回の宿題と未解決を引き継ぐ |
 | `workdir` | AI アシスタントの起動ディレクトリ。調べもの(`references/research.md`)の探索範囲になる |
 | `publish` | **Artifact など外部サービスへの公開を許すか** |
-| `research` | 調べもので使ってよい外部の当て先と、`public_filter` の要否。**空なら外部に問い合わせない**(`references/research.md`) |
+| `research` | 調べもので使ってよい当て先と、`allow_private`（社内の情報を渡してよいか。既定 `false`）。**空なら外部に問い合わせない**(`references/research.md`) |
 | `glossary` | 用語集のパス |
 | `matched` / `note` | どのルールに一致したか、その理由 |
 
