@@ -112,7 +112,7 @@ function renderMtgPane(){
     });
     mp.innerHTML=files.map(f=>{
       const fi=fileInfo[f];
-      return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(escJs(f))}')" title="${escAttr(f)}"><span class="mg-file-label">${esc((fi?.label||f))}</span>${_badges(fi)}</div>`;
+      return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(escJs(f))}')" title="${escAttr(f)}"><span class="mg-file-label">${esc((fi?.label||f))}</span>${_badges(fi)}${_wdBtn(f)}</div>`;
     }).join('');
   }
 }
@@ -133,9 +133,6 @@ function selectMtgFile(file){
     });
   fsel.value=file;onSel();_updateRenameMtgBtn();
 }
-// ファイル切替直後に前リクエストの遅延応答が届いてパネルを上書きしないよう、
-// 各 load 関数は世代カウンタで最新リクエストの応答のみ描画する
-let _tGen=0,_rGen=0;
 async function loadT(file){
   const g=++_tGen;
   try{const u=file?'/api/transcript?file='+encodeURIComponent(file):'/api/transcript';
@@ -162,7 +159,7 @@ async function loadLogs(){
     el.insertAdjacentHTML('beforeend','<div class="ll '+c+'">'+esc(l)+'</div>');});
   el.scrollTop=el.scrollHeight;}catch(e){}
 }
-function onSel(){deselectAll();curFile=document.getElementById('fsel').value;_setHashFile(curFile);loadT(curFile);loadR(curFile);loadS(curFile);renderMtgPane();_updateRenameMtgBtn();}
+function onSel(){deselectAll();curFile=document.getElementById('fsel').value;_setHashFile(curFile);loadT(curFile);loadR(curFile);loadS(curFile);loadAdvice(curFile);loadAnalysis(curFile);renderMtgPane();_updateRenameMtgBtn();}
 function goActive(){if(!activeFile)return;const s=document.getElementById('fsel');s.value=activeFile;onSel();}
 async function cmd(c){try{await fetch('/api/command',{method:'POST',
   headers:{'Content-Type':'application/json'},body:JSON.stringify({command:c})});}catch(e){}}
@@ -177,192 +174,12 @@ es.addEventListener('alert',e=>{
   const d=JSON.parse(e.data);if(d.message){alert(d.message);loadS(curFile);openSumPane();}
 });
 function hideResp(){document.getElementById('resp').classList.remove('show');}
-initSearchSelects();switchLeftTab('dates');loadFiles();if(!_hashFile()){loadT('');loadR('');loadS('');}loadLogs();
+// ペインの初回読み込みは loadFiles() に一本化する。ここでも読むと、
+// ハッシュの有無で「二重に読む」と「一度も読まない」に分かれてしまう
+initSearchSelects();switchLeftTab('dates');switchSumTab('summary');loadFiles();loadLogs();
 // 翻訳・ミュート等のボタン状態は SSE に載らないため、定期的にステータスも同期する
 setInterval(()=>{loadFiles();fetchStatus();},10000);
 window.addEventListener('hashchange',()=>{const f=_hashFile();if(f&&fileInfo[f]&&f!==curFile)selectMtgFile(f);});
-const LANG_OPTS=['ja','en','zh','ko','fr','de','es','pt','ru'];
-const CFG_FIELDS=[
-  {type:'section',label:I18N['cfg.section.general']},
-  {key:'ui_language',label:I18N['cfg.ui_language'],type:'select',opts:['ja','en']},
-  {key:'output_directory',label:I18N['cfg.output_directory'],type:'text',ph:I18N['cfg.output_directory_ph']},
-  {type:'section',label:I18N['cfg.section.audio']},
-  {key:'mic_device',label:I18N['cfg.mic_device'],type:'device_select'},
-  {key:'monitor_device',label:I18N['cfg.monitor_device'],type:'device_select'},
-  {type:'device_refresh',id:'cfgDeviceRefreshBtn'},
-  {type:'section',label:I18N['cfg.section.transcription']},
-  {key:'default_language',label:I18N['cfg.default_language'],type:'select',opts:['auto',...LANG_OPTS]},
-  {key:'default_model',label:I18N['cfg.default_model'],type:'select',opts:['tiny','base','small','medium','large-v3']},
-  {key:'initial_prompt',label:I18N['cfg.initial_prompt'],type:'text',ph:I18N['cfg.initial_prompt_ph']},
-  {key:'whisper_beam_size',label:I18N['cfg.whisper_beam_size'],type:'select',opts:['1','2','3','5']},
-  {key:'whisper_compute_type',label:I18N['cfg.whisper_compute_type'],type:'select',opts:['int8','float16','float32']},
-  {key:'whisper_device',label:I18N['cfg.whisper_device'],type:'select',opts:['cpu','cuda']},
-  {key:'japanese_asr_model',label:I18N['cfg.japanese_asr_model'],type:'select',opts:['default','kotoba-whisper','reazonspeech-k2']},
-  {key:'voice_command_key',label:I18N['cfg.voice_command_key'],type:'select',opts:['menu','f23','ctrl_r','ctrl_l','alt_r','alt_l','shift_r','shift_l']},
-  {key:'wake_word',label:I18N['cfg.wake_word'],type:'text',ph:I18N['cfg.wake_word_ph']},
-  {type:'section',label:I18N['cfg.section.interim']},
-  {key:'interim_transcription',label:I18N['cfg.interim_transcription'],type:'bool'},
-  {key:'interim_model',label:I18N['cfg.interim_model'],type:'select',opts:['tiny','base','small','medium']},
-  {key:'interim_japanese_asr_model',label:I18N['cfg.interim_japanese_asr_model'],type:'select',opts:['default','kotoba-whisper','reazonspeech-k2']},
-  {key:'interim_translation',label:I18N['cfg.interim_translation'],type:'bool'},
-  {key:'interim_translation_provider',label:I18N['cfg.interim_translation_provider'],type:'select',opts:['','api','libretranslate','claude'],
-    warn:{when:'claude',msgKey:'cfg.interim_translation_provider_claude_warn'}},
-  {type:'section',label:I18N['cfg.section.translation']},
-  {key:'translate_language',label:I18N['cfg.translate_language'],type:'select',opts:LANG_OPTS},
-  {key:'auto_translate',label:I18N['cfg.auto_translate'],type:'bool'},
-  {key:'translation_provider',label:I18N['cfg.translation_provider'],type:'select',opts:['','claude','api','libretranslate']},
-  {key:'libretranslate_endpoint',label:I18N['cfg.libretranslate_endpoint'],type:'text',ph:'http://localhost:5000'},
-  {key:'libretranslate_api_key',label:I18N['cfg.libretranslate_api_key'],type:'text',ph:''},
-  {key:'libretranslate_spell_check',label:I18N['cfg.libretranslate_spell_check'],type:'bool'},
-  {key:'spell_check_model',label:I18N['cfg.spell_check_model'],type:'text',ph:'sonoisa/t5-base-japanese-spell-checker'},
-  {key:'translation_hiragana_step',label:I18N['cfg.translation_hiragana_step'],type:'bool',def:true},
-  {type:'section',label:I18N['cfg.section.summary']},
-  {key:'auto_summary',label:I18N['cfg.auto_summary'],type:'bool'},
-  {key:'summary_source',label:I18N['cfg.summary_source'],type:'select',opts:['auto','transcript','translate']},
-  {key:'summary_language',label:I18N['cfg.summary_language'],type:'select',opts:['auto',...LANG_OPTS]},
-  {key:'summary_hiragana_step',label:I18N['cfg.summary_hiragana_step'],type:'bool',def:true},
-  {key:'summary_length',label:I18N['cfg.summary_length'],type:'select',opts:['half','1page','2pages','3pages','4pages','5pages']},
-  {type:'section',label:I18N['cfg.section.api']},
-  {key:'llm_provider',label:I18N['cfg.llm_provider'],type:'select',opts:['claude','api']},
-  {key:'api_endpoint',label:I18N['cfg.api_endpoint'],type:'text',ph:'https://...'},
-  {key:'api_model',label:I18N['cfg.api_model'],type:'api_model'},
-  {key:'api_key_env',label:I18N['cfg.api_key_env'],type:'text',ph:'SHADOW_CLERK_API_KEY'},
-  {key:'api_disable_thinking',label:I18N['cfg.api_disable_thinking'],type:'bool',def:false},
-  {type:'section',label:I18N['cfg.section.gcal']},
-  {key:'gcal_integration',label:I18N['cfg.gcal_integration'],type:'bool'},
-  {key:'gcal_credentials_file',label:I18N['cfg.gcal_credentials_file'],type:'text',ph:I18N['cfg.gcal_credentials_file_ph']},
-  {key:'gcal_calendar_id',label:I18N['cfg.gcal_calendar_id'],type:'text',ph:'primary'},
-  {key:'gcal_buffer_minutes',label:I18N['cfg.gcal_buffer_minutes'],type:'select',num:true,opts:['0','1','2','3','5','10']},
-  {key:'gcal_end_buffer_minutes',label:I18N['cfg.gcal_end_buffer_minutes'],type:'select',num:true,opts:['0','1','2','3','5']},
-];
-let cfgData={};
-async function openCfg(){
-  try{cfgData=await(await fetch('/api/config')).json();}catch(e){return;}
-  const b=document.getElementById('cfgBody');b.innerHTML='';
-  CFG_FIELDS.forEach(f=>{
-    if(f.type==='section'){
-      const h=document.createElement('div');h.className='cfg-section';h.textContent=f.label;b.appendChild(h);return;
-    }
-    if(f.type==='device_refresh'){
-      // key を持たないアクション行。saveCfg() は 'cfg_'+undefined を探すため自然に無視される
-      b.appendChild(document.createElement('label'));
-      const btn=document.createElement('button');btn.type='button';btn.id=f.id;
-      btn.textContent=I18N['cfg.device_refresh'];btn.title=I18N['cfg.device_refresh_title'];
-      btn.style.cssText='width:auto;padding:4px 10px;cursor:pointer;';
-      btn.onclick=refreshAudioDevices;
-      b.appendChild(btn);
-      return;
-    }
-    const lbl=document.createElement('label');lbl.textContent=f.label;b.appendChild(lbl);
-    let el;const v=(cfgData[f.key]!==undefined)?cfgData[f.key]:f.def;
-    if(f.type==='bool'){
-      el=document.createElement('select');el.id='cfg_'+f.key;
-      ['true','false'].forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=o;el.appendChild(op);});
-      el.value=v?'true':'false';
-    }else if(f.type==='select'){
-      el=document.createElement('select');el.id='cfg_'+f.key;
-      f.opts.forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=o;el.appendChild(op);});
-      if(v!==null&&v!==undefined)el.value=String(v);
-    }else if(f.type==='device_select'){
-      // 実際の選択肢は非同期の loadAudioDevices() が /api/audio-devices 取得後に差し替える。
-      // ここでは自動＋現在値だけの仮の選択肢を出しておく（保存直後クリック等でも値が保持される）。
-      // 取得完了まで disabled にする — CLI 固定中かどうか判定できるまで保存させないための安全策。
-      // これを外すと、取得待ちの一瞬に保存された場合、固定中の config を null で上書きしてしまう。
-      el=document.createElement('select');el.id='cfg_'+f.key;el.disabled=true;
-      const auto=document.createElement('option');auto.value='';auto.textContent=I18N['cfg.device_auto'];el.appendChild(auto);
-      if(v){const cur=document.createElement('option');cur.value=String(v);cur.textContent=String(v);cur.selected=true;el.appendChild(cur);}
-    }else if(f.type==='api_model'){
-      el=document.createElement('div');el.style.display='flex';el.style.gap='4px';el.style.alignItems='center';el.style.width='100%';
-      const sel=document.createElement('select');sel.id='cfg_'+f.key;sel.style.flex='1';sel.style.width='auto';
-      const cur=document.createElement('option');cur.value=(v===null||v===undefined)?'':String(v);
-      cur.textContent=(v===null||v===undefined)?'(not set)':String(v);sel.appendChild(cur);
-      el.appendChild(sel);
-      const btn=document.createElement('button');btn.textContent='\\u21BB';btn.title='Fetch models';
-      btn.style.cssText='padding:2px 8px;cursor:pointer;width:auto;flex-shrink:0;';
-      btn.onclick=async()=>{
-        btn.disabled=true;btn.textContent='...';
-        try{const d=await(await fetch('/api/models')).json();
-          if(d.error){alert(d.error);return;}
-          const prev=sel.value;sel.innerHTML='';
-          const empty=document.createElement('option');empty.value='';empty.textContent='(not set)';sel.appendChild(empty);
-          d.models.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;sel.appendChild(o);});
-          if(prev)sel.value=prev;
-        }catch(e){alert('Failed to fetch models');}
-        finally{btn.disabled=false;btn.textContent='\\u21BB';}
-      };el.appendChild(btn);
-    }else if(f.type==='json'){
-      el=document.createElement('textarea');el.id='cfg_'+f.key;
-      el.value=JSON.stringify(v||[],null,2);
-    }else{
-      el=document.createElement('input');el.type='text';el.id='cfg_'+f.key;
-      el.value=(v===null||v===undefined)?'':String(v);
-      if(f.ph)el.placeholder=f.ph;
-    }
-    b.appendChild(el);
-    if(f.warn){
-      const w=document.createElement('div');w.className='cfg-warn';
-      w.id='cfg_warn_'+f.key;
-      w.textContent=I18N[f.warn.msgKey]||f.warn.msgKey;
-      const isWarnValue=()=>{
-        const cur=el.tagName==='SELECT'?el.value:(el.querySelector&&el.querySelector('select')?el.querySelector('select').value:el.value);
-        return String(cur)===String(f.warn.when);
-      };
-      w.style.display=isWarnValue()?'block':'none';
-      el.addEventListener('change',()=>{w.style.display=isWarnValue()?'block':'none';});
-      b.appendChild(w);
-    }
-  });
-  document.getElementById('cfgSaved').style.display='none';
-  const jaEl=document.getElementById('cfg_japanese_asr_model');
-  if(jaEl)jaEl.onchange=updateCfgDisabled;
-  const ijaEl=document.getElementById('cfg_interim_japanese_asr_model');
-  if(ijaEl)ijaEl.onchange=updateCfgDisabled;
-  updateCfgDisabled();
-  document.getElementById('cfgModal').classList.add('open');
-  if(cfgData.api_endpoint){fetchApiModels();}
-  loadAudioDevices(cfgData);
-}
-async function fetchApiModels(){
-  const sel=document.getElementById('cfg_api_model');if(!sel)return;
-  try{const d=await(await fetch('/api/models')).json();
-    if(d.error||!d.models.length)return;
-    const prev=sel.value;sel.innerHTML='';
-    const empty=document.createElement('option');empty.value='';empty.textContent='(not set)';sel.appendChild(empty);
-    d.models.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;sel.appendChild(o);});
-    if(prev)sel.value=prev;
-  }catch(e){}
-}
-function closeCfg(){document.getElementById('cfgModal').classList.remove('open');}
-async function saveCfg(){
-  const d={};
-  CFG_FIELDS.forEach(f=>{
-    const el=document.getElementById('cfg_'+f.key);if(!el)return;
-    if(f.type==='bool'){d[f.key]=el.value==='true';}
-    else if(f.type==='json'){try{d[f.key]=JSON.parse(el.value);}catch(e){d[f.key]=cfgData[f.key];}}
-    else if(f.type==='number'){const n=parseInt(el.value,10);d[f.key]=isNaN(n)?cfgData[f.key]:n;}
-    else if(f.type==='device_select'){
-      // CLI 固定中は disabled になっており、送ると null で上書きしてしまうため送らない
-      if(el.disabled)return;
-      d[f.key]=el.value||null;
-    }
-    else if(f.type==='select'&&f.num){const sv=el.value;const n=parseInt(sv,10);d[f.key]=isNaN(n)?null:n;}
-    else if(f.type==='select'){const sv=el.value;const autoKeys=['default_language','summary_source','summary_language'];d[f.key]=(sv===''||(sv==='auto'&&autoKeys.includes(f.key)))?null:sv;}
-    else{const v=el.value.trim();d[f.key]=(v===''||v==='null')?null:v;}
-  });
-  const langChanged=d.ui_language&&d.ui_language!==cfgData.ui_language;
-  try{await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(d)});
-    if(langChanged){location.reload();return;}
-    const s=document.getElementById('cfgSaved');s.style.display='inline';
-    setTimeout(()=>s.style.display='none',2000);
-  }catch(e){}
-}
-function updateCfgDisabled(){
-  const ija=document.getElementById('cfg_interim_japanese_asr_model');
-  const iIsK2=ija&&ija.value==='reazonspeech-k2';
-  const im=document.getElementById('cfg_interim_model');
-  if(im){im.disabled=iIsK2;im.style.opacity=iIsK2?'0.5':'1';}
-}
 const GL_COL_OPTS=[...LANG_OPTS,'reading','note'];
 let glossaryCols=[];
 function glossaryAddRow(vals){
@@ -436,7 +253,7 @@ function _renderAttendees(list){
     +(note?'<div style="font-size:11px;color:var(--muted);margin-top:2px">'+esc(note)+'</div>':'')
     +'</div>';
 }
-let _sGen=0;
+let _sumMd='';   // 画面には HTML を出すので、コピー用に生の Markdown を持っておく
 async function loadS(file){
   const el=document.getElementById('sp');if(!el)return;
   const g=++_sGen;
@@ -448,14 +265,73 @@ async function loadS(file){
     ]);
     if(g!==_sGen)return;
     document.getElementById('sf').textContent=sumD.file||'';
+    _sumMd=sumD.content||'';
+    const cp=document.getElementById('btnCopySum');if(cp)cp.style.display=_sumMd?'':'none';
     const attHtml=_renderAttendees(attD.attendees||[]);
     if(sumD.content){
-      el.innerHTML=attHtml+'<div class="summary-body">'+esc(sumD.content)+'</div>';
+      // html はサーバが起こしたもの。レンダラが落ちたときだけ生の Markdown を出す
+      el.innerHTML=attHtml+(sumD.html
+        ?'<div class="md-body">'+sumD.html+'</div>'
+        :'<div class="summary-body">'+esc(sumD.content)+'</div>');
     }else{
       el.innerHTML=attHtml+'<div class="summary-empty"><div style="color:var(--muted);margin-bottom:8px">'+esc(I18N['dash.no_summary']||'No summary.')+'</div>'
         +'<button class="pri" onclick="genSummary()">'+esc(I18N['dash.summary']||'Summary')+'</button></div>';
     }
   }catch(e){el.innerHTML='';}
+}
+/* 画面は HTML なので、選択してコピーすると書式が落ちる。元の Markdown を渡す */
+async function copySummaryMd(){
+  if(!_sumMd)return;
+  let ok=false;
+  try{await navigator.clipboard.writeText(_sumMd);ok=true;}
+  catch(e){
+    // localhost 以外の http では clipboard API が無い。textarea 経由に落とす
+    const ta=document.createElement('textarea');
+    ta.value=_sumMd;ta.style.position='fixed';ta.style.opacity='0';
+    document.body.appendChild(ta);ta.select();
+    try{ok=document.execCommand('copy');}catch(e2){}
+    ta.remove();
+  }
+  // 失敗しても ✓ を出すと、貼り付けて初めて空だと気づくことになる
+  const b=document.getElementById('btnCopySum');
+  if(b&&!b.dataset.copied){
+    b.dataset.copied='1';const o=b.textContent;b.textContent=ok?'\u2713':'\u2717';
+    setTimeout(()=>{b.textContent=o;delete b.dataset.copied;},1200);
+  }
+}
+async function loadAdvice(file){
+  const g=++_adGen;
+  const f=file?'?file='+encodeURIComponent(file):'';
+  try{const d=await(await fetch('/api/advice'+f)).json();if(g!==_adGen)return;
+    _renderGenerated('adp','adf',d,'dash.no_advice');
+  }catch(e){}
+}
+async function loadAnalysis(file){
+  const g=++_anGen;
+  const f=file?'?file='+encodeURIComponent(file):'';
+  try{const d=await(await fetch('/api/analysis'+f)).json();if(g!==_anGen)return;
+    _renderGenerated('anp','anf',d,'dash.no_analysis');
+    const el=document.getElementById('anp');if(el)el.scrollTop=el.scrollHeight;
+  }catch(e){}
+}
+/* 開始と停止を1つのボタンで受ける。走っているかは _consoleRunning が持つ */
+async function toggleAnalysis(){
+  // 連打すると「分析開始」が多重送信され、起動途中の PTY に2回目の初期
+  // プロンプトが即 write されて消えうる(I1)。送信中はボタンを無効化する
+  const btn=document.getElementById('btnStartAnalysis');
+  if(btn){if(btn.disabled)return;btn.disabled=true;}
+  if(_consoleRunning){
+    try{await stopConsole();}finally{if(btn)btn.disabled=false;}
+    return;
+  }
+  const body=curFile?JSON.stringify({transcript:curFile}):'{}';
+  try{const r=await fetch('/api/console/start',{method:'POST',
+    headers:{'Content-Type':'application/json'},body});
+    const d=await r.json();
+    if(d.status!=='ok')alert(I18N['dash.console_start_failed']||'Failed to start the AI assistant.');
+    else switchLogTab('console');
+  }catch(e){}
+  finally{if(btn)btn.disabled=false;}
 }
 async function genSummary(){
   const f=curFile||undefined;

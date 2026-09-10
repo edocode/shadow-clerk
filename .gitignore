@@ -19,3 +19,9 @@ docs/slides.html
 docs/slides.pdf
 docs/slides.rendered.md
 docs/slides.rendered-*.svg
+
+# SDD scratch (subagent-driven-development workspace)
+.superpowers/
+
+# 設計・計画の作業メモ (superpowers)
+docs/superpowers/

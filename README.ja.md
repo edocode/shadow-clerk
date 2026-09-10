@@ -39,7 +39,12 @@ uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "re
 - **データディレクトリ**: `%APPDATA%\shadow-clerk`(README 内の `~/.local/share/shadow-clerk` は Windows ではこのパスにマップされる)。`SHADOW_CLERK_DATA_DIR` 環境変数で上書き可。
 - **リモートデスクトップ(RDP)**: RDP セッション内で動作している場合、ホストの「リモート オーディオ」仮想デバイスは自動でスキップされる(セグフォするか何も拾えないため)。代わりに非 RDP の loopback デバイスがあればそれを使う。無い場合はモニターキャプチャ無効でマイクのみで動作する。
 - **`voice_command_key`**: デフォルトの `f23` は Linux/xremap 用の慣習。Windows では `null`(PTT 無効)または `menu`/`ctrl_r`/`ctrl_l`/`alt_r`/`alt_l`/`shift_r`/`shift_l` のいずれかを `config.yaml` で設定する。
-- **daemon の停止**: `clerk-util stop` が動作する(Windows では内部で `taskkill` を使用)。`clerk-util start` はフォアグラウンドで起動し Ctrl+C で停止できる(Linux と同じ挙動)。
+- **daemon の停止**: `clerk-util stop` が動作する(Windows では内部で `taskkill` を使用)。`clerk-util start` はフォアグラウンドで起動し Ctrl+C で停止できる(Linux と同じ挙動)。`clerk-daemon --daemon` は分離起動する: `fork()` が無いので `DETACHED_PROCESS` で自分を起こし直し、親は抜ける。
+- **AI コンソール**: ConPTY を [pywinpty](https://github.com/andfoy/pywinpty) 経由で使う(Windows 限定 dep として宣言済み)。入っていなくても daemon 自体は動き、コンソールだけが「pywinpty が要る」と報告して起動しない。
+
+### スタンドアロンバイナリ
+
+`clerk-daemon.exe` と `clerk-util.exe` を PyInstaller で作れる。[スタンドアロンバイナリのビルド](#スタンドアロンバイナリのビルド)を参照。
 
 ## 機能と必要なもの
 
@@ -229,6 +234,38 @@ claude_cli_model: haiku   # sonnet / opus / モデル ID も指定可
 
 既存の Claude Code OAuth ログインをそのまま使う。追加セットアップ不要、翻訳・要約は daemon 内のバックグラウンドスレッドで実行されるので Claude Code セッションを開きっぱなしにする必要なし。
 
+## スタンドアロンバイナリのビルド
+
+`packaging/shadow-clerk.spec` で、`clerk-daemon` と `clerk-util` の両方を含む 1 ディレクトリ配布を作れる。
+
+**PyInstaller はクロスコンパイルしない。** 動かしている OS 向けの実行ファイルしか作らない — bootloader が OS ごとのネイティブバイナリで、解析も実際にモジュールを import して依存を辿るため。したがって Windows の `.exe` は Windows 上で作る必要がある(実機・VM・GitHub Actions の `windows-latest` のいずれか)。Wine に Windows 版 Python を入れる回避策はあるが、解析時に `pywinpty`(ConPTY)・`PyAudioWPatch`(WASAPI)・`ctranslate2` を import するので、まさに Wine が苦手な部分に当たる。
+
+```powershell
+# Windows (PowerShell)
+uv sync
+uv pip install pyinstaller
+uv run pyinstaller packaging/shadow-clerk.spec
+dist\shadow-clerk\clerk-daemon.exe --list-devices   # 動作確認
+```
+
+```bash
+# Linux / macOS
+uv sync
+uv pip install pyinstaller
+uv run pyinstaller packaging/shadow-clerk.spec
+./dist/shadow-clerk/clerk-daemon --list-devices      # 動作確認
+```
+
+`--list-devices` は動作確認に向いている。録音を始めずに、同梱した PortAudio とネイティブ拡張が読めているかを確かめられる。
+
+補足:
+
+- **出力先**: `dist/shadow-clerk/`。既定の依存のみ(extra なし)でおよそ 460MB。`torch` / `transformers` / `sentencepiece` は spec の `_EXCLUDES` で除いている — `spell-check` extra でしか使わないうえ、入れると数 GB 増えるため。
+- **extra はビルドした環境に入っているものだけが集められる。** 同梱したければ先に `uv sync --extra gcal` などを実行しておく。
+- **Whisper のモデルは同梱されない。** `small` で約 500MB あり、初回起動時に Hugging Face から取得されてキャッシュに残る(Windows は `%USERPROFILE%\.cache\huggingface`、それ以外は `~/.cache/huggingface`)。オフラインで配布したいなら、そのキャッシュを spec の `datas` に足すか、CT2 形式に変換したモデルを同梱して `--model` にパスを渡す。
+- **`packaging/hooks/` は PyInstaller 同梱フックの差し替え。** 現在 1 つある: 同梱の `hook-webrtcvad.py` は `copy_metadata('webrtcvad')` を呼ぶが、このプロジェクトが使うのは `webrtcvad-wheels` なので、差し替えないと `ImportErrorWhenRunningHook` でビルドが止まる。
+- DLL やデータファイルを持つ依存を足したら、spec の `_PACKAGES` にも足すこと。PyInstaller は `import` しか追わないので、漏れると**ビルドは通って実行時に落ちる**。
+
 ## 使い方
 
 ### デーモンの起動
@@ -311,6 +348,15 @@ custom_commands:
 
 - `pattern`: 正規表現（大文字小文字を区別しない）
 - `action`: 実行するシェルコマンド
+
+音声で分析を開始することもできる — 用語集にはすでに `クラーク` がウェイクワードの
+バリアントとして登録されているので、PTT キーを押しながらこう発話すると発火する:
+
+```yaml
+custom_commands:
+  - pattern: (クラーク|クラーク、)?分析(開始|して)
+    action: curl -sX POST localhost:8765/api/console/start
+```
 
 #### LLM フォールバック
 
@@ -411,6 +457,25 @@ clerk-util command translate_stop                  # 翻訳ループ停止
 
 生成された議事録は `~/.local/share/shadow-clerk/summary-YYYYMMDD.md` に保存される。
 
+### AI コンソール
+- アシスタントは `$SHADOW_CLERK_URL`（コンソールが子プロセスに渡す）で API に届くので、ポートを推測しない。
+
+ダッシュボードの **AI Console** タブ（**Logs** タブの隣）で、AI アシスタント（`claude` または `codex`）を PTY 上で動かし、会議の文字起こしを監視させて生成物を書かせることができる。
+
+- **起動**: 会議開始時（`auto_analyze: true
+auto_summary_via_console: true   # コンソールが走っていれば議事録をそちらに作らせる`）または「分析開始」ボタンで手動起動。いずれの場合もアシスタントの TUI が準備できたタイミングで `ai_assistant_init_prompt`（デフォルト `/mtg {transcript} {lang}`）が PTY に送られる。`{transcript}` と `{meeting}` は実際のファイルパスに、`{lang}` は `translate_language` に置き換えられ、スキルは読みたい言語で書く
+- **生成物**: Summary パネルの `[Summary][提案][分析]` タブに表示される
+  - `advice-<stem>.md` — 未解決の質問・提案（毎回上書き）
+  - `analysis-<stem>.md` — 確定した事実（追記）
+
+  どちらも Markdown で、サーバ側で HTML に起こしてから配る。生成物に混ざった
+  生 HTML はレンダリングせず、実体参照に落とす。
+- **セッションのライフサイクル**: 1 つの PTY セッションを使い回し、会議が終わっても停止しない — 会議後の議事録作成にもそのまま使える。停止するには Console タブの停止ボタンを押す
+- **起動ディレクトリ**: `ai_assistant_workdir` が既定の起動ディレクトリを決める。会議ごとの上書きは mtg スキルの `config.yaml`（`meetings[].workdir`）にあり、会議一覧の各行の ⚙ アイコンから編集できる。shadow-clerk が自分で作ったのではない `config.yaml` を初めて書き換えるときは、隣に一度だけ `<path>.bak` を残す（YAML の書き出しはキーは保つが、手書きのコメントは保たないため）
+- **権限**: アシスタントは mtg スキルのシェルスクリプトを実行するので、その起動ディレクトリの `.claude/settings.json` で許可しておくこと — しないと会議中に承認プロンプトで止まる
+- **SIGKILL 時に残るプロセス**: 通常の終了ではデーモンがアシスタントを止めるが、デーモン自体が SIGKILL（`kill -9`）で落ちた場合、アシスタントのプロセスが端末から切り離されたまま残ることがある。`pgrep -af claude`（または `codex`）で探して手で kill すること
+- **ダッシュボードを外部公開する場合の注意**: AI Console の端末内容（アシスタントがファイルから読んだ・出力した内容を含む）は他のダッシュボード機能と同じ `/api/events` の SSE に相乗りして配信されており、この SSE のファンアウトはクライアント単位の絞り込みを持たない。ダッシュボードを localhost 以外にバインドすると、到達できる相手はアシスタントの端末をそのまま覗ける。Console への入力系（`/api/console/input` 等）自体は localhost 限定に加え、`Origin` ヘッダを見て自分のブラウザからのクロスオリジンリクエストも拒否する
+
 ### 設定ファイル
 
 `~/.local/share/shadow-clerk/config.yaml` でデフォルト値や自動機能を設定できる:
@@ -420,6 +485,11 @@ clerk-util command translate_stop                  # 翻訳ループ停止
 translate_language: en        # 翻訳先言語 (ja/en/etc)
 auto_translate: false         # start meeting 時に自動翻訳を開始
 auto_summary: false           # end meeting 時に自動 summary 生成
+auto_analyze: false           # 会議開始と同時に AI アシスタントを起動し mtg スキルを走らせる
+ai_assistant_command: claude  # AI Console で起動するコマンド (claude, codex, ...)
+ai_assistant_args: ''         # そのコマンドの引数 (shlex で分割)
+ai_assistant_init_prompt: /mtg {transcript} {lang}  # TUI 準備完了後に PTY へ送るプロンプト。{transcript} {meeting} {lang} が置換される（{lang} は translate_language）
+ai_assistant_workdir: ''      # 既定の起動ディレクトリ。会議ごとの上書きは mtg スキルの meetings[].workdir にある
 default_language: null        # clerk-daemon のデフォルト言語 (null=自動検出)
 default_model: small          # clerk-daemon のデフォルト Whisper モデル
 output_directory: null        # transcript 出力先ディレクトリ (null=データディレクトリ)
@@ -465,6 +535,7 @@ clerk-util write-config-value auto_translate true     # 自動翻訳を有効化
 
 `auto_translate: true` にすると、会議セッション開始時に自動で翻訳が開始される。
 `auto_summary: true` にすると、会議セッション終了時に自動で議事録が生成される。
+`auto_analyze: true` にすると、会議セッション開始時に AI Console で AI アシスタントが起動する。
 
 ### 翻訳ファイルからの要約生成
 

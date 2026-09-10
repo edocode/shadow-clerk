@@ -92,7 +92,7 @@ class _DashboardHandlerOps:
     @staticmethod
     def _related_file_names(t_path: str, tn: TranscriptName | None,
                             all_files: set[str]) -> list[str]:
-        """t_path に付随する関連ファイル（翻訳・summary・offset）の basename 一覧を返す。
+        """t_path に付随する関連ファイル（翻訳・summary・advice・analysis・offset）の basename 一覧を返す。
 
         削除処理（_cleanup_transcript_files）と削除確認モーダルの表示で
         同じ集合を使い、「確認に出ていないファイルが消える」不一致を防ぐ。
@@ -104,8 +104,10 @@ class _DashboardHandlerOps:
             for f in sorted(all_files):
                 if f != base and f.startswith(tn.stem + "-") and f.endswith(".txt"):
                     related.append(f)
-            if tn.summary_filename in all_files:
-                related.append(tn.summary_filename)
+            for name in (tn.summary_filename, tn.advice_filename,
+                         tn.analysis_filename):
+                if name in all_files:
+                    related.append(name)
         offset_name = base + ".translate_offset"
         if offset_name in all_files:
             related.append(offset_name)

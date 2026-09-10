@@ -9,12 +9,13 @@ import os
 import queue
 import re
 import threading
+import time
 from http.server import ThreadingHTTPServer
 from typing import Any
 
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import (
-    SAMPLE_RATE, SESSION_FILE,
+    SAMPLE_RATE, SESSION_FILE, SHUTDOWN_JOIN_BUDGET_SEC,
     _HAS_PYNPUT, _HAS_EVDEV,
 )
 from shadow_clerk._daemon_config import load_config
@@ -359,7 +360,13 @@ class _RecorderTranscribeMixin:
             DashboardHandler.log_buffer = self._log_buffer
             DashboardHandler.file_watcher = self._file_watcher
 
+            # Console の差分は既存の SSE に相乗りする
+            from shadow_clerk._daemon_console import get_console
+            get_console().set_broadcaster(self._file_watcher._broadcast)
+
             port = getattr(self.args, "dashboard_port", 8765)
+            # 子（AI アシスタント）が API を叩けるよう、実際のポートを教える
+            get_console().set_dashboard_url(f"http://localhost:{port}")
             ThreadingHTTPServer.allow_reuse_address = True
 
             class _QuietServer(ThreadingHTTPServer):
@@ -389,10 +396,18 @@ class _RecorderTranscribeMixin:
             self.stop_event.set()
 
         logger.info("スレッド終了待機中...")
+        # serve_forever は stop_event を見ないので、明示的に止めない限り
+        # join は必ずタイムアウトぶん待たされる
+        server = getattr(self, "_dashboard_server", None)
+        if server is not None:
+            server.shutdown()
         # monitor-backend は遅延起動で threads に載らないが、join しないと
-        # pw-record/parec の子プロセスが finally を通らず取り残される
+        # pw-record/parec の子プロセスが finally を通らず取り残される。
+        # 個別に上限を置くと応答しないスレッドの数だけ待ち時間が積み上がるので、
+        # 全体の期限で打ち切る
+        deadline = time.monotonic() + SHUTDOWN_JOIN_BUDGET_SEC
         for th in threads + [self._monitor_backend]:
             if th is not None:
-                th.join(timeout=5.0)
+                th.join(timeout=max(0.0, deadline - time.monotonic()))
 
         logger.info("Shadow-clerk recorder 終了")

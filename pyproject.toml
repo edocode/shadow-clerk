@@ -46,7 +46,11 @@ dependencies = [
     "pynput>=1.7.6",
     "evdev>=1.6.0; sys_platform == 'linux'",
     "PyAudioWPatch>=0.2.12; sys_platform == 'win32'",
+    # AI Console の疑似端末。POSIX は標準ライブラリの pty、Windows は ConPTY
+    "pywinpty>=2.0.13; sys_platform == 'win32'",
     "langdetect>=1.0.9",
+    "pyte>=0.8.2",
+    "markdown-it-py>=3.0",
 ]
 
 [project.urls]

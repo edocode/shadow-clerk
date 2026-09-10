@@ -117,6 +117,18 @@ class TranscriptName:
         suffix = f"@{self.meeting_name}" if self.meeting_name else ""
         return f"transcript-{self.datetime_str}{suffix}.attendees.json"
 
+    @property
+    def advice_filename(self) -> str:
+        """advice-YYYYMMDDHHMM[@name].md — AI アシスタントが書く未解決の提案"""
+        suffix = f"@{self.meeting_name}" if self.meeting_name else ""
+        return f"advice-{self.datetime_str}{suffix}.md"
+
+    @property
+    def analysis_filename(self) -> str:
+        """analysis-YYYYMMDDHHMM[@name].md — AI アシスタントが書く確定した事実"""
+        suffix = f"@{self.meeting_name}" if self.meeting_name else ""
+        return f"analysis-{self.datetime_str}{suffix}.md"
+
     def translation_filename(self, lang: str) -> str:
         """transcript-YYYYMMDDHHMM[@name]-{lang}.txt"""
         suffix = f"@{self.meeting_name}" if self.meeting_name else ""
@@ -140,6 +152,18 @@ class TranscriptName:
         """summary-YYYYMMDDHHMM[@name]（拡張子なし）"""
         suffix = f"@{self.meeting_name}" if self.meeting_name else ""
         return f"summary-{self.datetime_str}{suffix}"
+
+    @property
+    def advice_stem(self) -> str:
+        """advice-YYYYMMDDHHMM[@name]（拡張子なし）"""
+        suffix = f"@{self.meeting_name}" if self.meeting_name else ""
+        return f"advice-{self.datetime_str}{suffix}"
+
+    @property
+    def analysis_stem(self) -> str:
+        """analysis-YYYYMMDDHHMM[@name]（拡張子なし）"""
+        suffix = f"@{self.meeting_name}" if self.meeting_name else ""
+        return f"analysis-{self.datetime_str}{suffix}"
 
     # --- 表示ラベル ---
 
@@ -207,9 +231,18 @@ class TranscriptName:
           transcript-YYYYMMDDHHMM[@old]-{lang}.txt  (翻訳)
           transcript-YYYYMMDDHHMM[@old].txt.translate_offset
           summary-YYYYMMDDHHMM[@old].md
+          advice-YYYYMMDDHHMM[@old].md    (AI アシスタントの未解決の提案)
+          analysis-YYYYMMDDHHMM[@old].md  (AI アシスタントの確定した事実)
         """
         tr_pat = self.related_file_pattern
-        sum_pat = re.compile(r'^' + re.escape(self.summary_stem) + r'(?=[.-])')
+        # summary / advice / analysis は同じ形（<prefix>-<datetime>[@name]）なので
+        # まとめて扱う。会議をリネームしたとき片方だけ取り残されると、
+        # ダッシュボードが古い名前のファイルを見にいって空表示になる
+        side_pats = [(re.compile(r'^' + re.escape(old_stem) + r'(?=[.-])'), new_stem)
+                     for old_stem, new_stem in (
+                         (self.summary_stem, new_tn.summary_stem),
+                         (self.advice_stem, new_tn.advice_stem),
+                         (self.analysis_stem, new_tn.analysis_stem))]
         try:
             all_files = os.listdir(directory)
         except OSError:
@@ -218,10 +251,13 @@ class TranscriptName:
         for fname in all_files:
             if tr_pat.match(fname):
                 new_fname = new_tn.stem + tr_pat.sub('', fname)
-            elif sum_pat.match(fname):
-                new_fname = new_tn.summary_stem + sum_pat.sub('', fname)
             else:
-                continue
+                for pat, new_stem in side_pats:
+                    if pat.match(fname):
+                        new_fname = new_stem + pat.sub('', fname)
+                        break
+                else:
+                    continue
             if fname != new_fname:
                 pairs.append((fname, new_fname))
         return pairs

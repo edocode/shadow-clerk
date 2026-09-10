@@ -17,8 +17,41 @@ from shadow_clerk._process import is_clerk_daemon_process
 logger = logging.getLogger("shadow-clerk")
 
 
+#: 起こし直した子であることの目印。無いと孫を延々と起こし続ける
+_DAEMONIZED_ENV = "SHADOW_CLERK_DAEMONIZED"
+
+
+def _daemonize_windows() -> None:
+    """Windows には fork が無いので、自分を分離して起こし直し親は抜ける
+
+    DETACHED_PROCESS でコンソールから切り離すため、起動したターミナルを
+    閉じても子は生き残る。標準入出力は捨てる——ログはこのあと親子とも
+    FileHandler が受け持つ。
+    """
+    import subprocess
+    if os.environ.get(_DAEMONIZED_ENV):
+        return  # 起こし直された側。もう分離できている
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, *sys.argv[1:]]        # PyInstaller の exe
+    else:
+        cmd = [sys.executable, "-m", "shadow_clerk.clerk_daemon", *sys.argv[1:]]
+    flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    try:
+        with open(os.devnull, "r+b") as devnull:
+            subprocess.Popen(cmd, env={**os.environ, _DAEMONIZED_ENV: "1"},
+                             stdin=devnull, stdout=devnull, stderr=devnull,
+                             creationflags=flags, close_fds=True)
+    except OSError as e:
+        print(f"error: デーモンとして起動できません: {e}", file=sys.stderr)
+        sys.exit(1)
+    sys.exit(0)
+
+
 def _daemonize() -> None:
     """ダブルフォークでデーモン化"""
+    if sys.platform == "win32":
+        _daemonize_windows()
+        return
     pid = os.fork()
     if pid > 0:
         sys.exit(0)
@@ -217,6 +250,15 @@ def main() -> None:
     finally:
         if gcal_monitor:
             gcal_monitor.stop()
+        # PTY の子は daemon の子プロセスなので、明示的に落とさないと残る。
+        # デフォルトの timeout (3.0) だと SIGTERM/SIGKILL 待ちや tick/reader
+        # スレッドの join が積み重なり、clerk-util restart の予算
+        # (20 * 0.5 秒) を daemon 終了待ちだけで食いつぶしうる。
+        # ローカル IPC と同じ IPC_TIMEOUT_SEC を使い、「変更→再起動→確認」
+        # のループがアシスタントのツール実行中でも間欠的に失敗しないようにする
+        from shadow_clerk._daemon_console import get_console
+        from shadow_clerk._daemon_constants import IPC_TIMEOUT_SEC
+        get_console().stop(timeout=IPC_TIMEOUT_SEC)
 
 
 if __name__ == "__main__":

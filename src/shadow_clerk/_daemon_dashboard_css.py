@@ -18,6 +18,9 @@ _CSS_TEMPLATE = """\
   --other: #ffa657;
   --btn: #21262d;
   --btn-h: #30363d;
+  /* 読む面(文字起こし・議事録・コンソール)の基準サイズ。「小中大」で差し替える。
+     ヘッダやボタンは動かさない——動かすと折り返して行が増え、読む面が狭くなる */
+  --fs: 12px;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 a { color: var(--accent); text-decoration: none; }
@@ -62,7 +65,7 @@ main {
 .pc {
   flex:1; overflow-y:auto; padding:8px 12px;
   font-family: 'SF Mono','Monaco','Menlo','Consolas',monospace;
-  font-size: 12px; line-height: 1.6;
+  font-size: var(--fs); line-height: 1.6;
 }
 .ln { margin-bottom:2px; word-break:break-word; display:flex; align-items:flex-start; }
 .ln .ln-text { flex:1; }
@@ -89,13 +92,13 @@ main {
 #logc {
   flex:1; overflow-y:auto; padding:4px 12px;
   font-family: 'SF Mono','Monaco','Menlo','Consolas',monospace;
-  font-size:11px; line-height:1.5; color:var(--muted);
+  font-size:calc(var(--fs) - 1px); line-height:1.5; color:var(--muted);
 }
 .ll { white-space:pre-wrap; word-break:break-word; }
 .ll.e { color:var(--red); }
 .ll.w { color:var(--yellow); }
 .interim {
-  color: var(--muted); font-style: italic; opacity: 0.7;
+  color: var(--muted); font-style: italic; opacity: 0.7; font-size: var(--fs);
   border-left: 2px solid var(--yellow); padding-left: 8px; margin-top: 4px;
 }
 #resp {
@@ -129,10 +132,96 @@ main {
 .lv.lv-silent{border-color:var(--red);background:var(--red)}
 .lv.lv-fallback{box-shadow:0 0 0 1px var(--yellow)}
 .panel.hidden { display:none; }
-.summary-body { white-space:pre-wrap; font-size:12px; line-height:1.7; }
+.summary-body { white-space:pre-wrap; line-height:1.7; }
 .summary-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; }
-#logp.collapsed #logc { display:none; }
-#logp.collapsed { height:auto; }
+#logp.collapsed #logc, #logp.collapsed #consolec { display:none; }
+/* !important が要る。ドラッグでリサイズすると initLogResize が
+   style.height をインラインで書くため、素の height:auto では負けて
+   「中身は消えるのに箱の高さだけ残る」状態になる。インラインの値は
+   残るので、開き直せば元の高さに戻る */
+#logp.collapsed { height:auto !important; }
+#logResize { height:5px; cursor:ns-resize; background:transparent; flex-shrink:0; }
+#logResize:hover { background:var(--accent); }
+#logp.collapsed #logResize { display:none; }
+#consolec {
+  position:relative;
+  /* **gutter は常に確保すること。** overflow:auto のままだと、行が増減して
+     縦スクロールバーが出入りするたびに clientWidth が 15px 動く。列数はそこから
+     算出しているので 344 ⇄ 346 で振れ、そのたび子に SIGWINCH が飛ぶ。TUI は
+     自分がいま思っている幅までしか消さないため、広い幅で描いた罫線が残って
+     画面が崩れる */
+  flex:1; overflow:auto; scrollbar-gutter:stable; padding:4px 8px; background:var(--bg);
+  font-family: var(--console-font);
+  font-size:var(--fs); line-height:1.35; white-space:pre; outline:none;
+}
+#consolec:focus-within { box-shadow: inset 0 0 0 1px var(--accent); }
+/* IME の入力先。div は編集可能でないため composition イベントが来ず、日本語が
+   打てない。xterm.js と同じく、透明な textarea をカーソル位置に置いて受ける
+   ——位置を合わせるのは、変換候補ウィンドウがそこに出るようにするため */
+#consoleInput { position:absolute; opacity:0; z-index:1; width:1ch; height:1.35em;
+  padding:0; margin:0; border:none; outline:none; resize:none; overflow:hidden;
+  font:inherit; line-height:inherit; color:transparent; background:transparent; }
+/* 変換中だけ textarea を見せる。透明のままだと確定するまで画面に何も出ず、
+   打てているのか分からない。下線は「まだ確定していない」という IME の慣習。
+   幅は変換中の文字数から JS が入れる——textarea の width:auto は cols 属性の
+   既定(20文字)になってしまい、1文字でも広い箱が出る */
+#consoleInput.composing {
+  opacity:1; color:var(--text); background:var(--bg);
+  text-decoration:underline; z-index:2;
+}
+.cr { min-height:1.35em; }
+.ccursor { position:absolute; width:1ch; height:1.35em; background:var(--accent); opacity:.35; pointer-events:none; }
+.cs-bold { font-weight:700; }
+.cs-italic { font-style:italic; }
+.cs-underline { text-decoration:underline; }
+.cs-strike { text-decoration:line-through; }
+.cs-reverse { filter:invert(1); }
+/* SGR 2 (faint)。claude の TUI は入力欄の候補テキストをこれで描くので、
+   自分が打った文字とはっきり差が付く濃さにする */
+.cs-dim { opacity:.45; }
+/* 端末の升目は「ASCII 1 桁 = 1 セル、CJK = 2 セル、罫線/ブロックは 1 セル」で
+   ないと崩れる。ところが CJK フォント (Linux の generic monospace は
+   Noto Sans Mono CJK) は罫線・ブロック・記号を East Asian Ambiguous として
+   全角幅で持つため、pyte が 1 セルとして送った ─ │ █ ▐ ● が 2 セル幅で
+   描かれ、ヘッダの AA も枠線も横にずれる。
+   そこで ASCII と罫線は Noto Sans Mono (これらを半角で持つ) から取り、
+   CJK だけを size-adjust で 2 倍幅に合わせた別ファミリとして重ねる。
+   計測値 (12px): ASCII 7.2 / 罫線・ブロック 7.2 / CJK 14.4 */
+@font-face {
+  font-family:'ConsoleCJK';
+  src:local('Noto Sans Mono CJK JP'),local('Noto Sans Mono CJK SC'),
+      local('Source Han Mono'),local('IBM Plex Mono JP');
+  size-adjust:120%;
+  unicode-range:U+1100-11FF,U+2E80-303F,U+3040-30FF,U+3130-318F,U+3190-319F,
+    U+31F0-31FF,U+3200-32FF,U+3400-4DBF,U+4E00-9FFF,U+A960-A97F,U+AC00-D7FF,
+    U+F900-FAFF,U+FE10-FE1F,U+FE30-FE4F,U+FF00-FFEF;
+}
+:root{
+  /* local() が全て外れる環境 (macOS / Windows) では ConsoleCJK が使われず、
+     末尾の monospace に落ちるだけなので従来どおり動く */
+  --console-font:'Noto Sans Mono','DejaVu Sans Mono','SF Mono','Menlo','Consolas',
+                 'ConsoleCJK',ui-monospace,monospace;
+}
+/* pyte の色名に合わせる。pyte は 30-37 を black/red/green/brown/blue/magenta/
+   cyan/white、90-97 を bright* と呼ぶ (yellow ではなく brown)。旧実装は
+   yellow/bright* を知らず、名前が合わない色を全て捨てていたため画面が
+   ほぼ白黒になっていた。bfightmagenta は pyte 側の綴り誤り */
+.cfg-black{color:#6e7681}.cfg-red{color:#f85149}.cfg-green{color:#3fb950}
+.cfg-brown{color:#d29922}.cfg-blue{color:#58a6ff}.cfg-magenta{color:#bc8cff}
+.cfg-cyan{color:#39c5cf}.cfg-white{color:#e6edf3}
+.cfg-brightblack{color:#8b949e}.cfg-brightred{color:#ff7b72}
+.cfg-brightgreen{color:#56d364}.cfg-brightbrown{color:#e3b341}
+.cfg-brightblue{color:#79c0ff}.cfg-brightmagenta{color:#d2a8ff}
+.cfg-bfightmagenta{color:#d2a8ff}
+.cfg-brightcyan{color:#56d4dd}.cfg-brightwhite{color:#ffffff}
+.cbg-black{background:#6e7681}.cbg-red{background:#f85149}.cbg-green{background:#3fb950}
+.cbg-brown{background:#d29922}.cbg-blue{background:#58a6ff}.cbg-magenta{background:#bc8cff}
+.cbg-cyan{background:#39c5cf}.cbg-white{background:#e6edf3}
+.cbg-brightblack{background:#8b949e}.cbg-brightred{background:#ff7b72}
+.cbg-brightgreen{background:#56d364}.cbg-brightbrown{background:#e3b341}
+.cbg-brightblue{background:#79c0ff}.cbg-brightmagenta{background:#d2a8ff}
+.cbg-bfightmagenta{background:#d2a8ff}
+.cbg-brightcyan{background:#56d4dd}.cbg-brightwhite{background:#ffffff}
 #pnlM { position:relative; overflow:visible; flex:0 0 180px; min-width:0; transition:flex-basis .15s; }
 #pnlM.collapsed { flex:0 0 0; }
 #pnlM.collapsed .lp-tabs, #pnlM.collapsed #datePane,
@@ -141,7 +230,11 @@ main {
 #pnlM .pc { padding:6px 8px; font-family:inherit; }
 .lp-tabs { display:flex; border-bottom:1px solid var(--border); flex-shrink:0; }
 .lp-tab { flex:1; padding:5px 2px; font-size:11px; border:none; border-radius:0;
-  background:transparent; color:var(--muted); border-bottom:2px solid transparent; cursor:pointer; }
+  background:transparent; color:var(--muted); border-bottom:2px solid transparent; cursor:pointer;
+  white-space:nowrap; }
+/* logp のタブはヘッダ内の小さな span にいるので、幅いっぱいに伸ばす必要がない。
+   flex:1 のままだと狭く潰されて「AIコン/ソール」のように折り返す */
+#logHead .lp-tab { flex:0 0 auto; padding:5px 10px; }
 .lp-tab:hover { color:var(--text); background:transparent; }
 .lp-tab.active { color:var(--accent); border-bottom-color:var(--accent); background:transparent; }
 #mtgContent { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
@@ -165,7 +258,51 @@ main {
 #mtgChevron:hover { background:var(--btn-h); color:var(--text); }
 #pnlS { position:relative; overflow:visible; }
 #pnlS.collapsed { flex:0 0 0; }
-#pnlS.collapsed .ph, #pnlS.collapsed .pc { display:none !important; }
+#pnlS.collapsed .lp-tabs, #pnlS.collapsed #sumWrap,
+#pnlS.collapsed #aiWrap { display:none !important; }
+/* タブの中身は縦に伸ばす。.pc の overflow-y が効くように min-height:0 を置く */
+#sumWrap, #aiWrap { flex:1; display:flex; flex-direction:column; min-height:0; }
+/* AI タブは提案(上) と分析(下) を縦に積む。上は高さ指定 + flex-shrink:0 で
+   仕切りのドラッグに追従させ、下は残りを埋める */
+#advWrap { flex:0 0 auto; height:45%; display:flex; flex-direction:column; min-height:60px; }
+#anaWrap { flex:1; display:flex; flex-direction:column; min-height:60px; }
+#sumSplit { height:5px; cursor:ns-resize; background:var(--border); flex-shrink:0; }
+#sumSplit:hover { background:var(--accent); }
+/* 幅が広いときは左右に並べる。縦に積んだままだと 1 ペインあたりの行数が
+   足りず、提案も分析も数行しか読めない。切り替えは幅を見て JS が行う。
+   height/width のインラインは軸を変えるときに JS が消すので、ここは素の
+   値でよい（!important で殴ると、こんどはドラッグが効かなくなる） */
+#aiWrap.row { flex-direction:row; }
+#aiWrap.row #advWrap { height:auto; width:45%; min-height:0; min-width:60px; }
+#aiWrap.row #anaWrap { min-height:0; min-width:60px; }
+#aiWrap.row #sumSplit { height:auto; width:5px; cursor:ew-resize; }
+/* 生成物 (Markdown → HTML) の体裁。会議中に目で追う画面なので、行間を詰めて
+   見出しと箇条書きの階層が一目で分かる程度に留める */
+.md-body { word-break:break-word; line-height:1.6; }
+.md-body h1, .md-body h2, .md-body h3,
+.md-body h4, .md-body h5, .md-body h6 {
+  margin:10px 0 4px; font-size:1.08em; color:var(--accent); font-weight:600; }
+.md-body h1 { font-size:1.25em; }
+.md-body h2 { font-size:1.17em; }
+.md-body p { margin:4px 0; }
+.md-body ul, .md-body ol { margin:4px 0; padding-left:20px; }
+.md-body li { margin:2px 0; }
+.md-body code { background:var(--bg); padding:1px 4px; border-radius:3px; font-size:.92em; }
+.md-body pre { background:var(--bg); padding:6px 8px; border-radius:4px;
+  overflow-x:auto; margin:6px 0; font-size:.92em; }
+.md-body pre code { background:transparent; padding:0; }
+.md-body blockquote { margin:6px 0; padding-left:8px; border-left:3px solid var(--border);
+  color:var(--muted); }
+.md-body hr { border:none; border-top:1px solid var(--border); margin:8px 0; }
+.md-body a { color:var(--blue,#58a6ff); }
+.md-body strong { color:var(--text); }
+/* ペインは画面の一部しか使えないので、広いテーブルは横スクロールに逃がす */
+.md-body table { border-collapse:collapse; margin:6px 0; display:block;
+  overflow-x:auto; max-width:100%; font-size:.92em; }
+.md-body th, .md-body td { border:1px solid var(--border); padding:2px 6px;
+  white-space:nowrap; }
+.md-body th { background:var(--bg); font-weight:600; }
+.md-body s { color:var(--muted); }
 #sumChevron {
   position:absolute; left:-14px; top:50%; transform:translateY(-50%);
   z-index:10; width:14px; height:44px;
@@ -188,11 +325,12 @@ main {
   color:var(--muted); display:flex; align-items:center; gap:3px;
 }
 .mg-file-label { flex:1; overflow:hidden; text-overflow:ellipsis; }
-.badge-t, .badge-s {
+.badge-t, .badge-s, .badge-a {
   font-size:9px; font-weight:700; padding:0 3px; border-radius:3px; flex-shrink:0; line-height:15px;
 }
 .badge-t { color:var(--accent); border:1px solid var(--accent); }
 .badge-s { color:var(--green); border:1px solid var(--green); }
+.badge-a { color:var(--purple); border:1px solid var(--purple); }
 .mg-file:hover { background:var(--btn-h); color:var(--text); }
 .mg-file.active { color:var(--accent); background:rgba(88,166,255,.1); }
 .modal-overlay {
@@ -262,4 +400,8 @@ main {
   display:flex; justify-content:flex-end; gap:8px;
 }
 .modal-foot .saved { color:var(--green); font-size:13px; margin-right:auto; display:none; }
+.mg-wd { opacity:0; border:none; background:transparent; color:var(--muted);
+  font-size:11px; padding:0 2px; cursor:pointer; flex-shrink:0; min-width:auto; }
+.mg-file:hover .mg-wd { opacity:0.7; }
+.mg-wd:hover { opacity:1 !important; color:var(--text); background:transparent; }
 """

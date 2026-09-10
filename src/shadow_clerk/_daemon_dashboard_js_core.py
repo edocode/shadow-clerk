@@ -11,11 +11,20 @@ const TN={
 function _hashFile(){const h=location.hash.replace(/^#/,'');if(!h)return null;try{return decodeURIComponent(h);}catch(e){return h;}}
 function _setHashFile(f){const nh=f?('#'+encodeURIComponent(f)):'';if((location.hash||'')===nh)return;if(nh)history.replaceState(null,'',nh);else history.replaceState(null,'',location.pathname+location.search);}
 let fileInfo={}; // /api/files の file_info をキャッシュ
+// 各 load 関数は世代カウンタで最新リクエストの応答だけを描画する（切替直後の
+// 遅延応答でパネルを上書きしないため）。**宣言をここに置くのは TDZ 対策。**
+// load 関数と同じ panels に置くと、その手前で走る初期化行が let の死角に入り、
+// `Cannot access '_sGen'` で初期化行ごと止まって全ペインが空になっていた
+let _tGen=0,_rGen=0,_sGen=0,_adGen=0,_anGen=0;
 let curFile='', activeFile='';
 let leftTab='dates'; // 左ペインのアクティブタブ
 let meetingActive=false, translating=false, muteMic=false, muteMonitor=false, pttActive=false;
 let audioBackend='';
-let panelMode=0; // 0=T|R, 1=T, 2=R
+/* 中央ペインの見せ方。AI は T/R を伏せて AI 分析だけを出す */
+const PANEL_MODES=['T|R','T','R','AI'];
+let panelMode=0;
+try{const _pm=parseInt(localStorage.getItem('panelMode')||'0',10);
+    if(_pm>=0&&_pm<PANEL_MODES.length)panelMode=_pm;}catch(e){}
 let meetingGroups={}, curGroup=null; // 会議グループ管理
 const as={tp:true,rp:true,sp:true,logc:true};
 ['tp','rp','sp','logc'].forEach(id=>{
@@ -67,218 +76,6 @@ function onSelChange(){
 function deselectAll(){
   document.querySelectorAll('#tp .ln-cb:checked').forEach(cb=>{cb.checked=false;});
   onSelChange();
-}
-/* --- Bulk delete modal --- */
-function openBulkDelModal(){
-  const sel=getSelectedLines();if(!sel.length)return;
-  const tDiv=document.getElementById('bulkDelTranscript');
-  const rDiv=document.getElementById('bulkDelTranslation');
-  tDiv.innerHTML='';rDiv.innerHTML='';
-  sel.forEach(ln=>{
-    const d=document.createElement('div');d.textContent=ln.dataset.raw||ln.textContent;tDiv.appendChild(d);
-    const ts=ln.dataset.ts||'';
-    if(ts){
-      const rp=document.getElementById('rp');
-      const els=rp.querySelectorAll('.ln[data-ts]');
-      for(const el of els){if(el.dataset.ts===ts){const rd=document.createElement('div');rd.textContent=el.dataset.raw||el.textContent;rDiv.appendChild(rd);break;}}
-    }
-  });
-  if(!rDiv.children.length){const d=document.createElement('div');d.textContent='—';rDiv.appendChild(d);}
-  const rangeOpt=document.getElementById('bulkDelRangeOpt');
-  if(sel.length===2){rangeOpt.style.display='';document.querySelector('input[name="bulkDelMode"][value="range"]').checked=true;}
-  else{rangeOpt.style.display='none';}
-  document.getElementById('bulkDelModal').classList.add('open');
-}
-function closeBulkDelModal(){document.getElementById('bulkDelModal').classList.remove('open');
-  const r=document.querySelector('input[name="bulkDelMode"][value="range"]');if(r)r.checked=true;}
-async function doBulkDel(){
-  const sel=getSelectedLines();if(!sel.length)return;
-  const mode=document.querySelector('input[name="bulkDelMode"]:checked');
-  const isRange=mode&&mode.value==='range'&&sel.length===2;
-  let targets=sel;
-  if(isRange){
-    const ts0=sel[0].dataset.ts||'';const ts1=sel[1].dataset.ts||'';
-    const tsMin=ts0<ts1?ts0:ts1;const tsMax=ts0<ts1?ts1:ts0;
-    const allLn=document.querySelectorAll('#tp .ln[data-ts]');
-    targets=Array.from(allLn).filter(ln=>{const ts=ln.dataset.ts||'';return ts>=tsMin&&ts<=tsMax;});
-  }
-  const lines=targets.map(ln=>ln.dataset.raw||'').filter(Boolean);
-  const file=document.getElementById('tf').textContent;
-  try{
-    const r=await fetch('/api/transcript/delete',{method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({lines:lines,file:file})});
-    const d=await r.json();
-    if(d.status==='ok'){
-      targets.forEach(ln=>{
-        const ts=ln.dataset.ts||'';
-        if(ts){const rp=document.getElementById('rp');const els=rp.querySelectorAll('.ln[data-ts]');
-          for(const el of els){if(el.dataset.ts===ts){el.remove();break;}}}
-        ln.remove();
-      });
-      deselectAll();closeBulkDelModal();
-    }else{alert(I18N['dash.delete_error']||'Failed to delete');}
-  }catch(e){alert(I18N['dash.delete_error']||'Failed to delete');}
-}
-/* --- File delete modal --- */
-function openFileDelModal(){
-  if(!curFile)return;
-  const fi=fileInfo[curFile];
-  const isMtg=_isMeetingFile(curFile);
-  const mergeOpt=document.getElementById('fileDelMergeOpt');
-  mergeOpt.style.display=isMtg?'':'none';
-  if(isMtg){
-    const r=document.querySelector('input[name="fileDelMode"][value="merge"]');
-    if(r)r.checked=true;
-  }
-  // サーバが返す related（翻訳・summary・offset）を使い、実際に削除されるファイルと一致させる。
-  // 翻訳ファイルは /api/files に載らず fsel にも無いため、以前は一覧から漏れていた
-  const files=[curFile,...((fi?.related)||[])];
-  const list=document.getElementById('fileDelList');
-  list.innerHTML='';
-  files.forEach(f=>{const d=document.createElement('div');d.textContent=f;list.appendChild(d);});
-  document.getElementById('fileDelModal').classList.add('open');
-}
-function closeFileDelModal(){document.getElementById('fileDelModal').classList.remove('open');}
-async function doFileDel(){
-  if(!curFile)return;
-  const mode=(document.querySelector('input[name="fileDelMode"]:checked')?.value)||'delete';
-  const url=(_isMeetingFile(curFile)&&mode==='merge')?'/api/transcript/merge-to-daily':'/api/transcript/delete-file';
-  const errKey=mode==='merge'?'dash.merge_to_daily_error':'dash.delete_error';
-  try{
-    const r=await fetch(url,{method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({file:curFile})});
-    const d=await r.json();
-    if(d.status==='ok'){closeFileDelModal();loadFiles();}
-    else{alert(I18N[errKey]||d.message||'Error');}
-  }catch(e){alert(I18N[errKey]||'Error');}
-}
-/* --- Extract meeting modal --- */
-function _dtPlusDays(dateStr,n){
-  // new Date('YYYY-MM-DD') は UTC 解釈になり、UTC より遅いタイムゾーンで1日ずれるため
-  // ローカル時刻のコンポーネント指定で構築する
-  const d=new Date(+dateStr.substring(0,4),+dateStr.substring(4,6)-1,+dateStr.substring(6,8));
-  d.setDate(d.getDate()+n);
-  return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
-}
-
-function openExtractModal(){
-  const sel=getSelectedLines();const n=sel.length;
-  if(n!==0&&n!==2)return;
-  const has2=(n===2);
-  // 2行選択時のみ表示する選択肢
-  document.getElementById('lblSplitRange').style.display=has2?'':'none';
-  document.getElementById('lblExtractRange').style.display=has2?'':'none';
-  // デフォルトモードの設定
-  const defaultMode=has2?'splitRange':'splitAll';
-  const modeRadio=document.querySelector(`input[name="extractMode"][value="${defaultMode}"]`);
-  if(modeRadio)modeRadio.checked=true;
-  if(has2){
-    const ts0=sel[0].dataset.ts||'';const ts1=sel[1].dataset.ts||'';
-    if(!ts0||!ts1)return;
-    const startTs=ts0<ts1?ts0:ts1;const endTs=ts0<ts1?ts1:ts0;
-    document.getElementById('extractRange').textContent=
-      (I18N['dash.extract_meeting_range']||'Range: {start} - {end}').replace('{start}',startTs).replace('{end}',endTs);
-    const allLns=document.querySelectorAll('#tp .ln[data-ts]');
-    let cnt=0;
-    allLns.forEach(ln=>{const t=ln.dataset.ts;if(t>=startTs&&t<=endTs)cnt++;});
-    document.getElementById('extractLineCount').textContent=
-      (I18N['dash.extract_meeting_lines']||'{count} lines selected').replace('{count}',cnt);
-    // 既存会議ファイル: 現在ファイルの日付 ±1日の範囲
-    const curDt=(fileInfo[curFile]?.dt||'').substring(0,8);
-    const near=curDt?new Set([curDt,_dtPlusDays(curDt,-1),_dtPlusDays(curDt,1)]):null;
-    const eSel=document.getElementById('extractExistingSel');
-    eSel.innerHTML='';
-    Object.keys(fileInfo).sort().reverse().forEach(f=>{
-      const fi=fileInfo[f];
-      if(fi?.meeting_group==null)return;
-      if(near&&!near.has((fi.dt||'').substring(0,8)))return;
-      const opt=document.createElement('option');opt.value=f;opt.textContent=(fileInfo[f]?.label||f);eSel.appendChild(opt);
-    });
-    // 既存グループ名 select
-    const gSel=document.getElementById('extractGroupSel');
-    gSel.innerHTML='';
-    Object.keys(meetingGroups).filter(g=>g!=='ad-hoc').sort().forEach(g=>{
-      const opt=document.createElement('option');opt.value=g;opt.textContent=g;gSel.appendChild(opt);
-    });
-    document.querySelector('input[name="extractTarget"][value="new"]').checked=true;
-    document.querySelector('input[name="extractNewType"][value="adhoc"]').checked=true;
-    document.querySelectorAll('input[name="extractTarget"],input[name="extractNewType"]').forEach(r=>{
-      r.onchange=_updateExtractControls;
-    });
-  }
-  document.querySelectorAll('input[name="extractMode"]').forEach(r=>{r.onchange=_updateExtractMode;});
-  _updateExtractMode();
-  document.getElementById('extractModal').classList.add('open');
-}
-function _updateExtractMode(){
-  const modeVal=(document.querySelector('input[name="extractMode"]:checked')||{}).value||'splitAll';
-  const isSplitRange=modeVal==='splitRange';
-  const isExtractRange=modeVal==='extractRange';
-  document.getElementById('extractRangeInfo').style.display=(isSplitRange||isExtractRange)?'':'none';
-  document.getElementById('extractTargetOpts').style.display=isExtractRange?'':'none';
-  if(isExtractRange)_updateExtractControls();
-}
-function _updateExtractControls(){
-  const targetVal=(document.querySelector('input[name="extractTarget"]:checked')||{}).value;
-  const newTypeVal=(document.querySelector('input[name="extractNewType"]:checked')||{}).value;
-  const isNew=targetVal==='new';
-  document.getElementById('extractNewOpts').style.display=isNew?'':'none';
-  document.getElementById('extractExistingSel').disabled=targetVal!=='existing';
-  document.getElementById('extractGroupSel').disabled=!(isNew&&newTypeVal==='group');
-  document.getElementById('extractNameInput').disabled=!(isNew&&newTypeVal==='newname');
-}
-function closeExtractModal(){document.getElementById('extractModal').classList.remove('open');}
-async function doExtractMeeting(){
-  const modeVal=(document.querySelector('input[name="extractMode"]:checked')||{}).value||'splitAll';
-  const file=document.getElementById('tf').textContent;
-  if(modeVal==='splitAll'||modeVal==='splitRange'){
-    const minEl=document.getElementById(modeVal==='splitAll'?'splitAllMin':'splitRangeMin');
-    const minSilence=parseInt(minEl.value)||1;
-    const body={file,min_silence_minutes:minSilence};
-    if(modeVal==='splitRange'){
-      const sel=getSelectedLines();
-      const ts0=sel[0].dataset.ts||'';const ts1=sel[1].dataset.ts||'';
-      body.start_ts=ts0<ts1?ts0:ts1;body.end_ts=ts0<ts1?ts1:ts0;
-    }
-    try{
-      const r=await fetch('/api/transcript/split-by-silence',{method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify(body)});
-      const d=await r.json();
-      if(d.status==='ok'){
-        deselectAll();closeExtractModal();
-        loadFiles();loadT(curFile);loadR(curFile);
-        if(d.message)alert(d.message);
-      }else{alert(d.message||I18N['dash.extract_split_error']||'Failed');}
-    }catch(e){alert(I18N['dash.extract_split_error']||'Failed');}
-    return;
-  }
-  // extractRange モード（既存の切り出し処理）
-  const sel=getSelectedLines();if(sel.length!==2)return;
-  const ts0=sel[0].dataset.ts||'';const ts1=sel[1].dataset.ts||'';
-  const startTs=ts0<ts1?ts0:ts1;const endTs=ts0<ts1?ts1:ts0;
-  const targetVal=(document.querySelector('input[name="extractTarget"]:checked')||{}).value||'new';
-  let target='new',name='';
-  if(targetVal==='existing'){
-    target=document.getElementById('extractExistingSel').value||'new';
-  }else{
-    const newTypeVal=(document.querySelector('input[name="extractNewType"]:checked')||{}).value||'adhoc';
-    if(newTypeVal==='group') name=document.getElementById('extractGroupSel').value||'';
-    else if(newTypeVal==='newname') name=document.getElementById('extractNameInput').value.trim()||'';
-  }
-  try{
-    const r=await fetch('/api/transcript/extract-meeting',{method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({file,start_ts:startTs,end_ts:endTs,target,name})});
-    const d=await r.json();
-    if(d.status==='ok'){
-      deselectAll();closeExtractModal();
-      loadFiles();loadT(curFile);loadR(curFile);
-      if(d.message)alert(d.message);
-    }else{alert(d.message||I18N['dash.extract_meeting_error']||'Failed');}
-  }catch(e){alert(I18N['dash.extract_meeting_error']||'Failed');}
 }
 /* --- Meeting toggle --- */
 function updateMeetingBtn(session){
@@ -371,19 +168,58 @@ function togPTT(){
   cmd(pttActive?'ptt_on':'ptt_off');
   updatePTT(pttActive);
 }
-/* --- Panel cycling (T|R -> T -> R) --- S は sumChevron で個別に開閉 */
+/* --- 読む面の文字サイズ (小|中|大) --- */
+/* 変えるのは --fs だけ。ヘッダやボタンまで大きくすると折り返して行が増え、
+   肝心の読む面が狭くなる。中 = これまでの 12px */
+const FONT_SIZES=[['dash.font_s','11px'],['dash.font_m','12px'],['dash.font_l','15px']];
+let fontStep=1;
+try{const _fs=parseInt(localStorage.getItem('fontStep')||'1',10);
+    if(_fs>=0&&_fs<FONT_SIZES.length)fontStep=_fs;}catch(e){}
+function applyFontSize(){
+  const [key,px]=FONT_SIZES[fontStep];
+  document.documentElement.style.setProperty('--fs',px);
+  const b=document.getElementById('togFont');
+  if(b)b.textContent=I18N[key]||key;
+  // 1文字の幅が変わる。コンソールは幅から列数を出しているので測り直す
+  scheduleConsoleCols();
+}
+function cycleFont(){
+  fontStep=(fontStep+1)%FONT_SIZES.length;
+  try{localStorage.setItem('fontStep',String(fontStep));}catch(e){}
+  applyFontSize();
+}
+
+/* --- Panel cycling (T|R -> T -> R -> AI) --- S は sumChevron で個別に開閉 */
+function applyPanelMode(){
+  const t=document.getElementById('pnlT'),r=document.getElementById('pnlR'),
+        btn=document.getElementById('togTR');
+  if(!t||!r||!btn)return;
+  const ai=panelMode===3;
+  t.classList.toggle('hidden',ai||panelMode===2);
+  r.classList.toggle('hidden',ai||panelMode===1);
+  btn.textContent=PANEL_MODES[panelMode];
+  // AI のときは S ペインが唯一の中身。畳んだままだと画面が空になる。
+  // 畳む取っ手も伏せる——押せてしまうと、押した先に何も残らない
+  if(ai){openSumPane();switchSumTab('ai');}
+  const ch=document.getElementById('sumChevron');
+  if(ch)ch.style.display=ai?'none':'';
+  updateSumSplit();
+}
 function cyclePanel(){
-  panelMode=(panelMode+1)%3;
-  const t=document.getElementById('pnlT'),r=document.getElementById('pnlR'),btn=document.getElementById('togTR');
-  if(panelMode===0){t.classList.remove('hidden');r.classList.remove('hidden');btn.textContent='T|R';}
-  else if(panelMode===1){t.classList.remove('hidden');r.classList.add('hidden');btn.textContent='T';}
-  else{t.classList.add('hidden');r.classList.remove('hidden');btn.textContent='R';}
+  panelMode=(panelMode+1)%PANEL_MODES.length;
+  try{localStorage.setItem('panelMode',String(panelMode));}catch(e){}
+  applyPanelMode();
 }
 /* --- Logs toggle --- */
 function togLogs(){
   const lp=document.getElementById('logp'),arr=document.getElementById('logArrow');
   lp.classList.toggle('collapsed');
   arr.textContent=lp.classList.contains('collapsed')?'▲':'▼';
+  // 畳んでいる間は #consolec が display:none で幅を測れない。開いたところで
+  // 測り直さないと、子は既定の列数のままになる
+  if(!lp.classList.contains('collapsed')&&logTab==='console'){
+    scheduleConsoleCols();scrollConsoleBottom();
+  }
 }
 /* --- Status fetch --- */
 async function fetchStatus(){
@@ -394,6 +230,9 @@ async function fetchStatus(){
     muteMic=d.mute_mic;muteMonitor=d.mute_monitor;if(d.backend)audioBackend=d.backend;
     updateMuteBtn('mic',muteMic,d.use_mic);updateMuteBtn('monitor',muteMonitor,d.use_monitor);
     if(d.ptt!==undefined)updatePTT(d.ptt);
+    // console の SSE は状態が変わったときしか飛ばない。後から開いた
+    // ページでも分析ボタンが開始/停止を正しく出せるよう、ここで揃える
+    if(d.console_running!==undefined)updateConsoleStatus(d.console_running);
     const ai=document.getElementById('asrInfo');
     if(ai&&d.asr_backend){ai.textContent=d.asr_backend==='whisper'?'Whisper: '+d.asr_model_id:d.asr_backend;}
     if(d.gcal_enabled){const b=document.getElementById('btnGcal');if(b)b.style.display='';}
@@ -413,6 +252,38 @@ es.addEventListener('translation',e=>{
   const msg=el.querySelector('.translating-msg');if(msg)msg.remove();
   addLines('rp',d.diff,fmtLine);document.getElementById('rf').textContent=d.file;
 });
+es.addEventListener('advice',e=>{
+  try{const d=JSON.parse(e.data);
+    if(curFile&&!_sameStem(d.file,curFile))return;
+    _renderGenerated('adp','adf',d,'dash.no_advice');
+  }catch(ex){}
+});
+es.addEventListener('analysis',e=>{
+  try{const d=JSON.parse(e.data);
+    if(curFile&&!_sameStem(d.file,curFile))return;
+    _renderGenerated('anp','anf',d,'dash.no_analysis');
+  }catch(ex){}
+});
+/* advice-<stem>.md / analysis-<stem>.md と transcript-<stem>.txt の stem を比べる */
+function _sameStem(generated,transcript){
+  const g=generated.replace(/^(advice|analysis)-/,'').replace(/\\.md$/,'');
+  const t=transcript.replace(/^transcript-/,'').replace(/\\.txt$/,'');
+  return g===t;
+}
+/* 下端追従は「行を足したあと」に判定すると scrollHeight が既に伸びていて
+   条件が必ず偽になる。更新の前に捕まえておく */
+function nearBottom(el){return el.scrollTop+el.clientHeight>=el.scrollHeight-40;}
+/* 生成物 (advice / analysis) の描画。サーバが Markdown を HTML に起こして
+   送ってくる（生 HTML はレンダラ側で実体参照に落ちている） */
+function _renderGenerated(paneId,labelId,d,emptyKey){
+  const el=document.getElementById(paneId);if(!el)return;
+  const wasBottom=nearBottom(el);
+  el.innerHTML=(d.html&&d.html.trim())
+    ?'<div class="md-body">'+d.html+'</div>'
+    :'<div style="color:var(--muted);font-size:12px;padding:8px">'+esc(I18N[emptyKey]||'')+'</div>';
+  const lbl=document.getElementById(labelId);if(lbl)lbl.textContent=d.file||'';
+  if(wasBottom)el.scrollTop=el.scrollHeight;
+}
 es.addEventListener('log',e=>{
   const d=JSON.parse(e.data);const el=document.getElementById('logc');
   const c=d.line.includes('ERROR')?'e':d.line.includes('WARNING')?'w':'';
@@ -540,15 +411,19 @@ async function loadFiles(){
     o.textContent=(fileInfo[f]?.label||f)+(f===d.active?' ★':'');s.appendChild(o);
   });
   s.value=(p&&shown.has(p))?p:(d.active||'');
+  // URL ハッシュが別のファイルを指しているなら、そちらを復元する側に任せる
+  const hf=_hashFile();
+  const restoring=!!(hf&&fileInfo[hf]&&hf!==s.value);
   if(curFile!==s.value){
-    // 選択中ファイルが消えた（リネーム・削除等）→ パネルも新しい選択に合わせて再読込
+    // 選択中ファイルが消えた（リネーム・削除等）→ パネルも新しい選択に合わせて再読込。
+    // 初回 (p が空) でも読む。以前は if(p) で弾いていたが、ハッシュがあると
+    // 初期化行の読み込みも飛ぶため、ページを開き直しただけで全ペインが空になった
+    // （ハッシュはファイルを選ぶたびに書かれるので、普通に使うと必ず残る）
     curFile=s.value;
-    if(p){loadT(curFile);loadR(curFile);loadS(curFile);}
+    if(!restoring){loadT(curFile);loadR(curFile);loadS(curFile);loadAdvice(curFile);loadAnalysis(curFile);}
   }
   populateYearSelect();
-  // URL ハッシュに指定があれば選択ファイルを復元
-  const hf=_hashFile();
-  if(hf&&fileInfo[hf]&&hf!==curFile)selectMtgFile(hf);
+  if(restoring)selectMtgFile(hf);
   if(leftTab==='meetings') renderMtgPane();
   else if(leftTab==='dates') renderDatePane();
   }catch(e){}
@@ -581,12 +456,29 @@ function togSumPane(){
   const collapsed=p.classList.toggle('collapsed');
   const ch=document.getElementById('sumChevron');
   if(ch)ch.innerHTML=collapsed?'&#x25C4;':'&#x25BA;';
+  // 畳んでいる間は大きさを測れない。開いたところで分割を挟み直す
+  if(!collapsed)updateSumSplit();
 }
 function openSumPane(){
   const p=document.getElementById('pnlS');if(!p||!p.classList.contains('collapsed'))return;
   p.classList.remove('collapsed');
   const ch=document.getElementById('sumChevron');
   if(ch)ch.innerHTML='&#x25BA;';
+}
+
+/* --- Summary パネル タブ切替 --- */
+let sumTab='summary';
+function switchSumTab(tab){
+  sumTab=tab;
+  const map={summary:['tabSummary','sumWrap'],ai:['tabAi','aiWrap']};
+  Object.keys(map).forEach(t=>{
+    const [btnId,wrapId]=map[t];
+    const btn=document.getElementById(btnId),wrap=document.getElementById(wrapId);
+    if(btn)btn.classList.toggle('active',t===tab);
+    if(wrap)wrap.style.display=(t===tab)?'flex':'none';
+  });
+  // 表示に切り替わるまで aiWrap の大きさは 0 で測れない。ここでも挟み直す
+  if(tab==='ai')updateSumSplit();
 }
 
 /* --- 左ペイン タブ切替 --- */
@@ -614,7 +506,16 @@ function _badges(fi){
   let b='';
   if(fi?.has_translation)b+='<span class="badge-t">T</span>';
   if(fi?.has_summary)b+='<span class="badge-s">S</span>';
+  // AI 分析。提案と確定事項のどちらかがあれば付ける——一覧で「分析が残っている
+  // 会議」を探せるようにするためで、内訳は開けば分かる
+  if(fi?.has_advice||fi?.has_analysis)b+='<span class="badge-a" title="'
+    +escAttr(I18N['dash.badge_ai']||'')+'">A</span>';
   return b;
+}
+/* 会議ごとの起動ディレクトリを開くボタン。会議ファイル (@名前あり) にだけ出す */
+function _wdBtn(f){
+  if(!/^transcript-\\d+@/.test(f))return '';
+  return `<button class="mg-wd" title="${escAttr(I18N['dash.workdir_btn_title']||'')}" onclick="event.stopPropagation();openWorkdirModal('${escAttr(escJs(f))}')">⚙</button>`;
 }
 function renderDatePane(){
   const dp=document.getElementById('datePane');if(!dp)return;
@@ -627,7 +528,7 @@ function renderDatePane(){
   }
   dp.innerHTML=files.map(([f])=>{
     const fi=fileInfo[f];
-    return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(escJs(f))}')" title="${escAttr(f)}"><span class="mg-file-label">${esc((fi?.label||f))}</span>${_badges(fi)}</div>`;
+    return `<div class="mg-file${f===curFile?' active':''}" onclick="selectMtgFile('${escAttr(escJs(f))}')" title="${escAttr(f)}"><span class="mg-file-label">${esc((fi?.label||f))}</span>${_badges(fi)}${_wdBtn(f)}</div>`;
   }).join('');
 }
 """
