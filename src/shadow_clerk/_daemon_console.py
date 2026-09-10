@@ -1,15 +1,9 @@
 """Shadow-clerk daemon: AI アシスタントを動かす PTY セッション"""
 from __future__ import annotations
 import atexit
-import fcntl
 import json
 import logging
 import os
-import pty
-import signal
-import struct
-import subprocess
-import termios
 import threading
 import time
 from codecs import getincrementaldecoder
@@ -19,6 +13,7 @@ import pyte
 
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_console_filter import PrivateCsiFilter
+from shadow_clerk._daemon_console_pty import ConsolePty, open_console_pty
 from shadow_clerk._daemon_console_render import render_rows
 from shadow_clerk._daemon_constants import (
     CONSOLE_BELOW_CURSOR_ROWS,
@@ -59,20 +54,6 @@ def _save_cols(cols: int) -> None:
         logger.warning("列数を保存できません: %s", e)
 
 
-def _set_controlling_tty() -> None:
-    """子の側で PTY を制御端末にする。fork 後 exec 前に呼ばれる
-
-    **これが無いと SIGWINCH が誰にも届かない。** setsid しただけでは PTY に
-    前面プロセスグループが無く (tcgetpgrp が 0)、TIOCSWINSZ を投げても
-    カーネルは信号を送る相手を持たない。実測: 制御端末なしで幅を変えても
-    子からの出力は 0 バイト、設定すると 17432 バイトの再描画が返る。
-    Ctrl-C などのジョブ制御も同じ理由で効かない。
-
-    子プロセスの中で走るので、余計なことはせず ioctl だけにする。
-    """
-    fcntl.ioctl(0, termios.TIOCSCTTY, 0)
-
-
 def sanitized_env() -> dict[str, str]:
     """親 Claude Code のセッションマーカーを除いた環境変数を返す"""
     env = {k: v for k, v in os.environ.items()
@@ -94,8 +75,7 @@ class ConsoleSession:
         self._decoder = getincrementaldecoder("utf-8")("replace")
         self._cols = _load_cols()
         self._csi_filter = PrivateCsiFilter()
-        self._master_fd: int | None = None
-        self._proc: subprocess.Popen | None = None
+        self._pty: ConsolePty | None = None
         self._reader: threading.Thread | None = None
         self._lock = threading.RLock()
         self.max_row = 0
@@ -127,39 +107,24 @@ class ConsoleSession:
         with self._lock:
             if self.is_running():
                 return True
-            needs_cleanup = self._proc is not None
+            needs_cleanup = self._pty is not None
         if needs_cleanup:
-            # stop() は self._proc が None なら何もしない冪等な操作
+            # stop() は self._pty が None なら何もしない冪等な操作
             self.stop()
         with self._lock:
             if self.is_running():
                 return True  # stop() を待つ間に別スレッドが start() を完了させていた
-            try:
-                master_fd, slave_fd = pty.openpty()
-            except OSError as e:
-                logger.error("PTY を開けません: %s", e)
-                return False
-            # DEFAULT_COLS で開き直してはいけない。子は会議のたびに起動し直る
-            # 一方、ブラウザは幅が変わったときしか列数を送らない
+            env = sanitized_env()
+            if self._dashboard_url:
+                env["SHADOW_CLERK_URL"] = self._dashboard_url
+            # 幅は self._cols。DEFAULT_COLS で開き直してはいけない——子は会議の
+            # たびに起動し直る一方、ブラウザは幅が変わったときしか列数を送らない
             # (_lastCols で重複を弾く) ので、ここで初期値に戻すと新しい子は
             # 120 桁のまま固定され、ペインの右側が空いたままになる
-            self._set_winsize(master_fd, self._cols)
-            try:
-                env = sanitized_env()
-                if self._dashboard_url:
-                    env["SHADOW_CLERK_URL"] = self._dashboard_url
-                self._proc = subprocess.Popen(
-                    argv, cwd=workdir, env=env,
-                    stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
-                    start_new_session=True, close_fds=True,
-                    preexec_fn=_set_controlling_tty)
-            except (OSError, ValueError) as e:
-                os.close(master_fd)
-                os.close(slave_fd)
-                logger.error("AI アシスタントの起動に失敗: %s (%s)", e, argv)
+            pty_session = open_console_pty(argv, workdir, env, self._cols)
+            if pty_session is None:
                 return False
-            os.close(slave_fd)  # 親側は master だけ持つ。閉じないと EOF を検知できない
-            self._master_fd = master_fd
+            self._pty = pty_session
             # get_console() のシングルトンは stop() 直後に再利用されうる。
             # 前セッションの grid 状態を引きずると、新しい子プロセスが
             # まだ何も出力していない段階で send_after_ready の ready 判定
@@ -190,7 +155,7 @@ class ConsoleSession:
         tick スレッドの終了もここで待つ。_tick_stop は使い回しの Event
         なので、join せずに返ると次の start() の .clear() が「まだ気づいて
         いない」古いスレッドのループ判定を書き換えてしまい、新旧2本の
-        tick スレッドが同時に走りかねない。self._proc を None にするのは
+        tick スレッドが同時に走りかねない。self._pty を None にするのは
         必ず join より前にする: tick スレッドの最終送信 (_emit_running)
         は is_running() を見るため、実プロセスの kill (数秒かかりうる)
         を待たずとも、ここで running=false を正しく報告できる。
@@ -205,15 +170,14 @@ class ConsoleSession:
         取得と None 化を tick と同じくロック内で行うのは、start() 側の
         「既に走っていれば何もしない」判定と対称に保つため。
         """
-        if self._proc is None and self._master_fd is None:
+        if self._pty is None:
             # Console を一度も起動していない（atexit 経由の呼び出しも含む）。
             # 後始末する対象が無いので、毎回の daemon 終了で
             # 「AI Console 停止」ログが出るのを防ぐため黙って返る
             return
         self._tick_stop.set()
         with self._lock:
-            proc, fd = self._proc, self._master_fd
-            self._proc, self._master_fd = None, None
+            pty_session, self._pty = self._pty, None
             tick, self._tick = self._tick, None
             reader, self._reader = self._reader, None
         if tick is not None and tick.is_alive():
@@ -222,48 +186,8 @@ class ConsoleSession:
                 logger.warning(
                     "tick スレッドの終了待ちがタイムアウトしました。"
                     "次の start() で二重に走る可能性があります")
-        if proc is not None and proc.poll() is None:
-            try:
-                sid: int | None = os.getsid(proc.pid)
-            except ProcessLookupError:
-                sid = None
-            if sid is not None and sid == os.getsid(0):
-                # start_new_session が効かなかった、あるいは proc が既に死んで
-                # pid が再利用され、sid が偶然デーモン自身のセッションと一致
-                # した場合。ここで _session_pids(sid) を回すとデーモン本体や
-                # ユーザーのログインシェルまで kill 対象に入ってしまうので、
-                # このときだけ影響範囲を proc 自身の pgrp に限定した従来の
-                # killpg にフォールバックする。
-                logger.warning(
-                    "AI Console のセッション ID (%s) が自プロセスと一致するため、"
-                    "pgrp 単位の kill にフォールバックします (pid=%s)", sid, proc.pid)
-                for sig in (signal.SIGTERM, signal.SIGKILL):
-                    try:
-                        os.killpg(os.getpgid(proc.pid), sig)
-                    except (ProcessLookupError, PermissionError):
-                        break
-                    try:
-                        proc.wait(timeout=timeout)
-                        break
-                    except subprocess.TimeoutExpired:
-                        continue
-            elif sid is not None:
-                for sig in (signal.SIGTERM, signal.SIGKILL):
-                    targets = self._session_pids(sid)
-                    if not targets:
-                        break
-                    for pid in targets:
-                        try:
-                            os.kill(pid, sig)
-                        except (ProcessLookupError, PermissionError):
-                            pass
-                    if self._wait_session_gone(sid, timeout):
-                        break
-        if fd is not None:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
+        if pty_session is not None:
+            pty_session.terminate(timeout)
         if reader is not None and reader.is_alive():
             reader.join(timeout=max(timeout, CONSOLE_TICK_SEC * 10))
             if reader.is_alive():
@@ -274,8 +198,8 @@ class ConsoleSession:
         logger.info("AI Console 停止")
 
     def is_running(self) -> bool:
-        proc = self._proc
-        return proc is not None and proc.poll() is None
+        pty_session = self._pty
+        return pty_session is not None and pty_session.is_running()
 
     def start_if_stopped(self, argv: list[str], workdir: str) -> tuple[bool, bool]:
         """(使える状態になったか, このコールが実際にプロセスを起こしたか) を返す。
@@ -292,11 +216,11 @@ class ConsoleSession:
 
     def write(self, data: str) -> None:
         """PTY にキー入力を書き込む"""
-        fd = self._master_fd
-        if fd is None:
+        pty_session = self._pty
+        if pty_session is None:
             return
         try:
-            os.write(fd, data.encode("utf-8"))
+            pty_session.write(data.encode("utf-8"))
         except OSError as e:
             logger.warning("Console への書き込みに失敗: %s", e)
 
@@ -314,8 +238,8 @@ class ConsoleSession:
                 _save_cols(cols)
             self._cols = cols
             self.screen.resize(VIRTUAL_ROWS, cols)
-            if self._master_fd is not None:
-                self._set_winsize(self._master_fd, cols)
+            if self._pty is not None:
+                self._pty.set_winsize(VIRTUAL_ROWS, cols)
 
     # --- 配信・ready 判定 ---
 
@@ -495,36 +419,6 @@ class ConsoleSession:
 
     # --- 内部 ---
 
-    def _wait_session_gone(self, sid: int, timeout: float) -> bool:
-        """sid に属する pid が全て消えるまで timeout 秒までポーリングする"""
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if not self._session_pids(sid):
-                return True
-            time.sleep(0.05)
-        return not self._session_pids(sid)
-
-    def _session_pids(self, sid: int) -> list[int]:
-        """セッション ID が sid と一致する全 pid を /proc から集める"""
-        pids = []
-        for name in os.listdir("/proc"):
-            if not name.isdigit():
-                continue
-            pid = int(name)
-            try:
-                if os.getsid(pid) == sid:
-                    pids.append(pid)
-            except (ProcessLookupError, PermissionError):
-                continue
-        return pids
-
-    def _set_winsize(self, fd: int, cols: int) -> None:
-        packed = struct.pack("HHHH", VIRTUAL_ROWS, cols, 0, 0)
-        try:
-            fcntl.ioctl(fd, termios.TIOCSWINSZ, packed)
-        except OSError as e:
-            logger.warning("winsize の設定に失敗: %s", e)
-
     def _reset_screen(self) -> None:
         """grid を初期化する。screen.reset() は LNM モードも消すので入れ直す"""
         self.screen.reset()
@@ -534,14 +428,11 @@ class ConsoleSession:
         self._csi_filter.reset()
 
     def _read_loop(self) -> None:
-        fd = self._master_fd
-        while fd is not None:
-            try:
-                chunk = os.read(fd, 65536)
-            except OSError:
-                break  # 子が終了して master が閉じた
+        pty_session = self._pty
+        while pty_session is not None:
+            chunk = pty_session.read(65536)
             if not chunk:
-                break
+                break  # 子が終了して端末が閉じた
             text = self._csi_filter.feed(self._decoder.decode(chunk))
             if not text:
                 continue
@@ -565,7 +456,7 @@ def get_console() -> ConsoleSession:
     シングルトンを作った最初の1回だけ atexit.register(stop) しておけば、
     そうした経路の多くを atexit の通常インタプリタ終了フックで拾える。
     main() の finally でも get_console().stop() を呼んでおり二重登録に
-    なるが、stop() は self._proc が None なら何もしない冪等な操作なので
+    なるが、stop() は self._pty が None なら何もしない冪等な操作なので
     実害はない（atexit 自体は SIGKILL では走らないため、それでも拾い
     きれない経路が残る点は README に記載する）。
     """
@@ -602,10 +493,15 @@ def request_summary_from_console(transcript_path: str) -> bool:
     return True
 
 
-def start_console_for(transcript_path: str, auto: bool = False) -> bool:
+def start_console_for(transcript_path: str, auto: bool = False,
+                      send_prompt: bool = True) -> bool:
     """transcript に対して AI アシスタントを起動し、初期プロンプトを送る。
 
     既に走っていれば起動はせず、初期プロンプトだけを送る（セッションを使い回す）。
+
+    `send_prompt=False` は端末を出すだけで何も打ち込まない。前のセッションを
+    `/resume` で拾い直したいときに要る——初期プロンプトが入ると、拾う前に
+    新しい会話が始まってしまう。
 
     ここは HTTP ハンドラではなくオーケストレーション処理なので
     _daemon_console.py に置く。以前はダッシュボードの HTTP 層
@@ -637,7 +533,7 @@ def start_console_for(transcript_path: str, auto: bool = False) -> bool:
         console.emit_auto_started()
     # 出力言語は翻訳先言語に合わせる。スキルは transcript の言語ではなく
     # ユーザーが読みたい言語で書くべきで、その設定は既に config にある
-    prompt = ai.resolve_init_prompt(
+    prompt = "" if not send_prompt else ai.resolve_init_prompt(
         transcript_path, meeting, str(config.get("translate_language") or ""))
     if not prompt:
         return True

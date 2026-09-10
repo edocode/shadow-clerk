@@ -123,15 +123,15 @@ def test_cols_survive_child_restart() -> None:
     sess = ConsoleSession()
     sess.start(["bash", "--norc", "--noprofile", "-i"], os.getcwd())
     check("記録が無ければ既定の列数で開く",
-          winsize_cols(sess._master_fd) == console_mod.DEFAULT_COLS,
-          str(winsize_cols(sess._master_fd)))
+          winsize_cols(sess._pty.fd) == console_mod.DEFAULT_COLS,
+          str(winsize_cols(sess._pty.fd)))
     sess.resize(200)
-    check("resize が PTY に伝わる", winsize_cols(sess._master_fd) == 200)
+    check("resize が PTY に伝わる", winsize_cols(sess._pty.fd) == 200)
     check("grid も同じ列数になる", sess.screen.columns == 200, str(sess.screen.columns))
     sess.stop()
     sess.start(["bash", "--norc", "--noprofile", "-i"], os.getcwd())
-    check("起こし直しても列数を引き継ぐ", winsize_cols(sess._master_fd) == 200,
-          str(winsize_cols(sess._master_fd)))
+    check("起こし直しても列数を引き継ぐ", winsize_cols(sess._pty.fd) == 200,
+          str(winsize_cols(sess._pty.fd)))
     check("起こし直した grid も引き継ぐ", sess.screen.columns == 200, str(sess.screen.columns))
     sess.stop()
     console_mod.CONSOLE_COLS_FILE = saved_file
@@ -294,7 +294,7 @@ def test_start_after_child_self_exit_no_leak() -> None:
     確認する(C1)。
 
     is_running() が唯一の掃除ゲートなので、修正前は start() が
-    self._master_fd を上書きし tick スレッドをもう1本起こす。3回繰り返し、
+    self._pty を上書きし tick スレッドをもう1本起こす。3回繰り返し、
     tick スレッド数と open fd 数が反復しても増えないことを見る。
 
     broadcaster を設定するのは本番同等の配線にするため。未設定だと
@@ -388,7 +388,7 @@ def test_start_reentrant_lock_does_not_hold_lock_across_stop() -> None:
     # 子が自分で終了した状態を模す。stop() を経由させず proc.kill() で
     # 直接殺すことで、is_running()=False かつ self._proc は非 None のまま
     # (=C1 が対象にした「stop() 未呼び出しで死んだセッション」の状態) にする
-    sess._proc.kill()  # pylint: disable=protected-access
+    sess._pty.proc.kill()  # pylint: disable=protected-access
     ok = wait_for(lambda: not sess.is_running(), 5.0)
     check("(前提)子プロセスが is_running()=False になる(stop() 未経由)", ok)
 
@@ -463,11 +463,11 @@ def test_stop_start_no_duplicate_tick_thread() -> None:
     start() を繰り返すだけではこの競合を安定して再現できない
     (実測: 30回連続で再現せず)。またこの環境では対象の対話 bash が
     SIGTERM では終了せず、SIGKILL 後もこのプロセスが reap するまで
-    zombie として `_session_pids` に residual に見え続けるため、
+    zombie として `session_pids` に residual に見え続けるため、
     stop() の実行時間そのものは数秒かかる(いずれも本タスクの対象外の
     既存の挙動で、変更しない)。単純な所要時間の比較では tick スレッド
     待ちと無関係なこの遅さと区別できないため、_emit_diff で tick
-    スレッドを明示的に足止めしたうえで、「kill 処理(_session_pids の
+    スレッドを明示的に足止めしたうえで、「kill 処理(session_pids の
     最初の呼び出し)が、足止めした tick スレッドを解放する前に始まって
     しまわないか」を直接観測して検証する。
     """
@@ -493,13 +493,13 @@ def test_stop_start_no_duplicate_tick_thread() -> None:
           sess._has_output)  # pylint: disable=protected-access
 
     kill_started = threading.Event()
-    original_session_pids = sess._session_pids  # pylint: disable=protected-access
+    original_session_pids = sess._pty.session_pids  # pylint: disable=protected-access
 
     def watched_session_pids(sid: int) -> list[int]:
         kill_started.set()
         return original_session_pids(sid)
 
-    sess._session_pids = watched_session_pids  # type: ignore[method-assign]  # pylint: disable=protected-access
+    sess._pty.session_pids = watched_session_pids  # type: ignore[method-assign]  # pylint: disable=protected-access
 
     stop_thread = threading.Thread(target=sess.stop, daemon=True)
     stop_thread.start()
@@ -622,15 +622,15 @@ def test_child_gets_controlling_terminal() -> None:
     """
     sess = ConsoleSession()
     sess.start(["bash", "--norc", "--noprofile", "-i"], os.getcwd())
-    ok = wait_for(lambda: sess.max_row >= 0 and sess._proc is not None, 3.0)
+    ok = wait_for(lambda: sess.max_row >= 0 and sess._pty is not None, 3.0)
     check("子が起動する", ok)
     try:
-        fg = os.tcgetpgrp(sess._master_fd)
+        fg = os.tcgetpgrp(sess._pty.fd)
     except OSError as e:
         fg = -e.errno
     check("PTY に前面プロセスグループがある", fg > 0, str(fg))
-    check("それが子のプロセスグループ", fg == os.getpgid(sess._proc.pid),
-          f"{fg} vs {os.getpgid(sess._proc.pid)}")
+    check("それが子のプロセスグループ", fg == os.getpgid(sess._pty.proc.pid),
+          f"{fg} vs {os.getpgid(sess._pty.proc.pid)}")
     sess.stop()
 
 
@@ -644,7 +644,7 @@ def test_resize_matches_child_and_grid() -> None:
     sess = ConsoleSession()
     sess.start(["bash", "--norc", "--noprofile", "-i"], os.getcwd())
     sess.resize(90)
-    packed = fcntl.ioctl(sess._master_fd, _termios.TIOCGWINSZ, b"\0" * 8)
+    packed = fcntl.ioctl(sess._pty.fd, _termios.TIOCGWINSZ, b"\0" * 8)
     check("子の winsize が新しい幅", _struct.unpack("HHHH", packed)[1] == 90)
     check("grid も同じ幅", sess.screen.columns == 90, str(sess.screen.columns))
     sess.stop()

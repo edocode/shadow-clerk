@@ -39,7 +39,12 @@ uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "re
 - **データディレクトリ**: `%APPDATA%\shadow-clerk`(README 内の `~/.local/share/shadow-clerk` は Windows ではこのパスにマップされる)。`SHADOW_CLERK_DATA_DIR` 環境変数で上書き可。
 - **リモートデスクトップ(RDP)**: RDP セッション内で動作している場合、ホストの「リモート オーディオ」仮想デバイスは自動でスキップされる(セグフォするか何も拾えないため)。代わりに非 RDP の loopback デバイスがあればそれを使う。無い場合はモニターキャプチャ無効でマイクのみで動作する。
 - **`voice_command_key`**: デフォルトの `f23` は Linux/xremap 用の慣習。Windows では `null`(PTT 無効)または `menu`/`ctrl_r`/`ctrl_l`/`alt_r`/`alt_l`/`shift_r`/`shift_l` のいずれかを `config.yaml` で設定する。
-- **daemon の停止**: `clerk-util stop` が動作する(Windows では内部で `taskkill` を使用)。`clerk-util start` はフォアグラウンドで起動し Ctrl+C で停止できる(Linux と同じ挙動)。
+- **daemon の停止**: `clerk-util stop` が動作する(Windows では内部で `taskkill` を使用)。`clerk-util start` はフォアグラウンドで起動し Ctrl+C で停止できる(Linux と同じ挙動)。`clerk-daemon --daemon` は分離起動する: `fork()` が無いので `DETACHED_PROCESS` で自分を起こし直し、親は抜ける。
+- **AI コンソール**: ConPTY を [pywinpty](https://github.com/andfoy/pywinpty) 経由で使う(Windows 限定 dep として宣言済み)。入っていなくても daemon 自体は動き、コンソールだけが「pywinpty が要る」と報告して起動しない。
+
+### スタンドアロンバイナリ
+
+`clerk-daemon.exe` と `clerk-util.exe` を PyInstaller で作れる。[スタンドアロンバイナリのビルド](#スタンドアロンバイナリのビルド)を参照。
 
 ## 機能と必要なもの
 
@@ -228,6 +233,38 @@ claude_cli_model: haiku   # sonnet / opus / モデル ID も指定可
 ```
 
 既存の Claude Code OAuth ログインをそのまま使う。追加セットアップ不要、翻訳・要約は daemon 内のバックグラウンドスレッドで実行されるので Claude Code セッションを開きっぱなしにする必要なし。
+
+## スタンドアロンバイナリのビルド
+
+`packaging/shadow-clerk.spec` で、`clerk-daemon` と `clerk-util` の両方を含む 1 ディレクトリ配布を作れる。
+
+**PyInstaller はクロスコンパイルしない。** 動かしている OS 向けの実行ファイルしか作らない — bootloader が OS ごとのネイティブバイナリで、解析も実際にモジュールを import して依存を辿るため。したがって Windows の `.exe` は Windows 上で作る必要がある(実機・VM・GitHub Actions の `windows-latest` のいずれか)。Wine に Windows 版 Python を入れる回避策はあるが、解析時に `pywinpty`(ConPTY)・`PyAudioWPatch`(WASAPI)・`ctranslate2` を import するので、まさに Wine が苦手な部分に当たる。
+
+```powershell
+# Windows (PowerShell)
+uv sync
+uv pip install pyinstaller
+uv run pyinstaller packaging/shadow-clerk.spec
+dist\shadow-clerk\clerk-daemon.exe --list-devices   # 動作確認
+```
+
+```bash
+# Linux / macOS
+uv sync
+uv pip install pyinstaller
+uv run pyinstaller packaging/shadow-clerk.spec
+./dist/shadow-clerk/clerk-daemon --list-devices      # 動作確認
+```
+
+`--list-devices` は動作確認に向いている。録音を始めずに、同梱した PortAudio とネイティブ拡張が読めているかを確かめられる。
+
+補足:
+
+- **出力先**: `dist/shadow-clerk/`。既定の依存のみ(extra なし)でおよそ 460MB。`torch` / `transformers` / `sentencepiece` は spec の `_EXCLUDES` で除いている — `spell-check` extra でしか使わないうえ、入れると数 GB 増えるため。
+- **extra はビルドした環境に入っているものだけが集められる。** 同梱したければ先に `uv sync --extra gcal` などを実行しておく。
+- **Whisper のモデルは同梱されない。** `small` で約 500MB あり、初回起動時に Hugging Face から取得されてキャッシュに残る(Windows は `%USERPROFILE%\.cache\huggingface`、それ以外は `~/.cache/huggingface`)。オフラインで配布したいなら、そのキャッシュを spec の `datas` に足すか、CT2 形式に変換したモデルを同梱して `--model` にパスを渡す。
+- **`packaging/hooks/` は PyInstaller 同梱フックの差し替え。** 現在 1 つある: 同梱の `hook-webrtcvad.py` は `copy_metadata('webrtcvad')` を呼ぶが、このプロジェクトが使うのは `webrtcvad-wheels` なので、差し替えないと `ImportErrorWhenRunningHook` でビルドが止まる。
+- DLL やデータファイルを持つ依存を足したら、spec の `_PACKAGES` にも足すこと。PyInstaller は `import` しか追わないので、漏れると**ビルドは通って実行時に落ちる**。
 
 ## 使い方
 

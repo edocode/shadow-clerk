@@ -39,7 +39,12 @@ Other notes:
 - **Data directory**: `%APPDATA%\shadow-clerk` (the `~/.local/share/shadow-clerk` paths in the rest of this README map to that on Windows). Override with `SHADOW_CLERK_DATA_DIR` if needed.
 - **Remote Desktop (RDP)**: When running inside an RDP session, the host's "Remote Audio" virtual device is auto-skipped (it would either segfault or capture nothing useful). The daemon falls back to a non-RDP loopback device if available; otherwise monitor capture is disabled and only the mic is recorded.
 - **`voice_command_key`**: The default `f23` is a Linux/xremap convention. On Windows set it to `null` (disable PTT) or to one of `menu`/`ctrl_r`/`ctrl_l`/`alt_r`/`alt_l`/`shift_r`/`shift_l` in `config.yaml`.
-- **Stopping the daemon**: `clerk-util stop` works (Windows path uses `taskkill`). `clerk-util start` runs the daemon in the foreground with Ctrl+C handling, mirroring Linux.
+- **Stopping the daemon**: `clerk-util stop` works (Windows path uses `taskkill`). `clerk-util start` runs the daemon in the foreground with Ctrl+C handling, mirroring Linux. `clerk-daemon --daemon` detaches instead: there is no `fork()`, so it relaunches itself with `DETACHED_PROCESS` and the parent exits.
+- **AI Console**: uses ConPTY through [pywinpty](https://github.com/andfoy/pywinpty), declared as a Windows-only dependency. Without it the daemon still runs; only the console reports the missing package and refuses to start.
+
+### Standalone binary
+
+`clerk-daemon.exe` and `clerk-util.exe` can be built with PyInstaller. See [Building a standalone binary](#building-a-standalone-binary).
 
 ## Features and requirements
 
@@ -228,6 +233,38 @@ claude_cli_model: haiku   # or sonnet / opus / a full model id
 ```
 
 This uses your existing Claude Code OAuth login. No extra setup needed — translation and summarization run inside the daemon as background threads, no Claude Code session required.
+
+## Building a standalone binary
+
+`packaging/shadow-clerk.spec` produces a one-directory PyInstaller bundle containing both `clerk-daemon` and `clerk-util`.
+
+**PyInstaller does not cross-compile.** It only builds for the OS it runs on: the bootloader is a native binary, and the analysis step imports every module to trace dependencies. A Windows `.exe` therefore has to be built on Windows — a machine, a VM, or a `windows-latest` GitHub Actions runner. Wine with a Windows Python is the usual workaround, but analysis imports `pywinpty` (ConPTY), `PyAudioWPatch` (WASAPI) and `ctranslate2`, which are exactly the pieces Wine emulates poorly.
+
+```powershell
+# Windows (PowerShell)
+uv sync
+uv pip install pyinstaller
+uv run pyinstaller packaging/shadow-clerk.spec
+dist\shadow-clerk\clerk-daemon.exe --list-devices   # smoke test
+```
+
+```bash
+# Linux / macOS
+uv sync
+uv pip install pyinstaller
+uv run pyinstaller packaging/shadow-clerk.spec
+./dist/shadow-clerk/clerk-daemon --list-devices      # smoke test
+```
+
+`--list-devices` is a good smoke test: it exercises the bundled PortAudio and the native extensions without recording anything.
+
+Notes:
+
+- **Output**: `dist/shadow-clerk/`, roughly 460 MB with the default dependencies and no extras. `torch`, `transformers` and `sentencepiece` are excluded in the spec (`_EXCLUDES`) because they are only needed by the `spell-check` extra and add several GB.
+- **Extras are collected only if installed** in the environment you build from. Run `uv sync --extra gcal` (etc.) first if you want them in the bundle.
+- **Whisper models are not bundled.** `small` is around 500 MB and is fetched from Hugging Face on first run, then cached (`%USERPROFILE%\.cache\huggingface` on Windows, `~/.cache/huggingface` elsewhere). For an offline bundle, add that cache to `datas` in the spec, or ship a converted CT2 model and point `--model` at it.
+- **`packaging/hooks/` overrides PyInstaller's bundled hooks.** There is one today: the bundled `hook-webrtcvad.py` calls `copy_metadata('webrtcvad')`, but this project depends on `webrtcvad-wheels`, so without the override the build aborts with `ImportErrorWhenRunningHook`.
+- Add a dependency that ships DLLs or data files? Add it to `_PACKAGES` in the spec. PyInstaller only follows `import` statements, so anything else is silently left out and fails at runtime rather than at build time.
 
 ## Usage
 
