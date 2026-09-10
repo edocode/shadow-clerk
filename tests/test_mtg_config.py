@@ -124,7 +124,44 @@ def test_save_to_new_path() -> None:
     check("新規パスに保存できる", written == dest and os.path.exists(dest), written)
 
 
+def test_research_destinations() -> None:
+    """調べものの当て先。**既定は空** — 外へ出すものは明示的に許可されたものだけ"""
+    c = MtgConfig("x", {})
+    check("未設定なら空", c.resolve("X")["research"] == [], str(c.resolve("X")["research"]))
+
+    c = MtgConfig("x", {"defaults": {"research": [
+        {"name": "bigquery", "public_filter": False, "note": "社内DWH"},
+        "web",
+        {"name": "  "},
+        {"name": "wiki"},
+        "not-a-dict-but-a-string",
+        42,
+    ]}})
+    got = c.resolve("X")["research"]
+    names = [r["name"] for r in got]
+    check("文字列だけでも当て先になる", "web" in names, str(names))
+    check("名前が空のものは落とす", "" not in names and "  " not in names, str(names))
+    check("dict でも文字列でもないものは落とす", 42 not in names, str(names))
+    check("社内の当て先はフィルタなし",
+          got[names.index("bigquery")]["public_filter"] is False)
+    check("備考を持てる", got[names.index("bigquery")]["note"] == "社内DWH")
+
+    # **書き忘れは社外側に倒す。** 逆だと社内の固有名詞をそのまま外へ出す
+    check("public_filter の既定は True",
+          got[names.index("wiki")]["public_filter"] is True)
+    check("文字列指定も既定は True", got[names.index("web")]["public_filter"] is True)
+
+    # 会議ごとに上書きできる
+    c = MtgConfig("x", {"defaults": {"research": ["web"]},
+                        "meetings": [{"pattern": "Board", "research": []}]})
+    check("会議ごとに外部を止められる", c.resolve("Board_MTG")["research"] == [],
+          str(c.resolve("Board_MTG")["research"]))
+    check("一致しない会議は defaults のまま",
+          [r["name"] for r in c.resolve("Other")["research"]] == ["web"])
+
+
 def main() -> int:
+    test_research_destinations()
     test_first_match_wins()
     test_case_insensitive()
     test_rule_without_workdir_falls_to_defaults()

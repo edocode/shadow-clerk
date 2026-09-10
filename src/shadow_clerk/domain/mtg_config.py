@@ -76,7 +76,12 @@ class MtgConfig:
 
     #: 設定が無くても動くための組み込み既定。get-config.sh と同じ値
     DEFAULTS = {"analyze": True, "verbosity": "normal", "interval": 25,
-                "publish": True, "workdir": "", "history": 3}
+                "publish": True, "workdir": "", "history": 3, "research": []}
+
+    # 調べものに使ってよい外部の当て先。**既定は空**——このマシンの外へ問い合わせる
+    # ものは、明示的に許可されたものだけにする。どの MCP が社内かは環境ごとに違い、
+    # ここでしか分からない
+    RESEARCH_KEYS = ("name", "public_filter", "note")
 
     def resolve(self, meeting_name: str) -> dict:
         """会議名に対する設定を解決する。
@@ -108,10 +113,33 @@ class MtgConfig:
                 break
         resolved["workdir"] = (os.path.expanduser(str(resolved["workdir"]))
                                if resolved["workdir"] else "")
+        resolved["research"] = self._research(resolved.get("research"))
         glossary = self.raw.get("glossary")
         return {**resolved, "matched": matched, "note": note,
                 "config_path": self.path,
                 "glossary": os.path.expanduser(str(glossary)) if glossary else ""}
+
+    @classmethod
+    def _research(cls, value: object) -> list[dict]:
+        """調べものの当て先を正規化する。
+
+        `public_filter` の既定は **True**（社外向けとして扱う）。社内の当て先だと
+        書き忘れたときに、社内の固有名詞をそのまま外へ出してしまう向きに倒れない
+        ようにする。
+        """
+        out: list[dict] = []
+        for item in value if isinstance(value, list) else []:
+            if isinstance(item, str):
+                item = {"name": item}
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            if not name:
+                continue
+            out.append({"name": name,
+                        "public_filter": bool(item.get("public_filter", True)),
+                        "note": str(item.get("note") or "")})
+        return out
 
     def resolve_workdir(self, meeting_name: str) -> str:
         """会議名に一致する最初のルールの workdir を返す。無ければ defaults、それも無ければ空"""
