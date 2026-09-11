@@ -1,0 +1,95 @@
+# スタンドアロンバイナリ (全部入り) を作る。
+#
+# **PyInstaller はクロスコンパイルしない**ので、Windows の .exe は Windows の
+# ランナーで作るしかない。これがこのワークフローの存在理由。
+#
+# 1 回で数百 MB〜1GB を作るため、push のたびには回さない。タグを打ったときと、
+# 手で叩いたときだけ。
+name: Build standalone binary
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write        # タグのときに Release へ添付する
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false   # 片方が落ちても、もう片方の結果は見たい
+      matrix:
+        include:
+          - { name: windows, os: windows-latest, ext: ".exe" }
+          - { name: linux, os: ubuntu-latest, ext: "" }
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.13"
+          # 既定の 'auto' はタグ push でキャッシュを切る。ここはタグが主な
+          # 入口なので、明示的に有効にする
+          enable-cache: true
+          # uv.lock は .gitignore に入っていて追跡していない。既定の
+          # **/uv.lock では鍵が立たないので、マニフェストを見る
+          cache-dependency-glob: "pyproject.toml"
+
+      # **この順でないと消える。** reazonspeech-k2-asr は PyPI に無く
+      # pyproject.toml に宣言できないため、uv sync のあとに入れる。
+      # 逆順にすると uv sync が「宣言に無いもの」として消してしまう。
+      # spell-check は入れない——spec の _EXCLUDES が torch を落とすので
+      # 同梱されず、数 GB のダウンロードが無駄になるだけ
+      - name: Install dependencies
+        run: uv sync --extra reazonspeech --extra gcal
+
+      - name: Install ReazonSpeech (Git only, not on PyPI)
+        run: uv pip install "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
+
+      # ビルドは数分かかる。入っていないまま待ってから気づくのを避ける
+      - name: Check the extras are importable
+        run: uv run python -c "import sherpa_onnx, reazonspeech.k2.asr; print('ok')"
+
+      - name: Build
+        run: uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
+
+      # 凍結した実行ファイルが起動して import を通せるか。引数なしの
+      # clerk-util は使い方を出して 0 で終わる
+      - name: Smoke test
+        shell: bash
+        run: ./dist/shadow-clerk/clerk-util${{ matrix.ext }}
+
+      # PortAudio とネイティブ拡張が読めているかはここで分かる。ただし
+      # ランナーに音声デバイスが無いことがあるので、落ちても止めずログに残す
+      - name: Audio devices (informational)
+        continue-on-error: true
+        shell: bash
+        run: ./dist/shadow-clerk/clerk-daemon${{ matrix.ext }} --list-devices
+
+      # zip は Python で作る。Windows のランナーに zip コマンドは無い
+      - name: Pack
+        shell: bash
+        env:
+          ZIP_BASE: shadow-clerk-${{ matrix.name }}
+        run: uv run python -c "import os,shutil; shutil.make_archive(os.environ['ZIP_BASE'],'zip','dist','shadow-clerk')"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: shadow-clerk-${{ matrix.name }}
+          path: shadow-clerk-${{ matrix.name }}.zip
+          retention-days: 14
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ZIP: shadow-clerk-${{ matrix.name }}.zip
+        run: |
+          set -euo pipefail
+          # 2 つのジョブが同時に来る。先に作ったほうが勝ち、負けたほうは進む
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes || true
+          gh release upload "$GITHUB_REF_NAME" "$ZIP" --clobber

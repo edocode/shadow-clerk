@@ -101,7 +101,8 @@ glossary and `misheard.tsv` exist for exactly that.
 
 - All development on `main` branch, direct push
 - Commit messages: English, concise, descriptive
-- No CI/CD pipeline
+- No CI on push. The only workflow is `.github/workflows/build-binary.yml`,
+  which builds the standalone binaries and runs on a `v*` tag or by hand
 
 ## Documentation
 

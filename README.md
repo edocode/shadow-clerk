@@ -285,6 +285,11 @@ The `spell-check` extra is **not** bundled even if you install it: the spec drop
 `torch`, `transformers` and `sentencepiece` in `_EXCLUDES`. Remove them from that
 list to include it, and expect the bundle to grow by several GB.
 
+**Without a Windows machine**, `.github/workflows/build-binary.yml` runs exactly
+those steps on `windows-latest` and `ubuntu-latest`. Push a `v*` tag and both
+binaries are attached to the release, or start it by hand from the Actions tab and
+download them as artifacts.
+
 **Do not `uv pip install pyinstaller`.** `uv sync` makes the environment match what the project declares and removes everything else, so the next `uv sync --extra ...` would drop it again. `--with` puts PyInstaller in a temporary layer over the project environment instead: it can still see the project's packages, and nothing is left behind to be removed.
 
 Notes:

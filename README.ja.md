@@ -283,6 +283,11 @@ uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
 `transformers` / `sentencepiece` を落としているため。同梱したければそこから外す
 ——配布物が数 GB 増える。
 
+**Windows 機が無くても作れる。** `.github/workflows/build-binary.yml` が上と同じ
+手順を `windows-latest` と `ubuntu-latest` で走らせる。`v*` のタグを push すれば
+両方のバイナリが Release に添付され、Actions タブから手で起動すれば成果物として
+ダウンロードできる。
+
 **`uv pip install pyinstaller` はしないこと。** `uv sync` は環境をプロジェクトの宣言どおりに揃え、それ以外を消す。入れておいても次の `uv sync --extra ...` で消えてしまう。`--with` はプロジェクト環境の上に一時的な層として PyInstaller を載せるので、プロジェクトの依存は見えたまま、環境には何も残らない。
 
 補足:

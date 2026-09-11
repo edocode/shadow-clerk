@@ -250,6 +250,31 @@ def test_readme_documents_the_build() -> None:
               and "uv pip install pyinstaller" not in cmds, "")
 
 
+def test_release_workflow_builds_the_full_bundle() -> None:
+    """Windows 機が無くても .exe を作れる唯一の道なので、手順を固定する"""
+    root = os.path.join(os.path.dirname(__file__), "..")
+    path = os.path.join(root, ".github", "workflows", "build-binary.yml")
+    check("ワークフローがある", os.path.exists(path), path)
+    if not os.path.exists(path):
+        return
+    wf = open(path, encoding="utf-8").read()
+    check("Windows のランナーで作る", "windows-latest" in wf, "")
+    check("全部入りで sync する",
+          "--extra reazonspeech --extra gcal" in wf, "")
+    # 逆順にすると uv sync が「宣言に無いもの」として消す
+    check("Git 配布のものは sync のあとに入れる",
+          wf.index("uv sync --extra") < wf.index("reazonspeech-k2-asr @ git+"), "")
+    check("ビルド前に import を確かめる",
+          wf.index("import sherpa_onnx") < wf.index("pyinstaller packaging/"), "")
+    check("PyInstaller は一時的な層で走らせる",
+          "--with pyinstaller" in wf and "uv pip install pyinstaller" not in wf, "")
+    check("push のたびには回さない",
+          'tags: ["v*"]' in wf and "branches:" not in wf, "")
+    claude = open(os.path.join(root, "CLAUDE.md"), encoding="utf-8").read()
+    check("CLAUDE.md が実態と合っている",
+          "build-binary.yml" in claude and "No CI/CD pipeline" not in claude, "")
+
+
 def test_pywinpty_is_declared() -> None:
     toml = open(os.path.join(os.path.dirname(__file__), "..", "pyproject.toml"),
                 encoding="utf-8").read()
@@ -267,6 +292,7 @@ def main() -> int:
     test_daemonize_does_not_fork_on_windows()
     test_spec_collects_the_packages_that_ship_data()
     test_readme_documents_the_build()
+    test_release_workflow_builds_the_full_bundle()
     test_pywinpty_is_declared()
     print(f"\n{sum(results)}/{len(results)} passed")
     return 0 if all(results) else 1
