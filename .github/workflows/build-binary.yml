@@ -60,11 +60,12 @@ jobs:
       - name: Build
         run: uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
 
-      # 凍結した実行ファイルが起動して import を通せるか。引数なしの
-      # clerk-util は使い方を出して 0 で終わる
+      # 凍結した実行ファイルが起動して import を通せるか。argparse の --help は
+      # 0 で終わり、その前に daemon 側の import は一通り走る。
+      # **clerk-util を引数なしで叩いてはいけない**——使い方を出して 1 で終わる
       - name: Smoke test
         shell: bash
-        run: ./dist/shadow-clerk/clerk-util${{ matrix.ext }}
+        run: ./dist/shadow-clerk/clerk-daemon${{ matrix.ext }} --help
 
       # PortAudio とネイティブ拡張が読めているかはここで分かる。ただし
       # ランナーに音声デバイスが無いことがあるので、落ちても止めずログに残す
