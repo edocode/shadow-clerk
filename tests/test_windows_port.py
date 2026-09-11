@@ -268,6 +268,12 @@ def test_release_workflow_builds_the_full_bundle() -> None:
           wf.index("import sherpa_onnx") < wf.index("pyinstaller packaging/"), "")
     check("PyInstaller は一時的な層で走らせる",
           "--with pyinstaller" in wf and "uv pip install pyinstaller" not in wf, "")
+    # 浮動のメジャータグは全てのアクションが出しているわけではない。
+    # setup-uv は最新が v10 系でも単一メジャーのタグは v7 止まりで、
+    # @v10 を書くとジョブが解決できずに即落ちた
+    import re as _re
+    floating = _re.findall(r"uses: (\S+@v\d+)$", wf, _re.M)
+    check("アクションは正確なバージョンで固定する", not floating, str(floating))
     check("push のたびには回さない",
           'tags: ["v*"]' in wf and "branches:" not in wf, "")
     claude = open(os.path.join(root, "CLAUDE.md"), encoding="utf-8").read()

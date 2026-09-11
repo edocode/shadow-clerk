@@ -5,6 +5,10 @@
 #
 # 1 回で数百 MB〜1GB を作るため、push のたびには回さない。タグを打ったときと、
 # 手で叩いたときだけ。
+#
+# **アクションは正確なバージョンで固定する。** 浮動のメジャータグ (@v10 など) は
+# 全てのアクションが出しているわけではない——setup-uv は最新リリースが v10 系でも
+# 単一メジャーのタグは v7 で止まっており、@v10 は解決できずジョブが即落ちる。
 name: Build standalone binary
 
 on:
@@ -26,9 +30,9 @@ jobs:
           - { name: windows, os: windows-latest, ext: ".exe" }
           - { name: linux, os: ubuntu-latest, ext: "" }
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.1.0
         with:
           python-version: "3.13"
           # 既定の 'auto' はタグ push でキャッシュを切る。ここはタグが主な
@@ -76,7 +80,7 @@ jobs:
           ZIP_BASE: shadow-clerk-${{ matrix.name }}
         run: uv run python -c "import os,shutil; shutil.make_archive(os.environ['ZIP_BASE'],'zip','dist','shadow-clerk')"
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.1
         with:
           name: shadow-clerk-${{ matrix.name }}
           path: shadow-clerk-${{ matrix.name }}.zip
