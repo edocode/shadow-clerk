@@ -250,6 +250,44 @@ def test_readme_documents_the_build() -> None:
               and "uv pip install pyinstaller" not in cmds, "")
 
 
+def test_japanese_output_does_not_crash_on_a_narrow_console() -> None:
+    """Windows の標準出力は ANSI コードページ。英語版 (cp1252) では日本語が出せない。
+
+    日本語版 Windows (cp932) では通ってしまうので手元では気づけず、CI の
+    windows-latest で `clerk-daemon --help` が UnicodeEncodeError で落ちた。
+    Linux でも PYTHONIOENCODING で同じ狭さを作れるので、ここで再現させる。
+    """
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+    p = subprocess.run([sys.executable, "-m", "shadow_clerk.clerk_daemon", "--help"],
+                       capture_output=True, env=env, timeout=120)
+    check("--help が cp1252 でも 0 で終わる", p.returncode == 0,
+          p.stderr.decode("utf-8", "replace").strip().splitlines()[-1:])
+    p = subprocess.run([sys.executable, "-m", "shadow_clerk.clerk_util"],
+                       capture_output=True, env=env, timeout=120)
+    # 使い方を出して 1 で終わるのは仕様。落ちていないことだけを見る
+    check("clerk-util が cp1252 でも落ちない",
+          b"UnicodeEncodeError" not in p.stderr, p.stderr.decode("utf-8", "replace")[-120:])
+
+    for name, mod in (("clerk-daemon", "_daemon_main.py"), ("clerk-util", "clerk_util.py")):
+        src = open(os.path.join(SRC, mod), encoding="utf-8").read()
+        body = src[src.index("def main("):]
+        check(f"{name} が引数を読む前に直す", "use_utf8_console()" in body[:600], "")
+    # ログファイルも既定では ANSI コードページで開かれる
+    main_src = open(os.path.join(SRC, "_daemon_main.py"), encoding="utf-8").read()
+    check("ログファイルも UTF-8 で開く",
+          'FileHandler(LOG_FILE, encoding="utf-8")' in main_src, "")
+
+
+def test_version_matches_the_manifest() -> None:
+    """タグを打つときに古いままだと、配布物が名乗る版が食い違う"""
+    root = os.path.join(os.path.dirname(__file__), "..")
+    toml = open(os.path.join(root, "pyproject.toml"), encoding="utf-8").read()
+    declared = toml.split('version = "', 1)[1].split('"', 1)[0]
+    from shadow_clerk import __version__
+    check("__version__ が pyproject と一致する", __version__ == declared,
+          f"{__version__} vs {declared}")
+
+
 def test_release_workflow_builds_the_full_bundle() -> None:
     """Windows 機が無くても .exe を作れる唯一の道なので、手順を固定する"""
     root = os.path.join(os.path.dirname(__file__), "..")
@@ -298,6 +336,8 @@ def main() -> int:
     test_daemonize_does_not_fork_on_windows()
     test_spec_collects_the_packages_that_ship_data()
     test_readme_documents_the_build()
+    test_japanese_output_does_not_crash_on_a_narrow_console()
+    test_version_matches_the_manifest()
     test_release_workflow_builds_the_full_bundle()
     test_pywinpty_is_declared()
     print(f"\n{sum(results)}/{len(results)} passed")

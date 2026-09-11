@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 
-from shadow_clerk import DATA_DIR, CONFIG_FILE
+from shadow_clerk import DATA_DIR, CONFIG_FILE, use_utf8_console
 from shadow_clerk._process import is_pid_alive as _is_pid_alive, is_clerk_daemon_process
 from shadow_clerk._transcript_name import TranscriptName
 
@@ -517,6 +517,7 @@ COMMANDS = {
 
 
 def main() -> None:
+    use_utf8_console()   # 使い方も エラーも日本語。英語版 Windows で落とさない
     os.makedirs(DATA_DIR, exist_ok=True)
 
     if len(sys.argv) < 2:
