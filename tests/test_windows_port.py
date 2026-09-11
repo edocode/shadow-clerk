@@ -241,6 +241,10 @@ def test_readme_documents_the_build() -> None:
         # 次の uv sync --extra で消えるので、一時的な層に載せる
         # 本文では「やらないこと」として名前を出すので、コマンド行だけを見る
         cmds = [ln.strip() for ln in doc.splitlines()]
+        # 全部入りの作り方が無いと、extra 付きのバイナリに辿り着けない
+        check(f"{name} に全部入りの手順がある",
+              "--extra reazonspeech --extra gcal" in doc
+              and "reazonspeech-k2-asr @ git+" in doc, "")
         check(f"{name} が --with で走らせている",
               "--with pyinstaller" in doc
               and "uv pip install pyinstaller" not in cmds, "")

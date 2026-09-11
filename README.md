@@ -270,11 +270,26 @@ uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
 
 `--list-devices` is a good smoke test: it exercises the bundled PortAudio and the native extensions without recording anything.
 
+To bundle ReazonSpeech and Google Calendar as well, replace the `uv sync` line — in
+this order, because `reazonspeech-k2-asr` is not declared anywhere and a later sync
+would remove it:
+
+```powershell
+uv sync --extra reazonspeech --extra gcal
+uv pip install "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
+uv run python -c "import sherpa_onnx, reazonspeech.k2.asr; print('ok')"   # check before building
+uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
+```
+
+The `spell-check` extra is **not** bundled even if you install it: the spec drops
+`torch`, `transformers` and `sentencepiece` in `_EXCLUDES`. Remove them from that
+list to include it, and expect the bundle to grow by several GB.
+
 **Do not `uv pip install pyinstaller`.** `uv sync` makes the environment match what the project declares and removes everything else, so the next `uv sync --extra ...` would drop it again. `--with` puts PyInstaller in a temporary layer over the project environment instead: it can still see the project's packages, and nothing is left behind to be removed.
 
 Notes:
 
-- **Output**: `dist/shadow-clerk/`, roughly 460 MB with the default dependencies and no extras. `torch`, `transformers` and `sentencepiece` are excluded in the spec (`_EXCLUDES`) because they are only needed by the `spell-check` extra and add several GB.
+- **Output**: `dist/shadow-clerk/`, roughly 460 MB with the default dependencies and no extras.
 - **Extras are collected only if installed** in the environment you build from, so install them before building — every extra you want named in one `uv sync`, and any `uv pip install` last. See [Setup](#2-install) for why the order matters. The spec collects `sherpa_onnx` (which carries its own `onnxruntime` DLL in `lib/`) and `reazonspeech.k2.asr` when they are there; the ASR weights themselves are fetched on first use, like the Whisper models.
 - **Whisper models are not bundled.** `small` is around 500 MB and is fetched from Hugging Face on first run, then cached (`%USERPROFILE%\.cache\huggingface` on Windows, `~/.cache/huggingface` elsewhere). For an offline bundle, add that cache to `datas` in the spec, or ship a converted CT2 model and point `--model` at it.
 - **`packaging/hooks/` overrides PyInstaller's bundled hooks.** There is one today: the bundled `hook-webrtcvad.py` calls `copy_metadata('webrtcvad')`, but this project depends on `webrtcvad-wheels`, so without the override the build aborts with `ImportErrorWhenRunningHook`.
