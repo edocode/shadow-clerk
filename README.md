@@ -261,7 +261,14 @@ uv run pyinstaller packaging/shadow-clerk.spec
 Notes:
 
 - **Output**: `dist/shadow-clerk/`, roughly 460 MB with the default dependencies and no extras. `torch`, `transformers` and `sentencepiece` are excluded in the spec (`_EXCLUDES`) because they are only needed by the `spell-check` extra and add several GB.
-- **Extras are collected only if installed** in the environment you build from. Run `uv sync --extra gcal` (etc.) first if you want them in the bundle.
+- **Extras are collected only if installed** in the environment you build from. Run `uv sync --extra gcal` (etc.) first if you want them in the bundle. ReazonSpeech needs two steps, because `reazonspeech-k2-asr` is published only via Git:
+
+  ```powershell
+  uv sync --extra reazonspeech
+  uv pip install "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
+  ```
+
+  The spec then collects `sherpa_onnx` (which carries its own `onnxruntime` DLL in `lib/`) and `reazonspeech.k2.asr`. The ASR weights themselves are fetched on first use, like the Whisper models.
 - **Whisper models are not bundled.** `small` is around 500 MB and is fetched from Hugging Face on first run, then cached (`%USERPROFILE%\.cache\huggingface` on Windows, `~/.cache/huggingface` elsewhere). For an offline bundle, add that cache to `datas` in the spec, or ship a converted CT2 model and point `--model` at it.
 - **`packaging/hooks/` overrides PyInstaller's bundled hooks.** There is one today: the bundled `hook-webrtcvad.py` calls `copy_metadata('webrtcvad')`, but this project depends on `webrtcvad-wheels`, so without the override the build aborts with `ImportErrorWhenRunningHook`.
 - Add a dependency that ships DLLs or data files? Add it to `_PACKAGES` in the spec. PyInstaller only follows `import` statements, so anything else is silently left out and fails at runtime rather than at build time.

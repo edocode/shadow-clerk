@@ -20,6 +20,7 @@ HuggingFace から取得されて %USERPROFILE%\\.cache\\huggingface に残る�
 オフライン配布したいなら、そのキャッシュを datas に足すか、
 CT2 形式に変換したモデルを同梱して --model にパスを渡す。
 """
+import importlib.util
 import os
 
 from PyInstaller.utils.hooks import collect_all
@@ -41,17 +42,28 @@ _HOOKS = [os.path.join(SPECPATH, "hooks")]           # noqa: F821
 #   pywinpty        AI Console の ConPTY。winpty の DLL を連れてくる
 #   pyaudiowpatch   WASAPI ループバック (モニター音声の取り込み)
 #   googleapiclient gcal extra 用。discovery のキャッシュを持つ
+#   sherpa_onnx     reazonspeech extra 用。lib/ に onnxruntime の DLL を抱える
+#   reazonspeech.k2.asr  同上。名前空間パッケージなので末端まで指定する
 _PACKAGES = ("ctranslate2", "av", "faster_whisper", "tokenizers", "onnxruntime",
              "langdetect", "sounddevice", "webrtcvad", "pywinpty", "winpty",
              "pyaudiowpatch", "openai", "markdown_it", "pyte",
-             "googleapiclient", "google_auth_oauthlib")
+             "googleapiclient", "google_auth_oauthlib",
+             "sherpa_onnx", "reazonspeech.k2.asr")
 
 datas, binaries, hiddenimports = [], [], []
 for _pkg in _PACKAGES:
+    # **パッケージでないものは飛ばす。** sounddevice / webrtcvad / pywinpty は
+    # 単一モジュールなので collect_all は「not a package」と警告するだけで
+    # 何も集められない。これらの DLL は PyInstaller 同梱のフック
+    # (hook-sounddevice.py など) が集めるので、ここで拾う必要は無い。
+    # 警告だけが残ると、本当に失敗したときにそれが埋もれる
     try:
-        _d, _b, _h = collect_all(_pkg)
-    except Exception:                       # noqa: BLE001
+        _spec = importlib.util.find_spec(_pkg)
+    except (ImportError, ValueError):
         continue                            # 任意の extra は入っていなくてよい
+    if _spec is None or _spec.submodule_search_locations is None:
+        continue
+    _d, _b, _h = collect_all(_pkg)
     datas += _d
     binaries += _b
     hiddenimports += _h
