@@ -10,6 +10,11 @@ curl -s "$SHADOW_CLERK/api/meeting-history?meeting=<会議名>&count=<history>"
 `meetings` に新しい順で `datetime / meeting / transcript / summary / advice / analysis`
 が入る（存在しないファイルの欄は空文字）。進行中の回は含まれない。
 
+**`summary` / `advice` / `analysis` がすべて空の回は、生の文字起こししか残っていない。**
+その回しか無いなら、**読ませるのは直近 1 回だけにする**。3 回ぶんの生 transcript は
+数万トークンかかるわりに、返ってくるのは「宿題は無かった」程度のことが多い。
+議事録が 1 つでもある会議なら、`history` の数だけ読ませてよい。
+
 照合は会議名の正規化一致（大文字小文字と区切りを無視）で、サーバ側が行う。
 設定の `matched` パターンは会議の同一性ではない——`Standup|Sprint[ _-]?MTG|…` は
 `Sprint_MTG` と `Platformチーム_Standup` という**別々の定例に同時に当たる**。
