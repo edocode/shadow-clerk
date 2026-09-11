@@ -104,6 +104,11 @@ class Transcriber:
                 # sherpa-onnx-core の動的ライブラリ参照パスを追加
                 import sherpa_onnx as _so
                 _so_lib = os.path.join(os.path.dirname(_so.__file__), "lib")
+                if not os.path.isdir(_so_lib) and getattr(sys, "frozen", False):
+                    # 凍結した実行ファイルでは __file__ が書庫の中を指すことがあり、
+                    # その隣に lib は無い。PyInstaller が展開した先を見る
+                    _so_lib = os.path.join(getattr(sys, "_MEIPASS", ""),
+                                           "sherpa_onnx", "lib")
                 import ctypes
                 if sys.platform == "win32":
                     # Windows: DLL 検索ディレクトリを追加し、onnxruntime.dll を明示ロード

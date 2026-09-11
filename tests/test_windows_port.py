@@ -198,7 +198,9 @@ def test_spec_collects_the_packages_that_ship_data() -> None:
         return
     spec = open(spec_path, encoding="utf-8").read()
     for pkg in ("ctranslate2", "av", "faster_whisper", "langdetect",
-                "sounddevice", "pywinpty", "pyaudiowpatch", "tokenizers"):
+                "sounddevice", "pywinpty", "pyaudiowpatch", "tokenizers",
+                # ReazonSpeech。sherpa_onnx は lib/ に onnxruntime の DLL を抱える
+                "sherpa_onnx", "reazonspeech.k2.asr"):
         check(f"spec が {pkg} を集める", f'"{pkg}"' in spec, "")
     check("2 つの実行ファイルを作る",
           "clerk-daemon" in spec and "clerk-util" in spec, "")

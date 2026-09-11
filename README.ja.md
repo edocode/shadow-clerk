@@ -261,7 +261,14 @@ uv run pyinstaller packaging/shadow-clerk.spec
 補足:
 
 - **出力先**: `dist/shadow-clerk/`。既定の依存のみ(extra なし)でおよそ 460MB。`torch` / `transformers` / `sentencepiece` は spec の `_EXCLUDES` で除いている — `spell-check` extra でしか使わないうえ、入れると数 GB 増えるため。
-- **extra はビルドした環境に入っているものだけが集められる。** 同梱したければ先に `uv sync --extra gcal` などを実行しておく。
+- **extra はビルドした環境に入っているものだけが集められる。** 同梱したければ先に `uv sync --extra gcal` などを実行しておく。ReazonSpeech は `reazonspeech-k2-asr` が PyPI に無い(Git 配布)ため 2 段になる:
+
+  ```powershell
+  uv sync --extra reazonspeech
+  uv pip install "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
+  ```
+
+  これで spec が `sherpa_onnx`(`lib/` に onnxruntime の DLL を抱えている)と `reazonspeech.k2.asr` を集める。モデルの重み自体は Whisper と同じく初回利用時に取得される。
 - **Whisper のモデルは同梱されない。** `small` で約 500MB あり、初回起動時に Hugging Face から取得されてキャッシュに残る(Windows は `%USERPROFILE%\.cache\huggingface`、それ以外は `~/.cache/huggingface`)。オフラインで配布したいなら、そのキャッシュを spec の `datas` に足すか、CT2 形式に変換したモデルを同梱して `--model` にパスを渡す。
 - **`packaging/hooks/` は PyInstaller 同梱フックの差し替え。** 現在 1 つある: 同梱の `hook-webrtcvad.py` は `copy_metadata('webrtcvad')` を呼ぶが、このプロジェクトが使うのは `webrtcvad-wheels` なので、差し替えないと `ImportErrorWhenRunningHook` でビルドが止まる。
 - DLL やデータファイルを持つ依存を足したら、spec の `_PACKAGES` にも足すこと。PyInstaller は `import` しか追わないので、漏れると**ビルドは通って実行時に落ちる**。
