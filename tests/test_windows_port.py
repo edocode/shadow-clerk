@@ -237,6 +237,13 @@ def test_readme_documents_the_build() -> None:
               "packaging/shadow-clerk.spec" in doc, "")
         check(f"{name} がビルドコマンドを載せている",
               "pyinstaller packaging/shadow-clerk.spec" in doc, "")
+        # uv sync は宣言外のものを消す。uv pip install した PyInstaller は
+        # 次の uv sync --extra で消えるので、一時的な層に載せる
+        # 本文では「やらないこと」として名前を出すので、コマンド行だけを見る
+        cmds = [ln.strip() for ln in doc.splitlines()]
+        check(f"{name} が --with で走らせている",
+              "--with pyinstaller" in doc
+              and "uv pip install pyinstaller" not in cmds, "")
 
 
 def test_pywinpty_is_declared() -> None:

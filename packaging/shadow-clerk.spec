@@ -4,9 +4,17 @@
 使い方 (**Windows の上で**):
 
     uv sync
-    uv pip install pyinstaller
-    uv run pyinstaller packaging/shadow-clerk.spec
+    uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
     dist\\shadow-clerk\\clerk-daemon.exe
+
+extra を同梱したいなら、ビルド前に入れておくこと。**`uv sync` は毎回
+「環境のあるべき姿のすべて」を決めるので extra は累積しない**——欲しいものは
+1 回の `uv sync` にまとめる。`uv pip install` で入れたもの (ReazonSpeech の
+`reazonspeech-k2-asr` など) は宣言に無いので次の `uv sync` で消える。最後にやること。
+
+**`uv pip install pyinstaller` はしないこと。** `uv sync` は環境を宣言どおりに
+揃えてそれ以外を消すので、入れておいても次の `uv sync --extra ...` で消える。
+`--with` なら一時的な層に載るだけで、プロジェクトの依存は見えたまま残らない。
 
 **クロスコンパイルはできない。** PyInstaller は動かしている OS 向けの実行
 ファイルしか作らないので、Windows のバイナリは Windows で作る。Linux 上で

@@ -111,6 +111,12 @@ cd shadow-clerk
 | + Google Calendar | `uv sync --extra gcal` |
 | すべて | `uv sync --extra spell-check --extra gcal --extra reazonspeech` |
 
+**`uv sync` は毎回「環境のあるべき姿のすべて」を決める。extra は累積しない。**
+`uv sync --extra reazonspeech` のあとに `uv sync --extra gcal` を打つと
+ReazonSpeech は消える——欲しい extra は上の最終行のように毎回まとめて指定する。
+同じ理由で `uv pip install` で入れたものは宣言に無いため次の `uv sync` で消える。
+実行するなら最後にすること。
+
 これだけで文字起こし機能が使える。以下のオプション extras も利用可能:
 
 ### オプション: 日本語 ASR モデル
@@ -127,9 +133,16 @@ japanese_asr_model: kotoba-whisper
 ```bash
 uv tool install "shadow-clerk[reazonspeech]" \
   --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
-# 開発用:
+# 開発用 — この順で。あとから uv sync を打たないこと:
 uv sync --extra reazonspeech
 uv pip install "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
+```
+
+`reazonspeech-k2-asr` は `pyproject.toml` に書けない(PyPI がメタデータ中の直接 URL
+参照を拒否する)ので、`uv sync` はこれを知らず、消してしまう。入っているかは:
+
+```bash
+uv run python -c "import sherpa_onnx, reazonspeech.k2.asr; print('ok')"
 ```
 
 ```yaml
@@ -243,32 +256,25 @@ claude_cli_model: haiku   # sonnet / opus / モデル ID も指定可
 ```powershell
 # Windows (PowerShell)
 uv sync
-uv pip install pyinstaller
-uv run pyinstaller packaging/shadow-clerk.spec
+uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
 dist\shadow-clerk\clerk-daemon.exe --list-devices   # 動作確認
 ```
 
 ```bash
 # Linux / macOS
 uv sync
-uv pip install pyinstaller
-uv run pyinstaller packaging/shadow-clerk.spec
+uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
 ./dist/shadow-clerk/clerk-daemon --list-devices      # 動作確認
 ```
 
 `--list-devices` は動作確認に向いている。録音を始めずに、同梱した PortAudio とネイティブ拡張が読めているかを確かめられる。
 
+**`uv pip install pyinstaller` はしないこと。** `uv sync` は環境をプロジェクトの宣言どおりに揃え、それ以外を消す。入れておいても次の `uv sync --extra ...` で消えてしまう。`--with` はプロジェクト環境の上に一時的な層として PyInstaller を載せるので、プロジェクトの依存は見えたまま、環境には何も残らない。
+
 補足:
 
 - **出力先**: `dist/shadow-clerk/`。既定の依存のみ(extra なし)でおよそ 460MB。`torch` / `transformers` / `sentencepiece` は spec の `_EXCLUDES` で除いている — `spell-check` extra でしか使わないうえ、入れると数 GB 増えるため。
-- **extra はビルドした環境に入っているものだけが集められる。** 同梱したければ先に `uv sync --extra gcal` などを実行しておく。ReazonSpeech は `reazonspeech-k2-asr` が PyPI に無い(Git 配布)ため 2 段になる:
-
-  ```powershell
-  uv sync --extra reazonspeech
-  uv pip install "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
-  ```
-
-  これで spec が `sherpa_onnx`(`lib/` に onnxruntime の DLL を抱えている)と `reazonspeech.k2.asr` を集める。モデルの重み自体は Whisper と同じく初回利用時に取得される。
+- **extra はビルドした環境に入っているものだけが集められる。** ビルド前に入れておくこと——欲しい extra は 1 回の `uv sync` にまとめ、`uv pip install` は最後に。順序が効く理由は[セットアップ](#2-インストール)にある。入っていれば spec が `sherpa_onnx`(`lib/` に onnxruntime の DLL を抱えている)と `reazonspeech.k2.asr` を集める。モデルの重み自体は Whisper と同じく初回利用時に取得される。
 - **Whisper のモデルは同梱されない。** `small` で約 500MB あり、初回起動時に Hugging Face から取得されてキャッシュに残る(Windows は `%USERPROFILE%\.cache\huggingface`、それ以外は `~/.cache/huggingface`)。オフラインで配布したいなら、そのキャッシュを spec の `datas` に足すか、CT2 形式に変換したモデルを同梱して `--model` にパスを渡す。
 - **`packaging/hooks/` は PyInstaller 同梱フックの差し替え。** 現在 1 つある: 同梱の `hook-webrtcvad.py` は `copy_metadata('webrtcvad')` を呼ぶが、このプロジェクトが使うのは `webrtcvad-wheels` なので、差し替えないと `ImportErrorWhenRunningHook` でビルドが止まる。
 - DLL やデータファイルを持つ依存を足したら、spec の `_PACKAGES` にも足すこと。PyInstaller は `import` しか追わないので、漏れると**ビルドは通って実行時に落ちる**。

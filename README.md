@@ -111,6 +111,12 @@ cd shadow-clerk
 | + Google Calendar | `uv sync --extra gcal` |
 | All | `uv sync --extra spell-check --extra gcal --extra reazonspeech` |
 
+**Each `uv sync` defines the whole environment, and extras do not accumulate.**
+`uv sync --extra gcal` after `uv sync --extra reazonspeech` removes ReazonSpeech
+again — name every extra you want in the same command, as in the last row above.
+For the same reason, anything installed with `uv pip install` is undeclared and
+is removed by the next `uv sync`, so run it last.
+
 This is all you need for transcription. The following optional extras are available:
 
 ### Optional: Japanese ASR models
@@ -127,9 +133,17 @@ japanese_asr_model: kotoba-whisper
 ```bash
 uv tool install "shadow-clerk[reazonspeech]" \
   --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
-# or for development:
+# or for development — in this order, and do not run uv sync afterwards:
 uv sync --extra reazonspeech
 uv pip install "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
+```
+
+`reazonspeech-k2-asr` cannot be declared in `pyproject.toml` (PyPI rejects direct
+URL references in metadata), so `uv sync` does not know about it and removes it.
+Check what you have with:
+
+```bash
+uv run python -c "import sherpa_onnx, reazonspeech.k2.asr; print('ok')"
 ```
 
 ```yaml
@@ -243,32 +257,25 @@ This uses your existing Claude Code OAuth login. No extra setup needed — trans
 ```powershell
 # Windows (PowerShell)
 uv sync
-uv pip install pyinstaller
-uv run pyinstaller packaging/shadow-clerk.spec
+uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
 dist\shadow-clerk\clerk-daemon.exe --list-devices   # smoke test
 ```
 
 ```bash
 # Linux / macOS
 uv sync
-uv pip install pyinstaller
-uv run pyinstaller packaging/shadow-clerk.spec
+uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
 ./dist/shadow-clerk/clerk-daemon --list-devices      # smoke test
 ```
 
 `--list-devices` is a good smoke test: it exercises the bundled PortAudio and the native extensions without recording anything.
 
+**Do not `uv pip install pyinstaller`.** `uv sync` makes the environment match what the project declares and removes everything else, so the next `uv sync --extra ...` would drop it again. `--with` puts PyInstaller in a temporary layer over the project environment instead: it can still see the project's packages, and nothing is left behind to be removed.
+
 Notes:
 
 - **Output**: `dist/shadow-clerk/`, roughly 460 MB with the default dependencies and no extras. `torch`, `transformers` and `sentencepiece` are excluded in the spec (`_EXCLUDES`) because they are only needed by the `spell-check` extra and add several GB.
-- **Extras are collected only if installed** in the environment you build from. Run `uv sync --extra gcal` (etc.) first if you want them in the bundle. ReazonSpeech needs two steps, because `reazonspeech-k2-asr` is published only via Git:
-
-  ```powershell
-  uv sync --extra reazonspeech
-  uv pip install "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
-  ```
-
-  The spec then collects `sherpa_onnx` (which carries its own `onnxruntime` DLL in `lib/`) and `reazonspeech.k2.asr`. The ASR weights themselves are fetched on first use, like the Whisper models.
+- **Extras are collected only if installed** in the environment you build from, so install them before building — every extra you want named in one `uv sync`, and any `uv pip install` last. See [Setup](#2-install) for why the order matters. The spec collects `sherpa_onnx` (which carries its own `onnxruntime` DLL in `lib/`) and `reazonspeech.k2.asr` when they are there; the ASR weights themselves are fetched on first use, like the Whisper models.
 - **Whisper models are not bundled.** `small` is around 500 MB and is fetched from Hugging Face on first run, then cached (`%USERPROFILE%\.cache\huggingface` on Windows, `~/.cache/huggingface` elsewhere). For an offline bundle, add that cache to `datas` in the spec, or ship a converted CT2 model and point `--model` at it.
 - **`packaging/hooks/` overrides PyInstaller's bundled hooks.** There is one today: the bundled `hook-webrtcvad.py` calls `copy_metadata('webrtcvad')`, but this project depends on `webrtcvad-wheels`, so without the override the build aborts with `ImportErrorWhenRunningHook`.
 - Add a dependency that ships DLLs or data files? Add it to `_PACKAGES` in the spec. PyInstaller only follows `import` statements, so anything else is silently left out and fails at runtime rather than at build time.
