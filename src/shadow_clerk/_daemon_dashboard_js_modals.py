@@ -265,6 +265,7 @@ async function maybeShowWelcome(){
   }).join('');
   document.getElementById('welcomeBody').innerHTML=
     `<div style="font-size:12px;line-height:1.7">${esc(I18N['welcome.intro'])}</div>`
+    +`<div class="wc-opt">${esc(I18N['welcome.optional_ai'])}</div>`
     +`<div class="wc-h">${esc(I18N['welcome.skill_where'])}</div>${_skillRows(st.targets)}`
     +`<div class="wc-h">${esc(I18N['welcome.recommend'])}</div>${recs}`;
   document.getElementById('welcomeModal').classList.add('open');
