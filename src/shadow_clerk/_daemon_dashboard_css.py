@@ -363,6 +363,9 @@ main {
 .modal-body textarea { resize:vertical; min-height:60px; font-family:monospace; font-size:12px; }
 .modal-body .cfg-section { grid-column:1/-1; font-weight:bold; font-size:13px; padding:8px 0 4px; border-bottom:1px solid var(--border); margin-top:4px; color:var(--text); }
 .modal-body .cfg-section:first-child { margin-top:0; }
+/* 設定フォーム以外の本文。.modal-body は 140px+1fr の grid なので、
+   素の要素を並べると左右のセルに振り分けられて崩れる */
+.modal-body.flow { display:block; }
 .wc-row { display:flex; align-items:center; gap:8px; padding:5px 0; font-size:12px; }
 .wc-row code { color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
 .wc-row button { flex-shrink:0; }
