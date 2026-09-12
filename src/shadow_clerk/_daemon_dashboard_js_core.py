@@ -452,8 +452,7 @@ function initSearchSelects(){
   for(let i=0;i<=23;i++){const o=document.createElement('option');o.value=String(i).padStart(2,'0');o.textContent=String(i).padStart(2,'0');hr.appendChild(o);}
 }
 // 右ペインの開閉だけ覚える。開いているかは人ごとの好みで、毎回開き直すのは手間。
-// **左ペインは覚えない。** 畳むと開き直す ◀ が事実上見えなくなるので、記憶すると
-// 抜け出せなくなる。覚えなければリロードで必ず戻る
+// 左は覚えない——畳んだままにしたいという要望が無いだけで、技術的な理由ではない
 function _rememberSumPane(collapsed){
   try{localStorage.setItem('sumPaneCollapsed',collapsed?'1':'0');}catch(e){}
 }
