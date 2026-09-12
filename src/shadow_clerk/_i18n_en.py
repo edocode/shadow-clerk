@@ -335,7 +335,7 @@ STRINGS_EN: dict[str, str] = {
     "cfg.ai_assistant_args": "Assistant arguments",
     "cfg.ai_assistant_args_ph": "--permission-mode acceptEdits",
     "cfg.ai_assistant_init_prompt": "Initial prompt",
-    "cfg.ai_assistant_init_prompt_ph": "/clerk-meeting-helper {transcript}",
+    "cfg.ai_assistant_init_prompt_ph": "/clerk-meeting-helper {transcript} {lang}",
     "cfg.ai_assistant_workdir": "Default working directory",
     "cfg.gcal_setup_url": "https://github.com/edocode/shadow-clerk/blob/main/docs/google-calendar-setup.md",
     "cfg.gcal_setup_link": "Setup guide (needs a Google Cloud project)",

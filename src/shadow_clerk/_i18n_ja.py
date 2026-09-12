@@ -334,7 +334,7 @@ STRINGS_JA: dict[str, str] = {
     "cfg.ai_assistant_args": "アシスタントの引数",
     "cfg.ai_assistant_args_ph": "--permission-mode acceptEdits",
     "cfg.ai_assistant_init_prompt": "初期プロンプト",
-    "cfg.ai_assistant_init_prompt_ph": "/clerk-meeting-helper {transcript}",
+    "cfg.ai_assistant_init_prompt_ph": "/clerk-meeting-helper {transcript} {lang}",
     "cfg.ai_assistant_workdir": "既定の起動ディレクトリ",
     "cfg.gcal_setup_url": "https://github.com/edocode/shadow-clerk/blob/main/docs/google-calendar-setup.ja.md",
     "cfg.gcal_setup_link": "設定手順（Google Cloud の準備が必要です）",
