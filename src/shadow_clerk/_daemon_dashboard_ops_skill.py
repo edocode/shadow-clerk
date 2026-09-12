@@ -175,6 +175,34 @@ class _DashboardHandlerSkillOps:
 
     # --- 監視ストリーム ---
 
+    def _serve_skill_status(self) -> None:
+        """GET /api/skill-status — 記録済みの配布先ごとに状態を返す"""
+        from shadow_clerk import skill_install
+        self._send_json(skill_install.skill_status(skill_install.remembered_targets()))
+
+    def _install_skill(self) -> None:
+        """POST /api/skill-install — {"target": "claude"} を受けて配る"""
+        from shadow_clerk import skill_install
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            data = json.loads(self.rfile.read(length)) if length else {}
+        except (json.JSONDecodeError, ValueError, TypeError):
+            self.send_error(400)
+            return
+        if not isinstance(data, dict):
+            self.send_error(400)
+            return
+        try:
+            result = skill_install.install(str(data.get("target") or "claude"),
+                                           force=bool(data.get("force")))
+        except skill_install.InstallRefused as e:
+            self._send_json({"status": "refused", "message": str(e)})
+            return
+        except OSError as e:
+            self._send_json({"status": "error", "message": str(e)})
+            return
+        self._send_json({"status": "ok", "result": result})
+
     def _serve_watch(self) -> None:
         """GET /api/watch?interval=25&idle=600 — 新規行をまとめて流し続ける。
 

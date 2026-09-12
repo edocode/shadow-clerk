@@ -133,6 +133,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_meeting_history()
         elif path == "/api/watch":
             self._serve_watch()
+        elif path == "/api/skill-status":
+            self._serve_skill_status()
         elif path == "/api/generated":
             self._serve_generated_paths()
         elif path == "/api/advice":
@@ -154,6 +156,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._handle_command()
         elif path == "/api/config":
             self._save_config()
+        elif path == "/api/skill-install":
+            self._install_skill()
         elif path == "/api/audio-devices/refresh":
             self._refresh_audio_devices()
         elif path == "/api/glossary":
