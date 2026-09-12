@@ -263,8 +263,17 @@ async function maybeShowWelcome(){
   document.getElementById('welcomeModal').classList.add('open');
 }
 
-function closeWelcome(){document.getElementById('welcomeModal').classList.remove('open');}
-function openCfgFromWelcome(){closeWelcome();openCfg();}
+async function closeWelcome(){
+  document.getElementById('welcomeModal').classList.remove('open');
+  // 閉じた時点で config.yaml を作る。初回の印はこのファイルの不在なので、
+  // 書かないと毎回出てしまう。専用のマーカーを増やさない代わりの処理
+  try{
+    const cfg=await(await fetch('/api/config')).json();
+    await fetch('/api/config',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
+  }catch(e){}
+}
+async function openCfgFromWelcome(){await closeWelcome();openCfg();}
 
 let _outdatedSkills=[];
 
