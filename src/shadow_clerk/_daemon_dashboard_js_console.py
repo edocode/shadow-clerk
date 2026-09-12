@@ -481,6 +481,11 @@ es.addEventListener('console',e=>{
     c.title=I18N['dash.console_hint']||'';}
   initLogResize();
   initSumSplit();
+  // 右ペインの開閉も同じ理由でここから。updateSumSplit が SUM_SPLIT_MIN を
+  // 触るので、panels の初期化で呼ぶと TDZ で例外になり、そこから後ろの
+  // loadFiles() やモーダルまで丸ごと動かなくなる。applyPanelMode より先に
+  // 置くのは、AI モードのときの強制展開を上書きさせないため
+  restorePanes();
   // 前回の T|R|AI をここで適用する。**panels の初期化では早すぎる**——
   // AI は分割の復元を伴い、SUM_SPLIT_MIN はこのファイルの const なので、
   // 先に呼ぶと TDZ で初期化ごと止まる
