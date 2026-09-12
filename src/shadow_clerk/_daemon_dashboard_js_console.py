@@ -7,6 +7,7 @@ let _consoleRows={};        // 行番号 -> DOM 要素
 let _consoleMaxRow=-1;      // 未作成。0 にすると 0 行目が飛ばされる
 let _consoleKeep=-1;        // ここまでを表示する。これより下の空行は畳む
 let _consoleTrimmed=-1;     // 前回畳んだときの _consoleMaxRow
+let _consoleFirstRow=-1;    // 本文が来た最初の行。これより上の空行は畳む(-1 は未検出)
 const CONSOLE_CURSOR_NEAR=100;  // カーソルが本文からこれ以上離れたら表示を伸ばさない
 let _consoleLoaded=false;
 let _consoleRunning=null;   // 遷移検出用。初回誤発火を防ぐため未知状態から始める
@@ -102,12 +103,20 @@ function applyConsole(d){
     // #consoleInput (IME を受ける textarea) まで消えてしまい、
     // 以後キー入力が一切通らなくなる——full は毎回のロードで来る
     cc.querySelectorAll('.cr').forEach(el=>el.remove());
-    _consoleRows={};_consoleMaxRow=-1;_consoleKeep=-1;_consoleTrimmed=-1;
+    _consoleRows={};_consoleMaxRow=-1;_consoleKeep=-1;_consoleTrimmed=-1;_consoleFirstRow=-1;
   }
   const rows=d.rows||{};
   Object.keys(rows).map(Number).sort((a,b)=>a-b).forEach(y=>{
     const el=_consoleRowEl(y);
-    el.innerHTML=(rows[String(y)]||[]).map(r=>_consoleSpan(r[0],r[1])).join('')||'';
+    const html=(rows[String(y)]||[]).map(r=>_consoleSpan(r[0],r[1])).join('');
+    el.innerHTML=html;
+    // TUI が起動直後にカーソルを大きく飛ばすことがある(Windows の ConPTY で
+    // 実見済み——接続待ち等で数千行下に飛んでから本文を描く)。その隙間は
+    // _consoleRowEl が空行で埋めるため、放置すると本文の手前に空白の壁ができる。
+    // 本文が来た最初の行が分かった時点で、それより上の空行を畳む
+    if(html&&(_consoleFirstRow<0||y<_consoleFirstRow)){
+      _consoleFirstRow=y;_hideConsoleHead();
+    }
   });
   updateConsoleStatus(d.running);
   _trimConsoleTail(d.cursor?d.cursor[0]:-1);
@@ -172,6 +181,17 @@ function _trimConsoleTail(cursorY){
     if(el)el.style.display=(y>keep)?'none':'';
   }
   _consoleKeep=keep;_consoleTrimmed=_consoleMaxRow;
+}
+
+/* _consoleFirstRow より上の行を畳む。_trimConsoleTail と同じく行自体は
+   消さない。_consoleFirstRow が動くのは基本ここで一度きりなので、
+   毎 tick 全行を舐め直す _trimConsoleTail と違って、検出したその場で
+   1回畳めば足りる */
+function _hideConsoleHead(){
+  for(let y=0;y<_consoleFirstRow;y++){
+    const el=_consoleRows[y];
+    if(el)el.style.display='none';
+  }
 }
 
 function updateConsoleStatus(running){
