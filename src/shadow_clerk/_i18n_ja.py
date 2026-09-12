@@ -295,7 +295,6 @@ STRINGS_JA: dict[str, str] = {
     "cfg.interim_japanese_asr_model": "中間 日本語ASRモデル",
     "cfg.gcal_integration": "Google Calendar 連携を有効にする",
     "cfg.gcal_credentials_file": "credentials.json パス",
-    "cfg.gcal_credentials_file_ph": "~/.local/share/shadow-clerk/credentials.json",
     "cfg.gcal_calendar_id": "カレンダーID",
     "cfg.gcal_buffer_minutes": "開始バッファ（分）",
     "cfg.gcal_end_buffer_minutes": "終了バッファ（分）",
@@ -314,7 +313,8 @@ STRINGS_JA: dict[str, str] = {
     "cfg.ai_assistant_init_prompt": "初期プロンプト",
     "cfg.ai_assistant_init_prompt_ph": "/mtg {transcript}",
     "cfg.ai_assistant_workdir": "既定の起動ディレクトリ",
-    "cfg.ai_assistant_workdir_ph": "~/mtg-analysis",
+    "cfg.path_missing_dir": "ディレクトリが見つかりません: {path}",
+    "cfg.path_missing_file": "ファイルが見つかりません: {path}",
     "cfg.ai_assistant_workdir_warn": "アシスタントはスキルのシェルスクリプトを実行します。そのディレクトリの .claude/settings.json で許可しておかないと、会議中に承認プロンプトで止まります。",
 
     # --- llm.* : LLM プロンプト ---

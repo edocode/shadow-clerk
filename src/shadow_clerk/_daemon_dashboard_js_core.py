@@ -2,6 +2,7 @@
 
 _JS_TEMPLATE_CORE = """\
 /*I18N_JSON*/
+/*PATH_HINTS_JSON*/
 /* --- TranscriptName 構築ヘルパー（regex なし・fileInfo を使用） --- */
 const TN={
   filename(dt,name){return 'transcript-'+dt+(name?'@'+name:'')+'.txt';},

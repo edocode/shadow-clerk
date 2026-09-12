@@ -295,7 +295,6 @@ STRINGS_EN: dict[str, str] = {
     "cfg.interim_japanese_asr_model": "Interim Japanese ASR Model",
     "cfg.gcal_integration": "Enable Google Calendar Integration",
     "cfg.gcal_credentials_file": "credentials.json Path",
-    "cfg.gcal_credentials_file_ph": "~/.local/share/shadow-clerk/credentials.json",
     "cfg.gcal_calendar_id": "Calendar ID",
     "cfg.gcal_buffer_minutes": "Start Buffer (minutes)",
     "cfg.gcal_end_buffer_minutes": "End Buffer (minutes)",
@@ -314,7 +313,8 @@ STRINGS_EN: dict[str, str] = {
     "cfg.ai_assistant_init_prompt": "Initial prompt",
     "cfg.ai_assistant_init_prompt_ph": "/mtg {transcript}",
     "cfg.ai_assistant_workdir": "Default working directory",
-    "cfg.ai_assistant_workdir_ph": "~/mtg-analysis",
+    "cfg.path_missing_dir": "Directory not found: {path}",
+    "cfg.path_missing_file": "File not found: {path}",
     "cfg.ai_assistant_workdir_warn": "The assistant runs shell scripts from the skill. Allow them in that directory's .claude/settings.json, or it will stop at a permission prompt mid-meeting.",
 
     # --- llm.* ---

@@ -148,6 +148,7 @@ _HTML_TEMPLATE = (
     "  <div class=\"modal\">\n"
     "    <div class=\"modal-head\"><span>{{i18n:dash.settings_title}}</span><button onclick=\"closeCfg()\">&times;</button></div>\n"
     "    <div class=\"modal-body\" id=\"cfgBody\"></div>\n"
+    "    <div class=\"cfg-warn\" id=\"cfgPathWarn\" style=\"display:none\"></div>\n"
     "    <div class=\"modal-foot\">\n"
     "      <span class=\"saved\" id=\"cfgSaved\">{{i18n:dash.saved}}</span>\n"
     "      <button onclick=\"closeCfg()\">{{i18n:dash.cancel}}</button>\n"

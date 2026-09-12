@@ -59,11 +59,11 @@ const CFG_FIELDS=[
   {key:'ai_assistant_command',label:I18N['cfg.ai_assistant_command'],type:'text',ph:'claude'},
   {key:'ai_assistant_args',label:I18N['cfg.ai_assistant_args'],type:'text',ph:I18N['cfg.ai_assistant_args_ph']},
   {key:'ai_assistant_init_prompt',label:I18N['cfg.ai_assistant_init_prompt'],type:'text',ph:I18N['cfg.ai_assistant_init_prompt_ph']},
-  {key:'ai_assistant_workdir',label:I18N['cfg.ai_assistant_workdir'],type:'text',ph:I18N['cfg.ai_assistant_workdir_ph'],
+  {key:'ai_assistant_workdir',label:I18N['cfg.ai_assistant_workdir'],type:'text',ph:PATH_HINTS.ai_assistant_workdir,
     warn:{when:'',msgKey:'cfg.ai_assistant_workdir_warn'}},
   {type:'section',label:I18N['cfg.section.gcal']},
   {key:'gcal_integration',label:I18N['cfg.gcal_integration'],type:'bool'},
-  {key:'gcal_credentials_file',label:I18N['cfg.gcal_credentials_file'],type:'text',ph:I18N['cfg.gcal_credentials_file_ph']},
+  {key:'gcal_credentials_file',label:I18N['cfg.gcal_credentials_file'],type:'text',ph:PATH_HINTS.gcal_credentials_file},
   {key:'gcal_calendar_id',label:I18N['cfg.gcal_calendar_id'],type:'text',ph:'primary'},
   {key:'gcal_buffer_minutes',label:I18N['cfg.gcal_buffer_minutes'],type:'select',num:true,opts:['0','1','2','3','5','10']},
   {key:'gcal_end_buffer_minutes',label:I18N['cfg.gcal_end_buffer_minutes'],type:'select',num:true,opts:['0','1','2','3','5']},
@@ -93,6 +93,7 @@ async function saveForbidAnalyze(){
 async function openCfg(){
   try{cfgData=await(await fetch('/api/config')).json();}catch(e){return;}
   const b=document.getElementById('cfgBody');b.innerHTML='';
+  const pw=document.getElementById('cfgPathWarn');pw.textContent='';pw.style.display='none';
   CFG_FIELDS.forEach(f=>{
     if(f.type==='section'){
       const h=document.createElement('div');h.className='cfg-section';h.textContent=f.label;b.appendChild(h);return;
@@ -226,9 +227,14 @@ async function saveCfg(){
   });
   await saveForbidAnalyze();
   const langChanged=d.ui_language&&d.ui_language!==cfgData.ui_language;
-  try{await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(d)});
+  try{const res=await(await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(d)})).json();
     if(langChanged){location.reload();return;}
+    // 存在しないパスは保存を通したうえで知らせる。黙って既定値に落ちると
+    // 「設定したのに効かない」の理由がユーザーから見えない
+    const w=document.getElementById('cfgPathWarn');
+    const msgs=(res&&res.warnings)||[];
+    w.textContent=msgs.join(' / ');w.style.display=msgs.length?'block':'none';
     const s=document.getElementById('cfgSaved');s.style.display='inline';
     setTimeout(()=>s.style.display='none',2000);
   }catch(e){}

@@ -9,6 +9,7 @@ import re
 import threading
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
+from shadow_clerk import DATA_DIR
 from shadow_clerk.i18n import t, t_all
 from shadow_clerk._daemon_constants import SESSION_FILE
 from shadow_clerk._daemon_log_buffer import _SSE_CLOSE_EVENT
@@ -18,6 +19,16 @@ from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk._markdown import render_markdown
 
 logger = logging.getLogger("shadow-clerk")
+
+
+def _path_hints() -> dict[str, str]:
+    """パス入力欄に出す実例。言語ではなく OS で変わるので i18n には置かない——
+    ja/en に同じ値を二重に持つことになり、Windows で POSIX 形式を見せてしまう"""
+    return {
+        "ai_assistant_workdir": os.path.join(os.path.expanduser("~"), "mtg-analysis"),
+        "gcal_credentials_file": os.path.join(DATA_DIR, "credentials.json"),
+    }
+
 
 # 書き込み系エンドポイント（AI Console の入出力、画面キャプチャ受け取り等）を
 # localhost だけに絞るための許可アドレス一覧。
@@ -196,6 +207,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         html = _HTML_TEMPLATE
         html = re.sub(r'\{\{i18n:([^}]+)\}\}', lambda m: t(m.group(1)), html)
         html = html.replace("/*I18N_JSON*/", f"const I18N={json.dumps(t_all(), ensure_ascii=False)};")
+        html = html.replace("/*PATH_HINTS_JSON*/",
+                            f"const PATH_HINTS={json.dumps(_path_hints(), ensure_ascii=False)};")
         body = html.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
