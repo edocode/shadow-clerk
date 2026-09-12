@@ -67,3 +67,98 @@ def read_skill_version(skill_dir: pathlib.Path) -> str | None:
     if not isinstance(meta, dict) or "version" not in meta:
         return None
     return str(meta["version"])
+
+
+def resolve_target(name_or_path: str) -> tuple[str, pathlib.Path]:
+    """ターゲット名または任意パスを、実際の配布先ディレクトリに解決する"""
+    base = BUILTIN_TARGETS.get(name_or_path, name_or_path)
+    return name_or_path, pathlib.Path(os.path.expanduser(base)) / SKILL_NAME
+
+
+def install(name_or_path: str, *, link: bool = False, force: bool = False) -> dict:
+    """同梱スキルを配布先へ置く。戻り値はバージョンの変化を含む記録"""
+    name, dest = resolve_target(name_or_path)
+    src = bundled_skill_dir()
+    before = read_skill_version(dest)
+    if dest.exists() and before is None and not force:
+        raise InstallRefused(str(dest))
+    if link and os.name == "nt":
+        raise InstallRefused("--link は POSIX 専用です")
+    if dest.is_symlink() or dest.is_file():
+        dest.unlink()
+    elif dest.is_dir():
+        shutil.rmtree(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if link:
+        os.symlink(src, dest, target_is_directory=True)
+    else:
+        shutil.copytree(src, dest)
+    after = read_skill_version(dest)
+    logger.info("スキルを配布: %s -> %s (%s -> %s)", src, dest, before, after)
+    remember_target(name)
+    return {"target": name, "path": str(dest), "before": before,
+            "after": after, "mode": "link" if link else "copy"}
+
+
+def remembered_targets() -> list[str]:
+    from shadow_clerk._daemon_config import load_config
+    return [str(t) for t in (load_config().get("skill_install_targets") or [])]
+
+
+def remember_target(name: str) -> None:
+    """任意パスの配布先を覚える。次回以降は更新対象に自動で入る。
+
+    記憶を install() の中で行うのは、CLI と API のどちらから配っても同じに
+    するため。呼び出し側に任せると片方で忘れる。組み込み名は常に status に
+    出るので覚える必要がない
+    """
+    if name in BUILTIN_TARGETS:
+        return
+    from shadow_clerk import CONFIG_FILE
+    try:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
+            config = yaml.safe_load(f) or {}
+    except OSError:
+        config = {}
+    except yaml.YAMLError:
+        return                      # 壊れた設定を上書きしない
+    if not isinstance(config, dict):
+        return
+    targets = list(config.get("skill_install_targets") or [])
+    if name in targets:
+        return
+    targets.append(name)
+    config["skill_install_targets"] = targets
+    os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+    tmp = CONFIG_FILE + ".tmp"
+    # FileWatcher が毎秒読むので、truncate 中の部分 YAML を読ませない
+    with open(tmp, "w", encoding="utf-8") as f:
+        yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+    os.replace(tmp, CONFIG_FILE)
+
+
+def _as_tuple(version: str) -> tuple:
+    return tuple(int(p) if p.isdigit() else p for p in version.split("."))
+
+
+def skill_status(remembered: list[str]) -> dict:
+    """組み込み2つ＋記憶した配布先の状態を返す。
+
+    組み込みを常に含めるのは、まだどこにも配っていない利用者にも
+    モーダルから配布先を選ばせるため
+    """
+    bundled = read_skill_version(bundled_skill_dir())
+    names = list(BUILTIN_TARGETS) + [r for r in remembered if r not in BUILTIN_TARGETS]
+    targets = []
+    for name in names:
+        _, dest = resolve_target(name)
+        installed = read_skill_version(dest)
+        if installed is None:
+            state = "missing"
+        elif bundled is not None and _as_tuple(installed) < _as_tuple(bundled):
+            state = "outdated"
+        else:
+            state = "current"
+        targets.append({"name": name, "path": str(dest),
+                        "installed": installed, "state": state})
+    return {"bundled": bundled, "targets": targets}
