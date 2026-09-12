@@ -67,7 +67,6 @@ STRINGS_JA: dict[str, str] = {
     "dash.console_stop_confirm": "AI アシスタントを停止しますか?",
     "dash.console_start_failed": "AI アシスタントの起動に失敗しました。",
     "dash.console_hint": "ここをクリックして入力すると、アシスタントにキーが送られます。",
-    "dash.view_summary": "要約閲覧",
     "dash.custom_cmd_placeholder": "カスタムコマンド",
     "dash.send": "送信",
     "dash.glossary": "用語集",
@@ -212,11 +211,18 @@ STRINGS_JA: dict[str, str] = {
         "  llm_provider が api の場合のみ動作します。\n\n"
         "要約\n"
         "  現在の transcript から議事録を生成します。\n\n"
-        "要約閲覧\n"
-        "  生成済みの議事録を表示します。\n\n"
+        "文字サイズ (小/中/大)\n"
+        "  transcript の文字サイズを切り替えます。\n\n"
+        "用語集 / コマンド\n"
+        "  用語集は文字起こしの表記ゆれを補正します。\n"
+        "  コマンドは音声で起動する任意の操作を登録します。\n\n"
+        "📅 Google Calendar\n"
+        "  本日の予定と、会議の自動開始・終了の状態を表示します。\n\n"
         "【パネル操作】\n"
-        "T|R ボタン: Transcript/Translation の表示を切替\n"
-        "  T|R → T のみ → R のみ → T|R（循環）\n\n"
+        "T|R ボタン: 中央ペインの表示を切替（押すたびに循環）\n"
+        "  T|R（両方）→ T のみ → R のみ → AI → T|R\n"
+        "  AI では AI コンソールだけが残ります。\n\n"
+        "◀ ボタン（左右）: 会議一覧・要約ペインの開閉\n\n"
         "Logs ▼▲: ログパネルの表示・非表示を切替\n\n"
         "🎤 / 🔊: マイク・スピーカーの書き起こしミュート\n"
         "  ミュート中は音声キャプチャは継続しますが、\n"

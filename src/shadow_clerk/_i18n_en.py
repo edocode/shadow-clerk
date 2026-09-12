@@ -67,7 +67,6 @@ STRINGS_EN: dict[str, str] = {
     "dash.console_stop_confirm": "Stop the AI assistant?",
     "dash.console_start_failed": "Failed to start the AI assistant.",
     "dash.console_hint": "Click here and type to send keys to the assistant.",
-    "dash.view_summary": "View Summary",
     "dash.custom_cmd_placeholder": "Custom command",
     "dash.send": "Send",
     "dash.glossary": "Glossary",
@@ -212,11 +211,18 @@ STRINGS_EN: dict[str, str] = {
         "  Only works when llm_provider is set to api.\n\n"
         "Summary\n"
         "  Generate meeting minutes from current transcript.\n\n"
-        "View Summary\n"
-        "  View generated meeting minutes.\n\n"
+        "Text size (S/M/L)\n"
+        "  Change the transcript text size.\n\n"
+        "Glossary / Commands\n"
+        "  The glossary corrects how names come out of transcription.\n"
+        "  Commands registers actions you can trigger by voice.\n\n"
+        "📅 Google Calendar\n"
+        "  Today's events, and whether meetings start and end on their own.\n\n"
         "[Panel Controls]\n"
-        "T|R button: Cycle Transcript/Translation display\n"
-        "  T|R → T only → R only → T|R (cycle)\n\n"
+        "T|R button: Cycle the centre pane (each press advances)\n"
+        "  T|R (both) → T only → R only → AI → T|R\n"
+        "  AI leaves the AI Console on its own.\n\n"
+        "◀ buttons (left and right): Fold the meeting list and summary panes\n\n"
         "Logs ▼▲: Toggle log panel visibility\n\n"
         "🎤 / 🔊: Mute mic/speaker transcription\n"
         "  Audio capture continues while muted,\n"
