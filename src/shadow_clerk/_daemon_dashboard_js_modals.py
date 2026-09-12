@@ -248,9 +248,12 @@ async function installSkill(target,btn){
 }
 
 async function maybeShowWelcome(){
-  let exists=true;
-  try{exists=(await(await fetch('/api/config-exists')).json()).exists;}catch(e){return;}
-  if(exists)return;
+  // 初回の印を config.yaml の有無に置かない。clerk-util read-config が
+  // 既定値のファイルを書くので、読んだだけで「初回ではない」になってしまう
+  try{
+    const cfg=await(await fetch('/api/config')).json();
+    if(cfg.welcome_dismissed)return;
+  }catch(e){return;}
   const st=await _skillStatus();if(!st)return;
   // おすすめ設定は案内だけにする。初回に無断で値を書き換えると、あとから
   // 挙動の原因を追えなくなる
@@ -267,17 +270,18 @@ async function maybeShowWelcome(){
   document.getElementById('welcomeModal').classList.add('open');
 }
 
-async function closeWelcome(){
-  document.getElementById('welcomeModal').classList.remove('open');
-  // 閉じた時点で config.yaml を作る。初回の印はこのファイルの不在なので、
-  // 書かないと毎回出てしまう。専用のマーカーを増やさない代わりの処理
+function closeWelcome(){document.getElementById('welcomeModal').classList.remove('open');}
+function openCfgFromWelcome(){closeWelcome();openCfg();}
+
+async function setWelcomeDismissed(on){
+  // チェックした時点で保存する。あとで × で閉じても効くようにするため
   try{
     const cfg=await(await fetch('/api/config')).json();
+    cfg.welcome_dismissed=!!on;
     await fetch('/api/config',{method:'POST',
       headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
   }catch(e){}
 }
-async function openCfgFromWelcome(){await closeWelcome();openCfg();}
 
 let _outdatedSkills=[];
 

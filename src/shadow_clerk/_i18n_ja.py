@@ -350,6 +350,7 @@ STRINGS_JA: dict[str, str] = {
     "welcome.rec_gcal": "Google Calendar の予定から会議の開始と終了を検出する",
     "welcome.rec_asr": "日本語の文字起こしモデル",
     "welcome.rec_workdir": "AI アシスタントの起動ディレクトリ",
+    "welcome.dont_show_again": "今後このメッセージを表示しない",
     "welcome.close": "閉じる",
     "skill_update.title": "スキルが更新されています",
     "skill_update.body": "同梱 {bundled} に対して、配布済みが古いままです。",

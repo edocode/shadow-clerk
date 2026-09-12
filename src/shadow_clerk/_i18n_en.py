@@ -351,6 +351,7 @@ STRINGS_EN: dict[str, str] = {
     "welcome.rec_gcal": "Detect meeting start and end from Google Calendar",
     "welcome.rec_asr": "Japanese transcription model",
     "welcome.rec_workdir": "Working directory for the AI assistant",
+    "welcome.dont_show_again": "Do not show this again",
     "welcome.close": "Close",
     "skill_update.title": "The skill has moved on",
     "skill_update.body": "The bundled copy is {bundled}; what is installed is older.",

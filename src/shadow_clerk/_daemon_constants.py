@@ -161,6 +161,9 @@ DEFAULT_CONFIG = {
     "ai_assistant_workdir": "",
     # 任意パスの配布先を覚える。組み込み (claude/agents) は常に見るので入らない
     "skill_install_targets": [],
+    # Welcome モーダルで「再度表示しない」が選ばれたか。config.yaml の有無は
+    # 初回の印にならない——clerk-util read-config が既定値のファイルを書くため
+    "welcome_dismissed": False,
     # 更新モーダルで「あとで」を押された版。同じ版では二度と出さない
     "skill_update_dismissed_version": "",
 }

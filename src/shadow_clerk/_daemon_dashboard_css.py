@@ -367,6 +367,9 @@ main {
    素の要素を並べると左右のセルに振り分けられて崩れる */
 .modal-body.flow { display:block; }
 .modal-body .cfg-skill { grid-column:1/-1; }
+.wc-dismiss { padding:0 16px 12px; text-align:right; font-size:11px; color:var(--muted); }
+.wc-dismiss label { cursor:pointer; display:inline-flex; align-items:center; gap:5px; }
+.wc-dismiss input { cursor:pointer; }
 .modal-body .cfg-doc { grid-column:1/-1; font-size:11px; padding:2px 0 6px; }
 .wc-row { display:flex; align-items:center; gap:8px; padding:5px 0; font-size:12px; }
 .wc-row code { color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
