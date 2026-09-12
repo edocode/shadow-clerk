@@ -1,4 +1,4 @@
-"""Shadow-clerk daemon: mtg スキル向けエンドポイント
+"""Shadow-clerk daemon: 会議アシスタントスキル向けエンドポイント
 
 スキルが shell スクリプトで自前に持っていた判定を、デーモン側に寄せたもの。
 同じ規則を shell と Python の両方に置くと、片方だけ直したときに黙ってずれる。
@@ -18,7 +18,7 @@ from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_constants import SESSION_FILE
 from shadow_clerk._daemon_dashboard_base import is_localhost_client
 from shadow_clerk._transcript_name import TranscriptName
-from shadow_clerk.domain.mtg_config import MtgConfig
+from shadow_clerk.domain.meeting_config import MeetingConfig
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -55,7 +55,7 @@ def _fmt_time(ts: float) -> str:
 
 
 class _DashboardHandlerSkillOps:
-    """mtg スキルが叩くエンドポイント（ミックスイン）"""
+    """会議アシスタントスキルが叩くエンドポイント（ミックスイン）"""
 
     def _skill_query(self) -> dict[str, list[str]]:
         return parse_qs(urlparse(self.path).query)
@@ -113,12 +113,12 @@ class _DashboardHandlerSkillOps:
 
     # --- 会議ごとの設定 ---
 
-    def _serve_mtg_config_resolve(self) -> None:
-        """GET /api/mtg-config/resolve?meeting=<名前> — 解決済みの設定"""
+    def _serve_meeting_config_resolve(self) -> None:
+        """GET /api/meeting-config/resolve?meeting=<名前> — 解決済みの設定"""
         if not self._skill_guard():
             return
         meeting = (self._skill_query().get("meeting") or [""])[0]
-        self._send_json({"status": "ok", **MtgConfig.load().resolve(meeting)})
+        self._send_json({"status": "ok", **MeetingConfig.load().resolve(meeting)})
 
     # --- 定例の過去回 ---
 

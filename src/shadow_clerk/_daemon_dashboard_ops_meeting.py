@@ -91,9 +91,9 @@ class _DashboardHandlerMeetingOps:
             config = load_config()
             lang = config.get("translate_language", "ja")
             _src_tn = TranscriptName.parse(os.path.basename(t_path))
-            _mtg_tn = TranscriptName.parse(meeting_name)
+            _meeting_tn = TranscriptName.parse(meeting_name)
             tr_path = os.path.join(output_dir, _src_tn.translation_filename(lang)) if _src_tn else None
-            meeting_tr_path = os.path.join(output_dir, _mtg_tn.translation_filename(lang)) if _mtg_tn else None
+            meeting_tr_path = os.path.join(output_dir, _meeting_tn.translation_filename(lang)) if _meeting_tn else None
             # meeting_tr_path が None（会議ファイル名がパース不能）の場合は
             # open(None) で落とさず翻訳の移動をスキップする
             if tr_path and meeting_tr_path and os.path.exists(tr_path):
@@ -350,8 +350,8 @@ class _DashboardHandlerMeetingOps:
                     seg_ts_list = [ts_pattern.match(l).group(1) for _, l in seg if ts_pattern.match(l)]
                     if not seg_ts_list:
                         continue
-                    _mtg_tn = TranscriptName.parse(meeting_name)
-                    meeting_tr_path = os.path.join(output_dir, _mtg_tn.translation_filename(lang)) if _mtg_tn else None
+                    _meeting_tn = TranscriptName.parse(meeting_name)
+                    meeting_tr_path = os.path.join(output_dir, _meeting_tn.translation_filename(lang)) if _meeting_tn else None
                     self._extract_translation_lines(tr_path, meeting_tr_path, min(seg_ts_list), max(seg_ts_list), is_new=True)
 
         # FileWatcher の SSE オフセットは新サイズに合わせる

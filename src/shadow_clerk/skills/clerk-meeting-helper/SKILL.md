@@ -4,13 +4,13 @@ metadata:
   version: "1.0.0"
 ---
 
-# mtg — 進行中の会議を監視して論点を返す
+# clerk-meeting-helper — 進行中の会議を監視して論点を返す
 
 進行中の会議の文字起こしを監視し、ユーザー(会議の参加者)に対して会議中に使える形で論点を返す。ユーザーは会議に出ながらこれを読むので、**読む時間が数秒しかない**ことが前提になる。
 
 ## 引数
 
-`/mtg` に続けて指示を書ける。
+`/clerk-meeting-helper` に続けて指示を書ける。
 
 - **なし** — 保存場所を自力で特定し、いま書き込み中の transcript を監視する。通常はこれ
 - **ファイルパス** — 自動特定をスキップしてそのファイルを対象にする。会議が並行しているときや、
@@ -36,12 +36,15 @@ metadata:
 ## 起動
 
 **まず shadow-clerk の場所を決める。** 会議開始と同時に起こされた場合は
-環境変数 `SHADOW_CLERK_URL` が入っている。無ければ既定を使う。
+環境変数 `SHADOW_CLERK_URL` が入っている。無ければ `http://localhost:8765`。
+以下では、この URL を実際の値に置き換えて叩くこと。
 
-```bash
-SHADOW_CLERK=${SHADOW_CLERK_URL:-http://localhost:8765}
-curl -s "$SHADOW_CLERK/api/session"
-```
+**`WebFetch` の類は localhost に届かないことが多い。ローカル API はシェル
+コマンドで叩く。** 手段は自分の環境に合わせて選んでよい (POSIX なら `curl`、
+Windows なら `curl.exe` か `Invoke-RestMethod`)。シェル変数や `$(...)` は
+Windows で展開されないので、値は自分で埋め込むこと。
+
+`GET /api/session` — いま録っているセッションを返す。
 
 ```json
 {"status":"ok","dir":"…","transcript":"/…/transcript-20260908.txt","meeting":"",
@@ -60,9 +63,9 @@ curl -s "$SHADOW_CLERK/api/session"
 自分で探さないこと (mtime で選ぶと、沈黙している会議のファイルを掴んで、いま書かれている
 行を見逃す)。**パスも自分で組み立てないこと**——命名を知っているのは shadow-clerk だけ。
 
-```bash
-curl -s --get "$SHADOW_CLERK/api/generated" --data-urlencode "file=$(basename "$ARG")"
-```
+`GET /api/generated?file=<transcript のファイル名>` — その transcript に
+対応する生成物の絶対パスを返す。ファイル名は自分が知っている値をそのまま
+埋める。日本語を含むので URL エンコードすること。
 
 **引数ありのとき `in_meeting` は当てにならない。** これは shadow-clerk が録っている
 セッションの状態で、渡されたファイルの状態ではない。引数を使うのは会議が並行している
@@ -75,11 +78,10 @@ transcript 末尾の `--- 会議終了 ---` と、追記が止まったことで
 
 **次に、この会議の設定を取る。** 監視間隔・報告量・過去回の数・用語集のパスがここで決まる。
 
-```bash
-curl -s --get "$SHADOW_CLERK/api/mtg-config/resolve" --data-urlencode "meeting=$MEETING"
-```
+`GET /api/meeting-config/resolve?meeting=<会議名>` — この会議の設定を返す。
 
-会議名は日本語のことが多い。**`--data-urlencode` を使うこと**（そのまま URL に入れると壊れる）。
+会議名は日本語のことが多い。**必ず URL エンコードすること**（そのまま URL に
+入れると壊れる）。
 返る値の意味は「参照 — 設定」にある。設定が無い環境でも既定値で動く
 (分析する / `normal` / 25秒 / 公開可 / 過去 3 回)。`analyze` が偽なら監視に入らない。
 
@@ -130,9 +132,7 @@ curl -s --get "$SHADOW_CLERK/api/mtg-config/resolve" --data-urlencode "meeting=$
 
 用語集とは別に、**これまでに観測した「実際の語 ↔ 崩れた表記」の対**が貯まっている。
 
-```bash
-curl -s "$SHADOW_CLERK/api/misheard"
-```
+`GET /api/misheard` — 観測済みの対を返す。
 
 `{"entries":[{"actual":"工数","heard":"個数","note":"…"}, …]}` が返る。
 
@@ -141,9 +141,10 @@ curl -s "$SHADOW_CLERK/api/misheard"
 
 **文脈から崩れを特定できたら、その場で足す。**
 
-```bash
-curl -s -X POST "$SHADOW_CLERK/api/misheard" -H 'Content-Type: application/json' \
-  -d '{"entries":[{"actual":"遷移","heard":"繊維","note":"推定"}]}'
+`POST /api/misheard` — `Content-Type: application/json` で次の形を送る。
+
+```json
+{"entries":[{"actual":"遷移","heard":"繊維","note":"推定"}]}
 ```
 
 - **推定なら `note` に「推定」と書く。** あとで消せるので、確信が持てないものも残してよい
@@ -164,14 +165,35 @@ curl -s -X POST "$SHADOW_CLERK/api/misheard" -H 'Content-Type: application/json'
 
 ## 監視
 
+不変なのは接続するコマンドだけ。**URL は実際の値を埋め込むこと**
+(シェル変数は Windows で展開されない)。
+
+```
+curl -sN "http://localhost:8765/api/watch?interval=25"
+```
+
+25秒ごとに新規行がまとまって流れてくる。`-N` を落とすと逐次配信にならず、
+まとめて最後に届く。`curl.exe` は Windows 10 以降に同梱されているので、
+このコマンド自体は両 OS でそのまま動く。
+
+この上をどう包むかは環境による。
+
+**`Monitor` が使えるなら** (Claude Code):
+
 ```
 Monitor(
-  command: "curl -sN \"$SHADOW_CLERK/api/watch?interval=25\"",
+  command: "curl -sN \"http://localhost:8765/api/watch?interval=25\"",
   description: "<会議名> の文字起こし新規発言",
   persistent: true,
   timeout_ms: 3600000
 )
 ```
+
+**`exec_command` が使えるなら** (Codex):
+
+`exec_command` で上のコマンドを起動して実行セッションを保持し、`write_stdin` で
+そのセッションの新しい出力を取り出す。新規発言を分析して所定の2ファイルを更新し、
+出力の取得と分析を会議終了まで繰り返す。
 
 25秒ごとに新規行をまとめて流す。1行ずつ通知すると発言のたびに起こされて追いつけず、逆に1分を超えると指摘が手遅れになる。会議のテンポに応じて 20〜40秒の範囲で調整してよく、発言密度が高い会議(スタンドアップなど)では短く、少人数で間が長い会議では伸ばす。長い会議では `timeout_ms` を上限(3600000)にし、`persistent: true` にしておく。
 
@@ -220,9 +242,7 @@ Web ページも 1 件で数千トークンあり、監視が続かなくなる�
 
 書き込み先は shadow-clerk に聞く。パスを自分で組み立てないこと。
 
-```bash
-curl -s "$SHADOW_CLERK/api/generated?file=<transcript のファイル名>"
-```
+`GET /api/generated?file=<transcript のファイル名>`
 
 いま監視している回のパスは `/api/session` が同じ形で返すので、そちらで足りる。
 `/api/generated` は過去回など別のファイルを指すときに使う。
@@ -417,9 +437,7 @@ Dashboard のペインで読む運用なら `minimal` にしておけば、タ�
 会議ごとの扱いは設定ファイルで決まる。shadow-clerk の UI から書き換えても、ファイルを直接
 編集しても構わない形にしてある。
 
-```bash
-curl -s "$SHADOW_CLERK/api/mtg-config/resolve?meeting=<会議名>"
-```
+`GET /api/meeting-config/resolve?meeting=<会議名>`
 
 会議名は `/api/session` が `meeting` として返す(ファイル名の `@` 以降)。
 返る値:

@@ -22,7 +22,7 @@ from shadow_clerk._daemon_constants import (
 )
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain.ai_assistant import AiAssistantConfig
-from shadow_clerk.domain.mtg_config import MtgConfig
+from shadow_clerk.domain.meeting_config import MeetingConfig
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -529,7 +529,7 @@ def start_console_for(transcript_path: str, auto: bool = False,
     if transcript_path:
         tn = TranscriptName.parse(os.path.basename(transcript_path))
         meeting = (tn.meeting_name or "") if tn else ""
-    workdir = ai.resolve_workdir(MtgConfig.load().resolve_workdir(meeting))
+    workdir = ai.resolve_workdir(MeetingConfig.load().resolve_workdir(meeting))
 
     console = get_console()
     ok, _started = console.start_if_stopped(ai.argv(), workdir)

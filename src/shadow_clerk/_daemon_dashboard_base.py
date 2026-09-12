@@ -25,7 +25,7 @@ def _path_hints() -> dict[str, str]:
     """パス入力欄に出す実例。言語ではなく OS で変わるので i18n には置かない——
     ja/en に同じ値を二重に持つことになり、Windows で POSIX 形式を見せてしまう"""
     return {
-        "ai_assistant_workdir": os.path.join(os.path.expanduser("~"), "mtg-analysis"),
+        "ai_assistant_workdir": os.path.join(os.path.expanduser("~"), "meeting-analysis"),
         "gcal_credentials_file": os.path.join(DATA_DIR, "credentials.json"),
     }
 
@@ -127,8 +127,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_console()
         elif path == "/api/session":
             self._serve_session()
-        elif path == "/api/mtg-config/resolve":
-            self._serve_mtg_config_resolve()
+        elif path == "/api/meeting-config/resolve":
+            self._serve_meeting_config_resolve()
         elif path == "/api/meeting-history":
             self._serve_meeting_history()
         elif path == "/api/watch":
@@ -141,8 +141,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_advice()
         elif path == "/api/analysis":
             self._serve_analysis()
-        elif path == "/api/mtg-config":
-            self._serve_mtg_config()
+        elif path == "/api/meeting-config":
+            self._serve_meeting_config()
         elif path == "/api/forbid-analyze":
             self._serve_forbid_analyze()
         elif path == "/api/misheard":
@@ -188,8 +188,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._console_input()
         elif path == "/api/console/resize":
             self._console_resize()
-        elif path == "/api/mtg-config":
-            self._save_mtg_config()
+        elif path == "/api/meeting-config":
+            self._save_meeting_config()
         elif path == "/api/forbid-analyze":
             self._save_forbid_analyze()
         elif path == "/api/misheard":

@@ -225,7 +225,7 @@ main {
 #pnlM { position:relative; overflow:visible; flex:0 0 180px; min-width:0; transition:flex-basis .15s; }
 #pnlM.collapsed { flex:0 0 0; }
 #pnlM.collapsed .lp-tabs, #pnlM.collapsed #datePane,
-#pnlM.collapsed #mtgContent, #pnlM.collapsed #searchPane { display:none !important; }
+#pnlM.collapsed #meetingContent, #pnlM.collapsed #searchPane { display:none !important; }
 #pnlM .ph { font-size:12px; min-width:0; }
 #pnlM .pc { padding:6px 8px; font-family:inherit; }
 .lp-tabs { display:flex; border-bottom:1px solid var(--border); flex-shrink:0; }
@@ -237,7 +237,7 @@ main {
 #logHead .lp-tab { flex:0 0 auto; padding:5px 10px; }
 .lp-tab:hover { color:var(--text); background:transparent; }
 .lp-tab.active { color:var(--accent); border-bottom-color:var(--accent); background:transparent; }
-#mtgContent { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
+#meetingContent { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
 #searchPane { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
 #searchForm { padding:6px 8px; border-bottom:1px solid var(--border); flex-shrink:0; }
 #searchForm input[type=text], #searchForm select { font-size:11px; padding:2px 4px; }
@@ -247,7 +247,7 @@ main {
 .sr-item:hover { background:var(--btn-h); }
 .sr-display { font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
 .sr-type { font-size:10px; color:var(--muted); flex-shrink:0; }
-#mtgChevron {
+#meetingChevron {
   position:absolute; right:-14px; top:50%; transform:translateY(-50%);
   z-index:10; width:14px; height:44px;
   background:var(--btn); border:1px solid var(--border);
@@ -255,7 +255,7 @@ main {
   display:flex; align-items:center; justify-content:center;
   color:var(--muted); font-size:10px; padding:0;
 }
-#mtgChevron:hover { background:var(--btn-h); color:var(--text); }
+#meetingChevron:hover { background:var(--btn-h); color:var(--text); }
 #pnlS { position:relative; overflow:visible; }
 #pnlS.collapsed { flex:0 0 0; }
 #pnlS.collapsed .lp-tabs, #pnlS.collapsed #sumWrap,

@@ -114,6 +114,19 @@ def remember_target(name: str) -> None:
     """
     if name in BUILTIN_TARGETS:
         return
+    config = _load_config_file()
+    if config is None:
+        return
+    targets = list(config.get("skill_install_targets") or [])
+    if name in targets:
+        return
+    targets.append(name)
+    config["skill_install_targets"] = targets
+    _save_config_file(config)
+
+
+def _load_config_file() -> dict | None:
+    """config.yaml を素で読む。読めない・壊れている場合は None（書き換えない）"""
     from shadow_clerk import CONFIG_FILE
     try:
         with open(CONFIG_FILE, encoding="utf-8") as f:
@@ -121,20 +134,45 @@ def remember_target(name: str) -> None:
     except OSError:
         config = {}
     except yaml.YAMLError:
-        return                      # 壊れた設定を上書きしない
-    if not isinstance(config, dict):
-        return
-    targets = list(config.get("skill_install_targets") or [])
-    if name in targets:
-        return
-    targets.append(name)
-    config["skill_install_targets"] = targets
-    os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+        return None
+    return config if isinstance(config, dict) else None
+
+
+def _save_config_file(config: dict) -> None:
+    from shadow_clerk import CONFIG_FILE
+    os.makedirs(os.path.dirname(CONFIG_FILE) or ".", exist_ok=True)
     tmp = CONFIG_FILE + ".tmp"
     # FileWatcher が毎秒読むので、truncate 中の部分 YAML を読ませない
     with open(tmp, "w", encoding="utf-8") as f:
         yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
     os.replace(tmp, CONFIG_FILE)
+
+
+# 改名前のスキル呼び出し。設定に直接書かれているので既定値の変更では直らない
+_LEGACY_COMMANDS = ("/mtg",)
+
+
+def migrate_init_prompt() -> bool:
+    """設定に残った旧スキル名の呼び出しを新しい名前に直す。
+
+    ai_assistant_init_prompt は利用者が明示的に持っている値なので、既定値を
+    変えても効かない。放置すると会議のたびに存在しないコマンドが送られ、
+    しかも失敗が AI コンソールの中にしか出ないので気づけない
+    """
+    config = _load_config_file()
+    if not config:
+        return False
+    prompt = config.get("ai_assistant_init_prompt")
+    if not isinstance(prompt, str):
+        return False
+    for legacy in _LEGACY_COMMANDS:
+        if prompt == legacy or prompt.startswith(legacy + " "):
+            config["ai_assistant_init_prompt"] = f"/{SKILL_NAME}" + prompt[len(legacy):]
+            _save_config_file(config)
+            logger.info("スキル呼び出しを移行しました: %r -> %r",
+                        prompt, config["ai_assistant_init_prompt"])
+            return True
+    return False
 
 
 def _as_tuple(version: str) -> tuple:

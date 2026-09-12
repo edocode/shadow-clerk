@@ -54,7 +54,7 @@ function openSearchResult(file,line,type){
     setTimeout(tryScroll,400);
   }
 }
-let mtgSortMode=(function(){try{return localStorage.getItem('mtgSortMode')||'newest';}catch(e){return 'newest';}})();
+let meetingSortMode=(function(){try{return localStorage.getItem('meetingSortMode')||'newest';}catch(e){return 'newest';}})();
 function _groupMaxDt(name){
   const fs=meetingGroups[name]||[];
   let m='';
@@ -63,11 +63,11 @@ function _groupMaxDt(name){
 }
 function _updateMtgSortBtn(){
   const b=document.getElementById('btnMtgSort');if(!b)return;
-  b.textContent=mtgSortMode==='abc'?(I18N['dash.sort_abc']||'ABC'):(I18N['dash.sort_newest']||'Newest');
+  b.textContent=meetingSortMode==='abc'?(I18N['dash.sort_abc']||'ABC'):(I18N['dash.sort_newest']||'Newest');
 }
 function togMtgSort(){
-  mtgSortMode=mtgSortMode==='abc'?'newest':'abc';
-  try{localStorage.setItem('mtgSortMode',mtgSortMode);}catch(e){}
+  meetingSortMode=meetingSortMode==='abc'?'newest':'abc';
+  try{localStorage.setItem('meetingSortMode',meetingSortMode);}catch(e){}
   renderMtgPane();
 }
 function renderMtgPane(){
@@ -75,13 +75,13 @@ function renderMtgPane(){
   _updateMtgSortBtn();
   if(curGroup===null){
     // グループ一覧を表示
-    document.getElementById('mtgBack').style.display='none';
-    document.getElementById('mtgGroupLabel').style.display='none';
-    document.getElementById('mtgListLabel').style.display='';
+    document.getElementById('meetingBack').style.display='none';
+    document.getElementById('meetingGroupLabel').style.display='none';
+    document.getElementById('meetingListLabel').style.display='';
     document.getElementById('btnRenameMtgGroup').style.display='none';
     const order=Object.keys(meetingGroups).sort((a,b)=>{
       if(a==='ad-hoc')return -1;if(b==='ad-hoc')return 1;
-      if(mtgSortMode==='newest'){
+      if(meetingSortMode==='newest'){
         const da=_groupMaxDt(a),db=_groupMaxDt(b);
         if(da!==db)return db.localeCompare(da);
       }
@@ -97,13 +97,13 @@ function renderMtgPane(){
     }).join('');
   }else{
     // グループ内のファイル一覧を表示
-    document.getElementById('mtgBack').style.display='';
-    document.getElementById('mtgGroupLabel').textContent=curGroup;
-    document.getElementById('mtgGroupLabel').style.display='';
-    document.getElementById('mtgListLabel').style.display='none';
+    document.getElementById('meetingBack').style.display='';
+    document.getElementById('meetingGroupLabel').textContent=curGroup;
+    document.getElementById('meetingGroupLabel').style.display='';
+    document.getElementById('meetingListLabel').style.display='none';
     document.getElementById('btnRenameMtgGroup').style.display=curGroup==='ad-hoc'?'none':'';
     const files=(meetingGroups[curGroup]||[]).slice().sort((a,b)=>{
-      if(mtgSortMode==='abc'){
+      if(meetingSortMode==='abc'){
         const la=(fileInfo[a]?.label||a),lb=(fileInfo[b]?.label||b);
         const c=la.localeCompare(lb);if(c)return c;
       }

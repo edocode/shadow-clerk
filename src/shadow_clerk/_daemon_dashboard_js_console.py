@@ -527,7 +527,7 @@ function _meetingNameOf(file){
 async function openWorkdirModal(file){
   const name=_meetingNameOf(file);
   let cfg={rules:[],default_workdir:'',path:''};
-  try{cfg=await(await fetch('/api/mtg-config')).json();}catch(e){}
+  try{cfg=await(await fetch('/api/meeting-config')).json();}catch(e){}
   // 会議名に当たる既存ルールがあればそれを編集する。無ければ会議名から素案を作る。
   // 素案は編集可能なままにする——表記ゆれをどこまで拾うかは人が決める話なので、
   // 機械が推定したパターンをそのまま保存させない
@@ -552,7 +552,7 @@ async function openWorkdirModal(file){
 function _escRegex(s){return (s||'').replace(/[.*+?^${}()|[\\]\\\\]/g,'\\\\$&');}
 function closeWorkdirModal(){document.getElementById('workdirModal').classList.remove('open');}
 async function _postWorkdir(body){
-  try{const r=await fetch('/api/mtg-config',{method:'POST',
+  try{const r=await fetch('/api/meeting-config',{method:'POST',
     headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const d=await r.json();
     if(d.status!=='ok'){alert(d.message||'error');return false;}

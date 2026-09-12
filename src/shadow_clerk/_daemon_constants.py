@@ -71,7 +71,7 @@ DEFAULT_COLS = 120
 # 戻ると、子はページが幅を報せてくるまでその幅で描き、その履歴が残る
 CONSOLE_COLS_FILE = os.path.join(DATA_DIR, "console.cols")
 # AI 分析の対象外にする話題。空・不在なら「どんな会話でも分析する」。
-# スキル (skills/mtg) がこのファイルを読む
+# スキル (src/shadow_clerk/skills/clerk-meeting-helper) がこのファイルを読む
 FORBID_ANALYZE_FILE = os.path.join(DATA_DIR, "forbid-ai-analyze.txt")
 # 聞き間違い候補。glossary が訳語の表なのに対し、こちらは「読み取るときに
 # 文脈で判断が要る対」を貯める。どちらも transcript には適用しない
@@ -157,7 +157,7 @@ DEFAULT_CONFIG = {
     "auto_summary_via_console": True,
     "ai_assistant_command": "claude",
     "ai_assistant_args": "",
-    "ai_assistant_init_prompt": "/mtg {transcript} {lang}",
+    "ai_assistant_init_prompt": "/clerk-meeting-helper {transcript} {lang}",
     "ai_assistant_workdir": "",
     # 任意パスの配布先を覚える。組み込み (claude/agents) は常に見るので入らない
     "skill_install_targets": [],

@@ -449,7 +449,7 @@ function initSearchSelects(){
 function togMtgPane(){
   const p=document.getElementById('pnlM');if(!p)return;
   const collapsed=p.classList.toggle('collapsed');
-  const ch=document.getElementById('mtgChevron');
+  const ch=document.getElementById('meetingChevron');
   if(ch)ch.innerHTML=collapsed?'&#x25BA;':'&#x25C4;';
 }
 function togSumPane(){
@@ -490,7 +490,7 @@ function switchLeftTab(tab){
     const btn=document.getElementById('tab'+id);
     let pane;
     if(t==='dates') pane=document.getElementById('datePane');
-    else if(t==='meetings') pane=document.getElementById('mtgContent');
+    else if(t==='meetings') pane=document.getElementById('meetingContent');
     else pane=document.getElementById('searchPane');
     if(t===tab){
       if(btn) btn.classList.add('active');

@@ -311,7 +311,7 @@ STRINGS_EN: dict[str, str] = {
     "cfg.ai_assistant_args": "Assistant arguments",
     "cfg.ai_assistant_args_ph": "--permission-mode acceptEdits",
     "cfg.ai_assistant_init_prompt": "Initial prompt",
-    "cfg.ai_assistant_init_prompt_ph": "/mtg {transcript}",
+    "cfg.ai_assistant_init_prompt_ph": "/clerk-meeting-helper {transcript}",
     "cfg.ai_assistant_workdir": "Default working directory",
     "cfg.path_missing_dir": "Directory not found: {path}",
     "cfg.path_missing_file": "File not found: {path}",

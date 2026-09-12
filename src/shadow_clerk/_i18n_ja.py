@@ -311,7 +311,7 @@ STRINGS_JA: dict[str, str] = {
     "cfg.ai_assistant_args": "アシスタントの引数",
     "cfg.ai_assistant_args_ph": "--permission-mode acceptEdits",
     "cfg.ai_assistant_init_prompt": "初期プロンプト",
-    "cfg.ai_assistant_init_prompt_ph": "/mtg {transcript}",
+    "cfg.ai_assistant_init_prompt_ph": "/clerk-meeting-helper {transcript}",
     "cfg.ai_assistant_workdir": "既定の起動ディレクトリ",
     "cfg.path_missing_dir": "ディレクトリが見つかりません: {path}",
     "cfg.path_missing_file": "ファイルが見つかりません: {path}",
