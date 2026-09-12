@@ -336,6 +336,7 @@ STRINGS_JA: dict[str, str] = {
     "cfg.ai_assistant_init_prompt": "初期プロンプト",
     "cfg.ai_assistant_init_prompt_ph": "/clerk-meeting-helper {transcript}",
     "cfg.ai_assistant_workdir": "既定の起動ディレクトリ",
+    "cfg.skill_install": "スキルの配布",
     "welcome.title": "shadow-clerk へようこそ",
     "welcome.intro": "会議の音声を文字起こしし、要約と議事録を作ります。まず会議アシスタントのスキルを配ってください。",
     "welcome.skill": "スキルを配る",

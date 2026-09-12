@@ -54,6 +54,7 @@ const CFG_FIELDS=[
   {key:'api_key_env',label:I18N['cfg.api_key_env'],type:'text',ph:'SHADOW_CLERK_API_KEY'},
   {key:'api_disable_thinking',label:I18N['cfg.api_disable_thinking'],type:'bool',def:false},
   {type:'section',label:I18N['cfg.section.ai_console']},
+  {type:'skill'},   // 配布ボタン。Welcome モーダルと同じ行を出す
   {key:'auto_analyze',label:I18N['cfg.auto_analyze'],type:'bool'},
   {key:'forbid_analyze',label:I18N['cfg.forbid_analyze'],type:'forbid'},
   {key:'ai_assistant_command',label:I18N['cfg.ai_assistant_command'],type:'text',ph:'claude'},
@@ -97,6 +98,13 @@ async function openCfg(){
   CFG_FIELDS.forEach(f=>{
     if(f.type==='section'){
       const h=document.createElement('div');h.className='cfg-section';h.textContent=f.label;b.appendChild(h);return;
+    }
+    if(f.type==='skill'){
+      // key を持たない全幅の行。saveCfg() は 'cfg_'+undefined を探すので自然に無視される
+      const d=document.createElement('div');d.className='cfg-skill';d.id='cfgSkillRows';
+      d.textContent=I18N['cfg.skill_install'];
+      b.appendChild(d);
+      return;
     }
     if(f.type==='device_refresh'){
       // key を持たないアクション行。saveCfg() は 'cfg_'+undefined を探すため自然に無視される
@@ -192,6 +200,7 @@ async function openCfg(){
   if(jaEl)jaEl.onchange=updateCfgDisabled;
   const ijaEl=document.getElementById('cfg_interim_japanese_asr_model');
   if(ijaEl)ijaEl.onchange=updateCfgDisabled;
+  renderCfgSkillRows();
   updateCfgDisabled();
   document.getElementById('cfgModal').classList.add('open');
   if(cfgData.api_endpoint){fetchApiModels();}
@@ -238,6 +247,12 @@ async function saveCfg(){
     const s=document.getElementById('cfgSaved');s.style.display='inline';
     setTimeout(()=>s.style.display='none',2000);
   }catch(e){}
+}
+async function renderCfgSkillRows(){
+  const d=document.getElementById('cfgSkillRows');if(!d)return;
+  const st=await _skillStatus();if(!st)return;
+  d.innerHTML=`<div class="wc-h" style="margin-top:0">${esc(I18N['cfg.skill_install'])}</div>`
+    +_skillRows(st.targets);
 }
 function updateCfgDisabled(){
   const ija=document.getElementById('cfg_interim_japanese_asr_model');

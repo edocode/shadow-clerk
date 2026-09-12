@@ -337,6 +337,7 @@ STRINGS_EN: dict[str, str] = {
     "cfg.ai_assistant_init_prompt": "Initial prompt",
     "cfg.ai_assistant_init_prompt_ph": "/clerk-meeting-helper {transcript}",
     "cfg.ai_assistant_workdir": "Default working directory",
+    "cfg.skill_install": "Skill installation",
     "welcome.title": "Welcome to shadow-clerk",
     "welcome.intro": "It transcribes your meetings and writes the summary and minutes. Start by installing the meeting assistant skill.",
     "welcome.skill": "Install the skill",
