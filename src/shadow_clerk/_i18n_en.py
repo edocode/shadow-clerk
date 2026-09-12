@@ -337,6 +337,8 @@ STRINGS_EN: dict[str, str] = {
     "cfg.ai_assistant_init_prompt": "Initial prompt",
     "cfg.ai_assistant_init_prompt_ph": "/clerk-meeting-helper {transcript}",
     "cfg.ai_assistant_workdir": "Default working directory",
+    "cfg.gcal_setup_url": "https://github.com/edocode/shadow-clerk/blob/main/docs/google-calendar-setup.md",
+    "cfg.gcal_setup_link": "Setup guide (needs a Google Cloud project)",
     "cfg.skill_install": "Skill installation",
     "welcome.title": "Welcome to shadow-clerk",
     "welcome.intro": "It transcribes your meetings and writes the summary and minutes. Start by installing the meeting assistant skill.",

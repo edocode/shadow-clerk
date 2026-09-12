@@ -336,6 +336,8 @@ STRINGS_JA: dict[str, str] = {
     "cfg.ai_assistant_init_prompt": "初期プロンプト",
     "cfg.ai_assistant_init_prompt_ph": "/clerk-meeting-helper {transcript}",
     "cfg.ai_assistant_workdir": "既定の起動ディレクトリ",
+    "cfg.gcal_setup_url": "https://github.com/edocode/shadow-clerk/blob/main/docs/google-calendar-setup.ja.md",
+    "cfg.gcal_setup_link": "設定手順（Google Cloud の準備が必要です）",
     "cfg.skill_install": "スキルの配布",
     "welcome.title": "shadow-clerk へようこそ",
     "welcome.intro": "会議の音声を文字起こしし、要約と議事録を作ります。まず会議アシスタントのスキルを配ってください。",

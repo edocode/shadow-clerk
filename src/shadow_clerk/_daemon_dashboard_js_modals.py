@@ -254,8 +254,12 @@ async function maybeShowWelcome(){
   const st=await _skillStatus();if(!st)return;
   // おすすめ設定は案内だけにする。初回に無断で値を書き換えると、あとから
   // 挙動の原因を追えなくなる
-  const recs=['rec_auto_analyze','rec_gcal','rec_asr','rec_workdir']
-    .map(k=>`<div class="wc-li">・${esc(I18N['welcome.'+k])}</div>`).join('');
+  // gcal だけは設定に Google Cloud 側の準備が要るので、手順書へ導く
+  const recs=['rec_auto_analyze','rec_gcal','rec_asr','rec_workdir'].map(k=>{
+    const doc=k==='rec_gcal'
+      ?' — '+docLink('cfg.gcal_setup_url','cfg.gcal_setup_link'):'';
+    return `<div class="wc-li">・${esc(I18N['welcome.'+k])}${doc}</div>`;
+  }).join('');
   document.getElementById('welcomeBody').innerHTML=
     `<div style="font-size:12px;line-height:1.7">${esc(I18N['welcome.intro'])}</div>`
     +`<div class="wc-h">${esc(I18N['welcome.skill_where'])}</div>${_skillRows(st.targets)}`

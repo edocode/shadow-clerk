@@ -63,6 +63,7 @@ const CFG_FIELDS=[
   {key:'ai_assistant_workdir',label:I18N['cfg.ai_assistant_workdir'],type:'text',ph:PATH_HINTS.ai_assistant_workdir,
     warn:{when:'',msgKey:'cfg.ai_assistant_workdir_warn'}},
   {type:'section',label:I18N['cfg.section.gcal']},
+  {type:'doc',urlKey:'cfg.gcal_setup_url',textKey:'cfg.gcal_setup_link'},
   {key:'gcal_integration',label:I18N['cfg.gcal_integration'],type:'bool'},
   {key:'gcal_credentials_file',label:I18N['cfg.gcal_credentials_file'],type:'text',ph:PATH_HINTS.gcal_credentials_file},
   {key:'gcal_calendar_id',label:I18N['cfg.gcal_calendar_id'],type:'text',ph:'primary'},
@@ -98,6 +99,13 @@ async function openCfg(){
   CFG_FIELDS.forEach(f=>{
     if(f.type==='section'){
       const h=document.createElement('div');h.className='cfg-section';h.textContent=f.label;b.appendChild(h);return;
+    }
+    if(f.type==='doc'){
+      // key を持たない全幅の行。saveCfg() は 'cfg_'+undefined を探すので自然に無視される
+      const d=document.createElement('div');d.className='cfg-doc';
+      d.innerHTML=docLink(f.urlKey,f.textKey);
+      b.appendChild(d);
+      return;
     }
     if(f.type==='skill'){
       // key を持たない全幅の行。saveCfg() は 'cfg_'+undefined を探すので自然に無視される

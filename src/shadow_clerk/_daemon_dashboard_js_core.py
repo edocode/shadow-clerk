@@ -38,6 +38,11 @@ function escAttr(s){return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replac
 // onclick 属性内のシングルクォート JS 文字列に埋め込む値用。
 // ブラウザは属性値を HTML デコードしてから JS として解釈するため、
 // escAttr だけでは ' が生き残り文字列が壊れる（XSS になり得る）。escJs → escAttr の順で適用する。
+// 外部ドキュメントへのリンク。URL 自体が i18n にあるので言語で切り替わる
+function docLink(urlKey,textKey){
+  return `<a href="${escAttr(I18N[urlKey])}" target="_blank" rel="noopener">`
+    +`${esc(I18N[textKey])}</a>`;
+}
 function escJs(s){return s.replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'");}
 function fmtLine(t){
   if(/^---\\s.*\\s---$/.test(t)) return '<div class="ln"><span class="mk">'+esc(t)+'</span></div>';
