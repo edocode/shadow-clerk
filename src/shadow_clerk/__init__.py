@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import sys
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 
 def is_microsoft_store_python() -> bool:
@@ -16,6 +16,30 @@ def is_microsoft_store_python() -> bool:
         "windowsapps/pythonsoftwarefoundation" in exe
         or "/packages/pythonsoftwarefoundation" in exe
     )
+
+
+def use_utf8_console() -> None:
+    """標準出力・標準エラーが日本語で落ちないようにする。
+
+    Windows の標準出力は ANSI コードページで開かれる。英語版 (cp1252) では
+    **日本語を出した時点で UnicodeEncodeError で落ちる**——CI の
+    windows-latest で `clerk-daemon --help` が実際にクラッシュした。日本語版
+    (cp932) なら通ってしまうので、手元では気づけない。
+
+    Windows では UTF-8 に切り替える。表示できないコンソールでは文字化けする
+    が、落ちるよりはよい。それ以外の OS でも errors を replace にしておく——
+    PYTHONIOENCODING や リダイレクト先次第で同じことが起きる。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None:
+            continue            # pythonw では None になる
+        try:
+            if sys.platform == "win32":
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            else:
+                stream.reconfigure(errors="replace")
+        except (AttributeError, OSError, ValueError):
+            pass                # 差し替え済みのストリームは reconfigure を持たない
 
 
 def get_data_dir() -> str:

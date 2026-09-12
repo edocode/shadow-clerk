@@ -269,11 +269,30 @@ uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
 
 `--list-devices` は動作確認に向いている。録音を始めずに、同梱した PortAudio とネイティブ拡張が読めているかを確かめられる。
 
+ReazonSpeech と Google Calendar も同梱するなら `uv sync` の行を差し替える。**この順で**
+——`reazonspeech-k2-asr` はどこにも宣言できないので、あとから sync すると消える:
+
+```powershell
+uv sync --extra reazonspeech --extra gcal
+uv pip install "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
+uv run python -c "import sherpa_onnx, reazonspeech.k2.asr; print('ok')"   # ビルド前に確認
+uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
+```
+
+`spell-check` extra は**入れても同梱されない**。spec の `_EXCLUDES` が `torch` /
+`transformers` / `sentencepiece` を落としているため。同梱したければそこから外す
+——配布物が数 GB 増える。
+
+**Windows 機が無くても作れる。** `.github/workflows/build-binary.yml` が上と同じ
+手順を `windows-latest` と `ubuntu-latest` で走らせる。`v*` のタグを push すれば
+両方のバイナリが Release に添付され、Actions タブから手で起動すれば成果物として
+ダウンロードできる。
+
 **`uv pip install pyinstaller` はしないこと。** `uv sync` は環境をプロジェクトの宣言どおりに揃え、それ以外を消す。入れておいても次の `uv sync --extra ...` で消えてしまう。`--with` はプロジェクト環境の上に一時的な層として PyInstaller を載せるので、プロジェクトの依存は見えたまま、環境には何も残らない。
 
 補足:
 
-- **出力先**: `dist/shadow-clerk/`。既定の依存のみ(extra なし)でおよそ 460MB。`torch` / `transformers` / `sentencepiece` は spec の `_EXCLUDES` で除いている — `spell-check` extra でしか使わないうえ、入れると数 GB 増えるため。
+- **出力先**: `dist/shadow-clerk/`。既定の依存のみ(extra なし)でおよそ 460MB。
 - **extra はビルドした環境に入っているものだけが集められる。** ビルド前に入れておくこと——欲しい extra は 1 回の `uv sync` にまとめ、`uv pip install` は最後に。順序が効く理由は[セットアップ](#2-インストール)にある。入っていれば spec が `sherpa_onnx`(`lib/` に onnxruntime の DLL を抱えている)と `reazonspeech.k2.asr` を集める。モデルの重み自体は Whisper と同じく初回利用時に取得される。
 - **Whisper のモデルは同梱されない。** `small` で約 500MB あり、初回起動時に Hugging Face から取得されてキャッシュに残る(Windows は `%USERPROFILE%\.cache\huggingface`、それ以外は `~/.cache/huggingface`)。オフラインで配布したいなら、そのキャッシュを spec の `datas` に足すか、CT2 形式に変換したモデルを同梱して `--model` にパスを渡す。
 - **`packaging/hooks/` は PyInstaller 同梱フックの差し替え。** 現在 1 つある: 同梱の `hook-webrtcvad.py` は `copy_metadata('webrtcvad')` を呼ぶが、このプロジェクトが使うのは `webrtcvad-wheels` なので、差し替えないと `ImportErrorWhenRunningHook` でビルドが止まる。

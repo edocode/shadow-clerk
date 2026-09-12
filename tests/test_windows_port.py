@@ -241,9 +241,82 @@ def test_readme_documents_the_build() -> None:
         # 次の uv sync --extra で消えるので、一時的な層に載せる
         # 本文では「やらないこと」として名前を出すので、コマンド行だけを見る
         cmds = [ln.strip() for ln in doc.splitlines()]
+        # 全部入りの作り方が無いと、extra 付きのバイナリに辿り着けない
+        check(f"{name} に全部入りの手順がある",
+              "--extra reazonspeech --extra gcal" in doc
+              and "reazonspeech-k2-asr @ git+" in doc, "")
         check(f"{name} が --with で走らせている",
               "--with pyinstaller" in doc
               and "uv pip install pyinstaller" not in cmds, "")
+
+
+def test_japanese_output_does_not_crash_on_a_narrow_console() -> None:
+    """Windows の標準出力は ANSI コードページ。英語版 (cp1252) では日本語が出せない。
+
+    日本語版 Windows (cp932) では通ってしまうので手元では気づけず、CI の
+    windows-latest で `clerk-daemon --help` が UnicodeEncodeError で落ちた。
+    Linux でも PYTHONIOENCODING で同じ狭さを作れるので、ここで再現させる。
+    """
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+    p = subprocess.run([sys.executable, "-m", "shadow_clerk.clerk_daemon", "--help"],
+                       capture_output=True, env=env, timeout=120)
+    check("--help が cp1252 でも 0 で終わる", p.returncode == 0,
+          p.stderr.decode("utf-8", "replace").strip().splitlines()[-1:])
+    p = subprocess.run([sys.executable, "-m", "shadow_clerk.clerk_util"],
+                       capture_output=True, env=env, timeout=120)
+    # 使い方を出して 1 で終わるのは仕様。落ちていないことだけを見る
+    check("clerk-util が cp1252 でも落ちない",
+          b"UnicodeEncodeError" not in p.stderr, p.stderr.decode("utf-8", "replace")[-120:])
+
+    for name, mod in (("clerk-daemon", "_daemon_main.py"), ("clerk-util", "clerk_util.py")):
+        src = open(os.path.join(SRC, mod), encoding="utf-8").read()
+        body = src[src.index("def main("):]
+        check(f"{name} が引数を読む前に直す", "use_utf8_console()" in body[:600], "")
+    # ログファイルも既定では ANSI コードページで開かれる
+    main_src = open(os.path.join(SRC, "_daemon_main.py"), encoding="utf-8").read()
+    check("ログファイルも UTF-8 で開く",
+          'FileHandler(LOG_FILE, encoding="utf-8")' in main_src, "")
+
+
+def test_version_matches_the_manifest() -> None:
+    """タグを打つときに古いままだと、配布物が名乗る版が食い違う"""
+    root = os.path.join(os.path.dirname(__file__), "..")
+    toml = open(os.path.join(root, "pyproject.toml"), encoding="utf-8").read()
+    declared = toml.split('version = "', 1)[1].split('"', 1)[0]
+    from shadow_clerk import __version__
+    check("__version__ が pyproject と一致する", __version__ == declared,
+          f"{__version__} vs {declared}")
+
+
+def test_release_workflow_builds_the_full_bundle() -> None:
+    """Windows 機が無くても .exe を作れる唯一の道なので、手順を固定する"""
+    root = os.path.join(os.path.dirname(__file__), "..")
+    path = os.path.join(root, ".github", "workflows", "build-binary.yml")
+    check("ワークフローがある", os.path.exists(path), path)
+    if not os.path.exists(path):
+        return
+    wf = open(path, encoding="utf-8").read()
+    check("Windows のランナーで作る", "windows-latest" in wf, "")
+    check("全部入りで sync する",
+          "--extra reazonspeech --extra gcal" in wf, "")
+    # 逆順にすると uv sync が「宣言に無いもの」として消す
+    check("Git 配布のものは sync のあとに入れる",
+          wf.index("uv sync --extra") < wf.index("reazonspeech-k2-asr @ git+"), "")
+    check("ビルド前に import を確かめる",
+          wf.index("import sherpa_onnx") < wf.index("pyinstaller packaging/"), "")
+    check("PyInstaller は一時的な層で走らせる",
+          "--with pyinstaller" in wf and "uv pip install pyinstaller" not in wf, "")
+    # 浮動のメジャータグは全てのアクションが出しているわけではない。
+    # setup-uv は最新が v10 系でも単一メジャーのタグは v7 止まりで、
+    # @v10 を書くとジョブが解決できずに即落ちた
+    import re as _re
+    floating = _re.findall(r"uses: (\S+@v\d+)$", wf, _re.M)
+    check("アクションは正確なバージョンで固定する", not floating, str(floating))
+    check("push のたびには回さない",
+          'tags: ["v*"]' in wf and "branches:" not in wf, "")
+    claude = open(os.path.join(root, "CLAUDE.md"), encoding="utf-8").read()
+    check("CLAUDE.md が実態と合っている",
+          "build-binary.yml" in claude and "No CI/CD pipeline" not in claude, "")
 
 
 def test_pywinpty_is_declared() -> None:
@@ -263,6 +336,9 @@ def main() -> int:
     test_daemonize_does_not_fork_on_windows()
     test_spec_collects_the_packages_that_ship_data()
     test_readme_documents_the_build()
+    test_japanese_output_does_not_crash_on_a_narrow_console()
+    test_version_matches_the_manifest()
+    test_release_workflow_builds_the_full_bundle()
     test_pywinpty_is_declared()
     print(f"\n{sum(results)}/{len(results)} passed")
     return 0 if all(results) else 1

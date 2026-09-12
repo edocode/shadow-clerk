@@ -6,7 +6,7 @@ import atexit
 import logging
 import os
 import sys
-from shadow_clerk import DATA_DIR
+from shadow_clerk import DATA_DIR, use_utf8_console
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import PID_FILE, LOG_FILE
 from shadow_clerk._daemon_config import load_config
@@ -88,6 +88,9 @@ def _remove_pid_file() -> None:
 
 
 def main() -> None:
+    # 引数を読む前に。--help の文面からして日本語なので、ここが遅れると
+    # 英語版 Windows では使い方を出そうとした時点で落ちる
+    use_utf8_console()
     parser = argparse.ArgumentParser(
         description="Shadow-clerk: Web会議の音声を録音・文字起こし",
     )
@@ -216,7 +219,7 @@ def main() -> None:
             if "sounddevice" in mod_name or "_sounddevice" in mod_name:
                 del sys.modules[mod_name]
         # ログはファイルのみ（stderr には出さない）
-        file_handler = logging.FileHandler(LOG_FILE)
+        file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
         file_handler.setFormatter(logging.Formatter(log_format, datefmt=log_datefmt))
         logging.basicConfig(level=log_level, handlers=[file_handler])
     else:
