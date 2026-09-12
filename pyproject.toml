@@ -87,6 +87,10 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# スキル実体。clerk-util install-skill の配布元になるので wheel に載せる
+[tool.setuptools.package-data]
+shadow_clerk = ["skills/**/*.md"]
+
 [dependency-groups]
 dev = [
     "mypy>=1.20.0",
