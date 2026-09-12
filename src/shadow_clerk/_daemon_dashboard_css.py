@@ -363,6 +363,11 @@ main {
 .modal-body textarea { resize:vertical; min-height:60px; font-family:monospace; font-size:12px; }
 .modal-body .cfg-section { grid-column:1/-1; font-weight:bold; font-size:13px; padding:8px 0 4px; border-bottom:1px solid var(--border); margin-top:4px; color:var(--text); }
 .modal-body .cfg-section:first-child { margin-top:0; }
+.wc-row { display:flex; align-items:center; gap:8px; padding:5px 0; font-size:12px; }
+.wc-row code { color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
+.wc-row button { flex-shrink:0; }
+.wc-h { font-weight:bold; margin:10px 0 4px; font-size:12px; }
+.wc-li { color:var(--muted); font-size:11px; padding:2px 0 2px 10px; }
 .modal-body .cfg-warn, #cfgPathWarn { grid-column:1/-1; font-size:11px; padding:6px 8px; background:rgba(255,179,71,0.12); border-left:3px solid #ffb347; color:var(--muted); margin:2px 0 4px; line-height:1.5; }
 #glossaryTable th, #glossaryTable td {
   border:1px solid var(--border); padding:4px 6px;

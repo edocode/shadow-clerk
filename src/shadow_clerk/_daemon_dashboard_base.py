@@ -135,6 +135,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_watch()
         elif path == "/api/skill-status":
             self._serve_skill_status()
+        elif path == "/api/config-exists":
+            self._serve_config_exists()
         elif path == "/api/generated":
             self._serve_generated_paths()
         elif path == "/api/advice":

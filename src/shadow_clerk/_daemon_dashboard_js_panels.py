@@ -177,6 +177,7 @@ function hideResp(){document.getElementById('resp').classList.remove('show');}
 // ペインの初回読み込みは loadFiles() に一本化する。ここでも読むと、
 // ハッシュの有無で「二重に読む」と「一度も読まない」に分かれてしまう
 initSearchSelects();switchLeftTab('dates');switchSumTab('summary');loadFiles();loadLogs();
+maybeShowWelcome();maybeShowSkillUpdate();
 // 翻訳・ミュート等のボタン状態は SSE に載らないため、定期的にステータスも同期する
 setInterval(()=>{loadFiles();fetchStatus();},10000);
 window.addEventListener('hashchange',()=>{const f=_hashFile();if(f&&fileInfo[f]&&f!==curFile)selectMtgFile(f);});

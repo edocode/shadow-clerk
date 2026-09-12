@@ -99,6 +99,15 @@ class _DashboardHandlerConfigOps:
             logger.warning("モデル一覧取得失敗: %s", e)
             self._send_json({"models": [], "error": str(e)})
 
+    def _serve_config_exists(self) -> None:
+        """GET /api/config-exists — 初回起動の判定に使う。
+
+        専用のマーカーファイルを増やさずに済ませる。設定を一度でも保存すれば
+        config.yaml ができるので、それを初回の印とする
+        """
+        from shadow_clerk import CONFIG_FILE
+        self._send_json({"exists": os.path.exists(CONFIG_FILE)})
+
     def _save_config(self) -> None:
         try:
             length = int(self.headers.get("Content-Length", 0))
