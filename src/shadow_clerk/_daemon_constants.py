@@ -159,6 +159,10 @@ DEFAULT_CONFIG = {
     "ai_assistant_args": "",
     "ai_assistant_init_prompt": "/mtg {transcript} {lang}",
     "ai_assistant_workdir": "",
+    # 任意パスの配布先を覚える。組み込み (claude/agents) は常に見るので入らない
+    "skill_install_targets": [],
+    # 更新モーダルで「あとで」を押された版。同じ版では二度と出さない
+    "skill_update_dismissed_version": "",
 }
 
 # セッションファイル
