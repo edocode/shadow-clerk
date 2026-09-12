@@ -178,12 +178,6 @@ def main() -> None:
     # データディレクトリ作成
     os.makedirs(DATA_DIR, exist_ok=True)
 
-    # 改名前の置き場所・呼び出し名からの移行。設定を読む前に済ませる
-    from shadow_clerk.domain.meeting_config import migrate_legacy
-    from shadow_clerk.skill_install import migrate_init_prompt
-    migrate_legacy()
-    migrate_init_prompt()
-
     # i18n 初期化
     from shadow_clerk import i18n as _i18n
     _i18n.init()
@@ -234,6 +228,14 @@ def main() -> None:
             format=log_format,
             datefmt=log_datefmt,
         )
+
+    # 改名前の置き場所・呼び出し名からの移行。
+    # **ロギング設定より後に呼ぶこと。** 前に置くと移行した事実がどこにも
+    # 残らず、設定が動いた理由を後から追えない
+    from shadow_clerk.domain.meeting_config import migrate_legacy
+    from shadow_clerk.skill_install import migrate_init_prompt
+    migrate_legacy()
+    migrate_init_prompt()
 
     # PID ファイルを書き込む（clerk-util recorder-status で使用）
     _write_pid_file()
