@@ -451,17 +451,39 @@ function initSearchSelects(){
   for(let i=1;i<=31;i++){const o=document.createElement('option');o.value=String(i).padStart(2,'0');o.textContent=String(i).padStart(2,'0');dy.appendChild(o);}
   for(let i=0;i<=23;i++){const o=document.createElement('option');o.value=String(i).padStart(2,'0');o.textContent=String(i).padStart(2,'0');hr.appendChild(o);}
 }
+// 開閉はブラウザ側に覚えさせる。毎回たたみ直すのは手間で、かつ
+// 開いているかどうかは会議ごとではなく人ごとの好み
+function _rememberPane(key,collapsed){
+  try{localStorage.setItem(key,collapsed?'1':'0');}catch(e){}
+}
+function _restorePane(key,id,chId,openMark,closeMark){
+  let v;try{v=localStorage.getItem(key);}catch(e){return;}
+  if(v===null)return;                       // 記憶が無ければ HTML の初期状態のまま
+  const p=document.getElementById(id);if(!p)return;
+  const collapsed=v==='1';
+  p.classList.toggle('collapsed',collapsed);
+  const ch=document.getElementById(chId);
+  if(ch)ch.innerHTML=collapsed?closeMark:openMark;
+  return collapsed;
+}
+function restorePanes(){
+  _restorePane('mtgPaneCollapsed','pnlM','meetingChevron','&#x25C4;','&#x25BA;');
+  const c=_restorePane('sumPaneCollapsed','pnlS','sumChevron','&#x25BA;','&#x25C4;');
+  if(c===false)updateSumSplit();            // 畳んでいる間は測れないので開いた側だけ
+}
 function togMtgPane(){
   const p=document.getElementById('pnlM');if(!p)return;
   const collapsed=p.classList.toggle('collapsed');
   const ch=document.getElementById('meetingChevron');
   if(ch)ch.innerHTML=collapsed?'&#x25BA;':'&#x25C4;';
+  _rememberPane('mtgPaneCollapsed',collapsed);
 }
 function togSumPane(){
   const p=document.getElementById('pnlS');if(!p)return;
   const collapsed=p.classList.toggle('collapsed');
   const ch=document.getElementById('sumChevron');
   if(ch)ch.innerHTML=collapsed?'&#x25C4;':'&#x25BA;';
+  _rememberPane('sumPaneCollapsed',collapsed);
   // 畳んでいる間は大きさを測れない。開いたところで分割を挟み直す
   if(!collapsed)updateSumSplit();
 }
@@ -470,6 +492,7 @@ function openSumPane(){
   p.classList.remove('collapsed');
   const ch=document.getElementById('sumChevron');
   if(ch)ch.innerHTML='&#x25BA;';
+  _rememberPane('sumPaneCollapsed',false);
 }
 
 /* --- Summary パネル タブ切替 --- */
