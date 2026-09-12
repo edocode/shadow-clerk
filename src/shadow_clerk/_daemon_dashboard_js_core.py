@@ -201,12 +201,21 @@ function applyPanelMode(){
         btn=document.getElementById('togTR');
   if(!t||!r||!btn)return;
   const ai=panelMode===3;
-  t.classList.toggle('hidden',ai||panelMode===2);
-  r.classList.toggle('hidden',ai||panelMode===1);
   btn.textContent=PANEL_MODES[panelMode];
   // AI のときは S ペインが唯一の中身。畳んだままだと画面が空になる。
   // 畳む取っ手も伏せる——押せてしまうと、押した先に何も残らない
-  if(ai){openSumPane();switchSumTab('ai');}
+  if(ai){
+    openSumPane();switchSumTab('ai');
+    // 下部ペインを開いて AI コンソールを出す。transcript はその右へ移すので、
+    // 畳んだままでは移した先が見えない
+    switchLogTab('console');
+    // hidden の面倒は switchSideTab が見るので、ここでは触らない
+    adoptPanelsIntoSide();
+  }else{
+    releasePanelsFromSide();
+    t.classList.toggle('hidden',panelMode===2);
+    r.classList.toggle('hidden',panelMode===1);
+  }
   const ch=document.getElementById('sumChevron');
   if(ch)ch.style.display=ai?'none':'';
   updateSumSplit();

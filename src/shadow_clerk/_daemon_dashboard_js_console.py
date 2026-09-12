@@ -22,7 +22,7 @@ function switchLogTab(tab,opts){
   document.getElementById('tabLogs').classList.toggle('active',tab==='logs');
   document.getElementById('tabConsole').classList.toggle('active',tab==='console');
   document.getElementById('logc').style.display=(tab==='logs')?'':'none';
-  document.getElementById('consolec').style.display=(tab==='console')?'':'none';
+  document.getElementById('consoleRow').style.display=(tab==='console')?'':'none';
   if(tab==='console'){
     if(!_consoleLoaded)loadConsole();
     focusConsoleInput();
@@ -424,6 +424,96 @@ function applySumOrientation(){
 }
 /* 向きを決めてから挟む。外から呼ぶのはこれだけ */
 function updateSumSplit(){applySumOrientation();clampSumSplit();}
+/* --- AI コンソール右の文字起こしペイン --- */
+// 中身は中央の pnlT / pnlR を DOM ごと移して使う。loadT/loadR や選択・削除の
+// 処理を二重に持つと、片方だけ直したときに黙ってずれる。パネルは1か所にしか
+// 置けないので、移すのは AI モードの間だけ
+const SIDE_MIN=200;
+let sideTab='transcript';
+let _sideHome=null;          // 戻す先（親と次兄弟）を覚えておく
+
+function _sidePanels(){
+  return {transcript:document.getElementById('pnlT'),
+          translation:document.getElementById('pnlR')};
+}
+
+function switchSideTab(tab){
+  sideTab=tab;
+  const p=_sidePanels(), host=document.getElementById('sideHost');
+  if(!host)return;
+  Object.entries(p).forEach(([k,el])=>{
+    if(!el)return;
+    document.getElementById(k==='transcript'?'tabSideT':'tabSideR')
+      .classList.toggle('active',k===tab);
+    el.classList.toggle('hidden',k!==tab);
+  });
+}
+
+function adoptPanelsIntoSide(){
+  const host=document.getElementById('sideHost');if(!host)return;
+  const p=_sidePanels();if(!p.transcript||!p.translation)return;
+  if(host.contains(p.transcript))return;              // 既に移動済み
+  _sideHome={parent:p.transcript.parentNode,before:p.transcript.previousSibling};
+  host.appendChild(p.transcript);
+  host.appendChild(p.translation);
+  switchSideTab(sideTab);
+}
+
+function releasePanelsFromSide(){
+  const host=document.getElementById('sideHost');
+  const p=_sidePanels();
+  if(!host||!p.transcript||!host.contains(p.transcript)||!_sideHome)return;
+  const {parent,before}=_sideHome;
+  // 元の並び順に戻す。before の直後が pnlT の定位置
+  parent.insertBefore(p.transcript,before?before.nextSibling:parent.firstChild);
+  parent.insertBefore(p.translation,p.transcript.nextSibling);
+  p.transcript.classList.remove('hidden');
+  p.translation.classList.remove('hidden');
+  _sideHome=null;
+}
+
+function togConsoleSide(){
+  const row=document.getElementById('consoleRow');if(!row)return;
+  const collapsed=row.classList.toggle('side-collapsed');
+  const ch=document.getElementById('consoleSideChevron');
+  if(ch)ch.innerHTML=collapsed?'&#x25C4;':'&#x25BA;';
+  try{localStorage.setItem('consoleSideCollapsed',collapsed?'1':'0');}catch(e){}
+  // 列数は #consolec の幅から出して PTY に送っている。幅が変わったら教える
+  reportConsoleCols();
+}
+
+function initConsoleSide(){
+  const row=document.getElementById('consoleRow'),
+        bar=document.getElementById('consoleSplit'),
+        side=document.getElementById('consoleSide');
+  if(!row||!bar||!side)return;
+  let w=0;
+  try{w=parseInt(localStorage.getItem('consoleSideWidth')||'0',10)||0;}catch(e){}
+  if(w>=SIDE_MIN)side.style.width=w+'px';
+  let collapsed=false;
+  try{collapsed=localStorage.getItem('consoleSideCollapsed')==='1';}catch(e){}
+  row.classList.toggle('side-collapsed',collapsed);   // 記憶が無ければ開いたまま
+  const ch=document.getElementById('consoleSideChevron');
+  if(ch)ch.innerHTML=collapsed?'&#x25C4;':'&#x25BA;';
+  switchSideTab(sideTab);
+  let dragging=false;
+  bar.addEventListener('mousedown',e=>{dragging=true;e.preventDefault();});
+  window.addEventListener('mousemove',e=>{
+    if(!dragging)return;
+    const r=row.getBoundingClientRect();
+    side.style.width=Math.max(SIDE_MIN,
+      Math.min(r.width-SIDE_MIN-10,r.right-e.clientX))+'px';
+  });
+  window.addEventListener('mouseup',()=>{
+    if(!dragging)return;
+    dragging=false;
+    const v=parseInt(side.style.width,10)||0;
+    try{localStorage.setItem('consoleSideWidth',String(v));}catch(e){}
+    // ドラッグ中は送らない。毎フレーム resize を投げると子が描き直し続ける
+    reportConsoleCols();
+  });
+}
+
 function initSumSplit(){
   const bar=document.getElementById('sumSplit'),top=document.getElementById('advWrap'),
         wrap=document.getElementById('aiWrap');
@@ -481,6 +571,7 @@ es.addEventListener('console',e=>{
     c.title=I18N['dash.console_hint']||'';}
   initLogResize();
   initSumSplit();
+  initConsoleSide();
   // 右ペインの開閉も同じ理由でここから。updateSumSplit が SUM_SPLIT_MIN を
   // 触るので、panels の初期化で呼ぶと TDZ で例外になり、そこから後ろの
   // loadFiles() やモーダルまで丸ごと動かなくなる。applyPanelMode より先に

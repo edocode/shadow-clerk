@@ -134,7 +134,7 @@ main {
 .panel.hidden { display:none; }
 .summary-body { white-space:pre-wrap; line-height:1.7; }
 .summary-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; }
-#logp.collapsed #logc, #logp.collapsed #consolec { display:none; }
+#logp.collapsed #logc, #logp.collapsed #consoleRow { display:none; }
 /* !important が要る。ドラッグでリサイズすると initLogResize が
    style.height をインラインで書くため、素の height:auto では負けて
    「中身は消えるのに箱の高さだけ残る」状態になる。インラインの値は
@@ -143,6 +143,31 @@ main {
 #logResize { height:5px; cursor:ns-resize; background:transparent; flex-shrink:0; }
 #logResize:hover { background:var(--accent); }
 #logp.collapsed #logResize { display:none; }
+/* AI コンソールと、その右の文字起こしペインを横に並べる。min-height/min-width:0 は
+   flex の子が中身の分だけ伸びて親をはみ出すのを止めるため */
+#consoleRow { flex:1; display:flex; min-height:0; }
+#consoleSplit { width:5px; cursor:ew-resize; background:var(--border); flex-shrink:0; }
+#consoleSplit:hover { background:var(--accent); }
+#consoleSide {
+  width:380px; flex-shrink:0; min-width:0; display:flex; flex-direction:column;
+  background:var(--panel);
+}
+/* 畳んだときはつまみだけ残す。ヘッダごと消すと開き直せない。
+   **クラスは行コンテナに付ける。** #consoleSplit は #consoleSide より前にあり、
+   兄弟セレクタでは遡って隠せない */
+#consoleRow.side-collapsed #consoleSide { width:auto; }
+#consoleRow.side-collapsed #sideHost,
+#consoleRow.side-collapsed #consoleSide .lp-tab { display:none; }
+#consoleRow.side-collapsed #consoleSide .ph { padding:8px 6px; }
+#consoleRow.side-collapsed #consoleSplit { display:none; }
+#consoleSide .ph { padding:4px 8px; }
+#sideHost { flex:1; min-height:0; display:flex; }
+/* 中央から移してきた .panel を、この枠いっぱいに収める */
+#sideHost .panel { flex:1; min-width:0; }
+/* パネル本来のヘッダはタブと名前が重複するが、消すとミュートとレベル計まで
+   失う。下部ペインは元々背が低いので、消さずに詰める */
+#sideHost .ph { padding:2px 6px; font-size:11px; flex-wrap:wrap; row-gap:2px; }
+#sideHost .ph .lv { height:4px; }
 #consolec {
   position:relative;
   /* **gutter は常に確保すること。** overflow:auto のままだと、行が増減して
