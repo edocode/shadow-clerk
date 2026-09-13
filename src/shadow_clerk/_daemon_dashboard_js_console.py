@@ -386,16 +386,16 @@ function initLogResize(){
 const SUM_SPLIT_MIN=60;
 /* 左右に並べ替える幅。入りと戻りをずらして、境目での往復を防ぐ */
 const SUM_ROW_ON=660, SUM_ROW_OFF=600;
-let _adviceWant=0, _adviceWantW=0;  // ユーザーが決めた高さ/幅。容器に合わせて挟むが、この値自体は動かさない
+/* ユーザーが決めた分割位置は**比率**で持つ。px で覚えると、容器が狭まったとき
+   Advice だけが元の大きさを保ち、Analysis が最小まで潰れる。0 は未設定 */
+let _adviceRatio=0, _adviceRatioW=0;
 /* 縦積みと横並びでいじる軸が変わる。判定を 1 か所に集める */
 function _sumRow(){const w=document.getElementById('aiWrap');return !!w&&w.classList.contains('row');}
 function _sumProp(row){return row?'width':'height';}
-function _sumWant(row){return row?_adviceWantW:_adviceWant;}
-/* 保存した値は「保存した時点のペインの大きさ」に対するものでしかない。ウィンドウを
-   狭めたり下部ペインを広げたりすると容器を超え、もう一方が 0 近くまで潰れる
-   （実際 aiWrap 745px に対し advWrap が 923px になっていた）。
-   容器の大きさが変わるたびに挟み直す。want は書き換えないので、
-   容器が広がれば元の大きさに戻る */
+function _sumRatio(row){return row?_adviceRatioW:_adviceRatio;}
+/* 容器の大きさが変わるたびに、覚えた比率から引き直す。比率は書き換えないので、
+   容器が広がれば元の割合に戻る。最低幅は両側に残す——どちらかが 0 になると、
+   そこにあるはずの提案や分析が読めなくなる */
 function clampSumSplit(){
   const top=document.getElementById('advWrap'),wrap=document.getElementById('aiWrap');
   if(!top||!wrap)return;
@@ -403,8 +403,10 @@ function clampSumSplit(){
   const avail=wrap.getBoundingClientRect()[prop];
   if(avail<SUM_SPLIT_MIN*2+10)return;   // 畳んでいる、または測れない
   const cur=parseInt(top.style[prop],10)||Math.round(top.getBoundingClientRect()[prop]);
+  const ratio=_sumRatio(row);
   const h=Math.round(Math.max(SUM_SPLIT_MIN,
-                              Math.min(avail-SUM_SPLIT_MIN-10,_sumWant(row)||cur)));
+                              Math.min(avail-SUM_SPLIT_MIN-10,
+                                       ratio?avail*ratio:cur)));
   if(h!==cur)top.style[prop]=h+'px';
 }
 /* 幅で縦積みと横並びを決める。狭いまま左右に割ると 1 ペインが数十文字になり、
@@ -419,8 +421,8 @@ function applySumOrientation(){
   if(want===row)return;
   wrap.classList.toggle('row',want);
   top.style.width='';top.style.height='';
-  const v=_sumWant(want);
-  if(v>=SUM_SPLIT_MIN)top.style[_sumProp(want)]=v+'px';
+  // 新しい軸での大きさは clampSumSplit が比率から引き直す。updateSumSplit が
+  // この直後に必ず呼ぶので、ここでは軸を替えてインラインを落とすだけでよい
 }
 /* 向きを決めてから挟む。外から呼ぶのはこれだけ */
 function updateSumSplit(){applySumOrientation();clampSumSplit();}
@@ -530,9 +532,10 @@ function initSumSplit(){
   const bar=document.getElementById('sumSplit'),top=document.getElementById('advWrap'),
         wrap=document.getElementById('aiWrap');
   if(!bar||!top||!wrap)return;
-  try{_adviceWant=parseInt(localStorage.getItem('adviceHeight')||'0',10)||0;
-      _adviceWantW=parseInt(localStorage.getItem('adviceWidth')||'0',10)||0;}catch(e){}
-  if(_adviceWant>=SUM_SPLIT_MIN)top.style.height=_adviceWant+'px';
+  // 旧バージョンは px を adviceHeight / adviceWidth に入れていた。比率へは
+  // 「保存時の容器の大きさ」が無いと換算できないので、読まずに捨てる
+  try{_adviceRatio=parseFloat(localStorage.getItem('adviceRatioH')||'0')||0;
+      _adviceRatioW=parseFloat(localStorage.getItem('adviceRatioW')||'0')||0;}catch(e){}
   updateSumSplit();
   if(window.ResizeObserver){
     _sumSplitRO=new ResizeObserver(()=>updateSumSplit());
@@ -552,9 +555,13 @@ function initSumSplit(){
   window.addEventListener('mouseup',()=>{
     if(!dragging)return;
     dragging=false;
-    const row=_sumRow(),v=parseInt(top.style[_sumProp(row)],10)||0;
-    if(row)_adviceWantW=v;else _adviceWant=v;
-    try{localStorage.setItem(row?'adviceWidth':'adviceHeight',String(v));}catch(e){}
+    const row=_sumRow(),prop=_sumProp(row);
+    const avail=wrap.getBoundingClientRect()[prop];
+    const v=parseInt(top.style[prop],10)||0;
+    if(!avail||!v)return;
+    const ratio=Math.min(0.95,Math.max(0.05,v/avail));
+    if(row)_adviceRatioW=ratio;else _adviceRatio=ratio;
+    try{localStorage.setItem(row?'adviceRatioW':'adviceRatioH',ratio.toFixed(4));}catch(e){}
   });
 }
 
