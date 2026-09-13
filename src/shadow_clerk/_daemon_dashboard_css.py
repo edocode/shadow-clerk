@@ -150,16 +150,28 @@ main {
 #consoleSplit:hover { background:var(--accent); }
 #consoleSide {
   width:380px; flex-shrink:0; min-width:0; display:flex; flex-direction:column;
-  background:var(--panel);
+  background:var(--panel); position:relative; overflow:visible;
 }
-/* 畳んだときはつまみだけ残す。ヘッダごと消すと開き直せない。
-   **クラスは行コンテナに付ける。** #consoleSplit は #consoleSide より前にあり、
-   兄弟セレクタでは遡って隠せない */
-#consoleRow.side-collapsed #consoleSide { width:auto; }
+/* つまみは #sumChevron と同じ「ペインの端に貼り付くタブ」。中身の外に出して
+   絶対配置するので、畳んだときに幅 0 にしても押せる */
+#consoleSideChevron {
+  position:absolute; left:-14px; top:50%; transform:translateY(-50%);
+  z-index:10; width:14px; height:44px;
+  background:var(--btn); border:1px solid var(--border);
+  border-radius:6px 0 0 6px; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  color:var(--muted); font-size:10px; padding:0;
+}
+#consoleSideChevron:hover { background:var(--btn-h); color:var(--text); }
+/* 畳んだら幅を残さない。**クラスは行コンテナに付ける。** #consoleSplit は
+   #consoleSide より前にあり、兄弟セレクタでは遡って隠せない */
+#consoleRow.side-collapsed #consoleSide { width:0; }
 #consoleRow.side-collapsed #sideHost,
-#consoleRow.side-collapsed #consoleSide .lp-tab { display:none; }
-#consoleRow.side-collapsed #consoleSide .ph { padding:8px 6px; }
+#consoleRow.side-collapsed #consoleSide .ph { display:none; }
 #consoleRow.side-collapsed #consoleSplit { display:none; }
+/* AI モード以外では中身が中央にあるので、空の枠を出さない */
+#consoleRow:not(.ai-mode) #consoleSide,
+#consoleRow:not(.ai-mode) #consoleSplit { display:none; }
 #consoleSide .ph { padding:4px 8px; }
 #sideHost { flex:1; min-height:0; display:flex; }
 /* 中央から移してきた .panel を、この枠いっぱいに収める */

@@ -464,10 +464,13 @@ function adoptPanelsIntoSide(){
   // 複製ではなく移動なのは、togMute の状態表示が二重にならないようにするため
   const mg=document.getElementById('muteGroup'), mh=document.getElementById('sideMuteHost');
   if(mg&&mh){_muteHome={parent:mg.parentNode,before:mg.previousSibling};mh.appendChild(mg);}
+  document.getElementById('consoleRow').classList.add('ai-mode');
   switchSideTab(sideTab);
 }
 
 function releasePanelsFromSide(){
+  const row=document.getElementById('consoleRow');
+  if(row)row.classList.remove('ai-mode');
   const host=document.getElementById('sideHost');
   const p=_sidePanels();
   const mg=document.getElementById('muteGroup');
