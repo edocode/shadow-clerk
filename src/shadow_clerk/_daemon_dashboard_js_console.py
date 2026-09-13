@@ -431,6 +431,7 @@ function updateSumSplit(){applySumOrientation();clampSumSplit();}
 const SIDE_MIN=200;
 let sideTab='transcript';
 let _sideHome=null;          // 戻す先（親と次兄弟）を覚えておく
+let _muteHome=null;          // ミュート群の戻す先
 
 function _sidePanels(){
   return {transcript:document.getElementById('pnlT'),
@@ -456,12 +457,23 @@ function adoptPanelsIntoSide(){
   _sideHome={parent:p.transcript.parentNode,before:p.transcript.previousSibling};
   host.appendChild(p.transcript);
   host.appendChild(p.translation);
+  // ミュートとレベル計もタブバーへ連れてくる。パネルのヘッダは側ペインでは
+  // 隠すので、置いていくと AI モードの間だけマイクを切れなくなる。
+  // 複製ではなく移動なのは、togMute の状態表示が二重にならないようにするため
+  const mg=document.getElementById('muteGroup'), mh=document.getElementById('sideMuteHost');
+  if(mg&&mh){_muteHome={parent:mg.parentNode,before:mg.previousSibling};mh.appendChild(mg);}
   switchSideTab(sideTab);
 }
 
 function releasePanelsFromSide(){
   const host=document.getElementById('sideHost');
   const p=_sidePanels();
+  const mg=document.getElementById('muteGroup');
+  if(mg&&_muteHome){
+    _muteHome.parent.insertBefore(mg,_muteHome.before?_muteHome.before.nextSibling
+                                                    :_muteHome.parent.firstChild);
+    _muteHome=null;
+  }
   if(!host||!p.transcript||!host.contains(p.transcript)||!_sideHome)return;
   const {parent,before}=_sideHome;
   // 元の並び順に戻す。before の直後が pnlT の定位置

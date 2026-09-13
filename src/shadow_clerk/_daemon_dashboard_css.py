@@ -164,10 +164,9 @@ main {
 #sideHost { flex:1; min-height:0; display:flex; }
 /* 中央から移してきた .panel を、この枠いっぱいに収める */
 #sideHost .panel { flex:1; min-width:0; }
-/* パネル本来のヘッダはタブと名前が重複するが、消すとミュートとレベル計まで
-   失う。下部ペインは元々背が低いので、消さずに詰める */
-#sideHost .ph { padding:2px 6px; font-size:11px; flex-wrap:wrap; row-gap:2px; }
-#sideHost .ph .lv { height:4px; }
+/* パネル本来のヘッダはタブと名前が重複するうえ、背の低い下部ペインでは
+   場所を食う。隠してよい——ミュートとレベル計はタブバーへ移してある */
+#sideHost .ph { display:none; }
 #consolec {
   position:relative;
   /* **gutter は常に確保すること。** overflow:auto のままだと、行が増減して
