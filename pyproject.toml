@@ -1,6 +1,6 @@
 [project]
 name = "shadow-clerk"
-version = "0.4.1"
+version = "0.4.2"
 description = "Real-time audio recording and transcription tool for web meetings"
 readme = "README.md"
 license = {text = "MIT"}
