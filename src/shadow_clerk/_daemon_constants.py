@@ -93,6 +93,12 @@ CONSOLE_READY_TIMEOUT_SEC = 15.0  # ready 判定の上限(秒)。超えたら諦
 # 本文が入力欄に収まったのを見てから Enter を別の書き込みとして送る
 CONSOLE_BELOW_CURSOR_ROWS = 8     # カーソルより下に TUI が描く行を拾う窓の深さ
 CONSOLE_SUBMIT_DELAY_SEC = 0.4
+# 上の CR を送っても、TUI 側の入力ハンドラがまだ描画に追いついていないと
+# 「送信」ではなく改行として吸収され、入力欄に居座ることがある(実機で確認: 見た目は
+# 静止していても、この時点ではまだ Enter を受け付けていない)。入力欄の内容が
+# 変わるまで、間隔を空けて Enter を送り直す
+CONSOLE_SUBMIT_RETRY_SEC = 2.0
+CONSOLE_SUBMIT_MAX_RETRIES = 5
 
 # SSE クライアントごとのキューの上限。tick スレッドが 100ms ごとに console
 # イベントを積むため、追いつけないクライアント（タブが背景に回った、

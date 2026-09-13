@@ -18,6 +18,7 @@ from shadow_clerk._daemon_console_render import render_rows
 from shadow_clerk._daemon_constants import (
     CONSOLE_BELOW_CURSOR_ROWS,
     CONSOLE_READY_QUIET_SEC, CONSOLE_READY_TIMEOUT_SEC, CONSOLE_SUBMIT_DELAY_SEC, CONSOLE_TICK_SEC,
+    CONSOLE_SUBMIT_MAX_RETRIES, CONSOLE_SUBMIT_RETRY_SEC,
     CONSOLE_COLS_FILE, CONSOLE_PTY_ROWS, DEFAULT_COLS, VIRTUAL_ROWS,
 )
 from shadow_clerk._transcript_name import TranscriptName
@@ -78,6 +79,14 @@ class ConsoleSession:
         self._pty: ConsolePty | None = None
         self._reader: threading.Thread | None = None
         self._lock = threading.RLock()
+        # send_after_ready は呼ぶたびに新しいスレッドを起こす(セッション再利用時の
+        # 二重呼び出しに備えて、_started に関わらず毎回通す設計のため——下記
+        # start_console_for のコメント参照)。ほぼ同時に2回届くと、1回目の
+        # "\r" がまだ子側で処理し切れていないうちに2回目の本文が入力欄に
+        # 続けて入ってしまい、どちらの Enter も「送信」ではなく改行として
+        # 吸収される(実機で確認済み: 直列化=待たせるだけでは防げず、
+        # 後から来た方を捨てる必要があった)。先着が処理中なら後着は捨てる
+        self._prompt_lock = threading.Lock()
         self.max_row = 0
         self._broadcast: Callable[[str, str], None] | None = None
         # 子に渡すダッシュボードの URL。ポートは CLI 引数で変えられるので、
@@ -275,6 +284,18 @@ class ConsoleSession:
             name="console-init-prompt", daemon=True).start()
 
     def _send_after_ready_blocking(self, text: str) -> None:
+        # 先着が処理中(ロック取得中)なら後着は捨てる。待たせて直列化するだけでは
+        # 先着の "\r" が子側でまだ効いていないうちに後着の本文が続けて入力欄に
+        # 入ってしまい、結局 Enter が送信として認識されない
+        if not self._prompt_lock.acquire(blocking=False):
+            logger.info("初期プロンプトの送信が重複したため、後着をスキップします: %s", text)
+            return
+        try:
+            self._send_after_ready_locked(text)
+        finally:
+            self._prompt_lock.release()
+
+    def _send_after_ready_locked(self, text: str) -> None:
         # 固定 sleep では TUI の起動時間のばらつきを吸収できない。
         # grid が非空になってから CONSOLE_READY_QUIET_SEC 変化しなければ
         # 描画が落ち着いたとみなす。上限を過ぎたら諦めて送り、ログに残す。
@@ -318,7 +339,37 @@ class ConsoleSession:
         self.write(body)
         if body is not text:
             time.sleep(CONSOLE_SUBMIT_DELAY_SEC)
+            self._submit_with_retry()
+
+    def _row_text(self, y: int) -> str:
+        """行 y の生テキスト(スタイル無視)。呼び出し側でロック済み"""
+        line = self.screen.buffer[y]
+        return "".join(line[x].data for x in range(self.screen.columns))
+
+    def _submit_with_retry(self) -> None:
+        """Enter を送り、カーソル行の見た目が変わるまで送り直す。
+
+        本文を打ち終えた直後で画面が静止していても、TUI 側の入力ハンドラが
+        まだ起動を終えていないことがあり、その状態で届いた Enter は「送信」
+        ではなく改行として吸収されて入力欄に居座る(実機で確認: 見た目には
+        何の兆候も無い)。応答の生成に数秒かかって判定が先走っても、空になった
+        入力欄への Enter の重ね打ちは無害なので、行の中身で判定する
+        (「子から何かバイトが来たか」で見ると、再接続待ちの再描画のような
+        中身の変わらない出力を成功と誤判定し、本当に詰まったまま再送を止めてしまう)
+        """
+        with self._lock:
+            row = self.screen.cursor.y
+            before = self._row_text(row)
+        for _ in range(CONSOLE_SUBMIT_MAX_RETRIES):
             self.write("\r")
+            time.sleep(CONSOLE_SUBMIT_RETRY_SEC)
+            with self._lock:
+                after = self._row_text(row)
+            if after != before:
+                return
+        logger.warning(
+            "Enter が %d 回送っても反映されませんでした。入力欄に居座っている可能性があります",
+            CONSOLE_SUBMIT_MAX_RETRIES)
 
     def _tick_loop(self) -> None:
         while not self._tick_stop.is_set():
