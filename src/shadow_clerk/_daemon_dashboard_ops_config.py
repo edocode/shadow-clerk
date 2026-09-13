@@ -22,6 +22,27 @@ except ImportError:
 logger = logging.getLogger("shadow-clerk")
 
 
+# パス系の設定と、その中身が何であるべきか。空欄はいずれも既定値へ
+# フォールバックする（データディレクトリ / ホーム / gcal 無効）ので検査しない
+_PATH_FIELDS = (
+    ("output_directory", os.path.isdir, "cfg.path_missing_dir"),
+    ("ai_assistant_workdir", os.path.isdir, "cfg.path_missing_dir"),
+    ("gcal_credentials_file", os.path.isfile, "cfg.path_missing_file"),
+)
+
+
+def _path_warnings(config: dict) -> list[str]:
+    """存在しないパスを警告文にして返す。
+
+    保存自体は止めない——先にパスを書いてからフォルダを作る手順を潰さないため。
+    黙ってフォールバックすると「設定したのに効かない」の原因がログにしか
+    残らないので、ダッシュボードに出せる形で返す
+    """
+    return [t(msg, path=value)
+            for key, exists, msg in _PATH_FIELDS
+            if (value := config.get(key)) and not exists(os.path.expanduser(str(value)))]
+
+
 class _DashboardHandlerConfigOps:
     """設定・用語集・検索・会議リネーム（ミックスイン）"""
 
@@ -104,7 +125,7 @@ class _DashboardHandlerConfigOps:
             CONFIG_FILE,
             [yaml.dump(config, default_flow_style=False, allow_unicode=True)])
         logger.info("ダッシュボードから設定変更")
-        self._send_json(config)
+        self._send_json({"config": config, "warnings": _path_warnings(config)})
 
     def _serve_glossary(self) -> None:
         content = ""

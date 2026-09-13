@@ -134,7 +134,7 @@ main {
 .panel.hidden { display:none; }
 .summary-body { white-space:pre-wrap; line-height:1.7; }
 .summary-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; }
-#logp.collapsed #logc, #logp.collapsed #consolec { display:none; }
+#logp.collapsed #logc, #logp.collapsed #consoleRow { display:none; }
 /* !important が要る。ドラッグでリサイズすると initLogResize が
    style.height をインラインで書くため、素の height:auto では負けて
    「中身は消えるのに箱の高さだけ残る」状態になる。インラインの値は
@@ -143,6 +143,46 @@ main {
 #logResize { height:5px; cursor:ns-resize; background:transparent; flex-shrink:0; }
 #logResize:hover { background:var(--accent); }
 #logp.collapsed #logResize { display:none; }
+/* AI コンソールと、その右の文字起こしペインを横に並べる。min-height/min-width:0 は
+   flex の子が中身の分だけ伸びて親をはみ出すのを止めるため */
+#consoleRow { flex:1; display:flex; min-height:0; }
+#consoleSplit { width:5px; cursor:ew-resize; background:var(--border); flex-shrink:0; }
+#consoleSplit:hover { background:var(--accent); }
+#consoleSide {
+  width:380px; flex-shrink:0; min-width:0; display:flex; flex-direction:column;
+  background:var(--panel); position:relative; overflow:visible;
+}
+/* つまみは #sumChevron と同じ「ペインの端に貼り付くタブ」。中身の外に出して
+   絶対配置するので、畳んだときに幅 0 にしても押せる */
+#consoleSideChevron {
+  position:absolute; left:-14px; top:50%; transform:translateY(-50%);
+  z-index:10; width:14px; height:44px;
+  background:var(--btn); border:1px solid var(--border);
+  border-radius:6px 0 0 6px; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  color:var(--muted); font-size:10px; padding:0;
+}
+#consoleSideChevron:hover { background:var(--btn-h); color:var(--text); }
+/* 畳んだら幅を残さない。**クラスは行コンテナに付ける。** #consoleSplit は
+   #consoleSide より前にあり、兄弟セレクタでは遡って隠せない。
+   **!important が要る。** ドラッグでリサイズすると style.width がインラインに
+   書かれ、素の width:0 では負けて「中身は消えるのに枠の幅だけ残る」状態になる
+   （#logp.collapsed と同じ理由）。インラインの値は残るので、開き直せば
+   ドラッグした幅に戻る */
+#consoleRow.side-collapsed #consoleSide { width:0 !important; }
+#consoleRow.side-collapsed #sideHost,
+#consoleRow.side-collapsed #consoleSide .ph { display:none; }
+#consoleRow.side-collapsed #consoleSplit { display:none; }
+/* AI モード以外では中身が中央にあるので、空の枠を出さない */
+#consoleRow:not(.ai-mode) #consoleSide,
+#consoleRow:not(.ai-mode) #consoleSplit { display:none; }
+#consoleSide .ph { padding:4px 8px; }
+#sideHost { flex:1; min-height:0; display:flex; }
+/* 中央から移してきた .panel を、この枠いっぱいに収める */
+#sideHost .panel { flex:1; min-width:0; }
+/* パネル本来のヘッダはタブと名前が重複するうえ、背の低い下部ペインでは
+   場所を食う。隠してよい——ミュートとレベル計はタブバーへ移してある */
+#sideHost .ph { display:none; }
 #consolec {
   position:relative;
   /* **gutter は常に確保すること。** overflow:auto のままだと、行が増減して
@@ -225,7 +265,7 @@ main {
 #pnlM { position:relative; overflow:visible; flex:0 0 180px; min-width:0; transition:flex-basis .15s; }
 #pnlM.collapsed { flex:0 0 0; }
 #pnlM.collapsed .lp-tabs, #pnlM.collapsed #datePane,
-#pnlM.collapsed #mtgContent, #pnlM.collapsed #searchPane { display:none !important; }
+#pnlM.collapsed #meetingContent, #pnlM.collapsed #searchPane { display:none !important; }
 #pnlM .ph { font-size:12px; min-width:0; }
 #pnlM .pc { padding:6px 8px; font-family:inherit; }
 .lp-tabs { display:flex; border-bottom:1px solid var(--border); flex-shrink:0; }
@@ -237,7 +277,7 @@ main {
 #logHead .lp-tab { flex:0 0 auto; padding:5px 10px; }
 .lp-tab:hover { color:var(--text); background:transparent; }
 .lp-tab.active { color:var(--accent); border-bottom-color:var(--accent); background:transparent; }
-#mtgContent { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
+#meetingContent { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
 #searchPane { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
 #searchForm { padding:6px 8px; border-bottom:1px solid var(--border); flex-shrink:0; }
 #searchForm input[type=text], #searchForm select { font-size:11px; padding:2px 4px; }
@@ -247,7 +287,7 @@ main {
 .sr-item:hover { background:var(--btn-h); }
 .sr-display { font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
 .sr-type { font-size:10px; color:var(--muted); flex-shrink:0; }
-#mtgChevron {
+#meetingChevron {
   position:absolute; right:-14px; top:50%; transform:translateY(-50%);
   z-index:10; width:14px; height:44px;
   background:var(--btn); border:1px solid var(--border);
@@ -255,7 +295,7 @@ main {
   display:flex; align-items:center; justify-content:center;
   color:var(--muted); font-size:10px; padding:0;
 }
-#mtgChevron:hover { background:var(--btn-h); color:var(--text); }
+#meetingChevron:hover { background:var(--btn-h); color:var(--text); }
 #pnlS { position:relative; overflow:visible; }
 #pnlS.collapsed { flex:0 0 0; }
 #pnlS.collapsed .lp-tabs, #pnlS.collapsed #sumWrap,
@@ -363,7 +403,22 @@ main {
 .modal-body textarea { resize:vertical; min-height:60px; font-family:monospace; font-size:12px; }
 .modal-body .cfg-section { grid-column:1/-1; font-weight:bold; font-size:13px; padding:8px 0 4px; border-bottom:1px solid var(--border); margin-top:4px; color:var(--text); }
 .modal-body .cfg-section:first-child { margin-top:0; }
-.modal-body .cfg-warn { grid-column:1/-1; font-size:11px; padding:6px 8px; background:rgba(255,179,71,0.12); border-left:3px solid #ffb347; color:var(--muted); margin:2px 0 4px; line-height:1.5; }
+/* 設定フォーム以外の本文。.modal-body は 140px+1fr の grid なので、
+   素の要素を並べると左右のセルに振り分けられて崩れる */
+.modal-body.flow { display:block; }
+.modal-body .cfg-skill { grid-column:1/-1; }
+.wc-opt { font-size:11px; line-height:1.7; color:var(--muted); margin-top:8px;
+  padding:6px 8px; border-left:2px solid var(--border); }
+.wc-dismiss { padding:0 16px 12px; text-align:right; font-size:11px; color:var(--muted); }
+.wc-dismiss label { cursor:pointer; display:inline-flex; align-items:center; gap:5px; }
+.wc-dismiss input { cursor:pointer; }
+.modal-body .cfg-doc { grid-column:1/-1; font-size:11px; padding:2px 0 6px; }
+.wc-row { display:flex; align-items:center; gap:8px; padding:5px 0; font-size:12px; }
+.wc-row code { color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
+.wc-row button { flex-shrink:0; }
+.wc-h { font-weight:bold; margin:10px 0 4px; font-size:12px; }
+.wc-li { color:var(--muted); font-size:11px; padding:2px 0 2px 10px; }
+.modal-body .cfg-warn, #cfgPathWarn { grid-column:1/-1; font-size:11px; padding:6px 8px; background:rgba(255,179,71,0.12); border-left:3px solid #ffb347; color:var(--muted); margin:2px 0 4px; line-height:1.5; }
 #glossaryTable th, #glossaryTable td {
   border:1px solid var(--border); padding:4px 6px;
 }

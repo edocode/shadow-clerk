@@ -14,7 +14,7 @@ from shadow_clerk._markdown import render_markdown
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain import misheard
 from shadow_clerk.domain.forbid_analyze import ForbidAnalyze
-from shadow_clerk.domain.mtg_config import MtgConfig
+from shadow_clerk.domain.meeting_config import MeetingConfig
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -58,7 +58,7 @@ class _DashboardHandlerConsoleOps:
     def _serve_console(self) -> None:
         """GET /api/console — grid 全体を返す（初回ロード・再接続用）
 
-        grid には mtg スキルの出力やツールの標準出力がそのまま載りうる。
+        grid には会議アシスタントスキルの出力やツールの標準出力がそのまま載りうる。
         ダッシュボードを外部公開する運用でも、この読み取りだけは
         書き込み系エンドポイントと同じく localhost に限る
         (Origin チェックは読み取り専用の GET には不要)
@@ -240,17 +240,17 @@ class _DashboardHandlerConsoleOps:
                          "added": [{"actual": e.actual, "heard": e.heard,
                                     "note": e.note} for e in added]})
 
-    def _serve_mtg_config(self) -> None:
-        """GET /api/mtg-config — 会議ごとの workdir 設定"""
-        cfg = MtgConfig.load()
+    def _serve_meeting_config(self) -> None:
+        """GET /api/meeting-config — 会議ごとの workdir 設定"""
+        cfg = MeetingConfig.load()
         self._send_json({
             "path": cfg.path,
             "default_workdir": cfg.resolve_workdir(""),
             "rules": [{"pattern": r.pattern, "workdir": r.workdir} for r in cfg.rules()],
         })
 
-    def _save_mtg_config(self) -> None:
-        """POST /api/mtg-config — 1 ルールの追加・更新・削除
+    def _save_meeting_config(self) -> None:
+        """POST /api/meeting-config — 1 ルールの追加・更新・削除
 
         old_pattern が指定されていれば、同じ読み込みの上で先にそのルールを
         削除してから upsert/delete する。パターンをリネームする場合、
@@ -275,7 +275,7 @@ class _DashboardHandlerConsoleOps:
             self._send_json({"status": "error", "message": f"invalid pattern: {e}"})
             return
         old_pattern = data.get("old_pattern")
-        cfg = MtgConfig.load()
+        cfg = MeetingConfig.load()
         if isinstance(old_pattern, str) and old_pattern.strip() and old_pattern.strip() != pattern:
             cfg.remove(old_pattern.strip())
         if data.get("delete"):
@@ -286,8 +286,8 @@ class _DashboardHandlerConsoleOps:
         try:
             path = cfg.save()
         except OSError as e:
-            logger.warning("mtg 設定の保存に失敗: %s", e)
+            logger.warning("会議設定の保存に失敗: %s", e)
             self._send_json({"status": "error", "message": str(e)})
             return
-        logger.info("mtg 設定を更新: %s (%s)", pattern, path)
+        logger.info("会議設定を更新: %s (%s)", pattern, path)
         self._send_json({"status": "ok", "path": path})

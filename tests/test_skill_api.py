@@ -11,8 +11,8 @@ import threading
 
 DATA = tempfile.mkdtemp(prefix="shadow-clerk-skillapi-")
 os.environ.setdefault("SHADOW_CLERK_DATA_DIR", DATA)
-os.environ["MTG_CONFIG"] = os.path.join(DATA, "mtg.yaml")
-with open(os.environ["MTG_CONFIG"], "w", encoding="utf-8") as _f:
+os.environ["MEETING_CONFIG"] = os.path.join(DATA, "mtg.yaml")
+with open(os.environ["MEETING_CONFIG"], "w", encoding="utf-8") as _f:
     _f.write("defaults:\n  verbosity: normal\n  history: 3\n"
              "meetings:\n  - pattern: 'Sprint[ _-]?MTG'\n    verbosity: minimal\n"
              "    interval: 20\n    note: 短時間\n")
@@ -97,13 +97,13 @@ def test_session_rejects_remote() -> None:
 
 def test_config_resolve_matches_rule() -> None:
     h = _Handler("meeting=Sprint_MTG")
-    h.path = "/api/mtg-config/resolve?meeting=Sprint_MTG"
-    h._serve_mtg_config_resolve()
+    h.path = "/api/meeting-config/resolve?meeting=Sprint_MTG"
+    h._serve_meeting_config_resolve()
     check("ルールが当たる", h.sent.get("verbosity") == "minimal", repr(h.sent))
     check("interval も上書きされる", h.sent.get("interval") == 20, repr(h.sent))
     check("note を返す", h.sent.get("note") == "短時間", repr(h.sent))
-    h.path = "/api/mtg-config/resolve?meeting=NoSuchMeeting"
-    h._serve_mtg_config_resolve()
+    h.path = "/api/meeting-config/resolve?meeting=NoSuchMeeting"
+    h._serve_meeting_config_resolve()
     check("当たらなければ defaults", h.sent.get("verbosity") == "normal", repr(h.sent))
     check("history の既定は 3", h.sent.get("history") == 3, repr(h.sent))
 

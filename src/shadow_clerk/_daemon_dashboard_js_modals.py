@@ -218,4 +218,111 @@ async function doExtractMeeting(){
     }else{alert(d.message||I18N['dash.extract_meeting_error']||'Failed');}
   }catch(e){alert(I18N['dash.extract_meeting_error']||'Failed');}
 }
+
+/* --- Welcome / スキル更新 --- */
+// 判定は /api/skill-status の state (missing|outdated|current) 一本に寄せる。
+// 2つのモーダルで別々に判定を書くと、片方だけ直したときに黙ってずれる
+async function _skillStatus(){
+  try{return await(await fetch('/api/skill-status')).json();}catch(e){return null;}
+}
+
+function _skillRows(targets){
+  return targets.map(t=>{
+    const done=t.state==='current';
+    return `<div class="wc-row">`
+      +`<button onclick="installSkill('${escAttr(escJs(t.name))}',this)"${done?' disabled':''}>`
+      +`${esc(done?I18N['welcome.skill_done']:I18N['welcome.skill'])}</button>`
+      +`<span>${esc(t.name)}</span><code>${esc(t.path)}</code></div>`;
+  }).join('');
+}
+
+async function installSkill(target,btn){
+  btn.disabled=true;
+  try{
+    const r=await(await fetch('/api/skill-install',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({target})})).json();
+    btn.textContent=r.status==='ok'?I18N['welcome.skill_done']:(r.message||r.status);
+    if(r.status!=='ok')btn.disabled=false;
+  }catch(e){btn.disabled=false;}
+}
+
+async function maybeShowWelcome(){
+  // 初回の印を config.yaml の有無に置かない。clerk-util read-config が
+  // 既定値のファイルを書くので、読んだだけで「初回ではない」になってしまう
+  try{
+    const cfg=await(await fetch('/api/config')).json();
+    if(cfg.welcome_dismissed)return;
+  }catch(e){return;}
+  const st=await _skillStatus();if(!st)return;
+  // おすすめ設定は案内だけにする。初回に無断で値を書き換えると、あとから
+  // 挙動の原因を追えなくなる
+  // gcal だけは設定に Google Cloud 側の準備が要るので、手順書へ導く
+  const recs=['rec_auto_analyze','rec_gcal','rec_asr','rec_workdir'].map(k=>{
+    const doc=k==='rec_gcal'
+      ?' — '+docLink('cfg.gcal_setup_url','cfg.gcal_setup_link'):'';
+    return `<div class="wc-li">・${esc(I18N['welcome.'+k])}${doc}</div>`;
+  }).join('');
+  document.getElementById('welcomeBody').innerHTML=
+    `<div style="font-size:12px;line-height:1.7">${esc(I18N['welcome.intro'])}</div>`
+    +`<div class="wc-opt">${esc(I18N['welcome.optional_ai'])}</div>`
+    +`<div class="wc-h">${esc(I18N['welcome.skill_where'])}</div>${_skillRows(st.targets)}`
+    +`<div class="wc-h">${esc(I18N['welcome.recommend'])}</div>${recs}`;
+  document.getElementById('welcomeModal').classList.add('open');
+}
+
+function closeWelcome(){document.getElementById('welcomeModal').classList.remove('open');}
+function openCfgFromWelcome(){closeWelcome();openCfg();}
+
+async function setWelcomeDismissed(on){
+  // チェックした時点で保存する。あとで × で閉じても効くようにするため
+  try{
+    const cfg=await(await fetch('/api/config')).json();
+    cfg.welcome_dismissed=!!on;
+    await fetch('/api/config',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
+  }catch(e){}
+}
+
+let _outdatedSkills=[];
+
+async function maybeShowSkillUpdate(){
+  const st=await _skillStatus();if(!st||!st.bundled)return;
+  const old=st.targets.filter(t=>t.state==='outdated');
+  if(!old.length)return;
+  try{
+    const cfg=await(await fetch('/api/config')).json();
+    if(cfg.skill_update_dismissed_version===st.bundled)return;
+  }catch(e){}
+  _outdatedSkills=old.map(t=>t.name);
+  document.getElementById('skillUpdateBody').innerHTML=
+    `<div style="font-size:12px;line-height:1.7">`
+    +`${esc((I18N['skill_update.body']||'').replace('{bundled}',st.bundled))}</div>`
+    +_skillRows(old);
+  document.getElementById('skillUpdateModal').dataset.bundled=st.bundled;
+  document.getElementById('skillUpdateModal').classList.add('open');
+}
+
+async function updateOutdatedSkills(btn){
+  btn.disabled=true;
+  for(const name of _outdatedSkills){
+    try{await fetch('/api/skill-install',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({target:name})});}catch(e){}
+  }
+  document.getElementById('skillUpdateModal').classList.remove('open');
+}
+
+async function dismissSkillUpdate(){
+  const m=document.getElementById('skillUpdateModal');
+  const version=m.dataset.bundled||'';
+  m.classList.remove('open');
+  // 同じ版では二度と出さない。毎回出ると必ず無視されるようになる
+  try{
+    const cfg=await(await fetch('/api/config')).json();
+    cfg.skill_update_dismissed_version=version;
+    await fetch('/api/config',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
+  }catch(e){}
+}
+
 """

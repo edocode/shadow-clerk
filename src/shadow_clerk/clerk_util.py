@@ -448,6 +448,43 @@ def cmd_summarize(args: list[str]) -> None:
     sys.exit(result.returncode)
 
 
+def cmd_install_skill(args: list[str]) -> None:
+    """同梱スキルをエージェントのスキルディレクトリへ配る
+
+    配布先の記憶も含めて処理は skill_install が持つ。ここは引数の解釈と
+    表示だけにする——clerk_util.py は 700 行の上限に近い
+    """
+    from shadow_clerk import skill_install
+    target, link, force = "claude", False, False
+    rest = list(args)
+    usage = ("Usage: clerk-util install-skill "
+             f"[--target {'|'.join(skill_install.BUILTIN_TARGETS)}|<path>] [--link] [--force]")
+    while rest:
+        a = rest.pop(0)
+        if a == "--target" and rest:
+            target = rest.pop(0)
+        elif a == "--link":
+            link = True
+        elif a == "--force":
+            force = True
+        else:
+            print(usage, file=sys.stderr)
+            sys.exit(1)
+    try:
+        result = skill_install.install(target, link=link, force=force)
+    except skill_install.InstallRefused as e:
+        print(f"配布を中止しました: {e}", file=sys.stderr)
+        print("  配布先に素性の分からないスキルがあります。上書きするなら --force",
+              file=sys.stderr)
+        sys.exit(1)
+    except OSError as e:
+        print(f"配布に失敗しました: {e}", file=sys.stderr)
+        sys.exit(1)
+    print(f"配布元: {skill_install.bundled_skill_dir()}")
+    print(f"配布先: {result['path']} ({result['mode']})")
+    print(f"バージョン: {result['before'] or '(未配布)'} -> {result['after']}")
+
+
 def cmd_gcal_auth(args: list[str]) -> None:
     """Google Calendar OAuth 認証フローを実行してトークンを保存する"""
     if not args:
@@ -496,6 +533,8 @@ def cmd_help(args: list[str]) -> None:
     print()
     print("Setup subcommands:")
     print("  gcal-auth <credentials.json> [token_file]  Google Calendar OAuth 認証")
+    print("  install-skill [--target claude|agents|<path>] [--link] [--force]")
+    print("                                             会議アシスタントのスキルを配る")
     print()
     print(f"Data directory: {DATA_DIR}")
 
@@ -512,6 +551,7 @@ COMMANDS = {
     "run-llm": cmd_run_llm,
     "summarize": cmd_summarize,
     "gcal-auth": cmd_gcal_auth,
+    "install-skill": cmd_install_skill,
     "help": cmd_help,
 }
 

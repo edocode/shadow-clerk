@@ -1,4 +1,4 @@
-"""mtg スキルの設定ファイル（会議ごとの起動ディレクトリ）"""
+"""会議ごとの起動ディレクトリ設定（会議ごとの起動ディレクトリ）"""
 from __future__ import annotations
 import logging
 import os
@@ -12,8 +12,19 @@ from shadow_clerk import DATA_DIR
 
 logger = logging.getLogger("shadow-clerk")
 
-# スキル側の get-config.sh と同じ探索順。どちらから編集しても同じファイルを見る
+# 設定は DATA_DIR に一本化する。~/.config/ は POSIX の作法で、Windows では
+# C:\Users\<user>\.config\ という据わりの悪い場所になる。DATA_DIR は OS 差を
+# 既に吸収している
 _SEARCH_PATHS = (
+    lambda: os.environ.get("MEETING_CONFIG") or "",
+    lambda: os.path.join(DATA_DIR, "meeting.yaml"),
+)
+
+# 設定が無いときの書き込み先。探索順の最後と揃える
+_DEFAULT_WRITE_PATH = os.path.join(DATA_DIR, "meeting.yaml")
+
+# 改名前のバージョンが読んでいた場所。起動時に1度だけ新パスへ複製する
+_LEGACY_PATHS = (
     lambda: os.environ.get("MTG_CONFIG") or "",
     lambda: os.path.join(
         os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
@@ -22,20 +33,38 @@ _SEARCH_PATHS = (
     lambda: os.path.join(DATA_DIR, "mtg.yaml"),
 )
 
-# 設定が無いときの書き込み先。探索順の最後と揃える
-_DEFAULT_WRITE_PATH = os.path.join(DATA_DIR, "mtg.yaml")
+
+def migrate_legacy(legacy_paths: list[str] | None = None,
+                   target: str | None = None) -> bool:
+    """旧パスの設定を新パスへ複製する。旧ファイルは消さない。
+
+    消さないのは、古いバージョンに戻したくなったときに設定ごと失わせないため。
+    新パスが既にあれば何もしない——利用者が新しい方を育てている
+    """
+    target = target or _DEFAULT_WRITE_PATH
+    if os.path.exists(target):
+        return False
+    candidates = legacy_paths if legacy_paths is not None else [get() for get in _LEGACY_PATHS]
+    for path in candidates:
+        if not path or not os.path.isfile(path):
+            continue
+        os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+        shutil.copy2(path, target)
+        logger.info("会議設定を移行しました: %s -> %s", path, target)
+        return True
+    return False
 
 
 @dataclass(frozen=True)
-class MtgRule:
+class MeetingRule:
     """会議名パターンと、その会議での起動ディレクトリ"""
 
     pattern: str
     workdir: str
 
 
-class MtgConfig:
-    """mtg スキルの config.yaml。shadow-clerk は workdir だけを読み書きする"""
+class MeetingConfig:
+    """会議設定。shadow-clerk は workdir だけを読み書きする"""
 
     def __init__(self, path: str, raw: dict) -> None:
         self.path = path
@@ -50,7 +79,7 @@ class MtgConfig:
         return None
 
     @classmethod
-    def load(cls, path: str | None = None) -> "MtgConfig":
+    def load(cls, path: str | None = None) -> "MeetingConfig":
         target = path or cls.locate() or _DEFAULT_WRITE_PATH
         raw: dict = {}
         try:
@@ -61,7 +90,7 @@ class MtgConfig:
         except OSError:
             pass  # 未作成。空の設定として扱う
         except yaml.YAMLError as e:
-            logger.warning("mtg 設定の読み込みに失敗: %s (%s)", e, target)
+            logger.warning("会議設定の読み込みに失敗: %s (%s)", e, target)
         return cls(target, raw)
 
     # --- 読み ---
@@ -70,8 +99,8 @@ class MtgConfig:
         entries = self.raw.get("meetings")
         return [e for e in entries if isinstance(e, dict)] if isinstance(entries, list) else []
 
-    def rules(self) -> list[MtgRule]:
-        return [MtgRule(str(e.get("pattern") or ""), str(e.get("workdir") or ""))
+    def rules(self) -> list[MeetingRule]:
+        return [MeetingRule(str(e.get("pattern") or ""), str(e.get("workdir") or ""))
                 for e in self._meetings() if e.get("pattern")]
 
     #: 設定が無くても動くための組み込み既定。get-config.sh と同じ値。
@@ -101,7 +130,7 @@ class MtgConfig:
             except re.error as e:
                 # 人が手で書く設定なので壊れたパターンは起こりうる。
                 # 全体を落とさず、そのルールだけ飛ばして次を見る
-                logger.warning("mtg 設定の pattern が不正です %r: %s", pattern, e)
+                logger.warning("会議設定の pattern が不正です %r: %s", pattern, e)
                 continue
             if hit:
                 matched = str(pattern)
@@ -149,7 +178,7 @@ class MtgConfig:
             except re.error as e:
                 # 人が手で書く設定なので不正なパターンは起こりうる。
                 # 全体を落とさず、そのルールだけ飛ばして次を見る
-                logger.warning("mtg 設定の pattern が不正です %r: %s", pattern, e)
+                logger.warning("会議設定の pattern が不正です %r: %s", pattern, e)
                 continue
             if matched:
                 return str(entry.get("workdir") or self._default_workdir())
@@ -218,6 +247,6 @@ class MtgConfig:
             return  # 最初の1回だけ残す
         try:
             shutil.copyfile(target, backup)
-            logger.info("mtg 設定の初回書き換え前にバックアップを作成: %s", backup)
+            logger.info("会議設定の初回書き換え前にバックアップを作成: %s", backup)
         except OSError as e:
-            logger.warning("mtg 設定のバックアップ作成に失敗: %s", e)
+            logger.warning("会議設定のバックアップ作成に失敗: %s", e)

@@ -9,6 +9,7 @@ import re
 import threading
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
+from shadow_clerk import DATA_DIR
 from shadow_clerk.i18n import t, t_all
 from shadow_clerk._daemon_constants import SESSION_FILE
 from shadow_clerk._daemon_log_buffer import _SSE_CLOSE_EVENT
@@ -18,6 +19,16 @@ from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk._markdown import render_markdown
 
 logger = logging.getLogger("shadow-clerk")
+
+
+def _path_hints() -> dict[str, str]:
+    """パス入力欄に出す実例。言語ではなく OS で変わるので i18n には置かない——
+    ja/en に同じ値を二重に持つことになり、Windows で POSIX 形式を見せてしまう"""
+    return {
+        "ai_assistant_workdir": os.path.join(os.path.expanduser("~"), "meeting-analysis"),
+        "gcal_credentials_file": os.path.join(DATA_DIR, "credentials.json"),
+    }
+
 
 # 書き込み系エンドポイント（AI Console の入出力、画面キャプチャ受け取り等）を
 # localhost だけに絞るための許可アドレス一覧。
@@ -116,20 +127,22 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_console()
         elif path == "/api/session":
             self._serve_session()
-        elif path == "/api/mtg-config/resolve":
-            self._serve_mtg_config_resolve()
+        elif path == "/api/meeting-config/resolve":
+            self._serve_meeting_config_resolve()
         elif path == "/api/meeting-history":
             self._serve_meeting_history()
         elif path == "/api/watch":
             self._serve_watch()
+        elif path == "/api/skill-status":
+            self._serve_skill_status()
         elif path == "/api/generated":
             self._serve_generated_paths()
         elif path == "/api/advice":
             self._serve_advice()
         elif path == "/api/analysis":
             self._serve_analysis()
-        elif path == "/api/mtg-config":
-            self._serve_mtg_config()
+        elif path == "/api/meeting-config":
+            self._serve_meeting_config()
         elif path == "/api/forbid-analyze":
             self._serve_forbid_analyze()
         elif path == "/api/misheard":
@@ -143,6 +156,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._handle_command()
         elif path == "/api/config":
             self._save_config()
+        elif path == "/api/skill-install":
+            self._install_skill()
         elif path == "/api/audio-devices/refresh":
             self._refresh_audio_devices()
         elif path == "/api/glossary":
@@ -173,8 +188,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._console_input()
         elif path == "/api/console/resize":
             self._console_resize()
-        elif path == "/api/mtg-config":
-            self._save_mtg_config()
+        elif path == "/api/meeting-config":
+            self._save_meeting_config()
         elif path == "/api/forbid-analyze":
             self._save_forbid_analyze()
         elif path == "/api/misheard":
@@ -196,6 +211,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         html = _HTML_TEMPLATE
         html = re.sub(r'\{\{i18n:([^}]+)\}\}', lambda m: t(m.group(1)), html)
         html = html.replace("/*I18N_JSON*/", f"const I18N={json.dumps(t_all(), ensure_ascii=False)};")
+        html = html.replace("/*PATH_HINTS_JSON*/",
+                            f"const PATH_HINTS={json.dumps(_path_hints(), ensure_ascii=False)};")
         body = html.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")

@@ -55,6 +55,9 @@ STRINGS_JA: dict[str, str] = {
     "dash.start_analysis_title": "AI アシスタントを起動して会議スキルを実行します",
     "dash.stop_analysis": "分析停止",
     "dash.stop_analysis_title": "AI アシスタントを停止します",
+    "dash.tab_transcript": "Transcript",
+    "dash.tab_translation": "Translation",
+    "dash.side_toggle": "文字起こしペインの開閉",
     "dash.tab_logs": "ログ",
     "dash.tab_console": "AI コンソール",
     "dash.font_size": "文字サイズ(小/中/大)",
@@ -67,7 +70,6 @@ STRINGS_JA: dict[str, str] = {
     "dash.console_stop_confirm": "AI アシスタントを停止しますか?",
     "dash.console_start_failed": "AI アシスタントの起動に失敗しました。",
     "dash.console_hint": "ここをクリックして入力すると、アシスタントにキーが送られます。",
-    "dash.view_summary": "要約閲覧",
     "dash.custom_cmd_placeholder": "カスタムコマンド",
     "dash.send": "送信",
     "dash.glossary": "用語集",
@@ -212,11 +214,22 @@ STRINGS_JA: dict[str, str] = {
         "  llm_provider が api の場合のみ動作します。\n\n"
         "要約\n"
         "  現在の transcript から議事録を生成します。\n\n"
-        "要約閲覧\n"
-        "  生成済みの議事録を表示します。\n\n"
+        "文字サイズ (小/中/大)\n"
+        "  transcript の文字サイズを切り替えます。\n\n"
+        "用語集 / コマンド\n"
+        "  用語集は文字起こしの表記ゆれを補正します。\n"
+        "  コマンドは音声で起動する任意の操作を登録します。\n\n"
+        "📅 Google Calendar\n"
+        "  本日の予定と、会議の自動開始・終了の状態を表示します。\n\n"
         "【パネル操作】\n"
-        "T|R ボタン: Transcript/Translation の表示を切替\n"
-        "  T|R → T のみ → R のみ → T|R（循環）\n\n"
+        "T|R ボタン: 中央ペインの表示を切替（押すたびに循環）\n"
+        "  T|R（両方）→ T のみ → R のみ → AI → T|R\n"
+        "  AI では AI コンソールだけが残ります。\n\n"
+        "◀ / ▶ ボタン（画面の左右端）: 両脇のペインを開閉します。\n"
+        "  左（◀）は会議一覧。日付・会議・検索でファイルを選びます。\n"
+        "  右（▶）は要約と AI コンソールで、タブで切り替えます。\n"
+        "  右は既定で閉じています。右の開閉だけブラウザに記憶されます。\n"
+        "  左はリロードすると必ず開いた状態に戻ります。\n\n"
         "Logs ▼▲: ログパネルの表示・非表示を切替\n\n"
         "🎤 / 🔊: マイク・スピーカーの書き起こしミュート\n"
         "  ミュート中は音声キャプチャは継続しますが、\n"
@@ -225,12 +238,29 @@ STRINGS_JA: dict[str, str] = {
         "PTT キー（デフォルト: Menu）を押しながら発話\n"
         "  「会議開始」「会議終了」「翻訳開始」「翻訳停止」\n"
         "  「言語 日本語」「言語 英語」\n\n"
+        "【AI コンソール】\n"
+        "画面下の「AI コンソール」タブで、会議アシスタントが動きます。\n"
+        "会議開始と同時に起こすなら auto_analyze を有効にします。\n"
+        "起動ディレクトリは設定の「既定の起動ディレクトリ」、\n"
+        "会議ごとの上書きは会議一覧の各行の ⚙ から指定できます。\n\n"
+        "【スキルの配布】\n"
+        "アシスタントは同梱スキル clerk-meeting-helper を使います。\n"
+        "エージェント側のスキルディレクトリへ配る必要があります。\n"
+        "  claude → ~/.claude/skills/     (Claude Code)\n"
+        "  agents → ~/.agents/skills/     (Codex ほか)\n"
+        "初回起動時のモーダルから配れます。コマンドからでも同じです:\n"
+        "  clerk-util install-skill\n"
+        "  clerk-util install-skill --target agents\n"
+        "  clerk-util install-skill --target <パス>\n"
+        "同梱スキルが更新されると、次にダッシュボードを開いたときに\n"
+        "更新を促すモーダルが出ます。\n\n"
         "【設定】\n"
         "⚙ ボタンで設定モーダルを開きます。\n"
         "主な設定項目:\n"
         "  - UI言語 / 翻訳先言語 / Whisperモデル\n"
         "  - LLMプロバイダ / APIエンドポイント\n"
         "  - PTTキー / 中間文字起こし\n"
+        "  - Google Calendar 連携 (予定から会議を自動で開始・終了)\n"
     ),
 
     "dash.audio_device_monitor": "モニター",
@@ -295,7 +325,6 @@ STRINGS_JA: dict[str, str] = {
     "cfg.interim_japanese_asr_model": "中間 日本語ASRモデル",
     "cfg.gcal_integration": "Google Calendar 連携を有効にする",
     "cfg.gcal_credentials_file": "credentials.json パス",
-    "cfg.gcal_credentials_file_ph": "~/.local/share/shadow-clerk/credentials.json",
     "cfg.gcal_calendar_id": "カレンダーID",
     "cfg.gcal_buffer_minutes": "開始バッファ（分）",
     "cfg.gcal_end_buffer_minutes": "終了バッファ（分）",
@@ -312,9 +341,31 @@ STRINGS_JA: dict[str, str] = {
     "cfg.ai_assistant_args": "アシスタントの引数",
     "cfg.ai_assistant_args_ph": "--permission-mode acceptEdits",
     "cfg.ai_assistant_init_prompt": "初期プロンプト",
-    "cfg.ai_assistant_init_prompt_ph": "/mtg {transcript}",
+    "cfg.ai_assistant_init_prompt_ph": "/clerk-meeting-helper {transcript} {lang}",
     "cfg.ai_assistant_workdir": "既定の起動ディレクトリ",
-    "cfg.ai_assistant_workdir_ph": "~/mtg-analysis",
+    "cfg.gcal_setup_url": "https://github.com/edocode/shadow-clerk/blob/main/docs/google-calendar-setup.ja.md",
+    "cfg.gcal_setup_link": "設定手順（Google Cloud の準備が必要です）",
+    "cfg.skill_install": "スキルの配布",
+    "welcome.title": "shadow-clerk へようこそ",
+    "welcome.intro": "会議の音声をリアルタイムに文字起こしし、翻訳します。ここまでは追加のエージェントなしで動きます。",
+    "welcome.optional_ai": "Claude や Codex などの AI エージェントと組み合わせると、会議中のリアルタイム分析と議事録の自動生成ができます。使う場合は、そのエージェントにスキルを配ってください。",
+    "welcome.skill": "スキルを配る",
+    "welcome.skill_done": "配布しました",
+    "welcome.skill_where": "スキルの配布先（AI エージェントを使う場合）",
+    "welcome.settings": "設定を開く",
+    "welcome.recommend": "はじめに見ておくとよい設定",
+    "welcome.rec_auto_analyze": "会議が始まったら AI アシスタントを自動で起こす",
+    "welcome.rec_gcal": "Google Calendar の予定から会議の開始と終了を検出する",
+    "welcome.rec_asr": "日本語の文字起こしモデル",
+    "welcome.rec_workdir": "AI アシスタントの起動ディレクトリ",
+    "welcome.dont_show_again": "今後このメッセージを表示しない",
+    "welcome.close": "閉じる",
+    "skill_update.title": "スキルが更新されています",
+    "skill_update.body": "同梱 {bundled} に対して、配布済みが古いままです。",
+    "skill_update.update": "更新する",
+    "skill_update.later": "あとで",
+    "cfg.path_missing_dir": "ディレクトリが見つかりません: {path}",
+    "cfg.path_missing_file": "ファイルが見つかりません: {path}",
     "cfg.ai_assistant_workdir_warn": "アシスタントはスキルのシェルスクリプトを実行します。そのディレクトリの .claude/settings.json で許可しておかないと、会議中に承認プロンプトで止まります。",
 
     # --- llm.* : LLM プロンプト ---

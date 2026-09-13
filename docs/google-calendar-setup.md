@@ -1,5 +1,7 @@
 # Google Calendar Integration Setup
 
+[日本語](google-calendar-setup.ja.md)
+
 shadow-clerk can automatically start and end meeting sessions based on your Google Calendar schedule. When a calendar event begins, it sends a `start_meeting` command and creates a transcript file named `transcript-YYYYMMDDHHMM@EventTitle.txt`.
 
 ## Prerequisites

@@ -82,6 +82,12 @@ _EXCLUDES = ["torch", "transformers", "sentencepiece", "tkinter", "matplotlib",
              "IPython", "pytest"]
 
 _SRC = os.path.join(_ROOT, "src")
+
+# スキル実体。clerk-util install-skill の配布元になるので、バイナリにも同梱する。
+# ここに無いと、リポジトリを持たない .exe 利用者には配るものが存在しない。
+# **_SRC の定義より後に置くこと。** datas の初期化の隣に書くと NameError になる
+datas += [(os.path.join(_SRC, "shadow_clerk", "skills"),
+           os.path.join("shadow_clerk", "skills"))]
 _daemon = Analysis([os.path.join(_SRC, "shadow_clerk", "clerk_daemon.py")],
                    pathex=[_SRC], binaries=binaries, datas=datas,
                    hiddenimports=hiddenimports, hookspath=_HOOKS,

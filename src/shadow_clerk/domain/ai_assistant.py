@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import shlex
+import sys
 from dataclasses import dataclass
 
 from shadow_clerk._daemon_constants import DEFAULT_CONFIG
@@ -11,6 +12,20 @@ from shadow_clerk._daemon_constants import DEFAULT_CONFIG
 logger = logging.getLogger("shadow-clerk")
 
 _PLACEHOLDER = re.compile(r"\{(transcript|meeting|lang)\}")
+
+
+def _split_args(raw: str) -> list[str]:
+    """引数文字列をトークンに割る。
+
+    Windows では posix=False で割る。POSIX モードの shlex はバックスラッシュを
+    エスケープとして食うので `C:\\Users\\x` が `C:Usersx` に潰れ、末尾が
+    バックスラッシュだと ValueError まで出る——Windows のパスを引数に書く手段が
+    無くなる。posix=False は引用符をトークンに残すので、外側の対だけ剥がす。
+    """
+    if sys.platform != "win32":
+        return shlex.split(raw)
+    return [tok[1:-1] if len(tok) >= 2 and tok[0] == tok[-1] and tok[0] in "\"'" else tok
+            for tok in shlex.split(raw, posix=False)]
 
 
 @dataclass(frozen=True)
@@ -30,7 +45,7 @@ class AiAssistantConfig:
 
         raw_args = _get("ai_assistant_args")
         try:
-            args = tuple(shlex.split(raw_args))
+            args = tuple(_split_args(raw_args))
         except ValueError as e:
             # 引用符の閉じ忘れなど。起動できない方が困るので空にして続ける
             logger.warning("ai_assistant_args を解釈できません (%s): %r", e, raw_args)

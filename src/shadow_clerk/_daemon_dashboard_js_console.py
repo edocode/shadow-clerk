@@ -23,7 +23,7 @@ function switchLogTab(tab,opts){
   document.getElementById('tabLogs').classList.toggle('active',tab==='logs');
   document.getElementById('tabConsole').classList.toggle('active',tab==='console');
   document.getElementById('logc').style.display=(tab==='logs')?'':'none';
-  document.getElementById('consolec').style.display=(tab==='console')?'':'none';
+  document.getElementById('consoleRow').style.display=(tab==='console')?'':'none';
   if(tab==='console'){
     if(!_consoleLoaded)loadConsole();
     focusConsoleInput();
@@ -406,16 +406,16 @@ function initLogResize(){
 const SUM_SPLIT_MIN=60;
 /* 左右に並べ替える幅。入りと戻りをずらして、境目での往復を防ぐ */
 const SUM_ROW_ON=660, SUM_ROW_OFF=600;
-let _adviceWant=0, _adviceWantW=0;  // ユーザーが決めた高さ/幅。容器に合わせて挟むが、この値自体は動かさない
+/* ユーザーが決めた分割位置は**比率**で持つ。px で覚えると、容器が狭まったとき
+   Advice だけが元の大きさを保ち、Analysis が最小まで潰れる。0 は未設定 */
+let _adviceRatio=0, _adviceRatioW=0;
 /* 縦積みと横並びでいじる軸が変わる。判定を 1 か所に集める */
 function _sumRow(){const w=document.getElementById('aiWrap');return !!w&&w.classList.contains('row');}
 function _sumProp(row){return row?'width':'height';}
-function _sumWant(row){return row?_adviceWantW:_adviceWant;}
-/* 保存した値は「保存した時点のペインの大きさ」に対するものでしかない。ウィンドウを
-   狭めたり下部ペインを広げたりすると容器を超え、もう一方が 0 近くまで潰れる
-   （実際 aiWrap 745px に対し advWrap が 923px になっていた）。
-   容器の大きさが変わるたびに挟み直す。want は書き換えないので、
-   容器が広がれば元の大きさに戻る */
+function _sumRatio(row){return row?_adviceRatioW:_adviceRatio;}
+/* 容器の大きさが変わるたびに、覚えた比率から引き直す。比率は書き換えないので、
+   容器が広がれば元の割合に戻る。最低幅は両側に残す——どちらかが 0 になると、
+   そこにあるはずの提案や分析が読めなくなる */
 function clampSumSplit(){
   const top=document.getElementById('advWrap'),wrap=document.getElementById('aiWrap');
   if(!top||!wrap)return;
@@ -423,8 +423,10 @@ function clampSumSplit(){
   const avail=wrap.getBoundingClientRect()[prop];
   if(avail<SUM_SPLIT_MIN*2+10)return;   // 畳んでいる、または測れない
   const cur=parseInt(top.style[prop],10)||Math.round(top.getBoundingClientRect()[prop]);
+  const ratio=_sumRatio(row);
   const h=Math.round(Math.max(SUM_SPLIT_MIN,
-                              Math.min(avail-SUM_SPLIT_MIN-10,_sumWant(row)||cur)));
+                              Math.min(avail-SUM_SPLIT_MIN-10,
+                                       ratio?avail*ratio:cur)));
   if(h!==cur)top.style[prop]=h+'px';
 }
 /* 幅で縦積みと横並びを決める。狭いまま左右に割ると 1 ペインが数十文字になり、
@@ -439,18 +441,124 @@ function applySumOrientation(){
   if(want===row)return;
   wrap.classList.toggle('row',want);
   top.style.width='';top.style.height='';
-  const v=_sumWant(want);
-  if(v>=SUM_SPLIT_MIN)top.style[_sumProp(want)]=v+'px';
+  // 新しい軸での大きさは clampSumSplit が比率から引き直す。updateSumSplit が
+  // この直後に必ず呼ぶので、ここでは軸を替えてインラインを落とすだけでよい
 }
 /* 向きを決めてから挟む。外から呼ぶのはこれだけ */
 function updateSumSplit(){applySumOrientation();clampSumSplit();}
+/* --- AI コンソール右の文字起こしペイン --- */
+// 中身は中央の pnlT / pnlR を DOM ごと移して使う。loadT/loadR や選択・削除の
+// 処理を二重に持つと、片方だけ直したときに黙ってずれる。パネルは1か所にしか
+// 置けないので、移すのは AI モードの間だけ
+const SIDE_MIN=200;
+let sideTab='transcript';
+let _sideHome=null;          // 戻す先（親と次兄弟）を覚えておく
+let _muteHome=null;          // ミュート群の戻す先
+
+function _sidePanels(){
+  return {transcript:document.getElementById('pnlT'),
+          translation:document.getElementById('pnlR')};
+}
+
+function switchSideTab(tab){
+  sideTab=tab;
+  const p=_sidePanels(), host=document.getElementById('sideHost');
+  if(!host)return;
+  Object.entries(p).forEach(([k,el])=>{
+    if(!el)return;
+    document.getElementById(k==='transcript'?'tabSideT':'tabSideR')
+      .classList.toggle('active',k===tab);
+    el.classList.toggle('hidden',k!==tab);
+  });
+}
+
+function adoptPanelsIntoSide(){
+  const host=document.getElementById('sideHost');if(!host)return;
+  const p=_sidePanels();if(!p.transcript||!p.translation)return;
+  if(host.contains(p.transcript))return;              // 既に移動済み
+  _sideHome={parent:p.transcript.parentNode,before:p.transcript.previousSibling};
+  host.appendChild(p.transcript);
+  host.appendChild(p.translation);
+  // ミュートとレベル計もタブバーへ連れてくる。パネルのヘッダは側ペインでは
+  // 隠すので、置いていくと AI モードの間だけマイクを切れなくなる。
+  // 複製ではなく移動なのは、togMute の状態表示が二重にならないようにするため
+  const mg=document.getElementById('muteGroup'), mh=document.getElementById('sideMuteHost');
+  if(mg&&mh){_muteHome={parent:mg.parentNode,before:mg.previousSibling};mh.appendChild(mg);}
+  document.getElementById('consoleRow').classList.add('ai-mode');
+  switchSideTab(sideTab);
+}
+
+function releasePanelsFromSide(){
+  const row=document.getElementById('consoleRow');
+  if(row)row.classList.remove('ai-mode');
+  const host=document.getElementById('sideHost');
+  const p=_sidePanels();
+  const mg=document.getElementById('muteGroup');
+  if(mg&&_muteHome){
+    _muteHome.parent.insertBefore(mg,_muteHome.before?_muteHome.before.nextSibling
+                                                    :_muteHome.parent.firstChild);
+    _muteHome=null;
+  }
+  if(!host||!p.transcript||!host.contains(p.transcript)||!_sideHome)return;
+  const {parent,before}=_sideHome;
+  // 元の並び順に戻す。before の直後が pnlT の定位置
+  parent.insertBefore(p.transcript,before?before.nextSibling:parent.firstChild);
+  parent.insertBefore(p.translation,p.transcript.nextSibling);
+  p.transcript.classList.remove('hidden');
+  p.translation.classList.remove('hidden');
+  _sideHome=null;
+}
+
+function togConsoleSide(){
+  const row=document.getElementById('consoleRow');if(!row)return;
+  const collapsed=row.classList.toggle('side-collapsed');
+  const ch=document.getElementById('consoleSideChevron');
+  if(ch)ch.innerHTML=collapsed?'&#x25C4;':'&#x25BA;';
+  try{localStorage.setItem('consoleSideCollapsed',collapsed?'1':'0');}catch(e){}
+  // 列数は #consolec の幅から出して PTY に送っている。幅が変わったら教える
+  reportConsoleCols();
+}
+
+function initConsoleSide(){
+  const row=document.getElementById('consoleRow'),
+        bar=document.getElementById('consoleSplit'),
+        side=document.getElementById('consoleSide');
+  if(!row||!bar||!side)return;
+  let w=0;
+  try{w=parseInt(localStorage.getItem('consoleSideWidth')||'0',10)||0;}catch(e){}
+  if(w>=SIDE_MIN)side.style.width=w+'px';
+  let collapsed=false;
+  try{collapsed=localStorage.getItem('consoleSideCollapsed')==='1';}catch(e){}
+  row.classList.toggle('side-collapsed',collapsed);   // 記憶が無ければ開いたまま
+  const ch=document.getElementById('consoleSideChevron');
+  if(ch)ch.innerHTML=collapsed?'&#x25C4;':'&#x25BA;';
+  switchSideTab(sideTab);
+  let dragging=false;
+  bar.addEventListener('mousedown',e=>{dragging=true;e.preventDefault();});
+  window.addEventListener('mousemove',e=>{
+    if(!dragging)return;
+    const r=row.getBoundingClientRect();
+    side.style.width=Math.max(SIDE_MIN,
+      Math.min(r.width-SIDE_MIN-10,r.right-e.clientX))+'px';
+  });
+  window.addEventListener('mouseup',()=>{
+    if(!dragging)return;
+    dragging=false;
+    const v=parseInt(side.style.width,10)||0;
+    try{localStorage.setItem('consoleSideWidth',String(v));}catch(e){}
+    // ドラッグ中は送らない。毎フレーム resize を投げると子が描き直し続ける
+    reportConsoleCols();
+  });
+}
+
 function initSumSplit(){
   const bar=document.getElementById('sumSplit'),top=document.getElementById('advWrap'),
         wrap=document.getElementById('aiWrap');
   if(!bar||!top||!wrap)return;
-  try{_adviceWant=parseInt(localStorage.getItem('adviceHeight')||'0',10)||0;
-      _adviceWantW=parseInt(localStorage.getItem('adviceWidth')||'0',10)||0;}catch(e){}
-  if(_adviceWant>=SUM_SPLIT_MIN)top.style.height=_adviceWant+'px';
+  // 旧バージョンは px を adviceHeight / adviceWidth に入れていた。比率へは
+  // 「保存時の容器の大きさ」が無いと換算できないので、読まずに捨てる
+  try{_adviceRatio=parseFloat(localStorage.getItem('adviceRatioH')||'0')||0;
+      _adviceRatioW=parseFloat(localStorage.getItem('adviceRatioW')||'0')||0;}catch(e){}
   updateSumSplit();
   if(window.ResizeObserver){
     _sumSplitRO=new ResizeObserver(()=>updateSumSplit());
@@ -470,9 +578,13 @@ function initSumSplit(){
   window.addEventListener('mouseup',()=>{
     if(!dragging)return;
     dragging=false;
-    const row=_sumRow(),v=parseInt(top.style[_sumProp(row)],10)||0;
-    if(row)_adviceWantW=v;else _adviceWant=v;
-    try{localStorage.setItem(row?'adviceWidth':'adviceHeight',String(v));}catch(e){}
+    const row=_sumRow(),prop=_sumProp(row);
+    const avail=wrap.getBoundingClientRect()[prop];
+    const v=parseInt(top.style[prop],10)||0;
+    if(!avail||!v)return;
+    const ratio=Math.min(0.95,Math.max(0.05,v/avail));
+    if(row)_adviceRatioW=ratio;else _adviceRatio=ratio;
+    try{localStorage.setItem(row?'adviceRatioW':'adviceRatioH',ratio.toFixed(4));}catch(e){}
   });
 }
 
@@ -501,6 +613,12 @@ es.addEventListener('console',e=>{
     c.title=I18N['dash.console_hint']||'';}
   initLogResize();
   initSumSplit();
+  initConsoleSide();
+  // 右ペインの開閉も同じ理由でここから。updateSumSplit が SUM_SPLIT_MIN を
+  // 触るので、panels の初期化で呼ぶと TDZ で例外になり、そこから後ろの
+  // loadFiles() やモーダルまで丸ごと動かなくなる。applyPanelMode より先に
+  // 置くのは、AI モードのときの強制展開を上書きさせないため
+  restorePanes();
   // 前回の T|R|AI をここで適用する。**panels の初期化では早すぎる**——
   // AI は分割の復元を伴い、SUM_SPLIT_MIN はこのファイルの const なので、
   // 先に呼ぶと TDZ で初期化ごと止まる
@@ -547,7 +665,7 @@ function _meetingNameOf(file){
 async function openWorkdirModal(file){
   const name=_meetingNameOf(file);
   let cfg={rules:[],default_workdir:'',path:''};
-  try{cfg=await(await fetch('/api/mtg-config')).json();}catch(e){}
+  try{cfg=await(await fetch('/api/meeting-config')).json();}catch(e){}
   // 会議名に当たる既存ルールがあればそれを編集する。無ければ会議名から素案を作る。
   // 素案は編集可能なままにする——表記ゆれをどこまで拾うかは人が決める話なので、
   // 機械が推定したパターンをそのまま保存させない
@@ -572,7 +690,7 @@ async function openWorkdirModal(file){
 function _escRegex(s){return (s||'').replace(/[.*+?^${}()|[\\]\\\\]/g,'\\\\$&');}
 function closeWorkdirModal(){document.getElementById('workdirModal').classList.remove('open');}
 async function _postWorkdir(body){
-  try{const r=await fetch('/api/mtg-config',{method:'POST',
+  try{const r=await fetch('/api/meeting-config',{method:'POST',
     headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const d=await r.json();
     if(d.status!=='ok'){alert(d.message||'error');return false;}

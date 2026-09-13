@@ -153,8 +153,8 @@ def test_guards() -> None:
 
 def test_docs_point_at_the_file() -> None:
     """型の説明と、貯める場所が分かれていること"""
-    skill = open("skills/mtg/SKILL.md", encoding="utf-8").read()
-    quirks = open("skills/mtg/references/transcript-quirks.md", encoding="utf-8").read()
+    skill = open("src/shadow_clerk/skills/clerk-meeting-helper/SKILL.md", encoding="utf-8").read()
+    quirks = open("src/shadow_clerk/skills/clerk-meeting-helper/references/transcript-quirks.md", encoding="utf-8").read()
     check("SKILL に読み書きの手順がある",
           "/api/misheard" in skill and "推定" in skill)
     check("quirks は具体的な対を持たない", "| 工数 | 個数" not in quirks)

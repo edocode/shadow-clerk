@@ -54,16 +54,18 @@ const CFG_FIELDS=[
   {key:'api_key_env',label:I18N['cfg.api_key_env'],type:'text',ph:'SHADOW_CLERK_API_KEY'},
   {key:'api_disable_thinking',label:I18N['cfg.api_disable_thinking'],type:'bool',def:false},
   {type:'section',label:I18N['cfg.section.ai_console']},
+  {type:'skill'},   // 配布ボタン。Welcome モーダルと同じ行を出す
   {key:'auto_analyze',label:I18N['cfg.auto_analyze'],type:'bool'},
   {key:'forbid_analyze',label:I18N['cfg.forbid_analyze'],type:'forbid'},
   {key:'ai_assistant_command',label:I18N['cfg.ai_assistant_command'],type:'text',ph:'claude'},
   {key:'ai_assistant_args',label:I18N['cfg.ai_assistant_args'],type:'text',ph:I18N['cfg.ai_assistant_args_ph']},
   {key:'ai_assistant_init_prompt',label:I18N['cfg.ai_assistant_init_prompt'],type:'text',ph:I18N['cfg.ai_assistant_init_prompt_ph']},
-  {key:'ai_assistant_workdir',label:I18N['cfg.ai_assistant_workdir'],type:'text',ph:I18N['cfg.ai_assistant_workdir_ph'],
+  {key:'ai_assistant_workdir',label:I18N['cfg.ai_assistant_workdir'],type:'text',ph:PATH_HINTS.ai_assistant_workdir,
     warn:{when:'',msgKey:'cfg.ai_assistant_workdir_warn'}},
   {type:'section',label:I18N['cfg.section.gcal']},
+  {type:'doc',urlKey:'cfg.gcal_setup_url',textKey:'cfg.gcal_setup_link'},
   {key:'gcal_integration',label:I18N['cfg.gcal_integration'],type:'bool'},
-  {key:'gcal_credentials_file',label:I18N['cfg.gcal_credentials_file'],type:'text',ph:I18N['cfg.gcal_credentials_file_ph']},
+  {key:'gcal_credentials_file',label:I18N['cfg.gcal_credentials_file'],type:'text',ph:PATH_HINTS.gcal_credentials_file},
   {key:'gcal_calendar_id',label:I18N['cfg.gcal_calendar_id'],type:'text',ph:'primary'},
   {key:'gcal_buffer_minutes',label:I18N['cfg.gcal_buffer_minutes'],type:'select',num:true,opts:['0','1','2','3','5','10']},
   {key:'gcal_end_buffer_minutes',label:I18N['cfg.gcal_end_buffer_minutes'],type:'select',num:true,opts:['0','1','2','3','5']},
@@ -93,9 +95,24 @@ async function saveForbidAnalyze(){
 async function openCfg(){
   try{cfgData=await(await fetch('/api/config')).json();}catch(e){return;}
   const b=document.getElementById('cfgBody');b.innerHTML='';
+  const pw=document.getElementById('cfgPathWarn');pw.textContent='';pw.style.display='none';
   CFG_FIELDS.forEach(f=>{
     if(f.type==='section'){
       const h=document.createElement('div');h.className='cfg-section';h.textContent=f.label;b.appendChild(h);return;
+    }
+    if(f.type==='doc'){
+      // key を持たない全幅の行。saveCfg() は 'cfg_'+undefined を探すので自然に無視される
+      const d=document.createElement('div');d.className='cfg-doc';
+      d.innerHTML=docLink(f.urlKey,f.textKey);
+      b.appendChild(d);
+      return;
+    }
+    if(f.type==='skill'){
+      // key を持たない全幅の行。saveCfg() は 'cfg_'+undefined を探すので自然に無視される
+      const d=document.createElement('div');d.className='cfg-skill';d.id='cfgSkillRows';
+      d.textContent=I18N['cfg.skill_install'];
+      b.appendChild(d);
+      return;
     }
     if(f.type==='device_refresh'){
       // key を持たないアクション行。saveCfg() は 'cfg_'+undefined を探すため自然に無視される
@@ -191,6 +208,7 @@ async function openCfg(){
   if(jaEl)jaEl.onchange=updateCfgDisabled;
   const ijaEl=document.getElementById('cfg_interim_japanese_asr_model');
   if(ijaEl)ijaEl.onchange=updateCfgDisabled;
+  renderCfgSkillRows();
   updateCfgDisabled();
   document.getElementById('cfgModal').classList.add('open');
   if(cfgData.api_endpoint){fetchApiModels();}
@@ -226,12 +244,23 @@ async function saveCfg(){
   });
   await saveForbidAnalyze();
   const langChanged=d.ui_language&&d.ui_language!==cfgData.ui_language;
-  try{await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(d)});
+  try{const res=await(await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(d)})).json();
     if(langChanged){location.reload();return;}
+    // 存在しないパスは保存を通したうえで知らせる。黙って既定値に落ちると
+    // 「設定したのに効かない」の理由がユーザーから見えない
+    const w=document.getElementById('cfgPathWarn');
+    const msgs=(res&&res.warnings)||[];
+    w.textContent=msgs.join(' / ');w.style.display=msgs.length?'block':'none';
     const s=document.getElementById('cfgSaved');s.style.display='inline';
     setTimeout(()=>s.style.display='none',2000);
   }catch(e){}
+}
+async function renderCfgSkillRows(){
+  const d=document.getElementById('cfgSkillRows');if(!d)return;
+  const st=await _skillStatus();if(!st)return;
+  d.innerHTML=`<div class="wc-h" style="margin-top:0">${esc(I18N['cfg.skill_install'])}</div>`
+    +_skillRows(st.targets);
 }
 function updateCfgDisabled(){
   const ija=document.getElementById('cfg_interim_japanese_asr_model');

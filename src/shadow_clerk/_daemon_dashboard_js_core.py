@@ -2,6 +2,7 @@
 
 _JS_TEMPLATE_CORE = """\
 /*I18N_JSON*/
+/*PATH_HINTS_JSON*/
 /* --- TranscriptName 構築ヘルパー（regex なし・fileInfo を使用） --- */
 const TN={
   filename(dt,name){return 'transcript-'+dt+(name?'@'+name:'')+'.txt';},
@@ -37,6 +38,11 @@ function escAttr(s){return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replac
 // onclick 属性内のシングルクォート JS 文字列に埋め込む値用。
 // ブラウザは属性値を HTML デコードしてから JS として解釈するため、
 // escAttr だけでは ' が生き残り文字列が壊れる（XSS になり得る）。escJs → escAttr の順で適用する。
+// 外部ドキュメントへのリンク。URL 自体が i18n にあるので言語で切り替わる
+function docLink(urlKey,textKey){
+  return `<a href="${escAttr(I18N[urlKey])}" target="_blank" rel="noopener">`
+    +`${esc(I18N[textKey])}</a>`;
+}
 function escJs(s){return s.replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'");}
 function fmtLine(t){
   if(/^---\\s.*\\s---$/.test(t)) return '<div class="ln"><span class="mk">'+esc(t)+'</span></div>';
@@ -195,12 +201,21 @@ function applyPanelMode(){
         btn=document.getElementById('togTR');
   if(!t||!r||!btn)return;
   const ai=panelMode===3;
-  t.classList.toggle('hidden',ai||panelMode===2);
-  r.classList.toggle('hidden',ai||panelMode===1);
   btn.textContent=PANEL_MODES[panelMode];
   // AI のときは S ペインが唯一の中身。畳んだままだと画面が空になる。
   // 畳む取っ手も伏せる——押せてしまうと、押した先に何も残らない
-  if(ai){openSumPane();switchSumTab('ai');}
+  if(ai){
+    openSumPane();switchSumTab('ai');
+    // 下部ペインを開いて AI コンソールを出す。transcript はその右へ移すので、
+    // 畳んだままでは移した先が見えない
+    switchLogTab('console');
+    // hidden の面倒は switchSideTab が見るので、ここでは触らない
+    adoptPanelsIntoSide();
+  }else{
+    releasePanelsFromSide();
+    t.classList.toggle('hidden',panelMode===2);
+    r.classList.toggle('hidden',panelMode===1);
+  }
   const ch=document.getElementById('sumChevron');
   if(ch)ch.style.display=ai?'none':'';
   updateSumSplit();
@@ -445,10 +460,25 @@ function initSearchSelects(){
   for(let i=1;i<=31;i++){const o=document.createElement('option');o.value=String(i).padStart(2,'0');o.textContent=String(i).padStart(2,'0');dy.appendChild(o);}
   for(let i=0;i<=23;i++){const o=document.createElement('option');o.value=String(i).padStart(2,'0');o.textContent=String(i).padStart(2,'0');hr.appendChild(o);}
 }
+// 右ペインの開閉だけ覚える。開いているかは人ごとの好みで、毎回開き直すのは手間。
+// 左は覚えない——畳んだままにしたいという要望が無いだけで、技術的な理由ではない
+function _rememberSumPane(collapsed){
+  try{localStorage.setItem('sumPaneCollapsed',collapsed?'1':'0');}catch(e){}
+}
+function restorePanes(){
+  let v;try{v=localStorage.getItem('sumPaneCollapsed');}catch(e){return;}
+  if(v===null)return;                       // 記憶が無ければ HTML の初期状態のまま
+  const p=document.getElementById('pnlS');if(!p)return;
+  const collapsed=v==='1';
+  p.classList.toggle('collapsed',collapsed);
+  const ch=document.getElementById('sumChevron');
+  if(ch)ch.innerHTML=collapsed?'&#x25C4;':'&#x25BA;';
+  if(!collapsed)updateSumSplit();           // 畳んでいる間は測れない
+}
 function togMtgPane(){
   const p=document.getElementById('pnlM');if(!p)return;
   const collapsed=p.classList.toggle('collapsed');
-  const ch=document.getElementById('mtgChevron');
+  const ch=document.getElementById('meetingChevron');
   if(ch)ch.innerHTML=collapsed?'&#x25BA;':'&#x25C4;';
 }
 function togSumPane(){
@@ -456,6 +486,7 @@ function togSumPane(){
   const collapsed=p.classList.toggle('collapsed');
   const ch=document.getElementById('sumChevron');
   if(ch)ch.innerHTML=collapsed?'&#x25C4;':'&#x25BA;';
+  _rememberSumPane(collapsed);
   // 畳んでいる間は大きさを測れない。開いたところで分割を挟み直す
   if(!collapsed)updateSumSplit();
 }
@@ -464,6 +495,7 @@ function openSumPane(){
   p.classList.remove('collapsed');
   const ch=document.getElementById('sumChevron');
   if(ch)ch.innerHTML='&#x25BA;';
+  _rememberSumPane(false);
 }
 
 /* --- Summary パネル タブ切替 --- */
@@ -489,7 +521,7 @@ function switchLeftTab(tab){
     const btn=document.getElementById('tab'+id);
     let pane;
     if(t==='dates') pane=document.getElementById('datePane');
-    else if(t==='meetings') pane=document.getElementById('mtgContent');
+    else if(t==='meetings') pane=document.getElementById('meetingContent');
     else pane=document.getElementById('searchPane');
     if(t===tab){
       if(btn) btn.classList.add('active');

@@ -55,6 +55,9 @@ STRINGS_EN: dict[str, str] = {
     "dash.start_analysis_title": "Launch the AI assistant and run the meeting skill",
     "dash.stop_analysis": "Stop analysis",
     "dash.stop_analysis_title": "Stop the AI assistant",
+    "dash.tab_transcript": "Transcript",
+    "dash.tab_translation": "Translation",
+    "dash.side_toggle": "Fold the transcript pane",
     "dash.tab_logs": "Logs",
     "dash.tab_console": "AI Console",
     "dash.font_size": "Text size (S/M/L)",
@@ -67,7 +70,6 @@ STRINGS_EN: dict[str, str] = {
     "dash.console_stop_confirm": "Stop the AI assistant?",
     "dash.console_start_failed": "Failed to start the AI assistant.",
     "dash.console_hint": "Click here and type to send keys to the assistant.",
-    "dash.view_summary": "View Summary",
     "dash.custom_cmd_placeholder": "Custom command",
     "dash.send": "Send",
     "dash.glossary": "Glossary",
@@ -212,11 +214,22 @@ STRINGS_EN: dict[str, str] = {
         "  Only works when llm_provider is set to api.\n\n"
         "Summary\n"
         "  Generate meeting minutes from current transcript.\n\n"
-        "View Summary\n"
-        "  View generated meeting minutes.\n\n"
+        "Text size (S/M/L)\n"
+        "  Change the transcript text size.\n\n"
+        "Glossary / Commands\n"
+        "  The glossary corrects how names come out of transcription.\n"
+        "  Commands registers actions you can trigger by voice.\n\n"
+        "📅 Google Calendar\n"
+        "  Today's events, and whether meetings start and end on their own.\n\n"
         "[Panel Controls]\n"
-        "T|R button: Cycle Transcript/Translation display\n"
-        "  T|R → T only → R only → T|R (cycle)\n\n"
+        "T|R button: Cycle the centre pane (each press advances)\n"
+        "  T|R (both) → T only → R only → AI → T|R\n"
+        "  AI leaves the AI Console on its own.\n\n"
+        "◀ / ▶ buttons (screen edges): Fold the side panes.\n"
+        "  Left (◀) is the meeting list: pick a file by date, meeting or search.\n"
+        "  Right (▶) holds the summary and the AI Console, switched by tab.\n"
+        "  The right one starts folded; your browser remembers that one.\n"
+        "  The left one always comes back open on reload.\n\n"
         "Logs ▼▲: Toggle log panel visibility\n\n"
         "🎤 / 🔊: Mute mic/speaker transcription\n"
         "  Audio capture continues while muted,\n"
@@ -225,12 +238,30 @@ STRINGS_EN: dict[str, str] = {
         "Hold PTT key (default: Menu) and speak:\n"
         "  Start/End Meeting, Start/Stop Translation\n"
         "  Set Language Japanese/English\n\n"
+        "[AI Console]\n"
+        "The meeting assistant runs in the AI Console tab below.\n"
+        "Enable auto_analyze to start it when a meeting begins.\n"
+        "Its launch directory comes from the default working directory\n"
+        "setting; per-meeting overrides live behind the ⚙ on each row\n"
+        "of the meeting list.\n\n"
+        "[Installing the skill]\n"
+        "The assistant uses the bundled clerk-meeting-helper skill,\n"
+        "which has to be copied into the agent's skills directory:\n"
+        "  claude → ~/.claude/skills/     (Claude Code)\n"
+        "  agents → ~/.agents/skills/     (Codex and others)\n"
+        "The first-run dialog installs it; so does the command:\n"
+        "  clerk-util install-skill\n"
+        "  clerk-util install-skill --target agents\n"
+        "  clerk-util install-skill --target <path>\n"
+        "When the bundled copy moves ahead of what is installed, the\n"
+        "dashboard offers to update it on the next visit.\n\n"
         "[Settings]\n"
         "Click ⚙ to open settings.\n"
         "Key settings:\n"
         "  - UI Language / Translation Language / Whisper Model\n"
         "  - LLM Provider / API Endpoint\n"
         "  - PTT Key / Interim Transcription\n"
+        "  - Google Calendar (start and end meetings from your calendar)\n"
     ),
 
     "dash.audio_device_monitor": "monitor",
@@ -295,7 +326,6 @@ STRINGS_EN: dict[str, str] = {
     "cfg.interim_japanese_asr_model": "Interim Japanese ASR Model",
     "cfg.gcal_integration": "Enable Google Calendar Integration",
     "cfg.gcal_credentials_file": "credentials.json Path",
-    "cfg.gcal_credentials_file_ph": "~/.local/share/shadow-clerk/credentials.json",
     "cfg.gcal_calendar_id": "Calendar ID",
     "cfg.gcal_buffer_minutes": "Start Buffer (minutes)",
     "cfg.gcal_end_buffer_minutes": "End Buffer (minutes)",
@@ -312,9 +342,31 @@ STRINGS_EN: dict[str, str] = {
     "cfg.ai_assistant_args": "Assistant arguments",
     "cfg.ai_assistant_args_ph": "--permission-mode acceptEdits",
     "cfg.ai_assistant_init_prompt": "Initial prompt",
-    "cfg.ai_assistant_init_prompt_ph": "/mtg {transcript}",
+    "cfg.ai_assistant_init_prompt_ph": "/clerk-meeting-helper {transcript} {lang}",
     "cfg.ai_assistant_workdir": "Default working directory",
-    "cfg.ai_assistant_workdir_ph": "~/mtg-analysis",
+    "cfg.gcal_setup_url": "https://github.com/edocode/shadow-clerk/blob/main/docs/google-calendar-setup.md",
+    "cfg.gcal_setup_link": "Setup guide (needs a Google Cloud project)",
+    "cfg.skill_install": "Skill installation",
+    "welcome.title": "Welcome to shadow-clerk",
+    "welcome.intro": "It transcribes and translates your meetings in real time. That much works with no agent at all.",
+    "welcome.optional_ai": "Paired with an AI agent such as Claude or Codex, it can also analyse a meeting while it runs and write the minutes for you. To use one, install the skill into that agent.",
+    "welcome.skill": "Install the skill",
+    "welcome.skill_done": "Installed",
+    "welcome.skill_where": "Where to install the skill (only if you use an agent)",
+    "welcome.settings": "Open settings",
+    "welcome.recommend": "Settings worth a look first",
+    "welcome.rec_auto_analyze": "Start the AI assistant when a meeting begins",
+    "welcome.rec_gcal": "Detect meeting start and end from Google Calendar",
+    "welcome.rec_asr": "Japanese transcription model",
+    "welcome.rec_workdir": "Working directory for the AI assistant",
+    "welcome.dont_show_again": "Do not show this again",
+    "welcome.close": "Close",
+    "skill_update.title": "The skill has moved on",
+    "skill_update.body": "The bundled copy is {bundled}; what is installed is older.",
+    "skill_update.update": "Update",
+    "skill_update.later": "Later",
+    "cfg.path_missing_dir": "Directory not found: {path}",
+    "cfg.path_missing_file": "File not found: {path}",
     "cfg.ai_assistant_workdir_warn": "The assistant runs shell scripts from the skill. Allow them in that directory's .claude/settings.json, or it will stop at a permission prompt mid-meeting.",
 
     # --- llm.* ---

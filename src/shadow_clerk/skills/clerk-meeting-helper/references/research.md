@@ -60,7 +60,7 @@
 
 ## 4 の当て先は設定で決まる
 
-`/api/mtg-config/resolve` の `research` に、**許可された当て先だけ**が並んでいる。
+`/api/meeting-config/resolve` の `research` に、**許可された当て先だけ**が並んでいる。
 
 ```yaml
 defaults:
