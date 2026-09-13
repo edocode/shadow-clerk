@@ -118,7 +118,7 @@ class _DashboardHandlerConsoleOps:
         self._send_json({"status": "ok"})
 
     def _console_resize(self) -> None:
-        """POST /api/console/resize — 列数だけ変える（行数は VIRTUAL_ROWS 固定）"""
+        """POST /api/console/resize — 列数だけ変える（行数は固定）"""
         data = self._console_body()
         if data is None:
             return

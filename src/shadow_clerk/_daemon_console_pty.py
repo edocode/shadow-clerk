@@ -16,8 +16,6 @@ import sys
 import time
 from abc import ABC, abstractmethod
 
-from shadow_clerk._daemon_constants import VIRTUAL_ROWS
-
 logger = logging.getLogger("shadow-clerk")
 
 IS_WINDOWS = sys.platform == "win32"
@@ -304,7 +302,7 @@ def _open_windows(argv: list[str], cwd: str, env: dict[str, str],
 
 
 def open_console_pty(argv: list[str], cwd: str, env: dict[str, str],
-                     cols: int, rows: int = VIRTUAL_ROWS) -> ConsolePty | None:
+                     cols: int, rows: int) -> ConsolePty | None:
     """疑似端末を開いて argv を起こす。失敗したら None(理由はログに出す)"""
     if IS_WINDOWS:
         return _open_windows(argv, cwd, env, rows, cols)

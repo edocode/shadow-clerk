@@ -18,7 +18,7 @@ from shadow_clerk._daemon_console_render import render_rows
 from shadow_clerk._daemon_constants import (
     CONSOLE_BELOW_CURSOR_ROWS,
     CONSOLE_READY_QUIET_SEC, CONSOLE_READY_TIMEOUT_SEC, CONSOLE_SUBMIT_DELAY_SEC, CONSOLE_TICK_SEC,
-    CONSOLE_COLS_FILE, DEFAULT_COLS, VIRTUAL_ROWS,
+    CONSOLE_COLS_FILE, CONSOLE_PTY_ROWS, DEFAULT_COLS, VIRTUAL_ROWS,
 )
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain.ai_assistant import AiAssistantConfig
@@ -124,7 +124,7 @@ class ConsoleSession:
             # たびに起動し直る一方、ブラウザは幅が変わったときしか列数を送らない
             # (_lastCols で重複を弾く) ので、ここで初期値に戻すと新しい子は
             # 120 桁のまま固定され、ペインの右側が空いたままになる
-            pty_session = open_console_pty(argv, workdir, env, self._cols)
+            pty_session = open_console_pty(argv, workdir, env, self._cols, CONSOLE_PTY_ROWS)
             if pty_session is None:
                 return False
             self._pty = pty_session
@@ -228,7 +228,8 @@ class ConsoleSession:
             logger.warning("Console への書き込みに失敗: %s", e)
 
     def resize(self, cols: int) -> None:
-        """列数だけ変える。行数は VIRTUAL_ROWS のまま動かさない
+        """列数だけ変える。行数は grid(VIRTUAL_ROWS)・実 PTY(CONSOLE_PTY_ROWS)
+        とも動かさない
 
         grid も子と同じ幅に揃える。切り詰めで旧幅の行は右端が落ちるが、子が
         SIGWINCH を受けて ESC[H から会話ごと新しい幅で書き直すので治る。
@@ -242,7 +243,7 @@ class ConsoleSession:
             self._cols = cols
             self.screen.resize(VIRTUAL_ROWS, cols)
             if self._pty is not None:
-                self._pty.set_winsize(VIRTUAL_ROWS, cols)
+                self._pty.set_winsize(CONSOLE_PTY_ROWS, cols)
 
     # --- 配信・ready 判定 ---
 

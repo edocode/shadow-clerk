@@ -66,6 +66,15 @@ SHUTDOWN_JOIN_BUDGET_SEC = 5.0
 # PTY は1本しか立てず、pyte の buffer は疎なので長くしても実害がない。
 # 押し出された行を退避する処理はあえて持たない。
 VIRTUAL_ROWS = 10000
+# 子に伝える実際の端末の高さ。VIRTUAL_ROWS とは別物——pyte 側の margins は
+# screen.lines (常に VIRTUAL_ROWS) 基準で決まるので、実 PTY の行数を小さく
+# しても index() によるスクロールは起きず grid は変わらず育つ(cmd.exe で
+# 80 行出力しても 24 行の PTY で欠けないことを確認済み)。
+# 一方で実行数を VIRTUAL_ROWS 本体に合わせると、Windows の ConPTY 上で
+# Claude Code の fullscreen レンダラーが壊れ、本文の直後から入力欄の手前
+# (2000行超) までが常に空行になる現象を確認した(Linux の POSIX pty では
+# 再現しない)。実端末らしい行数を伝えて回避する。
+CONSOLE_PTY_ROWS = 50
 DEFAULT_COLS = 120
 # ブラウザが決めた列数を覚えておく先。デーモンを再起動するたびに 120 桁へ
 # 戻ると、子はページが幅を報せてくるまでその幅で描き、その履歴が残る
