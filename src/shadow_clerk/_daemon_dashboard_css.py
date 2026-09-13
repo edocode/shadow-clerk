@@ -164,8 +164,12 @@ main {
 }
 #consoleSideChevron:hover { background:var(--btn-h); color:var(--text); }
 /* 畳んだら幅を残さない。**クラスは行コンテナに付ける。** #consoleSplit は
-   #consoleSide より前にあり、兄弟セレクタでは遡って隠せない */
-#consoleRow.side-collapsed #consoleSide { width:0; }
+   #consoleSide より前にあり、兄弟セレクタでは遡って隠せない。
+   **!important が要る。** ドラッグでリサイズすると style.width がインラインに
+   書かれ、素の width:0 では負けて「中身は消えるのに枠の幅だけ残る」状態になる
+   （#logp.collapsed と同じ理由）。インラインの値は残るので、開き直せば
+   ドラッグした幅に戻る */
+#consoleRow.side-collapsed #consoleSide { width:0 !important; }
 #consoleRow.side-collapsed #sideHost,
 #consoleRow.side-collapsed #consoleSide .ph { display:none; }
 #consoleRow.side-collapsed #consoleSplit { display:none; }
