@@ -325,10 +325,11 @@ check("35. 非表示のときは触らない",
       "if(c&&c.clientHeight)c.scrollTop=c.scrollHeight" in _T, "")
 
 # --- 提案/分析の上下分割 ---
-# 保存した高さが容器を超えると、下の分析ペインが 0 近くまで潰れる
+# 位置は比率で持つ。px で覚えると、容器が狭まったとき上のペインだけが元の
+# 大きさを保ち、下の分析ペインが最小まで潰れる
 
 SPLIT_ENV = """
-let _adviceWant=0, _adviceWantW=0, availH=745, availW=400, topH=0, topW=0,
+let _adviceRatio=0, _adviceRatioW=0, availH=745, availW=400, topH=0, topW=0,
     topStyleH='', topStyleW='', rowCls=false;
 const els={
   advWrap:{style:{get height(){return topStyleH;},set height(v){topStyleH=v;},
@@ -340,21 +341,21 @@ const els={
 const document={getElementById(id){return els[id]||null;}};
 """
 # 軸の判定は 3 つの小関数に分かれているので、切り出しでも一括で連れて行く
-SPLIT_FNS = (extract("_sumRow") + extract("_sumProp") + extract("_sumWant")
+SPLIT_FNS = (extract("_sumRow") + extract("_sumProp") + extract("_sumRatio")
              + extract("clampSumSplit"))
 
 out = run("""
-_adviceWant=923; els.advWrap.style.height='923px';
+_adviceRatio=0.5; els.advWrap.style.height='100px';
 clampSumSplit();
 out.push(topStyleH);
 availH=2000; clampSumSplit();
 out.push(topStyleH);
 """, extra=SPLIT_ENV + extract_const("SUM_SPLIT_MIN") + SPLIT_FNS)
-check("36. 容器を超える保存値は挟み込む", out[0] == "675px", out[0])
-check("37. 容器が広がれば元の高さに戻る", out[1] == "923px", out[1])
+check("36. 比率どおりの大きさにする", out[0] == "373px", out[0])
+check("37. 容器が変わっても同じ割合を保つ", out[1] == "1000px", out[1])
 
 out = run("""
-_adviceWant=10; els.advWrap.style.height='10px';
+_adviceRatio=0.01; els.advWrap.style.height='10px';
 clampSumSplit();
 out.push(topStyleH);
 availH=50; els.advWrap.style.height='40px'; clampSumSplit();
@@ -372,27 +373,28 @@ check("40. 畳みを開いたら分割を挟み直す", "updateSumSplit()" in _T
 # 1 ペインが数十文字になる。どちらも読めない
 
 ORIENT = (SPLIT_ENV + extract_const("SUM_SPLIT_MIN") + extract_const("SUM_ROW_ON")
-          + extract("_sumRow") + extract("_sumProp") + extract("_sumWant")
+          + extract("_sumRow") + extract("_sumProp") + extract("_sumRatio")
           + extract("applySumOrientation"))
 
 out = run("""
-_adviceWantW=300; topStyleH='400px'; availW=800;
+_adviceRatioW=0.4; topStyleH='400px'; availW=800;
 applySumOrientation();
 out.push([rowCls,topStyleH,topStyleW]);
 """, extra=ORIENT)
 check("48. 広ければ左右に並べる", out[0][0] is True, str(out[0]))
 check("49. 使わない軸のインラインを消す", out[0][1] == "", str(out[0]))
-check("50. その軸の保存値を復元する", out[0][2] == "300px", str(out[0]))
+check("50. 大きさは決めない（clampSumSplit が比率から引き直す）",
+      out[0][2] == "", str(out[0]))
 
 out = run("""
-rowCls=true; _adviceWant=400; topStyleW='300px';
+rowCls=true; _adviceRatio=0.5; topStyleW='300px';
 availW=620; applySumOrientation(); out.push([rowCls,topStyleW]);
 availW=590; applySumOrientation(); out.push([rowCls,topStyleH,topStyleW]);
 """, extra=ORIENT)
 check("51. 戻す幅は入る幅より狭くしてばたつきを防ぐ",
       out[0][0] is True and out[0][1] == "300px", str(out[0]))
-check("52. 十分狭くなったら縦に戻す",
-      out[1][0] is False and out[1][1] == "400px" and out[1][2] == "", str(out[1]))
+check("52. 十分狭くなったら縦に戻し、両軸のインラインを落とす",
+      out[1][0] is False and out[1][1] == "" and out[1][2] == "", str(out[1]))
 
 out = run("""
 availW=0; applySumOrientation(); out.push(rowCls);
@@ -400,11 +402,11 @@ availW=0; applySumOrientation(); out.push(rowCls);
 check("53. 測れないとき(非表示)は触らない", out[0] is False, str(out[0]))
 
 out = run("""
-rowCls=true; _adviceWantW=923; topStyleW='923px'; availW=745;
+rowCls=true; _adviceRatioW=0.95; topStyleW='923px'; availW=745;
 clampSumSplit();
 out.push(topStyleW);
 """, extra=SPLIT_ENV + extract_const("SUM_SPLIT_MIN") + SPLIT_FNS)
-check("54. 横並びでも容器を超える値は挟み込む", out[0] == "675px", out[0])
+check("54. 横並びでも最低幅は両側に残す", out[0] == "675px", out[0])
 
 check("61. 左右のときは仕切りも横向きになる",
       "#aiWrap.row { flex-direction:row; }" in _CSS and "ew-resize" in _CSS, "")
@@ -510,14 +512,38 @@ check("70. md-body の見出しは相対指定",
 
 _cyc = _TC[_TC.index("function applyPanelMode("):_TC.index("/* --- Logs toggle")]
 check("55. AI を含む 4 状態を回す", "const PANEL_MODES=['T|R','T','R','AI']" in _TC, "")
-check("56. AI では T も R も隠す",
-      "t.classList.toggle('hidden',ai" in _cyc and "r.classList.toggle('hidden',ai" in _cyc, "")
+# AI では T/R を伏せるのではなく、コンソール右の側ペインへ移す。中央に残すと
+# 二重に見え、複製すると loadT/loadR の書き込み先が分かれる
+check("56. AI では T/R を側ペインへ移し、抜けたら戻す",
+      "adoptPanelsIntoSide()" in _cyc and "releasePanelsFromSide()" in _cyc, "")
+check("56b. AI 以外では選ばれた側だけを隠す",
+      "t.classList.toggle('hidden',panelMode===2)" in _cyc
+      and "r.classList.toggle('hidden',panelMode===1)" in _cyc, "")
+check("56c. AI では下部ペインを開いてコンソールを出す",
+      "switchLogTab('console')" in _cyc, "")
 check("57. AI では S ペインを開いて AI タブにする",
       "openSumPane()" in _cyc and "switchSumTab('ai')" in _cyc, "")
 check("57b. AI では畳む取っ手を伏せる",
       "sumChevron" in _cyc and "ai?'none':''" in _cyc, "")
 check("58. 切り替えを localStorage に残す", "localStorage.setItem('panelMode'" in _cyc, "")
 check("59. 起動時に前回の状態を読む", "localStorage.getItem('panelMode')" in _TC, "")
+
+# --- コンソール右の文字起こしペイン ---
+# 中身は中央のパネルを移して使うので、AI 以外では空の枠を出さない
+check("59b. AI モード以外では枠も仕切りも出さない",
+      "#consoleRow:not(.ai-mode) #consoleSide" in _CSS
+      and "#consoleRow:not(.ai-mode) #consoleSplit" in _CSS, "")
+# **!important が要る**: ドラッグが style.width をインラインで書くため、素の
+# width:0 では負けて「中身は消えるのに枠の幅だけ残る」状態になる
+check("59c. 畳みはドラッグした幅に勝つ",
+      "#consoleRow.side-collapsed #consoleSide { width:0 !important; }" in _CSS, "")
+check("59d. 開閉と幅を localStorage に残す",
+      "localStorage.setItem('consoleSideCollapsed'" in _T
+      and "localStorage.setItem('consoleSideWidth'" in _T, "")
+# 列数は #consolec の幅から出して PTY に送る。幅を変えたら教えないと折り返しがずれる
+check("59e. 幅が変わったら列数を送り直す",
+      "reportConsoleCols()" in _T[_T.index("function togConsoleSide("):
+                                  _T.index("function initConsoleSide(")], "")
 # **panels の初期化では早すぎる**: SUM_SPLIT_MIN は console 側の const で、
 # 先に applyPanelMode を呼ぶと TDZ で初期化ごと止まる
 check("60. 適用は console の初期化から呼ぶ",
