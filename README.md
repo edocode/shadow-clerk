@@ -502,6 +502,12 @@ curl -s -X POST localhost:8765/api/say -d '{"text":"Hello"}'
 | `talk_language` | `""` | Conversation language (empty = `translate_language`). Falls back to the TTS default when unsupported (VOICEVOX: Japanese only) |
 | `talk_personas` | `{}` | Name → personality / how to respond. Edit from the start dialog |
 | `talk_default_persona` | `""` | Persona selected by default |
+| `talk_filler_sec` | `5` | If Claude has said nothing for this many seconds, say "let me think" (not written to the transcript). `0` disables it |
+| `talk_stop_words` | `["待って", "ストップ", "止めて", "やめて", "stop", "wait", "hold on"]` | Saying one of these stops Claude mid-sentence. Substring match, so avoid short kana that appear inside other words; ASCII words match whole words |
+
+Claude speaks each part of a reply as soon as it is written, in short sentences, so you can cut in
+between them. Say a stop word ("wait", "ちょっと待って") and playback stops, the rest of that turn
+is dropped, and Claude is told where it was cut off.
 
 ### Meeting minutes
 

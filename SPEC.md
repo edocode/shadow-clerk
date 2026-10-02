@@ -156,8 +156,8 @@ clerk-daemon に統合された Web ダッシュボード。ブラウザから t
 
 ### モジュール G: Claude talk mode（音声で Claude と議論する、`_daemon_talk.py`）
 
-- `TalkDriver`（`_daemon_talk.py`）: 状態とターン制御。`[自分]` 行を受け取り、Claude が応答を生成中なら溜めて、応答の確定後にまとめて送る。応答は `[Claude]` 行として transcript に書き（改行は空白にまとめる）、`TtsPlayer` に渡す。talk mode 中は `is_suppressed("monitor")` が真になり、monitor の文字起こしを捨てる
-- `ClaudeTalkProcess`（`_daemon_talk_claude.py`）: `claude -p --input-format stream-json --output-format stream-json` を常駐させる。`--setting-sources ""` と `--strict-mcp-config` でユーザーの hooks・プラグイン・MCP を読ませず、`--tools` で使えるツールを絞る。`result` イベントでターンの確定を受け取る
+- `TalkDriver`（`_daemon_talk.py`）: 状態とターン制御。`[自分]` 行を受け取り、Claude が応答を生成中なら溜めて、応答の確定後にまとめて送る。応答は text ブロックが届くたびに `[Claude]` 行として transcript に書き（改行は空白にまとめる）、`TtsPlayer` に渡す。送ってから `talk_filler_sec` 秒なにも話さなければつなぎの一言を読み上げる（transcript には書かない）。`talk_stop_words` を含む `[自分]` 行が来たら `TtsPlayer.interrupt()` で読み上げを途中で止め、そのターンの残りの発話を捨て、止めた位置の注記を付けて claude に送る。talk mode 中は `is_suppressed("monitor")` が真になり、monitor の文字起こしを捨てる
+- `ClaudeTalkProcess`（`_daemon_talk_claude.py`）: `claude -p --input-format stream-json --output-format stream-json` を常駐させる。`--setting-sources ""` と `--strict-mcp-config` でユーザーの hooks・プラグイン・MCP を読ませず、`--tools` で使えるツールを絞る。`assistant` イベントの text ブロックを届いた順に渡し、`result` イベントでターンの終了を知らせる
 - `_daemon_talk_prompt.py`: 会話言語の決定（`talk_language` → `translate_language`。TTS が非対応なら TTS の既定言語）と system prompt の組み立て（同梱 `talk_prompts/<lang>.md` → `## Persona` → `## Topic`）
 - `TtsPlayer` / `TtsBackend`（`_daemon_tts.py`）: 文単位に分け、合成スレッドと再生スレッドでパイプライン化する。バックエンドは対応言語と既定言語を持つ。最初のバックエンドは `VoicevoxBackend`（`_daemon_tts_voicevox.py`、HTTP）
 - `TalkPersona`（`domain/talk_persona.py`）: `talk_personas` の1件。`null` → 既定、`""` → なし、名前 → その persona（無ければ既定）
@@ -704,6 +704,8 @@ talk_allowed_tools: WebSearch,WebFetch,Read,Grep,Glob
 talk_language: ""
 talk_personas: {}
 talk_default_persona: ""
+talk_filler_sec: 5
+talk_stop_words: [待って, ストップ, 止めて, やめて, stop, wait, hold on]
 ```
 
 - clerk-daemon 起動時に config.yaml を読み込み、CLI 引数が未指定の場合のみ `default_model`、`default_language`、`output_directory` を適用する

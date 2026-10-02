@@ -14,10 +14,16 @@ from shadow_clerk.domain import Language, TalkVoice
 
 logger = logging.getLogger("shadow-clerk")
 
-PlayFn = Callable[[np.ndarray, int], None]
+# (pcm, sample_rate, should_stop)。should_stop が真になったら再生を途中でやめる
+PlayFn = Callable[[np.ndarray, int, Callable[[], bool]], None]
 
 # 句点・感嘆符・疑問符の直後と改行で切る。1文目の再生を早く始めるため
 _SENTENCE_BREAK = re.compile(r"(?<=[。！？!?])|\n")
+# 句点のない長い文は読点でも切る。文の切れ目が「ちょっと待って」で止められる単位になる
+_MAX_CHUNK_CHARS = 60
+_COMMA_BREAK = re.compile(r"(?<=[、，,])")
+# 再生をこの長さずつ書き、合間に should_stop を見る
+_PLAY_BLOCK_SEC = 0.1
 
 
 class TtsError(Exception):
@@ -34,8 +40,19 @@ class TtsBackend(Protocol):
     def voices(self) -> list[dict[str, Any]]: ...
 
 
+def _split_long(sentence: str) -> list[str]:
+    if len(sentence) <= _MAX_CHUNK_CHARS:
+        return [sentence]
+    chunks = [""]
+    for part in _COMMA_BREAK.split(sentence):
+        if chunks[-1] and len(chunks[-1]) + len(part) > _MAX_CHUNK_CHARS:
+            chunks.append("")
+        chunks[-1] += part
+    return [c for c in chunks if c]
+
+
 def split_sentences(text: str) -> list[str]:
-    return [s.strip() for s in _SENTENCE_BREAK.split(text) if s.strip()]
+    return [c for raw in _SENTENCE_BREAK.split(text) if (s := raw.strip()) for c in _split_long(s)]
 
 
 def resample(pcm: np.ndarray, src: int, dst: int) -> np.ndarray:
@@ -55,15 +72,20 @@ def _resolve_output(name: str) -> int | None:
     return None
 
 
-def _play_one(pcm: np.ndarray, sr: int, device: int | None) -> None:
+def _play_one(pcm: np.ndarray, sr: int, device: int | None, should_stop: Callable[[], bool]) -> None:
     import sounddevice as sd
     try:
         sd.check_output_settings(device=device, samplerate=sr, channels=1, dtype="float32")
     except Exception:
         target = int(sd.query_devices(device, kind="output")["default_samplerate"])
         pcm, sr = resample(pcm, sr, target), target
+    block = max(1, int(sr * _PLAY_BLOCK_SEC))
     with sd.OutputStream(samplerate=sr, channels=1, dtype="float32", device=device) as stream:
-        stream.write(pcm.reshape(-1, 1))
+        for i in range(0, len(pcm), block):
+            if should_stop():
+                stream.abort()  # 書き込み済みのバッファも鳴らさない
+                return
+            stream.write(pcm[i:i + block].reshape(-1, 1))
 
 
 def play_on_devices(device_names: list[str]) -> PlayFn:
@@ -73,12 +95,12 @@ def play_on_devices(device_names: list[str]) -> PlayFn:
     """
     from shadow_clerk._daemon_audio import PORTAUDIO_LOCK
 
-    def play(pcm: np.ndarray, sr: int) -> None:
+    def play(pcm: np.ndarray, sr: int, should_stop: Callable[[], bool]) -> None:
         errors: list[Exception] = []
 
         def run(device: int | None) -> None:
             try:
-                _play_one(pcm, sr, device)
+                _play_one(pcm, sr, device, should_stop)
             except Exception as e:
                 errors.append(e)
 
@@ -103,26 +125,41 @@ def _drain(q: queue.Queue) -> None:
 
 
 class TtsPlayer:
-    """文を受け取り、合成スレッドと再生スレッドで回す。1文目の再生中に2文目を合成する"""
+    """文を受け取り、合成スレッドと再生スレッドで回す。1文目の再生中に2文目を合成する。
+
+    文には世代番号を付ける。interrupt() で世代を進めると、古い世代の文は合成も再生もされず、
+    再生中の文も should_stop で途中で止まる。
+    """
 
     def __init__(self, backend: TtsBackend, play: PlayFn, on_error: Callable[[str], None]) -> None:
         self._backend = backend
         self._play = play
         self._on_error = on_error
-        self._texts: queue.Queue[str | None] = queue.Queue()
-        self._audio: queue.Queue[tuple[np.ndarray, int] | None] = queue.Queue(maxsize=2)
+        self._texts: queue.Queue[tuple[int, str] | None] = queue.Queue()
+        self._audio: queue.Queue[tuple[int, str, np.ndarray, int] | None] = queue.Queue(maxsize=2)
         self._abort = threading.Event()
+        self._gen = 0
+        self._speaking = ""
         self._threads = [threading.Thread(target=self._synth_loop, name="tts-synth", daemon=True),
                          threading.Thread(target=self._play_loop, name="tts-play", daemon=True)]
         for th in self._threads:
             th.start()
 
     def speak(self, text: str) -> None:
+        gen = self._gen
         for sentence in split_sentences(text):
-            self._texts.put(sentence)
+            self._texts.put((gen, sentence))
+
+    def interrupt(self) -> str:
+        """まだ話していない文を捨て、話している文も止める。止めた時点で話していた文を返す（無ければ ""）"""
+        self._gen += 1
+        _drain(self._texts)
+        _drain(self._audio)
+        speaking, self._speaking = self._speaking, ""
+        return speaking
 
     def close(self, discard_pending: bool = True) -> None:
-        """discard_pending なら、まだ再生していない文と合成済みの音声を捨て、再生中の1文だけ待つ"""
+        """discard_pending なら、まだ話していない文を捨て、話している文も止める"""
         if discard_pending:
             self._abort.set()
             _drain(self._texts)
@@ -132,29 +169,38 @@ class TtsPlayer:
         for th in self._threads:
             th.join(timeout=max(0.0, deadline - time.monotonic()))
 
+    def _stale(self, gen: int) -> bool:
+        return self._abort.is_set() or gen != self._gen
+
     def _synth_loop(self) -> None:
-        while (text := self._texts.get()) is not None:
-            if self._abort.is_set():
+        while (item := self._texts.get()) is not None:
+            gen, text = item
+            if self._stale(gen):
                 continue
             try:
-                audio = self._backend.synthesize(text)
+                pcm, sr = self._backend.synthesize(text)
             except Exception as e:
                 logger.warning("talk: 合成に失敗: %s", e)
                 self._on_error(str(e))
                 continue
-            if not self._abort.is_set():
-                self._audio.put(audio)
+            if not self._stale(gen):
+                self._audio.put((gen, text, pcm, sr))
         self._audio.put(None)
 
     def _play_loop(self) -> None:
         while (item := self._audio.get()) is not None:
-            if self._abort.is_set():
+            gen, text, pcm, sr = item
+            if self._stale(gen):
                 continue
+            self._speaking = text
             try:
-                self._play(*item)
+                self._play(pcm, sr, lambda: self._stale(gen))
             except Exception as e:
                 logger.warning("talk: 再生に失敗: %s", e)
                 self._on_error(str(e))
+            finally:
+                if self._speaking == text:
+                    self._speaking = ""
 
 
 def make_backend(config: dict, voice: TalkVoice | None = None) -> TtsBackend:

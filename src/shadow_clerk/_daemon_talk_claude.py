@@ -1,7 +1,8 @@
 """Shadow-clerk daemon: Claude talk mode の常駐 claude プロセス（stream-json）
 
 AI Console（PTY）とは別に、画面を持たない claude を1本だけ常駐させる。
-1行1メッセージの JSON で user 発言を送り、result イベントでターンの確定を受け取る。
+1行1メッセージの JSON で user 発言を送る。assistant イベントの text ブロックは届いた順に
+on_text へ渡し（「ちょっと考えます」をツール実行前に話せるように）、result でターン終了を知らせる。
 """
 from __future__ import annotations
 
@@ -33,13 +34,14 @@ def build_claude_argv(config: dict, system_prompt: str) -> list[str]:
 
 
 class ClaudeTalkProcess:
-    """stream-json で会話する常駐 claude。result イベントごとに on_reply を呼ぶ"""
+    """stream-json で会話する常駐 claude"""
 
-    def __init__(self, argv: list[str], workdir: str, on_reply: Callable[[str], None],
-                 on_exit: Callable[[int | None], None]) -> None:
+    def __init__(self, argv: list[str], workdir: str, on_text: Callable[[str], None],
+                 on_turn_end: Callable[[bool], None], on_exit: Callable[[int | None], None]) -> None:
         self._argv = argv
         self._workdir = workdir
-        self._on_reply = on_reply
+        self._on_text = on_text
+        self._on_turn_end = on_turn_end
         self._on_exit = on_exit
         self._proc: subprocess.Popen[str] | None = None
         self._write_lock = threading.Lock()
@@ -89,11 +91,18 @@ class ClaudeTalkProcess:
             except json.JSONDecodeError:
                 logger.debug("talk: claude: %s", raw.rstrip())
                 continue
-            if isinstance(ev, dict) and ev.get("type") == "result":
-                ok = ev.get("subtype") == "success" and isinstance(ev.get("result"), str)
+            if not isinstance(ev, dict):
+                continue
+            if ev.get("type") == "assistant":
+                for block in (ev.get("message") or {}).get("content") or []:
+                    text = block.get("text") if isinstance(block, dict) and block.get("type") == "text" else None
+                    if isinstance(text, str) and text.strip():
+                        self._on_text(text)
+            elif ev.get("type") == "result":
+                ok = ev.get("subtype") == "success"
                 if not ok:
                     logger.warning("talk: claude のターンが失敗: %s", ev.get("subtype"))
-                self._on_reply(ev["result"] if ok else "")
+                self._on_turn_end(ok)
         code = proc.wait()
         if not self._stopping:
             logger.warning("talk: claude が終了 (code=%s)", code)

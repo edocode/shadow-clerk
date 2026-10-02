@@ -6,15 +6,17 @@ from __future__ import annotations
 
 import datetime
 import logging
+import re
 import threading
 from typing import Any, Callable
 
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_talk_claude import ClaudeTalkProcess, build_claude_argv
 from shadow_clerk._daemon_talk_prompt import (
-    KICKOFF_MESSAGE, build_system_prompt, requested_language, resolve_talk_language)
+    INTERRUPT_NOTE, KICKOFF_MESSAGE, build_system_prompt, filler_phrase, requested_language,
+    resolve_talk_language)
 from shadow_clerk._daemon_tts import TtsBackend, TtsError, TtsPlayer, make_backend, make_player
-from shadow_clerk.domain import Speaker, TalkPersona, TalkVoice, TranscriptLine
+from shadow_clerk.domain import Language, Speaker, TalkPersona, TalkVoice, TranscriptLine
 from shadow_clerk.domain.ai_assistant import AiAssistantConfig
 from shadow_clerk.i18n import t
 
@@ -32,6 +34,15 @@ def one_line(text: str) -> str:
 
 def now_timestamp() -> str:
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def stop_pattern(words: object) -> re.Pattern[str] | None:
+    """制止の言葉の照合パターン。英数字の語は単語単位で照合する（"wait" が "waiter" に当たらないように）"""
+    if not isinstance(words, list):
+        return None
+    alts = [rf"\b{re.escape(w)}\b" if w.isascii() else re.escape(w)
+            for w in (str(x).strip() for x in words) if w]
+    return re.compile("|".join(alts), re.IGNORECASE) if alts else None
 
 
 class TalkDriver:
@@ -58,6 +69,12 @@ class TalkDriver:
         self._language = ""
         self._credit = ""
         self._error = ""
+        self._lang = Language.JA
+        self._filler_sec = 0.0
+        self._stop_re: re.Pattern[str] | None = None
+        self._turn = 0                # claude に送るたびに進める。古いつなぎのタイマーを無効にする
+        self._spoke = False           # このターンで claude が何か話したか
+        self._interrupted = False     # 制止されたターン。終わるまで claude の発話を捨てる
 
     # --- ライフサイクル ---
 
@@ -77,7 +94,7 @@ class TalkDriver:
             argv = build_claude_argv(config, build_system_prompt(lang, chosen, topic))
             workdir = AiAssistantConfig.from_config(config).resolve_workdir()
             player = self._player_factory(backend, config, self._report_error)
-            proc = self._process_factory(argv, workdir, self._on_reply, self._on_exit)
+            proc = self._process_factory(argv, workdir, self._on_text, self._on_turn_end, self._on_exit)
             try:
                 proc.start()
             except OSError as e:
@@ -86,9 +103,13 @@ class TalkDriver:
             self._proc, self._player = proc, player
             self._topic, self._persona, self._language = topic, chosen, lang.value
             self._credit, self._error = backend.credit(), ""
+            self._lang = lang
+            self._filler_sec = float(config.get("talk_filler_sec") or 0)
+            self._stop_re = stop_pattern(config.get("talk_stop_words"))
             self._pending.clear()
-            self._active = self._busy = True
-            proc.send(KICKOFF_MESSAGE)
+            self._interrupted = False
+            self._active = True
+            self._send_locked(KICKOFF_MESSAGE)
             logger.info("talk: 開始 (topic=%r, persona=%s, language=%s)",
                         topic, chosen.name if chosen else "-", lang.value)
 
@@ -118,12 +139,39 @@ class TalkDriver:
         with self._lock:
             if not self._active:
                 return
+            text = line.text
+            if self._stop_re is not None and self._stop_re.search(text):
+                text = self._interrupt_locked(text)
             if self._busy:
-                self._pending.append(line.text)
+                self._pending.append(text)
+            else:
+                self._send_locked(text)
+
+    def _interrupt_locked(self, text: str) -> str:
+        """読み上げを止め、生成中ならこのターンの残りを捨てる。claude に送る文（注記つき）を返す"""
+        cut = self._player.interrupt()
+        self._spoke = True  # 止めたあとにつなぎを挟まない
+        if self._busy:
+            self._interrupted = True
+        logger.info("talk: 制止で読み上げを停止 (%r)", cut)
+        return f"{INTERRUPT_NOTE.format(cut=cut)}\n{text}" if cut or self._busy else text
+
+    def _send_locked(self, text: str) -> None:
+        self._busy = True
+        self._turn += 1
+        self._spoke = False
+        self._proc.send(text)
+        if self._filler_sec > 0:
+            timer = threading.Timer(self._filler_sec, self._filler, args=(self._turn,))
+            timer.daemon = True
+            timer.start()
+
+    def _filler(self, turn: int) -> None:
+        with self._lock:
+            if not (self._active and self._busy and turn == self._turn and not self._spoke):
                 return
-            self._busy = True
-            proc = self._proc
-        proc.send(line.text)
+            player, phrase = self._player, filler_phrase(self._lang)
+        player.speak(phrase)
 
     # --- 出力 ---
 
@@ -158,18 +206,25 @@ class TalkDriver:
         threading.Thread(target=player.close, kwargs={"discard_pending": False},
                          name="talk-say", daemon=True).start()
 
-    def _on_reply(self, text: str) -> None:
+    def _on_text(self, text: str) -> None:
+        """claude の text ブロック。ターンの途中でもすぐ話す（ツール実行前の「ちょっと考えます」など）"""
+        with self._lock:
+            if not self._active or self._interrupted:
+                return
+            self._spoke = True
+        self.say(text)
+
+    def _on_turn_end(self, ok: bool) -> None:
         with self._lock:
             if not self._active:
                 return
+            self._interrupted = False
             batch = "\n".join(self._pending)
             self._pending.clear()
-            self._busy = bool(batch)
-            proc = self._proc
-        if one_line(text):
-            self.say(text)
-        if batch:
-            proc.send(batch)
+            if batch:
+                self._send_locked(batch)
+            else:
+                self._busy = False
 
     def _on_exit(self, code: int | None) -> None:
         self._report_error(t("talk.claude_exited", code=code))

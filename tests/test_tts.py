@@ -29,6 +29,11 @@ def test_split() -> None:
     got = split_sentences("こんにちは。調子はどう？\nいいね! 次へ")
     check("句点・疑問符・改行で分ける", got == ["こんにちは。", "調子はどう？", "いいね!", "次へ"], repr(got))
     check("空白だけは空", split_sentences("  \n ") == [])
+    long = "これは句点のないとても長い文で、" * 6 + "最後まで続きます"
+    parts = split_sentences(long)
+    check("句点のない長い文は読点でも切る", len(parts) > 1 and all(len(x) <= 60 for x in parts)
+          and "".join(parts) == long, repr(parts))
+    check("短い文は読点で切らない", split_sentences("はい、そうです。") == ["はい、そうです。"])
 
 
 def test_resample() -> None:
@@ -61,7 +66,7 @@ class _FakeBackend:
 def test_player_order_and_errors() -> None:
     played: list[float] = []
     errors: list[str] = []
-    p = TtsPlayer(_FakeBackend(fail_on="だめ。"), lambda pcm, sr: played.append(float(pcm[0])),
+    p = TtsPlayer(_FakeBackend(fail_on="だめ。"), lambda pcm, sr, stop: played.append(float(pcm[0])),
                   errors.append)
     p.speak("あ。だめ。いいい。")
     p.close(discard_pending=False)
@@ -151,12 +156,12 @@ def test_play_errors_propagate() -> None:
     import shadow_clerk._daemon_tts as tts
     orig = tts._play_one
 
-    def boom(pcm: np.ndarray, sr: int, device: int | None) -> None:
+    def boom(pcm: np.ndarray, sr: int, device: int | None, should_stop: object) -> None:
         raise RuntimeError("device gone")
 
     tts._play_one = boom
     try:
-        tts.play_on_devices([])(np.zeros(10, dtype=np.float32), 24000)
+        tts.play_on_devices([])(np.zeros(10, dtype=np.float32), 24000, lambda: False)
         check("再生スレッドの失敗を呼び出し側に返す", False)
     except RuntimeError as e:
         check("再生スレッドの失敗を呼び出し側に返す", str(e) == "device gone")
@@ -168,7 +173,7 @@ def test_close_discards_queued_audio() -> None:
     import time
     played: list[float] = []
 
-    def slow_play(pcm: np.ndarray, sr: int) -> None:
+    def slow_play(pcm: np.ndarray, sr: int, stop: object) -> None:
         time.sleep(0.3)
         played.append(float(pcm[0]))
 
@@ -180,6 +185,33 @@ def test_close_discards_queued_audio() -> None:
     elapsed = time.monotonic() - t0
     check("停止で合成済みの音声も捨てる", len(played) <= 1, repr(played))
     check("停止は再生中の1文を待つだけ", elapsed < 0.6, f"{elapsed:.2f}s")
+
+
+def test_interrupt() -> None:
+    import time
+    played: list[str] = []
+    cut: list[float] = []
+
+    def chunked_play(pcm: np.ndarray, sr: int, should_stop) -> None:
+        for _ in range(10):
+            if should_stop():
+                cut.append(time.monotonic())
+                return
+            time.sleep(0.05)
+        played.append(str(int(pcm[0])))
+
+    p = TtsPlayer(_FakeBackend(), chunked_play, lambda _m: None)
+    check("何も話していなければ空", p.interrupt() == "")
+    p.speak("あ。いい。ううう。")
+    time.sleep(0.15)
+    t0 = time.monotonic()
+    last = p.interrupt()
+    time.sleep(0.3)
+    check("止めた時点で話していた文を返す", last == "あ。", repr(last))
+    check("再生中の文を途中で止める", cut and cut[0] - t0 < 0.1 and played == [], repr(played))
+    p.speak("ええ。")
+    p.close(discard_pending=False)
+    check("止めたあとも次の文は話せる", played == ["3"], repr(played))
 
 
 def test_refresh_waits_for_playback() -> None:
@@ -198,6 +230,7 @@ if __name__ == "__main__":
     test_split()
     test_play_errors_propagate()
     test_close_discards_queued_audio()
+    test_interrupt()
     test_refresh_waits_for_playback()
     test_resample()
     test_player_order_and_errors()

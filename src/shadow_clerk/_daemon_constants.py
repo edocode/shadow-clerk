@@ -194,6 +194,10 @@ DEFAULT_CONFIG = {
     "talk_language": "",            # 空なら translate_language。TTS 非対応ならその既定言語
     "talk_personas": {},            # name → 性格・応答の仕方
     "talk_default_persona": "",
+    "talk_filler_sec": 5,           # 応答がこの秒数来なければ「ちょっと考えます」を挟む。0 で無効
+    # 読み上げ中・生成中にこれを含む発言があれば止める。部分一致なので「まとめて」に当たる
+    # 「とめて」のような短いかなは入れない。英数字の語は単語単位で照合
+    "talk_stop_words": ["待って", "ストップ", "止めて", "やめて", "stop", "wait", "hold on"],
 }
 
 # セッションファイル

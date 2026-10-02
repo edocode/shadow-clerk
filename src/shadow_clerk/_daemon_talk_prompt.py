@@ -16,6 +16,18 @@ KICKOFF_MESSAGE = ("Start the session. Ask your first question about the topic, 
                    "or ask what to talk about if no topic is given.")
 
 
+# 応答が遅いときに daemon が挟むつなぎの一言。transcript には書かず claude にも送らない
+_FILLERS = {Language.JA: "ちょっと考えます。", Language.EN: "Let me think."}
+
+# 制止で読み上げを止めたときに、ユーザー発言の前に付けて claude に伝える
+INTERRUPT_NOTE = ("[The user interrupted you. You were cut off while saying: \"{cut}\". "
+                  "Nothing after that was heard.]")
+
+
+def filler_phrase(lang: Language) -> str:
+    return _FILLERS.get(lang, _FILLERS[Language.JA])
+
+
 def requested_language(config: dict) -> str:
     return str(config.get("talk_language") or config.get("translate_language") or "")
 
