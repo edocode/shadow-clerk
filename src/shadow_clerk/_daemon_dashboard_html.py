@@ -273,6 +273,8 @@ _HTML_TEMPLATE = (
     "    <div class=\"modal-body\" style=\"display:block;\">\n"
     "      <label style=\"display:block;font-size:12px;\">{{i18n:dash.talk_topic}}</label>\n"
     "      <input type=\"text\" id=\"talkTopic\" maxlength=\"500\" placeholder=\"{{i18n:dash.talk_topic_ph}}\" style=\"width:100%;box-sizing:border-box;\">\n"
+    "      <label style=\"display:block;font-size:12px;margin-top:8px;\">{{i18n:dash.talk_workdir}}</label>\n"
+    "      <input type=\"text\" id=\"talkWorkdir\" maxlength=\"1000\" style=\"width:100%;box-sizing:border-box;\">\n"
     "      <label style=\"display:block;font-size:12px;margin-top:8px;\">{{i18n:dash.talk_persona}}</label>\n"
     "      <select id=\"talkPersonaSel\"></select>\n"
     "      <button onclick=\"openPersonas()\" style=\"font-size:12px;\">{{i18n:dash.talk_edit_personas}}</button>\n"

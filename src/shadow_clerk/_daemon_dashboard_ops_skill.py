@@ -23,10 +23,10 @@ from shadow_clerk.domain.meeting_config import MeetingConfig
 logger = logging.getLogger("shadow-clerk")
 
 # 監視ストリームの既定。1 行ずつ流すと発言のたびに起こされて会議に追いつけず、
-# 1 分を超えると指摘が手遅れになる
+# 1 分を超えると指摘が手遅れになる。Claude と会議の skill は 1 秒で張る
 WATCH_INTERVAL_DEFAULT = 25
 WATCH_IDLE_DEFAULT = 600
-WATCH_INTERVAL_RANGE = (5, 300)
+WATCH_INTERVAL_RANGE = (1, 300)
 
 
 def _norm(name: str) -> str:
