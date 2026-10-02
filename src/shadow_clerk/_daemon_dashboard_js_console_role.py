@@ -14,6 +14,7 @@ function consoleUrl(path){return path+'?role='+_consoleRole;}
 function consoleBody(o){return JSON.stringify(Object.assign({role:_consoleRole},o||{}));}
 function onConsoleEvent(d){
   const role=d.role||'assistant';
+  if(d.auto&&role==='assistant')showAutoAnalysis();
   if(d.running!==undefined){_consoleRoleRunning[role]=!!d.running;updateConsoleRoleTabs();}
   if(role===_consoleRole)applyConsole(d);
 }

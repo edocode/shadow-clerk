@@ -305,10 +305,13 @@ check("30. ラベルを開始/停止で入れ替える",
       "updateAnalysisBtn()" in _upd
       and "dash.stop_analysis" in _CR and "dash.start_analysis" in _CR, "")
 
+_sa = _T[_T.index("function showAutoAnalysis("):]
+_sa = _sa[:_sa.index("\n}\n")]
 check("31. 自動起動なら生成物とコンソールを開く",
-      "if(d.auto)showAutoAnalysis()" in _T
-      and "togSumPane()" in _T and "switchSumTab('ai')" in _T
-      and "switchLogTab('console')" in _T, "")
+      "if(d.auto&&role==='assistant')showAutoAnalysis()" in _CR
+      and "if(d.auto)showAutoAnalysis()" not in _T
+      and "togSumPane()" in _sa and "switchSumTab('ai')" in _sa
+      and "selectConsoleRole('assistant')" in _sa and "_consoleRole==='talk'" in _sa, "")
 
 from shadow_clerk._i18n_ja import STRINGS_JA as _JA
 from shadow_clerk._i18n_en import STRINGS_EN as _EN

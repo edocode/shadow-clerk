@@ -60,4 +60,40 @@ check("切り替え後の URL と body", out["afterSwitch"][3] == "/api/console?
       and out["afterSwitch"][4] == {"role": "talk", "data": "x"}, repr(out["afterSwitch"]))
 check("切り替え後は talk を描く", out["appliedTalk"] == [None, "talk"], repr(out))
 check("status から両方の状態を取る", out["running"] == {"assistant": True, "talk": False}, repr(out))
+from shadow_clerk._daemon_dashboard_js_console import _JS_TEMPLATE_CONSOLE as _C  # noqa: E402
+_SHOW = _C[_C.index("function showAutoAnalysis("):]
+_SHOW = _SHOW[:_SHOW.index("\n}\n") + 3]
+HARNESS2 = r"""
+let logTab='console',_consoleRunning=null,_consoleLoaded=true,_lastCols=7,applied=[],calls=[];
+const I18N={'dash.stop_analysis':'STOP','dash.start_analysis':'START'};
+function applyConsole(d){applied.push(d.role||'assistant');}
+function switchLogTab(t){logTab=t;}
+function updateConsoleStatus(r){}
+function togSumPane(){calls.push('tog');}
+function switchSumTab(t){calls.push('sum:'+t);}
+const els={};
+const document={getElementById:id=>{els[id]=els[id]||{dataset:{},textContent:'',title:'',classList:{toggle(){},contains:()=>id==='pnlS'}};return els[id];}};
+""" + _JS_TEMPLATE_CONSOLE_ROLE + _SHOW + r"""
+const out={};
+_consoleRoleRunning.assistant=true;_consoleRole='talk';
+updateAnalysisBtn();out.label=els.btnStartAnalysis.textContent;
+onConsoleEvent({status_only:true,auto:true,role:'assistant',running:true});
+out.talkShown=[_consoleRole,calls.slice(),applied.length];
+logTab='logs';
+onConsoleEvent({status_only:true,auto:true,role:'assistant',running:true});
+out.logsShown=[_consoleRole,applied.length];
+calls.length=0;
+onConsoleEvent({status_only:true,auto:true,role:'assistant',running:true});
+out.once=calls.length;
+console.log(JSON.stringify(out));
+"""
+r2 = subprocess.run(["node", "-e", HARNESS2], capture_output=True, text=True, timeout=30)
+if r2.returncode != 0:
+    check("node(2) で実行できる", False, r2.stderr[-500:])
+    sys.exit(1)
+o2 = json.loads(r2.stdout.strip().splitlines()[-1])
+check("talk 表示中でも分析ボタンは assistant の状態", o2["label"] == "STOP", repr(o2))
+check("talk 表示中の自動起動は S ペインだけ開く", o2["talkShown"] == ["talk", ["tog", "sum:ai"], 0], repr(o2))
+check("logs 表示中の自動起動は assistant を選ぶ", o2["logsShown"][0] == "assistant", repr(o2))
+check("自動起動の演出は1イベントで1回", o2["once"] == 2, repr(o2))
 sys.exit(0 if all(results) else 1)

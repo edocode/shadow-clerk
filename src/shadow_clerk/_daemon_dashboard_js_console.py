@@ -91,7 +91,6 @@ function _consoleRowEl(y){
 function applyConsole(d){
   if(d.status_only){
     updateConsoleStatus(d.running);
-    if(d.auto)showAutoAnalysis();
     return;
   }
   const cc=document.getElementById('consolec');
@@ -219,7 +218,7 @@ function showAutoAnalysis(){
   const pnl=document.getElementById('pnlS');
   if(pnl&&pnl.classList.contains('collapsed'))togSumPane();
   switchSumTab('ai');
-  selectConsoleRole('assistant');
+  if(!(logTab==='console'&&_consoleRole==='talk'))selectConsoleRole('assistant');
 }
 
 async function loadConsole(){
