@@ -159,7 +159,10 @@ class _RecorderTranscribeMixin:
             logger.debug("ノイズフィルタ: %r をスキップ", text.strip())
             return last_file_speaker
         # はい/いいえフィルタ: 直前が同じ話者ならスキップ
-        if self._should_skip_response(text, file_speaker, last_file_speaker):
+        # talk mode では Claude の行がこのループの外で書かれる。直前は Claude として扱わないと、
+        # Claude の質問への「はい」が同じ話者の繰り返しとして捨てられ、会話が止まる
+        last_speaker = Speaker.CLAUDE if self.talk.active else last_file_speaker
+        if self._should_skip_response(text, file_speaker, last_speaker):
             logger.debug("応答フィルタ: %r (speaker=%s) をスキップ", text.strip(), file_speaker)
             return last_file_speaker
 

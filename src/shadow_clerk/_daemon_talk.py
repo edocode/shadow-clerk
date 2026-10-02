@@ -106,6 +106,10 @@ class TalkDriver:
 
     # --- Recorder から ---
 
+    @property
+    def active(self) -> bool:
+        return self._active
+
     def is_suppressed(self, source: str) -> bool:
         """この source の文字起こしを捨てるか。フェーズ1は talk mode 中の monitor（Claude の声）"""
         return self._active and source == "monitor"
