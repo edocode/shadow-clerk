@@ -89,9 +89,9 @@ engine のインターフェース（`_daemon_talk_engine.py` の Protocol）:
 - `stop() -> None` — 冪等
 - `on_self_line(text: str) -> None` — `[自分]` 行（制止の注記が付くことがある）
 - `on_interrupt() -> None` — 制止された。headless はこのターンの残りを捨てる。console は何もしない
-- `filler_wanted() -> bool` — つなぎの一言を挟んでよい状態か（応答待ち）
+- `consume_interrupt() -> str | None` — `/api/say` が制止の直後なら止めた文を返して制止の状態を解く（console のみ。headless は常に None）
 
-`TalkContext` は `topic`・`persona`・`language`・`config` と、engine から driver を呼ぶための
+`TalkContext` は `topic`・`persona`・`language`・`workdir`・`config` と、engine から driver を呼ぶための
 `say(text)`・`ended(error)` を持つ。
 
 ### 共通の部分（TalkDriver）
@@ -101,17 +101,21 @@ engine のインターフェース（`_daemon_talk_engine.py` の Protocol）:
 - 終了（トグル OFF、engine の終了、daemon の停止）: engine を `stop()` し、再生を止め、抑制を解く
 - `[自分]` 行: 制止の言葉を含めば読み上げを止め（`TtsPlayer.interrupt()`）、`cut` を覚えて `engine.on_interrupt()` を呼ぶ。
   そのうえで `engine.on_self_line()` に渡す（headless では注記を付ける）
-- つなぎの一言: `[自分]` 行（headless は送信）から `talk_filler_sec` 秒、`say` が1回も無く `engine.filler_wanted()` が真なら読み上げる
+- つなぎの一言: 開始時と `[自分]` 行（制止を除く）から `talk_filler_sec` 秒、`say` が1回も無ければ読み上げる
 - `say(text)`（`/api/say` と headless engine の両方から）: 制止の直後の最初の1回（console のみ）は話さずに
   `interrupted` を返して制止の状態を解く。それ以外は `[Claude]` 行を書いて読み上げる
 - 残す: persona と言語の解決、声の設定と試聴、snapshot、`is_suppressed()`
 
+### 作業ディレクトリ
+
+- 開始時の指定（開始モーダルの欄、`POST /api/talk-mode` の `workdir`）→ `talk_workdir` → `ai_assistant_workdir` → ホームの順
+- 開始時に明示した場所が無ければ開始しない（黙ってホームで始めると、違うリポジトリで作業してしまう）
+- console engine は、talk コンソールが別の作業ディレクトリで動いていれば止めてから起動し直す。headless は `claude -p` をその場所で起動する
+
 ### console engine
 
-- 開始: talk コンソールを起動し、準備ができたら `/clerk-talk` を送る（`send_after_ready`）。作業ディレクトリは
-  AI Console と同じ解決（`AiAssistantConfig.resolve_workdir()`）。`clerk-talk` skill が入っていなければ開始しない
+- 開始: talk コンソールを `TalkContext.workdir` で起動し、準備ができたら `/clerk-talk` を送る（`send_after_ready`）。`clerk-talk` skill が入っていなければ開始しない
 - talk コンソールが自分で終了したとき（`/exit` など）は `ended()` で talk mode を終える
-- `filler_wanted()`: 最後の `[自分]` 行より後に `say` が無ければ真
 
 ### headless engine
 
