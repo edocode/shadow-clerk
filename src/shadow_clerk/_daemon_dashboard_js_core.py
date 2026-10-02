@@ -44,10 +44,11 @@ function docLink(urlKey,textKey){
     +`${esc(I18N[textKey])}</a>`;
 }
 function escJs(s){return s.replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'");}
+function spCls(sp,mic){return (sp===mic||sp==='自分')?'sp-s':sp==='Claude'?'sp-c':'sp-o';}
 function fmtLine(t){
   if(/^---\\s.*\\s---$/.test(t)) return '<div class="ln"><span class="mk">'+esc(t)+'</span></div>';
   const m=t.match(/^\\[(\\d{4}-\\d{2}-\\d{2}\\s\\d{2}:\\d{2}:\\d{2})\\]\\s\\[([^\\]]+)\\]\\s(.*)$/);
-  if(m){const sp=m[2],mic=I18N['speaker.mic']||'自分';const c=(sp===mic||sp==='自分')?'sp-s':'sp-o';
+  if(m){const sp=m[2],mic=I18N['speaker.mic']||'自分';const c=spCls(sp,mic);
     const dl=sp===mic?mic:sp==='自分'?mic:(sp===(I18N['speaker.monitor']||'相手')||sp==='相手')?(I18N['speaker.monitor']||'相手'):sp;
     return '<div class="ln" data-ts="'+escAttr(m[1])+'" data-raw="'+escAttr(t)+'"><span class="ln-text"><span class="ts">['+esc(m[1])+']</span> <span class="'+c+'">['+esc(dl)+']</span> '+esc(m[3])+'</span></div>';}
   return '<div class="ln" data-raw="'+escAttr(t)+'"><span class="ln-text">'+esc(t)+'</span></div>';
@@ -55,7 +56,7 @@ function fmtLine(t){
 function fmtTranscriptLine(t){
   if(/^---\\s.*\\s---$/.test(t)) return '<div class="ln"><span class="mk">'+esc(t)+'</span></div>';
   const m=t.match(/^\\[(\\d{4}-\\d{2}-\\d{2}\\s\\d{2}:\\d{2}:\\d{2})\\]\\s\\[([^\\]]+)\\]\\s(.*)$/);
-  if(m){const sp=m[2],mic=I18N['speaker.mic']||'自分';const c=(sp===mic||sp==='自分')?'sp-s':'sp-o';
+  if(m){const sp=m[2],mic=I18N['speaker.mic']||'自分';const c=spCls(sp,mic);
     const dl=sp===mic?mic:sp==='自分'?mic:(sp===(I18N['speaker.monitor']||'相手')||sp==='相手')?(I18N['speaker.monitor']||'相手'):sp;
     return '<div class="ln" data-ts="'+escAttr(m[1])+'" data-raw="'+escAttr(t)+'"><input type="checkbox" class="ln-cb" onchange="onSelChange()"><span class="ln-text"><span class="ts">['+esc(m[1])+']</span> <span class="'+c+'">['+esc(dl)+']</span> '+esc(m[3])+'</span></div>';}
   return '<div class="ln" data-raw="'+escAttr(t)+'"><span class="ln-text">'+esc(t)+'</span></div>';
@@ -245,6 +246,7 @@ async function fetchStatus(){
     muteMic=d.mute_mic;muteMonitor=d.mute_monitor;if(d.backend)audioBackend=d.backend;
     updateMuteBtn('mic',muteMic,d.use_mic);updateMuteBtn('monitor',muteMonitor,d.use_monitor);
     if(d.ptt!==undefined)updatePTT(d.ptt);
+    if(d.talk)updateTalk(d.talk);
     // console の SSE は状態が変わったときしか飛ばない。後から開いた
     // ページでも分析ボタンが開始/停止を正しく出せるよう、ここで揃える
     if(d.console_running!==undefined)updateConsoleStatus(d.console_running);

@@ -16,6 +16,7 @@ _CSS_TEMPLATE = """\
   --purple: #d2a8ff;
   --self: #79c0ff;
   --other: #ffa657;
+  --claude: #d2a8ff;
   --btn: #21262d;
   --btn-h: #30363d;
   /* 読む面(文字起こし・議事録・コンソール)の基準サイズ。「小中大」で差し替える。
@@ -84,6 +85,7 @@ main {
 .ts { color:var(--muted); }
 .sp-s { color:var(--self); font-weight:600; }
 .sp-o { color:var(--other); font-weight:600; }
+.sp-c { color:var(--claude); font-weight:600; }
 .mk { color:var(--purple); font-weight:600; }
 #logp {
   height:180px; flex-shrink:0; background:var(--panel);
@@ -435,21 +437,23 @@ main {
 #glossaryTable td input:focus { background:rgba(100,100,255,0.08); }
 #glossaryTable td.gl-del { width:30px; text-align:center; cursor:pointer; color:var(--muted); }
 #glossaryTable td.gl-del:hover { color:var(--red,#e55); }
-#customCmdTable th, #customCmdTable td {
+#customCmdTable th, #customCmdTable td, #personaTable th, #personaTable td {
   border:1px solid var(--border); padding:4px 6px;
 }
-#customCmdTable th {
+#customCmdTable th, #personaTable th {
   background:var(--bg); color:var(--muted); font-weight:600; font-size:12px;
   text-align:left; position:sticky; top:0; padding:4px 6px;
 }
-#customCmdTable td { padding:0; }
-#customCmdTable td input {
+#customCmdTable td, #personaTable td { padding:0; }
+#customCmdTable td input, #personaTable td input {
   border:none; border-radius:0; width:100%; padding:5px 6px; font-size:13px;
   background:transparent; color:var(--text); outline:none;
 }
-#customCmdTable td input:focus { background:rgba(100,100,255,0.08); }
-#customCmdTable td.gl-del { width:30px; text-align:center; cursor:pointer; color:var(--muted); }
-#customCmdTable td.gl-del:hover { color:var(--red,#e55); }
+#customCmdTable td input:focus, #personaTable td input:focus { background:rgba(100,100,255,0.08); }
+#customCmdTable td.gl-del, #personaTable td.gl-del { width:30px; text-align:center; cursor:pointer; color:var(--muted); }
+#customCmdTable td.gl-del:hover, #personaTable td.gl-del:hover { color:var(--red,#e55); }
+#personaTable td textarea { width:100%; box-sizing:border-box; border:none; background:transparent; color:inherit; font:inherit; resize:vertical; }
+#personaTable td.pd { text-align:center; }
 .modal-foot {
   padding:12px 16px; border-top:1px solid var(--border);
   display:flex; justify-content:flex-end; gap:8px;
