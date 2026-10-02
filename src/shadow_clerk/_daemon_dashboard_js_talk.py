@@ -36,7 +36,7 @@ function closeTalk(){document.getElementById('talkModal').classList.remove('open
 async function startTalk(){
   const r=await talkPost({on:true,topic:document.getElementById('talkTopic').value.trim(),
                           persona:document.getElementById('talkPersonaSel').value});
-  if(r.status==='ok')closeTalk();else document.getElementById('talkErr').textContent=r.message||'';
+  if(r.status==='ok'){closeTalk();if(r.talk&&r.talk.engine==='console')selectConsoleRole('talk');}else document.getElementById('talkErr').textContent=r.message||'';
 }
 function personaAddRow(name,text,isDefault){
   const tr=document.createElement('tr');

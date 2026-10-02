@@ -60,6 +60,7 @@ STRINGS_EN: dict[str, str] = {
     "dash.side_toggle": "Fold the transcript pane",
     "dash.tab_logs": "Logs",
     "dash.tab_console": "AI Console",
+    "dash.tab_console_talk": "Talk with Claude",
     "dash.font_size": "Text size (S/M/L)",
     "dash.font_s": "S",
     "dash.font_m": "M",

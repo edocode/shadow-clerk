@@ -21,7 +21,7 @@ function switchLogTab(tab,opts){
   const lp=document.getElementById('logp');
   if(opts.expand!==false&&lp.classList.contains('collapsed'))togLogs();
   document.getElementById('tabLogs').classList.toggle('active',tab==='logs');
-  document.getElementById('tabConsole').classList.toggle('active',tab==='console');
+  updateConsoleRoleTabs();
   document.getElementById('logc').style.display=(tab==='logs')?'':'none';
   document.getElementById('consoleRow').style.display=(tab==='console')?'':'none';
   if(tab==='console'){
@@ -201,14 +201,7 @@ function updateConsoleStatus(running){
   if(b)b.style.display=running?'':'none';
   const l=document.getElementById('btnConsoleLaunch');
   if(l)l.style.display=running?'none':'';
-  // 開始/停止は1つのボタンで受ける
-  const t=document.getElementById('btnStartAnalysis');
-  if(t){
-    t.textContent=running?(I18N['dash.stop_analysis']||'Stop analysis')
-                         :(I18N['dash.start_analysis']||'Start analysis');
-    t.title=running?(I18N['dash.stop_analysis_title']||'')
-                   :(I18N['dash.start_analysis_title']||'');
-  }
+  _consoleRoleRunning[_consoleRole]=!!running;updateAnalysisBtn();updateConsoleRoleTabs();
   // アシスタント再起動時、サーバの grid はリセットされるがクライアントには
   // 消去の合図が来ない。false→true の遷移を検出して snapshot を取り直す
   // 「まだ走っていると分かっていない」→「走っている」の全てで送り直す。
@@ -226,12 +219,12 @@ function showAutoAnalysis(){
   const pnl=document.getElementById('pnlS');
   if(pnl&&pnl.classList.contains('collapsed'))togSumPane();
   switchSumTab('ai');
-  switchLogTab('console');
+  selectConsoleRole('assistant');
 }
 
 async function loadConsole(){
-  try{const d=await(await fetch('/api/console')).json();
-    _consoleLoaded=true;applyConsole(d);
+  try{const d=await(await fetch(consoleUrl('/api/console'))).json();
+    _consoleLoaded=true;onConsoleEvent(d);
   }catch(e){}
 }
 
@@ -240,7 +233,7 @@ async function loadConsole(){
 async function launchConsole(){
   const btn=document.getElementById('btnConsoleLaunch');
   if(btn){if(btn.disabled)return;btn.disabled=true;}
-  const body=JSON.stringify(curFile?{transcript:curFile,prompt:false}:{prompt:false});
+  const body=consoleBody(curFile?{transcript:curFile,prompt:false}:{prompt:false});
   try{const d=await(await fetch('/api/console/start',{method:'POST',
     headers:{'Content-Type':'application/json'},body})).json();
     if(d.status!=='ok')alert(I18N['dash.console_start_failed']||'Failed to start the AI assistant.');
@@ -248,10 +241,10 @@ async function launchConsole(){
   }catch(e){}
   finally{if(btn)btn.disabled=false;}
 }
-async function stopConsole(){
+async function stopConsole(role){
   if(!confirm(I18N['dash.console_stop_confirm']||'Stop?'))return;
   try{await fetch('/api/console/stop',{method:'POST',
-    headers:{'Content-Type':'application/json'},body:'{}'});}catch(e){}
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({role:role||_consoleRole})});}catch(e){}
 }
 
 /* キー入力は**必ず打った順に**届ける。1打ごとに fetch を投げっぱなしにすると、
@@ -266,7 +259,7 @@ function sendConsole(data){
 }
 async function _postConsole(data){
   try{await fetch('/api/console/input',{method:'POST',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({data})});}catch(e){}
+    headers:{'Content-Type':'application/json'},body:consoleBody({data})});}catch(e){}
 }
 
 /* キーコードを端末のエスケープシーケンスに直す */
@@ -375,7 +368,7 @@ async function reportConsoleCols(){
   if(cols===_lastCols)return;
   _lastCols=cols;
   try{await fetch('/api/console/resize',{method:'POST',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({cols})});}catch(e){}
+    headers:{'Content-Type':'application/json'},body:consoleBody({cols})});}catch(e){}
   loadConsole();  // 列数が変わると grid 全体が組み直されるので取り直す
 }
 
@@ -589,7 +582,7 @@ function initSumSplit(){
 }
 
 es.addEventListener('console',e=>{
-  try{applyConsole(JSON.parse(e.data));}catch(ex){}
+  try{onConsoleEvent(JSON.parse(e.data));}catch(ex){}
 });
 (function initConsole(){
   const c=document.getElementById('consolec'),ti=document.getElementById('consoleInput');

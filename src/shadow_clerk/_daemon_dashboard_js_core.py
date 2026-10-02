@@ -249,7 +249,7 @@ async function fetchStatus(){
     if(d.talk)updateTalk(d.talk);
     // console の SSE は状態が変わったときしか飛ばない。後から開いた
     // ページでも分析ボタンが開始/停止を正しく出せるよう、ここで揃える
-    if(d.console_running!==undefined)updateConsoleStatus(d.console_running);
+    if(d.console_running!==undefined)syncConsoleRoles(d);
     const ai=document.getElementById('asrInfo');
     if(ai&&d.asr_backend){ai.textContent=d.asr_backend==='whisper'?'Whisper: '+d.asr_model_id:d.asr_backend;}
     if(d.gcal_enabled){const b=document.getElementById('btnGcal');if(b)b.style.display='';}

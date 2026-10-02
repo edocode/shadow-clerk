@@ -60,6 +60,7 @@ STRINGS_JA: dict[str, str] = {
     "dash.side_toggle": "文字起こしペインの開閉",
     "dash.tab_logs": "ログ",
     "dash.tab_console": "AI コンソール",
+    "dash.tab_console_talk": "Claude と会議",
     "dash.font_size": "文字サイズ(小/中/大)",
     "dash.font_s": "小",
     "dash.font_m": "中",
