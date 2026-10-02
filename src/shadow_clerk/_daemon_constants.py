@@ -195,6 +195,7 @@ DEFAULT_CONFIG = {
     "talk_personas": {},            # name → 性格・応答の仕方
     "talk_default_persona": "",
     "talk_engine": "console",        # console = AI Console の talk 枠 + clerk-talk skill / headless = claude -p
+    "talk_route_app": "",            # 最後に選んだ「Claude の声を届ける先」のアプリ名（開始モーダルの初期値）
     "talk_workdir": "",              # 会話役の作業ディレクトリ。空なら ai_assistant_workdir → ホーム
     "talk_filler_sec": 8,           # [自分] 行のあと応答がこの秒数来なければ「えーっと」などを挟む。0 で無効
     # 読み上げ中・生成中にこれを含む発言があれば止める。部分一致なので「まとめて」に当たる

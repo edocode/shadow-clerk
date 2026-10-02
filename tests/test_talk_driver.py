@@ -101,7 +101,7 @@ _CONFIG = {"translate_language": "en", "talk_language": "", "talk_engine": "cons
 
 
 def _driver(reachable: bool = True, engine_fail: bool = False, factory_error: Exception | None = None,
-            **config: object):
+            route_factory=None, sink_factory=None, **config: object):
     written: list[TranscriptLine] = []
     made: dict = {}
 
@@ -121,8 +121,110 @@ def _driver(reachable: bool = True, engine_fail: bool = False, factory_error: Ex
 
     d = TalkDriver(written.append, config_loader=lambda: {**_CONFIG, **config},
                    backend_factory=backend_factory, player_factory=player_factory,
-                   engine_factory=engine_factory, clock=lambda: "2026-10-03 10:00:00")
+                   engine_factory=engine_factory, clock=lambda: "2026-10-03 10:00:00",
+                   route_factory=route_factory or (lambda: _Route(ok=False)),
+                   sink_factory=sink_factory or (lambda: _Sink()))
     return d, written, made
+
+
+class _Route:
+    def __init__(self, ok: bool = True) -> None:
+        self.ok = ok
+        self.connected_to: tuple[str, str] | None = None
+        self.disconnected = False
+        self.order: list[str] | None = None
+
+    def available(self) -> bool:
+        return self.ok
+
+    def targets(self) -> list:
+        from shadow_clerk.domain import RouteTarget
+        return [RouteTarget("Chromium", 10, "Chromium — WebRTC"), RouteTarget("Chromium", 11, "Chromium — tab"),
+                RouteTarget("Zoom", 12, "Zoom")]
+
+    def connect(self, app: str, source_port: str) -> None:
+        self.connected_to = (app, source_port)
+
+    def disconnect(self) -> None:
+        self.disconnected = True
+        if self.order is not None:
+            self.order.append("route")
+
+    def status(self) -> dict:
+        return {"app": self.connected_to[0] if self.connected_to else "", "connected": self.connected_to is not None}
+
+
+class _Sink:
+    def __init__(self, fail: bool = False) -> None:
+        self.fail, self.started, self.stopped = fail, False, False
+        self.order: list[str] | None = None
+
+    def start(self) -> str:
+        if self.fail:
+            raise TtsError("no node")
+        self.started = True
+        return "shadow-clerk-talk:output_MONO"
+
+    def play(self, pcm, sr, should_stop) -> None:
+        pass
+
+    def stop(self) -> None:
+        self.stopped = True
+        if self.order is not None:
+            self.order.append("sink")
+
+
+def test_route() -> None:
+    route, sink = _Route(), _Sink()
+    d, _w, made = _driver(route_factory=lambda: route, sink_factory=lambda: sink)
+    d.start("x", None, None, "Chromium")
+    check("届ける先を指定すると pw-cat を起動してつなぐ", sink.started
+          and route.connected_to == ("Chromium", "shadow-clerk-talk:output_MONO"), repr(route.connected_to))
+    check("snapshot に経路", d.snapshot()["route"] == {"app": "Chromium", "connected": True}, repr(d.snapshot()))
+    order: list[str] = []
+    route.order = sink.order = order
+    d.stop()
+    check("stop は経路を外してから pw-cat を止める", order == ["route", "sink"], repr(order))
+
+
+def test_route_none_keeps_old_behaviour() -> None:
+    route = _Route()
+    d, _w, made = _driver(route_factory=lambda: route, sink_factory=lambda: _Sink())
+    d.start("x", None)
+    check("届ける先なしなら経路を使わない", route.connected_to is None and "player" in made)
+    check("snapshot の経路は空", d.snapshot()["route"] == {"app": "", "connected": False})
+
+
+def test_route_failures() -> None:
+    d, _w, made = _driver(route_factory=lambda: _Route(ok=False), sink_factory=lambda: _Sink())
+    try:
+        d.start("x", None, None, "Chromium")
+        check("PipeWire が使えなければ TalkStartError", False)
+    except TalkStartError:
+        check("PipeWire が使えなければ TalkStartError", not d.active)
+    sink = _Sink(fail=True)
+    d, _w, made = _driver(route_factory=lambda: _Route(), sink_factory=lambda: sink)
+    try:
+        d.start("x", None, None, "Chromium")
+        check("pw-cat が起動できなければ TalkStartError", False)
+    except TalkStartError:
+        check("pw-cat が起動できなければ TalkStartError", not d.active)
+    route, sink = _Route(), _Sink()
+    d, _w, made = _driver(engine_fail=True, route_factory=lambda: route, sink_factory=lambda: sink)
+    try:
+        d.start("x", None, None, "Chromium")
+        check("engine の失敗で経路と pw-cat を片付ける", False)
+    except TalkStartError:
+        check("engine の失敗で経路と pw-cat を片付ける", route.disconnected and sink.stopped and not d.active)
+
+
+def test_route_targets() -> None:
+    d, _w, _m = _driver(route_factory=lambda: _Route(), sink_factory=lambda: _Sink())
+    got = d.route_targets()
+    check("候補はアプリごとに1つ", got == {"available": True, "targets": [
+        {"app": "Chromium", "label": "Chromium — WebRTC"}, {"app": "Zoom", "label": "Zoom"}]}, repr(got))
+    d, _w, _m = _driver(route_factory=lambda: _Route(ok=False), sink_factory=lambda: _Sink())
+    check("使えない環境では available=False", d.route_targets() == {"available": False, "targets": []})
 
 
 def _self(text: str) -> TranscriptLine:
@@ -293,4 +395,8 @@ if __name__ == "__main__":
     test_engine_name_is_normalized()
     test_preview_and_voices()
     test_helpers()
+    test_route()
+    test_route_none_keeps_old_behaviour()
+    test_route_failures()
+    test_route_targets()
     sys.exit(0 if all(results) else 1)

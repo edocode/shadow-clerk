@@ -537,6 +537,7 @@ STRINGS_EN: dict[str, str] = {
     "talk.console_start_failed": "Cannot start the talk console",
     "talk.console_exited": "The talk console exited",
     "dash.talk_workdir": "Working directory",
+    "talk.route_unavailable": "Cannot send Claude's voice to a meeting app here (requires PipeWire)",
     "talk.workdir_missing": "Working directory not found: {path}",
     "dash.talk_start": "Talk with Claude",
     "dash.talk_stop": "End Claude talk",

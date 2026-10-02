@@ -554,6 +554,7 @@ STRINGS_JA: dict[str, str] = {
     "talk.console_start_failed": "Claude と会議のコンソールを起動できません",
     "talk.console_exited": "Claude と会議のコンソールが終了しました",
     "dash.talk_workdir": "作業ディレクトリ",
+    "talk.route_unavailable": "この環境では Claude の声を会議アプリに届けられません（PipeWire が必要）",
     "talk.workdir_missing": "作業ディレクトリがありません: {path}",
     "dash.talk_start": "Claude と会議",
     "dash.talk_stop": "Claude 会議終了",
