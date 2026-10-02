@@ -107,7 +107,8 @@ def test_interrupt() -> None:
     check("制止の直後は止めた文", e.consume_interrupt() == "途中の文。")
     check("一度返したら解く", e.consume_interrupt() is None)
     e.on_interrupt("")
-    check("何も話していなくても制止は伝える", e.consume_interrupt() == "")
+    check("空の制止も預かる（呼ぶかどうかは driver が決める）", e.consume_interrupt() == "")
+    check("話していないときの制止は受けない", ConsoleEngine.wants_idle_interrupt is False)
     e.on_self_line("何か")
     check("発言は skill が読むので何もしない", e.consume_interrupt() is None)
 

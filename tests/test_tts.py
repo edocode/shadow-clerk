@@ -214,6 +214,39 @@ def test_interrupt() -> None:
     check("止めたあとも次の文は話せる", played == ["3"], repr(played))
 
 
+def test_is_busy() -> None:
+    import time
+    gate = threading.Event()
+
+    def gated_play(pcm: np.ndarray, sr: int, should_stop) -> None:
+        while not gate.is_set() and not should_stop():
+            time.sleep(0.01)
+
+    def wait_idle(p: TtsPlayer) -> bool:
+        deadline = time.monotonic() + 2
+        while p.is_busy() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        return not p.is_busy()
+
+    p = TtsPlayer(_FakeBackend(fail_on="だめ。"), gated_play, lambda _m: None)
+    check("何も無ければ busy でない", not p.is_busy())
+    p.speak("あ。いい。")
+    check("積んだ直後から busy", p.is_busy())
+    time.sleep(0.1)
+    check("再生中は busy", p.is_busy())
+    gate.set()
+    check("話し終えたら busy でない", wait_idle(p))
+    p.speak("だめ。")
+    check("合成に失敗した文も数えて戻す", wait_idle(p))
+    gate.clear()
+    p.speak("あ。いい。ううう。")
+    time.sleep(0.1)
+    p.interrupt()
+    check("止めたら busy でない", wait_idle(p))
+    gate.set()
+    p.close()
+
+
 def test_refresh_waits_for_playback() -> None:
     import time
     from shadow_clerk import _daemon_audio
@@ -231,6 +264,7 @@ if __name__ == "__main__":
     test_play_errors_propagate()
     test_close_discards_queued_audio()
     test_interrupt()
+    test_is_busy()
     test_refresh_waits_for_playback()
     test_resample()
     test_player_order_and_errors()

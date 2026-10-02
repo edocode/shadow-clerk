@@ -196,7 +196,7 @@ DEFAULT_CONFIG = {
     "talk_default_persona": "",
     "talk_engine": "console",        # console = AI Console の talk 枠 + clerk-talk skill / headless = claude -p
     "talk_workdir": "",              # 会話役の作業ディレクトリ。空なら ai_assistant_workdir → ホーム
-    "talk_filler_sec": 5,           # 応答がこの秒数来なければ「ちょっと考えます」を挟む。0 で無効
+    "talk_filler_sec": 8,           # [自分] 行のあと応答がこの秒数来なければ「えーっと」などを挟む。0 で無効
     # 読み上げ中・生成中にこれを含む発言があれば止める。部分一致なので「まとめて」に当たる
     # 「とめて」のような短いかなは入れない。英数字の語は単語単位で照合
     "talk_stop_words": ["待って", "ストップ", "止めて", "やめて", "stop", "wait", "hold on"],

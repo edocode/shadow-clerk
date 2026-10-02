@@ -116,12 +116,14 @@ def play_on_devices(device_names: list[str]) -> PlayFn:
     return play
 
 
-def _drain(q: queue.Queue) -> None:
+def _drain(q: queue.Queue) -> int:
+    """取り出した文の数を返す（終端の None は数えない）"""
+    n = 0
     while True:
         try:
-            q.get_nowait()
+            n += q.get_nowait() is not None
         except queue.Empty:
-            return
+            return n
 
 
 class TtsPlayer:
@@ -140,6 +142,8 @@ class TtsPlayer:
         self._abort = threading.Event()
         self._gen = 0
         self._speaking = ""
+        self._pending = 0  # 合成待ち・再生待ち・再生中の文の数
+        self._pending_lock = threading.Lock()
         self._threads = [threading.Thread(target=self._synth_loop, name="tts-synth", daemon=True),
                          threading.Thread(target=self._play_loop, name="tts-play", daemon=True)]
         for th in self._threads:
@@ -148,13 +152,22 @@ class TtsPlayer:
     def speak(self, text: str) -> None:
         gen = self._gen
         for sentence in split_sentences(text):
+            self._add_pending(1)
             self._texts.put((gen, sentence))
+
+    def is_busy(self) -> bool:
+        """話している文か、合成・再生を待っている文があるか"""
+        with self._pending_lock:
+            return self._pending > 0
+
+    def _add_pending(self, n: int) -> None:
+        with self._pending_lock:
+            self._pending = max(0, self._pending + n)
 
     def interrupt(self) -> str:
         """まだ話していない文を捨て、話している文も止める。止めた時点で話していた文を返す（無ければ ""）"""
         self._gen += 1
-        _drain(self._texts)
-        _drain(self._audio)
+        self._add_pending(-(_drain(self._texts) + _drain(self._audio)))
         speaking, self._speaking = self._speaking, ""
         return speaking
 
@@ -176,14 +189,18 @@ class TtsPlayer:
         while (item := self._texts.get()) is not None:
             gen, text = item
             if self._stale(gen):
+                self._add_pending(-1)
                 continue
             try:
                 pcm, sr = self._backend.synthesize(text)
             except Exception as e:
                 logger.warning("talk: 合成に失敗: %s", e)
                 self._on_error(str(e))
+                self._add_pending(-1)
                 continue
-            if not self._stale(gen):
+            if self._stale(gen):
+                self._add_pending(-1)
+            else:
                 self._audio.put((gen, text, pcm, sr))
         self._audio.put(None)
 
@@ -191,6 +208,7 @@ class TtsPlayer:
         while (item := self._audio.get()) is not None:
             gen, text, pcm, sr = item
             if self._stale(gen):
+                self._add_pending(-1)
                 continue
             self._speaking = text
             try:
@@ -201,6 +219,7 @@ class TtsPlayer:
             finally:
                 if self._speaking == text:
                     self._speaking = ""
+                self._add_pending(-1)
 
 
 def make_backend(config: dict, voice: TalkVoice | None = None) -> TtsBackend:

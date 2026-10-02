@@ -18,6 +18,8 @@ logger = logging.getLogger("shadow-clerk")
 
 
 class HeadlessEngine:
+    wants_idle_interrupt = True
+
     def __init__(self, process_factory: Callable[..., ClaudeTalkProcess] = ClaudeTalkProcess) -> None:
         self._process_factory = process_factory
         self._lock = threading.Lock()

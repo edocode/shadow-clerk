@@ -30,6 +30,8 @@ def _talk_skill_installed() -> bool:
 
 
 class ConsoleEngine:
+    wants_idle_interrupt = False
+
     def __init__(self, console_factory: Callable[[], Any] = _talk_console,
                  skill_check: Callable[[], bool] = _talk_skill_installed, poll_sec: float = 1.0) -> None:
         self._console_factory = console_factory

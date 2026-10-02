@@ -6,7 +6,7 @@ from __future__ import annotations
 import sys
 
 from shadow_clerk._daemon_talk_prompt import (
-    build_system_prompt, requested_language, resolve_talk_language)
+    build_system_prompt, filler_phrase, requested_language, resolve_talk_language)
 from shadow_clerk.domain import Language, TalkPersona
 
 results: list[bool] = []
@@ -47,7 +47,18 @@ def test_prompt() -> None:
     check("persona も topic も無ければ節を出さない", "## Persona" not in bare and "## Topic" not in bare)
 
 
+def test_filler_phrase() -> None:
+    ja = {"うーん。", "えーっと。", "そうですね。"}
+    en = {"Hmm.", "Let me see.", "Well."}
+    got_ja = {filler_phrase(Language.JA) for _ in range(200)}
+    check("日本語のつなぎは短い間投詞から選ぶ", got_ja == ja, repr(got_ja))
+    got_en = {filler_phrase(Language.EN) for _ in range(200)}
+    check("英語のつなぎも選ぶ", got_en == en, repr(got_en))
+    check("未知の言語は日本語のつなぎ", all(filler_phrase(Language.KO) in ja for _ in range(50)))
+
+
 if __name__ == "__main__":
     test_language()
     test_prompt()
+    test_filler_phrase()
     sys.exit(0 if all(results) else 1)

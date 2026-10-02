@@ -99,12 +99,12 @@ class TalkDriver:
             chosen = TalkPersona.resolve(TalkPersona.all_from_config(config.get("talk_personas")),
                                          persona, config.get("talk_default_persona"))
             player = self._player_factory(backend, config, self._report_error)
-            name = str(config.get("talk_engine") or "console")
-            engine = self._engine_factory(name)
+            name = "headless" if config.get("talk_engine") == "headless" else "console"
             try:
+                engine = self._engine_factory(name)
                 engine.start(TalkContext(topic, chosen, lang, resolved, config,
                                          self._engine_say, self._engine_ended))
-            except TalkStartError:
+            except Exception:
                 player.close()
                 raise
             self._engine, self._engine_name, self._player = engine, name, player
@@ -113,8 +113,7 @@ class TalkDriver:
             self._credit, self._error = backend.credit(), ""
             self._filler_sec = float(config.get("talk_filler_sec") or 0)
             self._stop_re = stop_pattern(config.get("talk_stop_words"))
-            self._active = True
-            self._arm_filler_locked()
+            self._active = True  # つなぎは [自分] 行のあとだけ。口火の前に挟むと最初の質問より先に話してしまう
             logger.info("talk: 開始 (engine=%s, topic=%r, persona=%s, language=%s)",
                         name, topic, chosen.name if chosen else "-", lang.value)
 
@@ -144,10 +143,12 @@ class TalkDriver:
                 return
             engine = self._engine
             if self._stop_re is not None and self._stop_re.search(line.text):
-                cut = self._player.interrupt()
+                busy = self._player.is_busy()
+                cut = self._player.interrupt() if busy else ""
                 self._said += 1  # 止めたあとにつなぎを挟まない
-                engine.on_interrupt(cut)
-                logger.info("talk: 制止で読み上げを停止 (%r)", cut)
+                if busy or engine.wants_idle_interrupt:
+                    engine.on_interrupt(cut)
+                logger.info("talk: 制止 (busy=%s, cut=%r)", busy, cut)
             else:
                 self._arm_filler_locked()
         engine.on_self_line(line.text)

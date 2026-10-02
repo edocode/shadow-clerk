@@ -30,6 +30,10 @@ class TalkContext:
 
 
 class TalkEngine(Protocol):
+    # 何も話していないときの制止も on_interrupt で受けるか。headless は生成中のターンを捨てるので受ける。
+    # console は受けると、制止の言葉への返事（次の /api/say）まで止めてしまう
+    wants_idle_interrupt: bool
+
     def start(self, ctx: TalkContext) -> None: ...
     def stop(self) -> None: ...
     def on_self_line(self, text: str) -> None: ...

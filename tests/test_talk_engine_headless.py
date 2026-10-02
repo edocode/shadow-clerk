@@ -105,6 +105,7 @@ def test_interrupt() -> None:
     e.on_self_line("待って")
     check("待機中で何も話していなければ注記なし", proc.sent[-1] == "待って", repr(proc.sent))
     check("consume_interrupt は使わない", e.consume_interrupt() is None)
+    check("話していないときの制止も受ける", HeadlessEngine.wants_idle_interrupt is True)
 
 
 def test_exit() -> None:

@@ -53,6 +53,9 @@ class _Player:
     def speak(self, text: str) -> None:
         self.spoken.append(text)
 
+    def is_busy(self) -> bool:
+        return bool(self.speaking)
+
     def interrupt(self) -> str:
         self.interrupts += 1
         speaking, self.speaking = self.speaking, ""
@@ -65,6 +68,7 @@ class _Player:
 class _Engine:
     def __init__(self, name: str, fail: bool = False) -> None:
         self.name, self.fail = name, fail
+        self.wants_idle_interrupt = name == "headless"
         self.ctx = None
         self.lines: list[str] = []
         self.cuts: list[str] = []
@@ -96,7 +100,8 @@ _CONFIG = {"translate_language": "en", "talk_language": "", "talk_engine": "cons
            "talk_filler_sec": 0, "talk_stop_words": ["待って", "stop", "wait"]}
 
 
-def _driver(reachable: bool = True, engine_fail: bool = False, **config: object):
+def _driver(reachable: bool = True, engine_fail: bool = False, factory_error: Exception | None = None,
+            **config: object):
     written: list[TranscriptLine] = []
     made: dict = {}
 
@@ -109,6 +114,8 @@ def _driver(reachable: bool = True, engine_fail: bool = False, **config: object)
         return made["player"]
 
     def engine_factory(name):
+        if factory_error is not None:
+            raise factory_error
         made["engine"] = _Engine(name, engine_fail)
         return made["engine"]
 
@@ -151,6 +158,12 @@ def test_start_failures() -> None:
         check("engine の起動失敗で TalkStartError", False)
     except TalkStartError:
         check("engine の起動失敗で TalkStartError", made["player"].closed and not d.is_suppressed("monitor"))
+    d, _w, made = _driver(factory_error=RuntimeError("boom"))
+    try:
+        d.start("x", None)
+        check("想定外の例外も投げ直す", False)
+    except RuntimeError:
+        check("想定外の例外でも再生器を閉じる", made["player"].closed and not d.active)
 
 
 def test_engine_say_and_end() -> None:
@@ -178,9 +191,20 @@ def test_self_lines_and_stop_words() -> None:
           and eng.lines[-1] == "ちょっと待って", repr(eng.cuts))
     d.on_self_line(_self("the waiter came"))
     check("英語は単語で照合", player.interrupts == 1)
+    d.on_self_line(_self("待って"))
+    check("話していないときの制止は console engine に伝えない（次の応答を止めない）",
+          player.interrupts == 1 and eng.cuts == ["長い説明です。"] and eng.lines[-1] == "待って", repr(eng.cuts))
     d.stop()
     d.on_self_line(_self("終了後"))
-    check("終了後の行は渡さない", eng.lines[-1] == "the waiter came")
+    check("終了後の行は渡さない", eng.lines[-1] == "待って")
+    d, _w, made = _driver(talk_engine="headless")
+    d.start("x", None)
+    d.on_self_line(_self("待って"))
+    check("headless は話していなくても制止を伝える（生成中のターンを捨てる）", made["engine"].cuts == [""],
+          repr(made["engine"].cuts))
+    made["player"].speaking = "途中の文。"
+    d.on_self_line(_self("待って"))
+    check("headless にも止めた文を渡す", made["engine"].cuts == ["", "途中の文。"], repr(made["engine"].cuts))
 
 
 def test_api_say() -> None:
@@ -193,10 +217,16 @@ def test_api_say() -> None:
 
 
 def test_filler() -> None:
+    from shadow_clerk._daemon_talk_prompt import _FILLERS
     d, written, made = _driver(talk_filler_sec=0.05)
     d.start("x", None)
     time.sleep(0.25)
-    check("開始後に話さなければつなぎを話す", made["player"].spoken == ["ちょっと考えます。"], repr(made["player"].spoken))
+    check("開始だけではつなぎを話さない", made["player"].spoken == [], repr(made["player"].spoken))
+    d.on_self_line(_self("質問です"))
+    time.sleep(0.25)
+    spoken = made["player"].spoken
+    check("[自分] 行のあと話さなければつなぎを話す", len(spoken) == 1 and spoken[0] in _FILLERS[Language.JA],
+          repr(spoken))
     check("つなぎは transcript に書かない", written == [])
     d, written, made = _driver(talk_filler_sec=0.2)
     d.start("x", None)
@@ -229,10 +259,14 @@ def test_workdir() -> None:
         check("存在しない指定は TalkStartError", "engine" not in made and not d.active)
 
 
-def test_unknown_engine_name_is_passed_through() -> None:
+def test_engine_name_is_normalized() -> None:
     d, _w, made = _driver(talk_engine="nope")
     d.start("x", None)
-    check("engine 名はそのまま factory へ（解釈は make_engine）", made["engine"].name == "nope")
+    check("未知の engine 名は console に寄せる", made["engine"].name == "console"
+          and d.snapshot()["engine"] == "console", made["engine"].name)
+    d, _w, made = _driver(talk_engine="headless")
+    d.start("x", None)
+    check("headless はそのまま", made["engine"].name == "headless" and d.snapshot()["engine"] == "headless")
 
 
 def test_preview_and_voices() -> None:
@@ -256,7 +290,7 @@ if __name__ == "__main__":
     test_api_say()
     test_filler()
     test_workdir()
-    test_unknown_engine_name_is_passed_through()
+    test_engine_name_is_normalized()
     test_preview_and_voices()
     test_helpers()
     sys.exit(0 if all(results) else 1)
