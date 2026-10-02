@@ -1,14 +1,15 @@
-"""TalkDriver の検証（claude・TTS は偽物）
+"""TalkDriver（共通部分）の検証。TTS と engine は偽物
 
 実行: uv run python tests/test_talk_driver.py
 """
 from __future__ import annotations
 import sys
+import time
 from typing import Callable
 
 import numpy as np
 
-from shadow_clerk._daemon_talk import TalkDriver, TalkStartError, one_line
+from shadow_clerk._daemon_talk import TalkDriver, TalkStartError, one_line, stop_pattern
 from shadow_clerk._daemon_tts import TtsError
 from shadow_clerk.domain import Language, Speaker, TalkVoice, TranscriptLine
 
@@ -25,11 +26,7 @@ class _Backend:
     DEFAULT_LANGUAGE = Language.JA
 
     def __init__(self, reachable: bool = True, voice: TalkVoice | None = None) -> None:
-        self.reachable = reachable
-        self.voice = voice
-
-    def voices(self) -> list[dict]:
-        return [{"id": 3, "name": "テスト（ノーマル）"}]
+        self.reachable, self.voice = reachable, voice
 
     def check(self) -> None:
         if not self.reachable:
@@ -37,6 +34,9 @@ class _Backend:
 
     def credit(self) -> str:
         return "VOICEVOX:test"
+
+    def voices(self) -> list[dict]:
+        return [{"id": 3, "name": "テスト（ノーマル）"}]
 
     def synthesize(self, text: str) -> tuple[np.ndarray, int]:
         return np.zeros(1, dtype=np.float32), 24000
@@ -47,126 +47,95 @@ class _Player:
         self.spoken: list[str] = []
         self.closed = False
         self.on_error = on_error
-        self.speaking = ""        # interrupt() が返す「話していた文」
+        self.speaking = ""
         self.interrupts = 0
+
+    def speak(self, text: str) -> None:
+        self.spoken.append(text)
 
     def interrupt(self) -> str:
         self.interrupts += 1
         speaking, self.speaking = self.speaking, ""
         return speaking
 
-    def speak(self, text: str) -> None:
-        self.spoken.append(text)
-
     def close(self, discard_pending: bool = True) -> None:
         self.closed = True
 
 
-class _Proc:
-    def __init__(self, argv: list[str], workdir: str, on_text: Callable[[str], None],
-                 on_turn_end: Callable[[bool], None], on_exit: Callable[[int | None], None],
-                 fail: bool = False) -> None:
-        self.argv, self.on_text, self.on_turn_end = argv, on_text, on_turn_end
-        self.on_exit, self.fail = on_exit, fail
-        self.workdir = workdir
-        self.sent: list[str] = []
+class _Engine:
+    def __init__(self, name: str, fail: bool = False) -> None:
+        self.name, self.fail = name, fail
+        self.ctx = None
+        self.lines: list[str] = []
+        self.cuts: list[str] = []
+        self.pending_cut: str | None = None
         self.stopped = False
 
-    def start(self) -> None:
+    def start(self, ctx) -> None:
         if self.fail:
-            raise FileNotFoundError("claude")
-
-    def send(self, text: str) -> None:
-        self.sent.append(text)
+            raise TalkStartError("engine down")
+        self.ctx = ctx
 
     def stop(self) -> None:
         self.stopped = True
 
-    def reply(self, text: str) -> None:
-        """1ターン分の応答（text ブロック1つ + ターン終了）"""
-        if text:
-            self.on_text(text)
-        self.on_turn_end(True)
+    def on_self_line(self, text: str) -> None:
+        self.lines.append(text)
+
+    def on_interrupt(self, cut: str) -> None:
+        self.cuts.append(cut)
+        self.pending_cut = cut
+
+    def consume_interrupt(self) -> str | None:
+        cut, self.pending_cut = self.pending_cut, None
+        return cut
 
 
-_CONFIG = {"translate_language": "en", "talk_language": "", "claude_cli_path": "claude",
-           "talk_allowed_tools": "Read", "talk_model": "", "ai_assistant_workdir": "",
+_CONFIG = {"translate_language": "en", "talk_language": "", "talk_engine": "console",
            "talk_personas": {"devil": "反対の立場から話す"}, "talk_default_persona": "devil",
-           "talk_filler_sec": 0, "talk_stop_words": ["待って", "ストップ", "stop", "wait"]}
+           "talk_filler_sec": 0, "talk_stop_words": ["待って", "stop", "wait"]}
 
 
-def _driver(reachable: bool = True, proc_fail: bool = False, **config: object):
+def _driver(reachable: bool = True, engine_fail: bool = False, **config: object):
     written: list[TranscriptLine] = []
     made: dict = {}
 
-    def backend_factory(config, voice=None):
+    def backend_factory(cfg, voice=None):
         made["backend"] = _Backend(reachable, voice)
         return made["backend"]
 
-    def player_factory(backend, config, on_error):
+    def player_factory(backend, cfg, on_error):
         made["player"] = _Player(on_error)
         return made["player"]
 
-    def process_factory(argv, workdir, on_text, on_turn_end, on_exit):
-        made["proc"] = _Proc(argv, workdir, on_text, on_turn_end, on_exit, fail=proc_fail)
-        return made["proc"]
+    def engine_factory(name):
+        made["engine"] = _Engine(name, engine_fail)
+        return made["engine"]
 
     d = TalkDriver(written.append, config_loader=lambda: {**_CONFIG, **config},
                    backend_factory=backend_factory, player_factory=player_factory,
-                   process_factory=process_factory, clock=lambda: "2026-10-02 10:00:00")
+                   engine_factory=engine_factory, clock=lambda: "2026-10-03 10:00:00")
     return d, written, made
 
 
 def _self(text: str) -> TranscriptLine:
-    return TranscriptLine("2026-10-02 10:00:00", Speaker.SELF, text)
+    return TranscriptLine("2026-10-03 10:00:00", Speaker.SELF, text)
 
 
-def test_start_and_kickoff() -> None:
-    d, written, made = _driver()
+def test_start_and_context() -> None:
+    d, _w, made = _driver(talk_engine="headless")
     d.start("新機能の設計", None)
-    proc = made["proc"]
-    prompt = proc.argv[proc.argv.index("--append-system-prompt") + 1]
-    check("開始すると口火を送る", len(proc.sent) == 1, repr(proc.sent))
-    check("既定 persona と議題が prompt に入る", "反対の立場から話す" in prompt and "新機能の設計" in prompt)
-    check("monitor を抑制する", d.is_suppressed("monitor") and not d.is_suppressed("mic"))
+    ctx = made["engine"].ctx
+    check("設定の engine を使う", made["engine"].name == "headless")
+    check("engine に議題・persona・言語を渡す", ctx.topic == "新機能の設計" and ctx.persona.name == "devil"
+          and ctx.language == Language.JA)
     snap = d.snapshot()
-    check("snapshot に状態", snap["active"] and snap["persona"] == "devil" and snap["language"] == "ja"
-          and snap["credit"] == "VOICEVOX:test", repr(snap))
+    check("snapshot に engine と persona 本文", snap["engine"] == "headless"
+          and snap["persona_instructions"] == "反対の立場から話す" and snap["active"], repr(snap))
+    check("monitor を抑制する", d.is_suppressed("monitor") and not d.is_suppressed("mic"))
+    first = made["engine"]
     d.start("二度目", None)
-    check("二重開始しない", made["proc"] is proc and len(proc.sent) == 1)
-
-
-def test_reply_and_batching() -> None:
-    d, written, made = _driver()
-    d.start("", "")
-    proc, player = made["proc"], made["player"]
-    check("persona 空文字は persona なし", d.snapshot()["persona"] == "")
-    d.on_self_line(_self("一つ目"))
-    check("生成中は送らずためる", len(proc.sent) == 1)
-    d.on_self_line(_self("二つ目"))
-    proc.reply("最初の質問です。\n- どう思う？")
-    check("応答を1行で書く", [(w.speaker, w.text) for w in written]
-          == [(Speaker.CLAUDE, "最初の質問です。 - どう思う？")], repr(written))
-    check("応答を読み上げに渡す", player.spoken == ["最初の質問です。 - どう思う？"], repr(player.spoken))
-    check("ためた行をまとめて送る", proc.sent[-1] == "一つ目\n二つ目", repr(proc.sent))
-    proc.reply("")
-    check("空の応答は書かない", len(written) == 1)
-    d.on_self_line(_self("三つ目"))
-    check("待機中ならすぐ送る", proc.sent[-1] == "三つ目", repr(proc.sent))
-
-
-def test_stop() -> None:
-    d, written, made = _driver()
-    d.start("x", None)
-    proc, player = made["proc"], made["player"]
-    d.stop()
-    check("停止でプロセスと再生を止める", proc.stopped and player.closed)
-    check("停止で抑制を解く", not d.is_suppressed("monitor"))
-    d.on_self_line(_self("遅れて届いた"))
-    proc.reply("遅れた応答")
-    check("停止後の行と応答は無視", len(proc.sent) == 1 and written == [], repr(written))
-    d.stop()
-    check("停止は二度呼べる", True)
+    check("二重開始しない", made["engine"] is first)
 
 
 def test_start_failures() -> None:
@@ -175,122 +144,119 @@ def test_start_failures() -> None:
         d.start("x", None)
         check("VOICEVOX 不達で TalkStartError", False)
     except TalkStartError:
-        check("VOICEVOX 不達で TalkStartError", not d.snapshot()["active"] and "proc" not in made)
-    d, _w, made = _driver(proc_fail=True)
+        check("VOICEVOX 不達で TalkStartError", "engine" not in made and not d.active)
+    d, _w, made = _driver(engine_fail=True)
     try:
         d.start("x", None)
-        check("claude 起動失敗で TalkStartError", False)
+        check("engine の起動失敗で TalkStartError", False)
     except TalkStartError:
-        check("claude 起動失敗で TalkStartError", not d.is_suppressed("monitor") and made["player"].closed)
+        check("engine の起動失敗で TalkStartError", made["player"].closed and not d.is_suppressed("monitor"))
 
 
-def test_process_exit_and_tts_error() -> None:
+def test_engine_say_and_end() -> None:
+    d, written, made = _driver()
+    d.start("x", None)
+    made["engine"].ctx.say("こんにちは。\n- どうですか？")
+    check("engine の say は1行で書いて話す", [w.text for w in written] == ["こんにちは。 - どうですか？"]
+          and made["player"].spoken == ["こんにちは。 - どうですか？"], repr(written))
+    made["engine"].ctx.ended("console exited")
+    check("engine が終わったら talk mode を終える", not d.active and made["engine"].stopped
+          and made["player"].closed and d.snapshot()["error"] == "console exited")
+    made["engine"].ctx.say("遅れた発話")
+    check("終了後の engine の say は無視", len(written) == 1)
+
+
+def test_self_lines_and_stop_words() -> None:
     d, _w, made = _driver()
     d.start("x", None)
-    made["player"].on_error("synth failed")
-    check("TTS の失敗を status に出す", d.snapshot()["error"] == "synth failed", repr(d.snapshot()))
-    made["proc"].on_exit(1)
-    snap = d.snapshot()
-    check("プロセス終了で talk mode を終える", not snap["active"] and not d.is_suppressed("monitor"))
-    check("終了理由を残す", "1" in snap["error"], repr(snap))
+    eng, player = made["engine"], made["player"]
+    d.on_self_line(_self("うん"))
+    check("[自分] 行を engine に渡す", eng.lines == ["うん"] and player.interrupts == 0)
+    player.speaking = "長い説明です。"
+    d.on_self_line(_self("ちょっと待って"))
+    check("制止で読み上げを止め engine に知らせる", player.interrupts == 1 and eng.cuts == ["長い説明です。"]
+          and eng.lines[-1] == "ちょっと待って", repr(eng.cuts))
+    d.on_self_line(_self("the waiter came"))
+    check("英語は単語で照合", player.interrupts == 1)
+    d.stop()
+    d.on_self_line(_self("終了後"))
+    check("終了後の行は渡さない", eng.lines[-1] == "the waiter came")
 
 
-def test_workdir_resolution() -> None:
+def test_api_say() -> None:
+    d, written, made = _driver()
+    check("talk mode 外でも話せる", d.api_say("テスト") is None and written[-1].text == "テスト")
+    d.start("x", None)
+    made["engine"].pending_cut = "途中の文。"
+    check("制止の直後は話さずに止めた文を返す", d.api_say("続き") == "途中の文。" and written[-1].text == "テスト")
+    check("2回目からは話す", d.api_say("どうぞ") is None and written[-1].text == "どうぞ")
+
+
+def test_filler() -> None:
+    d, written, made = _driver(talk_filler_sec=0.05)
+    d.start("x", None)
+    time.sleep(0.25)
+    check("開始後に話さなければつなぎを話す", made["player"].spoken == ["ちょっと考えます。"], repr(made["player"].spoken))
+    check("つなぎは transcript に書かない", written == [])
+    d, written, made = _driver(talk_filler_sec=0.2)
+    d.start("x", None)
+    d.on_self_line(_self("質問です"))
+    d.api_say("答えです。")
+    time.sleep(0.35)
+    check("話していればつなぎは入れない", made["player"].spoken == ["答えです。"], repr(made["player"].spoken))
+
+
+def test_workdir() -> None:
     import os
+    import tempfile
     home = os.path.expanduser("~")
-    d, _w, made = _driver(ai_assistant_workdir="~")
+    d, _w, made = _driver()
     d.start("x", None)
-    check("workdir の ~ を展開する", made["proc"].workdir == home, made["proc"].workdir)
-    d, _w, made = _driver(ai_assistant_workdir="~/no-such-dir-for-talk-test")
+    check("指定が無ければ設定、それも無ければホーム", made["engine"].ctx.workdir == home
+          and d.snapshot()["workdir"] == home, made["engine"].ctx.workdir)
+    with tempfile.TemporaryDirectory() as tmp:
+        d, _w, made = _driver(talk_workdir=tmp)
+        d.start("x", None)
+        check("talk_workdir を使う", made["engine"].ctx.workdir == tmp)
+        d, _w, made = _driver(talk_workdir=tmp)
+        d.start("x", None, "~")
+        check("開始時の指定を優先し ~ を展開する", made["engine"].ctx.workdir == home)
+    d, _w, made = _driver()
+    try:
+        d.start("x", None, "/no/such/dir-for-talk-test")
+        check("存在しない指定は TalkStartError", False)
+    except TalkStartError:
+        check("存在しない指定は TalkStartError", "engine" not in made and not d.active)
+
+
+def test_unknown_engine_name_is_passed_through() -> None:
+    d, _w, made = _driver(talk_engine="nope")
     d.start("x", None)
-    check("存在しない workdir はホームに戻す", made["proc"].workdir == home, made["proc"].workdir)
+    check("engine 名はそのまま factory へ（解釈は make_engine）", made["engine"].name == "nope")
 
 
 def test_preview_and_voices() -> None:
     d, written, made = _driver()
     d.preview(TalkVoice(speaker_id=5, speed=1.4), "試しに読みます")
-    check("試聴は渡した声で合成する", made["backend"].voice == TalkVoice(speaker_id=5, speed=1.4))
-    check("試聴は読み上げるが transcript に書かない",
-          made["player"].spoken == ["試しに読みます"] and written == [], repr(written))
+    check("試聴は渡した声で、transcript に書かない", made["backend"].voice == TalkVoice(speaker_id=5, speed=1.4)
+          and made["player"].spoken == ["試しに読みます"] and written == [])
     check("話者一覧を返す", d.voices() == [{"id": 3, "name": "テスト（ノーマル）"}])
-    d, _w, made = _driver(reachable=False)
-    try:
-        d.preview(TalkVoice(), "x")
-        check("エンジン不達の試聴は TtsError", False)
-    except TtsError:
-        check("エンジン不達の試聴は TtsError", "player" not in made)
 
 
-def test_text_streams_before_turn_end() -> None:
-    d, written, made = _driver()
-    d.start("x", None)
-    proc, player = made["proc"], made["player"]
-    proc.on_text("ちょっと考えます。")
-    check("ターンの途中でも text ブロックをすぐ話す", player.spoken == ["ちょっと考えます。"]
-          and [w.text for w in written] == ["ちょっと考えます。"], repr(written))
-    d.on_self_line(_self("追加の話"))
-    proc.on_text("答えです。")
-    check("同じターンの続きも話す", player.spoken[-1] == "答えです。" and len(written) == 2)
-    check("ターン終了まではためる", proc.sent[-1] != "追加の話")
-    proc.on_turn_end(True)
-    check("ターン終了でためた行を送る", proc.sent[-1] == "追加の話", repr(proc.sent))
-
-
-def test_filler() -> None:
-    import time
-    d, written, made = _driver(talk_filler_sec=0.05)
-    d.start("x", None)
-    time.sleep(0.25)
-    check("応答が遅ければつなぎの一言を話す", made["player"].spoken == ["ちょっと考えます。"], repr(made["player"].spoken))
-    check("つなぎは transcript に書かず claude にも送らない", written == [] and len(made["proc"].sent) == 1)
-    d, written, made = _driver(talk_filler_sec=0.2)
-    d.start("x", None)
-    made["proc"].on_text("すぐ答えます。")
-    time.sleep(0.35)
-    check("先に話し始めていればつなぎは入れない", made["player"].spoken == ["すぐ答えます。"], repr(made["player"].spoken))
-
-
-def test_stop_words() -> None:
-    d, written, made = _driver()
-    d.start("x", None)
-    proc, player = made["proc"], made["player"]
-    proc.on_text("長い説明の一文目です。")
-    player.speaking = "長い説明の一文目です。"
-    d.on_self_line(_self("うん"))
-    check("制止の言葉でなければ止めない", player.interrupts == 0)
-    d.on_self_line(_self("ちょっと待って"))
-    check("制止の言葉で読み上げを止める", player.interrupts == 1)
-    proc.on_text("説明の続きです。")
-    check("止めたあとのこのターンの発話は捨てる", [w.text for w in written] == ["長い説明の一文目です。"], repr(written))
-    proc.on_turn_end(True)
-    sent = proc.sent[-1]
-    check("止めた位置の注記と発言をまとめて送る",
-          "長い説明の一文目です。" in sent and sent.endswith("ちょっと待って") and "うん" in sent, repr(sent))
-    proc.reply("どうぞ。")
-    check("次のターンはまた話す", written[-1].text == "どうぞ。")
-    player.speaking = "どうぞ。"
-    d.on_self_line(_self("Wait a second"))
-    check("待機中でも止めてすぐ送る（英語は単語で照合）", player.interrupts == 2
-          and "どうぞ。" in proc.sent[-1] and proc.sent[-1].endswith("Wait a second"), repr(proc.sent[-1]))
-    proc.reply("")
-    d.on_self_line(_self("the waiter came"))
-    check("単語の一部には反応しない", player.interrupts == 2 and proc.sent[-1] == "the waiter came")
-
-
-def test_one_line() -> None:
+def test_helpers() -> None:
     check("改行・連続空白を1つに", one_line(" a\n\n b\t c ") == "a b c")
+    check("制止の言葉が無ければ None", stop_pattern([]) is None and stop_pattern("x") is None)
 
 
 if __name__ == "__main__":
-    test_start_and_kickoff()
-    test_reply_and_batching()
-    test_stop()
+    test_start_and_context()
     test_start_failures()
-    test_process_exit_and_tts_error()
-    test_workdir_resolution()
-    test_preview_and_voices()
-    test_text_streams_before_turn_end()
+    test_engine_say_and_end()
+    test_self_lines_and_stop_words()
+    test_api_say()
     test_filler()
-    test_stop_words()
-    test_one_line()
+    test_workdir()
+    test_unknown_engine_name_is_passed_through()
+    test_preview_and_voices()
+    test_helpers()
     sys.exit(0 if all(results) else 1)

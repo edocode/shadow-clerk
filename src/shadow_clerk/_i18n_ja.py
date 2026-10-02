@@ -549,6 +549,7 @@ STRINGS_JA: dict[str, str] = {
     "talk.preview_text": "こんにちは。この声と速さで話します。",
     "talk.claude_start_failed": "claude を起動できません: {error}",
     "talk.claude_exited": "claude が終了しました (code={code})",
+    "talk.workdir_missing": "作業ディレクトリがありません: {path}",
     "dash.talk_start": "Claude と会議",
     "dash.talk_stop": "Claude 会議終了",
     "dash.talk_title": "Claude と会議を始める",
