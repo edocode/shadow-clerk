@@ -69,6 +69,7 @@ class PipeWireRoute:
         self._source = ""
         self._linked: set[tuple[int, int]] = set()
         self._connected = False
+        self._last_error = ""
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -125,7 +126,7 @@ class PipeWireRoute:
     def connect(self, app: str, source_port: str) -> None:
         self.disconnect()
         with self._lock:
-            self._app, self._source = app, source_port
+            self._app, self._source, self._last_error = app, source_port, ""
             self._stop.clear()
         self._sync()
         self._thread = threading.Thread(target=self._watch, name="talk-route", daemon=True)
@@ -133,7 +134,17 @@ class PipeWireRoute:
 
     def _watch(self) -> None:
         while not self._stop.wait(self._poll_sec):
-            self._sync()
+            try:
+                self._sync()
+            except Exception as e:  # 想定外のグラフでも監視は止めない
+                logger.warning("talk: 経路の同期に失敗しました: %s", e)
+                self._connected = False
+
+    def _warn_once(self, msg: str) -> None:
+        """毎秒の再試行で同じ失敗を繰り返しログに出さない（メッセージが変わったときだけ出す）"""
+        if msg != self._last_error:
+            self._last_error = msg
+            logger.warning("%s", msg)
 
     def _sync(self) -> None:
         """選んだアプリの録音ストリームのうち、まだつないでいない入力ポートにつなぐ"""
@@ -143,14 +154,14 @@ class PipeWireRoute:
             try:
                 objs = self._dump()
             except (OSError, subprocess.SubprocessError, ValueError) as e:
-                logger.warning("talk: PipeWire のグラフを読めません: %s", e)
+                self._warn_once(f"talk: PipeWire のグラフを読めません: {e}")
                 self._connected = False
                 return
             src = self._source_port_id(objs)
             links = {((o.get("info") or {}).get("output-port-id"), (o.get("info") or {}).get("input-port-id"))
                      for o in objs if o.get("type") == "PipeWire:Interface:Link"}
             inputs = [i for t, ports in self._streams(objs) if t.app == self._app for i in ports]
-            connected = False
+            connected = failed = False
             for inp in inputs if src is not None else []:
                 if (src, inp) in links:
                     connected = True
@@ -158,11 +169,14 @@ class PipeWireRoute:
                 try:
                     self._runner(["pw-link", str(src), str(inp)])
                 except (OSError, subprocess.SubprocessError) as e:
-                    logger.warning("talk: %s につなげません: %s", self._app, e)
+                    self._warn_once(f"talk: {self._app} につなげません: {e}")
+                    failed = True
                     continue
                 self._linked.add((src, inp))
                 connected = True
             self._connected = connected
+            if not failed:
+                self._last_error = ""
 
     def disconnect(self) -> None:
         self._stop.set()

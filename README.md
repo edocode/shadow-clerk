@@ -496,7 +496,8 @@ Claude Code still asks, allow them once, or add the same rules to your Claude Co
 app's microphone input with `pw-link`, so the other participants hear Claude mixed with your microphone, and you
 still hear it in your headset. If the app reopens its microphone, the link is restored automatically. Muting
 yourself in the meeting app mutes Claude too, because the voice goes into the same input. Needs `pw-dump`,
-`pw-link` and `pw-cat`; on other platforms the option is disabled.
+`pw-link` and `pw-cat`; on other platforms the option is disabled. With a route set, speech plays to PipeWire's
+default output and `talk_output_devices` is not used.
 
 You can also make Claude speak any text:
 
@@ -509,7 +510,7 @@ curl -s -X POST localhost:8765/api/say -d '{"text":"Hello"}'
 | `talk_voicevox_url` | `http://localhost:50021` | VOICEVOX engine |
 | `talk_speaker_id` | `3` | VOICEVOX style ID |
 | `talk_speed` / `talk_pitch` / `talk_intonation` / `talk_volume` | `1.0` / `0.0` / `1.0` / `1.0` | Speed (0.5–2.0), pitch (-0.15–0.15), intonation (0–2), volume (0–2) |
-| `talk_output_devices` | `[]` | Output device names (empty = default output) |
+| `talk_output_devices` | `[]` | Output device names (empty = default output). Not used when a route is set; pw-cat plays to the default output |
 | `talk_engine` | `console` | `console` (AI Console + clerk-talk skill) or `headless` (`claude -p`) |
 | `talk_route_app` | `""` | Last app chosen under "Send Claude's voice to" (start-dialog default) |
 | `talk_workdir` | `""` | Working directory for the talk session (empty = `ai_assistant_workdir`, then home). The start dialog can override it per session |

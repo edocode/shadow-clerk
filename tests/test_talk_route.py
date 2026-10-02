@@ -143,6 +143,45 @@ def test_dump_failure_marks_disconnected() -> None:
         r.disconnect()
 
 
+def test_watcher_survives_malformed_graph() -> None:
+    runner = _Runner(_graph())
+    r = _route(runner)
+    r.connect("Chromium", "shadow-clerk-talk:output_MONO")
+    try:
+        runner.graph[:] = [{"type": "PipeWire:Interface:Client"}]  # id の無い Client で _streams が KeyError になる
+        time.sleep(0.2)
+        check("想定外のグラフでも監視は落ちず未接続になる", not r.status()["connected"] and r._thread.is_alive())
+        runner.graph[:] = _graph(meeting_node=11)
+        time.sleep(0.2)
+        check("グラフが戻ればつなぎ直す", r.status()["connected"] and ["pw-link", "31", "1101"] in runner.links(),
+              repr(runner.links()))
+    finally:
+        r.disconnect()
+
+
+def test_failure_logged_once() -> None:
+    import logging
+    records: list[str] = []
+
+    class _H(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record.getMessage())
+
+    log = logging.getLogger("shadow-clerk")
+    h = _H()
+    log.addHandler(h)
+    runner = _Runner(_graph())
+    r = _route(runner)
+    r.connect("Chromium", "shadow-clerk-talk:output_MONO")
+    try:
+        runner.fail_dump = True
+        time.sleep(0.4)
+        check("同じ pw-dump の失敗は毎秒ログに出さない", len(records) == 1, repr(records))
+    finally:
+        r.disconnect()
+        log.removeHandler(h)
+
+
 def test_available_and_null() -> None:
     check("ツールがそろえば使える", _route(_Runner([])).available())
     missing = PipeWireRoute(runner=_Runner([]), pid=OWN_PID, which=lambda c: None if c == "pw-link" else "/x")
@@ -159,5 +198,7 @@ if __name__ == "__main__":
     test_connect_links_every_input_port()
     test_reconnect_when_stream_reopens()
     test_dump_failure_marks_disconnected()
+    test_watcher_survives_malformed_graph()
+    test_failure_logged_once()
     test_available_and_null()
     sys.exit(0 if all(results) else 1)

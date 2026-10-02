@@ -23,7 +23,7 @@ logger = logging.getLogger("shadow-clerk")
 NODE_NAME = "shadow-clerk-talk"
 PWCAT_RATE = 48000
 _BLOCK = PWCAT_RATE // 10      # 0.1 秒ずつ書き、合間に should_stop を見る
-_PIPE_BYTES = _BLOCK * 2        # パイプのバッファを 0.1 秒ぶんに絞る。既定の 64KB だと止めても 0.7 秒鳴り続ける
+_PIPE_BYTES = _BLOCK * 2        # パイプを絞る（F_SETPIPE_SZ は 16KiB に丸めるので約 0.17 秒）。既定の 64KB だと止めても 0.7 秒鳴り続ける
 _F_SETPIPE_SZ = 1031
 
 
@@ -95,10 +95,12 @@ class PwCatSink:
             self._put(proc, chunk)
             return
         except (OSError, ValueError) as e:
-            logger.warning("talk: pw-cat が落ちたため起動し直します: %s", e)
+            err = e
         with self._lock:
             if self._proc is not proc:
+                logger.debug("talk: 停止中の書き込みが失敗しました: %s", err)
                 return  # stop 済み
+            logger.warning("talk: pw-cat が落ちたため起動し直します: %s", err)
             new = self._spawn()  # つなぎ直しは経路の監視が拾う（ノード ID が変わるため）
         self._reap(proc)
         try:

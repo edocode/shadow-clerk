@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 import json
+import logging
 import sys
 import threading
 import time
@@ -143,6 +144,10 @@ def test_stop_during_blocked_write() -> None:
     sink.start()
     procs[0].stdin = _BlockStdin()
     errs: list[BaseException] = []
+    warnings: list[str] = []
+    handler = logging.Handler(logging.WARNING)
+    handler.emit = lambda rec: warnings.append(rec.getMessage())  # type: ignore[method-assign]
+    logging.getLogger("shadow-clerk").addHandler(handler)
 
     def run() -> None:
         try:
@@ -157,7 +162,9 @@ def test_stop_during_blocked_write() -> None:
     sink.stop()
     th.join(2)
     check("書き込み中でも stop はすぐ戻る", time.monotonic() - t0 < 1.0 and not th.is_alive())
+    logging.getLogger("shadow-clerk").removeHandler(handler)
     check("止められた play は例外なく戻り、起動し直さない", not errs and len(procs) == 1, repr(errs))
+    check("stop による書き込み失敗は WARNING にしない", not warnings, repr(warnings))
 
 
 def test_play_after_stop() -> None:

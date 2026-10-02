@@ -4,13 +4,14 @@
 """
 from __future__ import annotations
 import sys
+import threading
 import time
 from typing import Callable
 
 import numpy as np
 
 from shadow_clerk._daemon_talk import TalkDriver, TalkStartError, one_line, stop_pattern
-from shadow_clerk._daemon_tts import TtsError
+from shadow_clerk._daemon_tts import TtsError, TtsPlayer
 from shadow_clerk.domain import Language, Speaker, TalkVoice, TranscriptLine
 
 results: list[bool] = []
@@ -161,6 +162,7 @@ class _Sink:
     def __init__(self, fail: bool = False) -> None:
         self.fail, self.started, self.stopped = fail, False, False
         self.order: list[str] | None = None
+        self.stop_event = threading.Event()
 
     def start(self) -> str:
         if self.fail:
@@ -173,6 +175,7 @@ class _Sink:
 
     def stop(self) -> None:
         self.stopped = True
+        self.stop_event.set()
         if self.order is not None:
             self.order.append("sink")
 
@@ -180,14 +183,68 @@ class _Sink:
 def test_route() -> None:
     route, sink = _Route(), _Sink()
     d, _w, made = _driver(route_factory=lambda: route, sink_factory=lambda: sink)
+    order: list[str] = []
+    _patch_route_player(order)
     d.start("x", None, None, "Chromium")
     check("届ける先を指定すると pw-cat を起動してつなぐ", sink.started
           and route.connected_to == ("Chromium", "shadow-clerk-talk:output_MONO"), repr(route.connected_to))
     check("snapshot に経路", d.snapshot()["route"] == {"app": "Chromium", "connected": True}, repr(d.snapshot()))
-    order: list[str] = []
     route.order = sink.order = order
     d.stop()
-    check("stop は経路を外してから pw-cat を止める", order == ["route", "sink"], repr(order))
+    check("stop は経路を外し、pw-cat を止めてから player を閉じる", order == ["route", "sink", "player"], repr(order))
+    _restore_player()
+
+
+class _RoutePlayer:
+    """経路ありで driver が作る TtsPlayer の代役。close は order に残し、wait_for があればそれを待つ"""
+    order: list[str] | None = None
+    wait_for: threading.Event | None = None
+
+    def __init__(self, *_a: object, **_k: object) -> None:
+        pass
+
+    def close(self, discard_pending: bool = True) -> None:
+        if self.wait_for is not None:
+            self.wait_for.wait(5)
+        if self.order is not None:
+            self.order.append("player")
+
+
+_REAL_PLAYER = TtsPlayer
+
+
+def _restore_player() -> None:
+    import shadow_clerk._daemon_talk as m
+    m.TtsPlayer = _REAL_PLAYER
+
+
+def _patch_route_player(order: list[str] | None, wait_for: threading.Event | None = None) -> None:
+    import shadow_clerk._daemon_talk as m
+    _RoutePlayer.order, _RoutePlayer.wait_for = order, wait_for
+    m.TtsPlayer = _RoutePlayer
+
+
+def test_route_stop_unblocks_player() -> None:
+    try:
+        route, sink = _Route(), _Sink()
+        d, _w, _m = _driver(route_factory=lambda: route, sink_factory=lambda: sink)
+        _patch_route_player(None, sink.stop_event)  # player.close は sink.stop が先に呼ばれないと返らない
+        d.start("x", None, None, "Chromium")
+        t0 = time.monotonic()
+        d.stop()
+        check("player.close が pw-cat の書き込み待ちでも stop は速やかに返る", time.monotonic() - t0 < 1.0)
+        route, sink = _Route(), _Sink()
+        route.connect_error = True
+        d, _w, _m = _driver(route_factory=lambda: route, sink_factory=lambda: sink)
+        _patch_route_player(None, sink.stop_event)
+        t0 = time.monotonic()
+        try:
+            d.start("x", None, None, "Chromium")
+        except RuntimeError:
+            pass
+        check("start の失敗掃除でも sink を先に止める", time.monotonic() - t0 < 1.0 and sink.stopped)
+    finally:
+        _restore_player()
 
 
 def test_route_none_keeps_old_behaviour() -> None:
@@ -410,6 +467,7 @@ if __name__ == "__main__":
     test_preview_and_voices()
     test_helpers()
     test_route()
+    test_route_stop_unblocks_player()
     test_route_none_keeps_old_behaviour()
     test_route_failures()
     test_route_connect_failure()

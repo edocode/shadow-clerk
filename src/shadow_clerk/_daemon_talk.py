@@ -130,9 +130,9 @@ class TalkDriver:
             except Exception:
                 if route_obj is not None:
                     route_obj.disconnect()
-                player.close()
                 if sink is not None:
-                    sink.stop()
+                    sink.stop()  # play スレッドが pw-cat への書き込みで詰まっていても、先に止めれば close が待たされない
+                player.close()
                 raise
             self._engine, self._engine_name, self._player = engine, name, player
             self._route, self._sink = route_obj, sink
@@ -157,9 +157,9 @@ class TalkDriver:
         engine.stop()
         if route is not None:
             route.disconnect()
-        player.close()
         if sink is not None:
-            sink.stop()
+            sink.stop()  # player.close の前に止める（play スレッドの書き込み待ちを解く）
+        player.close()
         logger.info("talk: 終了")
 
     def route_targets(self) -> dict:
