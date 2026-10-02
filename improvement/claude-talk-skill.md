@@ -96,12 +96,12 @@ engine のインターフェース（`_daemon_talk_engine.py` の Protocol）:
 
 ### 共通の部分（TalkDriver）
 
-- 開始（`POST /api/talk-mode {on: true, topic, persona}`）: VOICEVOX のヘルスチェック → 会話言語と persona を決める →
+- 開始（`POST /api/talk-mode {on: true, topic, persona, workdir}`）: VOICEVOX のヘルスチェック → 会話言語と persona を決める →
   TTS の再生器を作り monitor を抑制する → `talk_engine` の engine を `start()` する。失敗したら抑制と再生器を戻す
 - 終了（トグル OFF、engine の終了、daemon の停止）: engine を `stop()` し、再生を止め、抑制を解く
 - `[自分]` 行: 制止の言葉を含めば読み上げを止め（`TtsPlayer.interrupt()`）、`cut` を覚えて `engine.on_interrupt()` を呼ぶ。
   そのうえで `engine.on_self_line()` に渡す（headless では注記を付ける）
-- つなぎの一言: 開始時と `[自分]` 行（制止を除く）から `talk_filler_sec` 秒、`say` が1回も無ければ読み上げる
+- つなぎの一言: 開始時と `[自分]` 行（制止を除く）から `talk_filler_sec` 秒たった時点で、最後の `[自分]` 行より後に `say` が1回も無ければ読み上げる。判定は driver が行い、engine は関与しない
 - `say(text)`（`/api/say` と headless engine の両方から）: 制止の直後の最初の1回（console のみ）は話さずに
   `interrupted` を返して制止の状態を解く。それ以外は `[Claude]` 行を書いて読み上げる
 - 残す: persona と言語の解決、声の設定と試聴、snapshot、`is_suppressed()`
@@ -162,7 +162,7 @@ engine のインターフェース（`_daemon_talk_engine.py` の Protocol）:
 |---|---|
 | `tests/test_console_pty.py` | 役割ごとに別インスタンス、列数ファイルが役割ごと、SSE payload に `role` |
 | `tests/test_console_ops.py` | `role` の受け付け・既定値・不正値 |
-| `tests/test_talk_driver.py` | 共通部分: engine の選択と開始・終了、制止で `on_interrupt`、console の制止後の最初の `say` が `interrupted`、つなぎの一言（`filler_wanted`） |
+| `tests/test_talk_driver.py` | 共通部分: engine の選択と開始・終了、制止で `on_interrupt`、console の制止後の最初の `say` が `interrupted`、つなぎの一言（最後の `[自分]` 行より後に say があったか） |
 | `tests/test_talk_engine_console.py` | talk コンソールを起動して `/clerk-talk` を送る、skill 未導入なら開始しない、コンソール終了で `ended` |
 | `tests/test_talk_engine_headless.py` | 従来の driver テストのターン管理部分（まとめ送り、制止後に捨てる、注記、口火） |
 | `tests/test_talk_api.py` | `/api/say` の `interrupted` 応答、`/api/talk-mode` の `persona_instructions` |
