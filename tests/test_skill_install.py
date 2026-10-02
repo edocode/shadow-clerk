@@ -135,6 +135,39 @@ def test_status_missing_and_outdated() -> None:
         check("古ければ outdated", cur["state"] == "outdated", repr(cur))
 
 
+def test_install_copies_every_bundled_skill() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        r = skill_install.install(tmp)
+        talk = pathlib.Path(tmp) / skill_install.TALK_SKILL_NAME / "SKILL.md"
+        check("clerk-talk も配られた", talk.is_file())
+        check("戻り値に skill ごとの記録", [s["skill"] for s in r["skills"]] == list(skill_install.BUNDLED_SKILLS), repr(r))
+
+
+def test_install_refuses_before_touching_anything() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        _fake_installed(pathlib.Path(tmp) / skill_install.TALK_SKILL_NAME, None)
+        try:
+            skill_install.install(tmp)
+            check("どれかが素性不明なら拒否", False, "例外が出なかった")
+        except skill_install.InstallRefused:
+            check("どれかが素性不明なら拒否", not (pathlib.Path(tmp) / skill_install.SKILL_NAME).exists())
+
+
+def test_status_outdated_when_talk_skill_missing() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        main_ver = skill_install.read_skill_version(skill_install.bundled_skill_dir())
+        _fake_installed(pathlib.Path(tmp) / skill_install.SKILL_NAME, main_ver)
+        cur = [t for t in skill_install.skill_status([tmp])["targets"] if t["name"] == tmp][0]
+        check("clerk-talk が無ければ outdated", cur["state"] == "outdated", repr(cur))
+
+
+def test_skill_installed() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        skill_install.install(tmp)
+        check("配布済みなら True", skill_install.skill_installed(skill_install.TALK_SKILL_NAME, [tmp]))
+        check("無い skill は False", not skill_install.skill_installed("no-such-skill", [tmp]))
+
+
 def main() -> int:
     test_bundled_dir_exists()
     test_read_version_from_bundled()
@@ -150,6 +183,10 @@ def main() -> int:
     test_install_overwrites_own_dest_without_force()
     test_status_reports_each_target()
     test_status_missing_and_outdated()
+    test_install_copies_every_bundled_skill()
+    test_install_refuses_before_touching_anything()
+    test_status_outdated_when_talk_skill_missing()
+    test_skill_installed()
     shutil.rmtree(_DATA, ignore_errors=True)
     print(f"\n{sum(results)}/{len(results)} passed")
     return 0 if all(results) else 1

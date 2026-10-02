@@ -16,6 +16,9 @@ import yaml
 logger = logging.getLogger("shadow-clerk")
 
 SKILL_NAME = "clerk-meeting-helper"
+TALK_SKILL_NAME = "clerk-talk"
+# 同梱して一緒に配る skill。先頭が主（戻り値とダッシュボードの版表示の基準）
+BUNDLED_SKILLS = (SKILL_NAME, TALK_SKILL_NAME)
 
 # 配布先。~/.agents/skills はベンダー中立の共有場所で Codex 固有ではないため、
 # ターゲット名は codex ではなく agents とする。他のエージェントが同じ場所を
@@ -32,14 +35,14 @@ class InstallRefused(Exception):
     """配布先に素性の分からないスキルがある。--force なしでは触らない"""
 
 
-def bundled_skill_dir() -> pathlib.Path:
+def bundled_skill_dir(skill: str = SKILL_NAME) -> pathlib.Path:
     """同梱されているスキルの場所。バイナリでも通常インストールでも引ける"""
     if getattr(sys, "frozen", False):          # PyInstaller
         base = pathlib.Path(getattr(sys, "_MEIPASS")) / "shadow_clerk"
     else:
         import importlib.resources
         base = pathlib.Path(str(importlib.resources.files("shadow_clerk")))
-    return base / "skills" / SKILL_NAME
+    return base / "skills" / skill
 
 
 def read_skill_version(skill_dir: pathlib.Path) -> str | None:
@@ -69,21 +72,13 @@ def read_skill_version(skill_dir: pathlib.Path) -> str | None:
     return str(meta["version"])
 
 
-def resolve_target(name_or_path: str) -> tuple[str, pathlib.Path]:
+def resolve_target(name_or_path: str, skill: str = SKILL_NAME) -> tuple[str, pathlib.Path]:
     """ターゲット名または任意パスを、実際の配布先ディレクトリに解決する"""
     base = BUILTIN_TARGETS.get(name_or_path, name_or_path)
-    return name_or_path, pathlib.Path(os.path.expanduser(base)) / SKILL_NAME
+    return name_or_path, pathlib.Path(os.path.expanduser(base)) / skill
 
 
-def install(name_or_path: str, *, link: bool = False, force: bool = False) -> dict:
-    """同梱スキルを配布先へ置く。戻り値はバージョンの変化を含む記録"""
-    name, dest = resolve_target(name_or_path)
-    src = bundled_skill_dir()
-    before = read_skill_version(dest)
-    if dest.exists() and before is None and not force:
-        raise InstallRefused(str(dest))
-    if link and os.name == "nt":
-        raise InstallRefused("--link は POSIX 専用です")
+def _replace(src: pathlib.Path, dest: pathlib.Path, link: bool) -> None:
     if dest.is_symlink() or dest.is_file():
         dest.unlink()
     elif dest.is_dir():
@@ -93,11 +88,30 @@ def install(name_or_path: str, *, link: bool = False, force: bool = False) -> di
         os.symlink(src, dest, target_is_directory=True)
     else:
         shutil.copytree(src, dest)
-    after = read_skill_version(dest)
-    logger.info("スキルを配布: %s -> %s (%s -> %s)", src, dest, before, after)
-    remember_target(name)
-    return {"target": name, "path": str(dest), "before": before,
-            "after": after, "mode": "link" if link else "copy"}
+
+
+def install(name_or_path: str, *, link: bool = False, force: bool = False) -> dict:
+    """同梱の skill をすべて配布先へ置く。どれか1つでも素性不明なら、何も触らずに拒否する"""
+    if link and os.name == "nt":
+        raise InstallRefused("--link は POSIX 専用です")
+    plans = []
+    for skill in BUNDLED_SKILLS:
+        _, dest = resolve_target(name_or_path, skill)
+        before = read_skill_version(dest)
+        if dest.exists() and before is None and not force:
+            raise InstallRefused(str(dest))
+        plans.append((skill, dest, before))
+    records = []
+    for skill, dest, before in plans:
+        src = bundled_skill_dir(skill)
+        _replace(src, dest, link)
+        after = read_skill_version(dest)
+        logger.info("スキルを配布: %s -> %s (%s -> %s)", src, dest, before, after)
+        records.append({"skill": skill, "path": str(dest), "before": before, "after": after})
+    remember_target(name_or_path)
+    main = records[0]
+    return {"target": name_or_path, "path": main["path"], "before": main["before"],
+            "after": main["after"], "mode": "link" if link else "copy", "skills": records}
 
 
 def remembered_targets() -> list[str]:
@@ -179,24 +193,34 @@ def _as_tuple(version: str) -> tuple:
     return tuple(int(p) if p.isdigit() else p for p in version.split("."))
 
 
+def _state(installed: str | None, bundled: str | None) -> str:
+    if installed is None:
+        return "missing"
+    if bundled is not None and _as_tuple(installed) < _as_tuple(bundled):
+        return "outdated"
+    return "current"
+
+
 def skill_status(remembered: list[str]) -> dict:
-    """組み込み2つ＋記憶した配布先の状態を返す。
+    """組み込み2つ＋記憶した配布先の状態を返す。全 skill を見て、どれかが欠けていれば outdated。
 
     組み込みを常に含めるのは、まだどこにも配っていない利用者にも
     モーダルから配布先を選ばせるため
     """
-    bundled = read_skill_version(bundled_skill_dir())
+    bundled = {s: read_skill_version(bundled_skill_dir(s)) for s in BUNDLED_SKILLS}
     names = list(BUILTIN_TARGETS) + [r for r in remembered if r not in BUILTIN_TARGETS]
     targets = []
     for name in names:
-        _, dest = resolve_target(name)
-        installed = read_skill_version(dest)
-        if installed is None:
-            state = "missing"
-        elif bundled is not None and _as_tuple(installed) < _as_tuple(bundled):
-            state = "outdated"
-        else:
-            state = "current"
-        targets.append({"name": name, "path": str(dest),
-                        "installed": installed, "state": state})
-    return {"bundled": bundled, "targets": targets}
+        installed = {s: read_skill_version(resolve_target(name, s)[1]) for s in BUNDLED_SKILLS}
+        states = [_state(installed[s], bundled[s]) for s in BUNDLED_SKILLS]
+        state = "missing" if states[0] == "missing" else (
+            "current" if all(st == "current" for st in states) else "outdated")
+        targets.append({"name": name, "path": str(resolve_target(name)[1]),
+                        "installed": installed[SKILL_NAME], "state": state})
+    return {"bundled": bundled[SKILL_NAME], "targets": targets}
+
+
+def skill_installed(skill: str, remembered: list[str]) -> bool:
+    """組み込みか記憶済みの配布先のどこかに、その skill が読める形で置かれているか"""
+    names = list(BUILTIN_TARGETS) + [r for r in remembered if r not in BUILTIN_TARGETS]
+    return any(read_skill_version(resolve_target(n, skill)[1]) is not None for n in names)
