@@ -6,11 +6,11 @@ import queue
 import re
 import threading
 import time
-from typing import Callable, Protocol
+from typing import Any, Callable, Protocol
 
 import numpy as np
 
-from shadow_clerk.domain import Language
+from shadow_clerk.domain import Language, TalkVoice
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -31,6 +31,7 @@ class TtsBackend(Protocol):
     def check(self) -> None: ...
     def synthesize(self, text: str) -> tuple[np.ndarray, int]: ...
     def credit(self) -> str: ...
+    def voices(self) -> list[dict[str, Any]]: ...
 
 
 def split_sentences(text: str) -> list[str]:
@@ -156,10 +157,12 @@ class TtsPlayer:
                 self._on_error(str(e))
 
 
-def make_backend(config: dict) -> TtsBackend:
+def make_backend(config: dict, voice: TalkVoice | None = None) -> TtsBackend:
+    """voice を渡せばその声に固定する（試聴用）。省略すると文ごとに config から読み直す"""
+    from shadow_clerk._daemon_config import load_config
     from shadow_clerk._daemon_tts_voicevox import VoicevoxBackend
     return VoicevoxBackend(str(config.get("talk_voicevox_url") or ""),
-                           int(config.get("talk_speaker_id") or 0))
+                           (lambda: voice) if voice is not None else (lambda: TalkVoice.from_config(load_config())))
 
 
 def make_player(backend: TtsBackend, config: dict, on_error: Callable[[str], None]) -> TtsPlayer:

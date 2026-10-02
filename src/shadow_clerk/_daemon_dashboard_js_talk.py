@@ -71,4 +71,43 @@ async function savePersonas(){
     if(document.getElementById('talkModal').classList.contains('open'))await fillPersonaSel();
   }catch(e){}
 }
+const VOICE_KEYS=['speed','pitch','intonation','volume'];
+let _voiceCfgSpeaker=3;
+function voiceShow(k){document.getElementById('voice_'+k+'_v').textContent=Number(document.getElementById('voice_'+k).value).toFixed(2);}
+function voiceValues(){
+  const sid=parseInt(document.getElementById('voiceSpeaker').value,10);
+  const v={speaker_id:Number.isNaN(sid)?_voiceCfgSpeaker:sid};
+  VOICE_KEYS.forEach(k=>v[k]=parseFloat(document.getElementById('voice_'+k).value));
+  return v;
+}
+async function openVoice(){
+  const err=document.getElementById('voiceErr');err.textContent='';
+  let cfg={};try{cfg=await(await fetch('/api/config')).json();}catch(e){}
+  _voiceCfgSpeaker=cfg.talk_speaker_id??3;
+  const sel=document.getElementById('voiceSpeaker');sel.innerHTML='';
+  try{const r=await(await fetch('/api/talk-voices')).json();
+    if(r.status!=='ok')err.textContent=r.message||'';
+    (r.voices||[]).forEach(v=>{const o=document.createElement('option');o.value=v.id;o.textContent=v.name;sel.appendChild(o);});
+  }catch(e){err.textContent=String(e);}
+  sel.value=String(_voiceCfgSpeaker);
+  VOICE_KEYS.forEach(k=>{const el=document.getElementById('voice_'+k);el.value=cfg['talk_'+k]??el.defaultValue;voiceShow(k);});
+  document.getElementById('voiceSaved').style.display='none';
+  document.getElementById('voiceModal').classList.add('open');
+}
+function closeVoice(){document.getElementById('voiceModal').classList.remove('open');}
+async function previewVoice(){
+  const err=document.getElementById('voiceErr');err.textContent='';
+  try{const r=await(await fetch('/api/talk-preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({voice:voiceValues()})})).json();
+    if(r.status!=='ok')err.textContent=r.message||'';}
+  catch(e){err.textContent=String(e);}
+}
+async function saveVoice(){
+  const v=voiceValues();
+  try{
+    const cfg=await(await fetch('/api/config')).json();
+    cfg.talk_speaker_id=v.speaker_id;VOICE_KEYS.forEach(k=>cfg['talk_'+k]=v[k]);
+    await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
+    const s=document.getElementById('voiceSaved');s.style.display='inline';setTimeout(()=>s.style.display='none',2000);
+  }catch(e){document.getElementById('voiceErr').textContent=String(e);}
+}
 """

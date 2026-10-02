@@ -14,7 +14,7 @@ from shadow_clerk._daemon_talk_claude import ClaudeTalkProcess, build_claude_arg
 from shadow_clerk._daemon_talk_prompt import (
     KICKOFF_MESSAGE, build_system_prompt, requested_language, resolve_talk_language)
 from shadow_clerk._daemon_tts import TtsBackend, TtsError, TtsPlayer, make_backend, make_player
-from shadow_clerk.domain import Speaker, TalkPersona, TranscriptLine
+from shadow_clerk.domain import Speaker, TalkPersona, TalkVoice, TranscriptLine
 from shadow_clerk.domain.ai_assistant import AiAssistantConfig
 from shadow_clerk.i18n import t
 
@@ -37,7 +37,7 @@ def now_timestamp() -> str:
 class TalkDriver:
     def __init__(self, write_line: Callable[[TranscriptLine], None], *,
                  config_loader: Callable[[], dict] = load_config,
-                 backend_factory: Callable[[dict], TtsBackend] = make_backend,
+                 backend_factory: Callable[[dict, TalkVoice | None], TtsBackend] = make_backend,
                  player_factory: Callable[[TtsBackend, dict, Callable[[str], None]], TtsPlayer] = make_player,
                  process_factory: Callable[..., ClaudeTalkProcess] = ClaudeTalkProcess,
                  clock: Callable[[], str] = now_timestamp) -> None:
@@ -66,7 +66,7 @@ class TalkDriver:
             if self._active:
                 return
             config = self._config_loader()
-            backend = self._backend_factory(config)
+            backend = self._backend_factory(config, None)
             try:
                 backend.check()
             except TtsError as e:
@@ -139,9 +139,23 @@ class TalkDriver:
             player.speak(text)
             return
         config = self._config_loader()
-        temp = self._player_factory(self._backend_factory(config), config, self._report_error)
-        temp.speak(text)
-        threading.Thread(target=temp.close, kwargs={"discard_pending": False},
+        self._speak_once(self._backend_factory(config, None), config, text)
+
+    def preview(self, voice: TalkVoice, text: str) -> None:
+        """その声で1回だけ読み上げる（声の設定の試聴）。transcript には書かない。届かなければ TtsError"""
+        config = self._config_loader()
+        backend = self._backend_factory(config, voice)
+        backend.check()
+        self._speak_once(backend, config, text)
+
+    def voices(self) -> list[dict]:
+        """TTS の話者一覧。届かなければ TtsError"""
+        return self._backend_factory(self._config_loader(), None).voices()
+
+    def _speak_once(self, backend: TtsBackend, config: dict, text: str) -> None:
+        player = self._player_factory(backend, config, self._report_error)
+        player.speak(text)
+        threading.Thread(target=player.close, kwargs={"discard_pending": False},
                          name="talk-say", daemon=True).start()
 
     def _on_reply(self, text: str) -> None:

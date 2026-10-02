@@ -15,7 +15,7 @@ import numpy as np
 
 from shadow_clerk._daemon_tts import TtsError, TtsPlayer, resample, split_sentences
 from shadow_clerk._daemon_tts_voicevox import VoicevoxBackend
-from shadow_clerk.domain import Language
+from shadow_clerk.domain import Language, TalkVoice
 
 results: list[bool] = []
 
@@ -81,6 +81,7 @@ def _wav_bytes(samples: np.ndarray, sr: int) -> bytes:
 
 class _MockVoicevox(BaseHTTPRequestHandler):
     calls: list[str] = []
+    synth_body: dict = {}
 
     def log_message(self, format: str, *args: object) -> None:
         pass
@@ -110,7 +111,7 @@ class _MockVoicevox(BaseHTTPRequestHandler):
         if u.path == "/audio_query":
             self._reply(json.dumps({"q": q["text"][0]}).encode(), "application/json")
         elif u.path == "/synthesis":
-            assert json.loads(body)["q"] == "テスト"
+            _MockVoicevox.synth_body = json.loads(body)
             self._reply(_wav_bytes(np.zeros(240, dtype=np.float32), 24000), "audio/wav")
 
 
@@ -119,7 +120,8 @@ def test_voicevox() -> None:
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{srv.server_address[1]}"
     try:
-        vv = VoicevoxBackend(url, 3)
+        voice = {"now": TalkVoice(speaker_id=3, speed=1.5, volume=0.5)}
+        vv = VoicevoxBackend(url, lambda: voice["now"])
         vv.check()
         pcm, sr = vv.synthesize("テスト")
         check("audio_query → synthesis の順に呼ぶ",
@@ -127,11 +129,19 @@ def test_voicevox() -> None:
               repr(_MockVoicevox.calls))
         check("WAV を float32 にデコード", sr == 24000 and pcm.dtype == np.float32 and len(pcm) == 240)
         check("クレジットに話者名", vv.credit() == "VOICEVOX:テスト話者", vv.credit())
+        body = _MockVoicevox.synth_body
+        check("audio_query の結果を引き継ぐ", body.get("q") == "テスト", repr(body))
+        check("話速と音量を上書きする", body.get("speedScale") == 1.5 and body.get("volumeScale") == 0.5, repr(body))
+        voice["now"] = TalkVoice(speaker_id=3, speed=0.8)
+        vv.synthesize("テスト")
+        check("声の設定は文ごとに読み直す", _MockVoicevox.synth_body.get("speedScale") == 0.8)
+        check("話者一覧を「キャラ（スタイル）」で返す",
+              vv.voices() == [{"id": 3, "name": "テスト話者（ノーマル）"}], repr(vv.voices()))
     finally:
         srv.shutdown()
         srv.server_close()
     try:
-        VoicevoxBackend(url, 3, timeout=1).check()
+        VoicevoxBackend(url, TalkVoice, timeout=1).check()
         check("停止中のエンジンは TtsError", False)
     except TtsError:
         check("停止中のエンジンは TtsError", True)

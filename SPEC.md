@@ -694,6 +694,10 @@ ai_assistant_workdir: ''          # 既定の起動ディレクトリ (会議ご
 # --- Claude talk mode ---
 talk_voicevox_url: http://localhost:50021
 talk_speaker_id: 3
+talk_speed: 1.0
+talk_pitch: 0.0
+talk_intonation: 1.0
+talk_volume: 1.0
 talk_output_devices: []
 talk_model: ""
 talk_allowed_tools: WebSearch,WebFetch,Read,Grep,Glob

@@ -10,7 +10,7 @@ import numpy as np
 
 from shadow_clerk._daemon_talk import TalkDriver, TalkStartError, one_line
 from shadow_clerk._daemon_tts import TtsError
-from shadow_clerk.domain import Language, Speaker, TranscriptLine
+from shadow_clerk.domain import Language, Speaker, TalkVoice, TranscriptLine
 
 results: list[bool] = []
 
@@ -24,8 +24,12 @@ class _Backend:
     LANGUAGES = (Language.JA,)
     DEFAULT_LANGUAGE = Language.JA
 
-    def __init__(self, reachable: bool = True) -> None:
+    def __init__(self, reachable: bool = True, voice: TalkVoice | None = None) -> None:
         self.reachable = reachable
+        self.voice = voice
+
+    def voices(self) -> list[dict]:
+        return [{"id": 3, "name": "テスト（ノーマル）"}]
 
     def check(self) -> None:
         if not self.reachable:
@@ -79,6 +83,10 @@ def _driver(reachable: bool = True, proc_fail: bool = False, **config: object):
     written: list[TranscriptLine] = []
     made: dict = {}
 
+    def backend_factory(config, voice=None):
+        made["backend"] = _Backend(reachable, voice)
+        return made["backend"]
+
     def player_factory(backend, config, on_error):
         made["player"] = _Player(on_error)
         return made["player"]
@@ -88,7 +96,7 @@ def _driver(reachable: bool = True, proc_fail: bool = False, **config: object):
         return made["proc"]
 
     d = TalkDriver(written.append, config_loader=lambda: {**_CONFIG, **config},
-                   backend_factory=lambda c: _Backend(reachable), player_factory=player_factory,
+                   backend_factory=backend_factory, player_factory=player_factory,
                    process_factory=process_factory, clock=lambda: "2026-10-02 10:00:00")
     return d, written, made
 
@@ -182,6 +190,21 @@ def test_workdir_resolution() -> None:
     check("存在しない workdir はホームに戻す", made["proc"].workdir == home, made["proc"].workdir)
 
 
+def test_preview_and_voices() -> None:
+    d, written, made = _driver()
+    d.preview(TalkVoice(speaker_id=5, speed=1.4), "試しに読みます")
+    check("試聴は渡した声で合成する", made["backend"].voice == TalkVoice(speaker_id=5, speed=1.4))
+    check("試聴は読み上げるが transcript に書かない",
+          made["player"].spoken == ["試しに読みます"] and written == [], repr(written))
+    check("話者一覧を返す", d.voices() == [{"id": 3, "name": "テスト（ノーマル）"}])
+    d, _w, made = _driver(reachable=False)
+    try:
+        d.preview(TalkVoice(), "x")
+        check("エンジン不達の試聴は TtsError", False)
+    except TtsError:
+        check("エンジン不達の試聴は TtsError", "player" not in made)
+
+
 def test_one_line() -> None:
     check("改行・連続空白を1つに", one_line(" a\n\n b\t c ") == "a b c")
 
@@ -193,5 +216,6 @@ if __name__ == "__main__":
     test_start_failures()
     test_process_exit_and_tts_error()
     test_workdir_resolution()
+    test_preview_and_voices()
     test_one_line()
     sys.exit(0 if all(results) else 1)

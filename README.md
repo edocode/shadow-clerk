@@ -484,7 +484,7 @@ Requirements:
   voice does not come back as `[Others]` lines.
 
 Click **Talk with Claude** in the dashboard header, enter a topic (or leave it empty), pick a
-persona, and start. Claude runs headless (`claude -p`), separately from the AI Console, so the
+persona, and start. **Voice settings** in the same dialog picks the VOICEVOX speaker and adjusts speed, pitch, intonation and volume, with a preview button; changes apply from the next sentence. Claude runs headless (`claude -p`), separately from the AI Console, so the
 meeting helper can keep running at the same time. You can also make Claude speak any text:
 
 ```bash
@@ -495,6 +495,7 @@ curl -s -X POST localhost:8765/api/say -d '{"text":"Hello"}'
 |---|---|---|
 | `talk_voicevox_url` | `http://localhost:50021` | VOICEVOX engine |
 | `talk_speaker_id` | `3` | VOICEVOX style ID |
+| `talk_speed` / `talk_pitch` / `talk_intonation` / `talk_volume` | `1.0` / `0.0` / `1.0` / `1.0` | Speed (0.5–2.0), pitch (-0.15–0.15), intonation (0–2), volume (0–2) |
 | `talk_output_devices` | `[]` | Output device names (empty = default output) |
 | `talk_model` | `""` | Model for the talk session (empty = claude default) |
 | `talk_allowed_tools` | `WebSearch,WebFetch,Read,Grep,Glob` | Tools Claude may use while talking (`""` = none) |

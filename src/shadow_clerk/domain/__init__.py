@@ -10,6 +10,7 @@ from shadow_clerk.domain.meeting_session import MeetingSession
 from shadow_clerk.domain.summary import Summary
 from shadow_clerk.domain.translation import Translation
 from shadow_clerk.domain.talk_persona import TalkPersona
+from shadow_clerk.domain.talk_voice import TalkVoice
 
 __all__ = [
     "Speaker",
@@ -21,4 +22,5 @@ __all__ = [
     "Summary",
     "Translation",
     "TalkPersona",
+    "TalkVoice",
 ]

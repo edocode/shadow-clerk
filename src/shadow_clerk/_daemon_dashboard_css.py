@@ -454,6 +454,10 @@ main {
 #customCmdTable td.gl-del:hover, #personaTable td.gl-del:hover { color:var(--red,#e55); }
 #personaTable td textarea { width:100%; box-sizing:border-box; border:none; background:transparent; color:inherit; font:inherit; resize:vertical; }
 #personaTable td.pd { text-align:center; }
+.voice-row { display:flex; align-items:center; gap:8px; margin:6px 0; font-size:13px; }
+.voice-row label { width:72px; flex-shrink:0; }
+.voice-row input[type=range], .voice-row select { flex:1; }
+.voice-row span { width:40px; text-align:right; font-variant-numeric:tabular-nums; }
 .modal-foot {
   padding:12px 16px; border-top:1px solid var(--border);
   display:flex; justify-content:flex-end; gap:8px;

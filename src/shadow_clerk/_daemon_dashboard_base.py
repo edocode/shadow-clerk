@@ -174,6 +174,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_forbid_analyze()
         elif path == "/api/talk-mode":
             self._serve_talk_mode()
+        elif path == "/api/talk-voices":
+            self._serve_talk_voices()
         elif path == "/api/misheard":
             self._serve_misheard()
         else:
@@ -225,6 +227,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._set_talk_mode()
         elif path == "/api/say":
             self._say()
+        elif path == "/api/talk-preview":
+            self._talk_preview()
         elif path == "/api/misheard":
             self._save_misheard()
         else:

@@ -482,7 +482,7 @@ talk mode では、議題について Claude と声で議論できます。Claud
   talk mode 中は、必要なクレジット表記（`VOICEVOX:<キャラ名>`）をダッシュボードに出します。
 - ヘッドホン。talk mode 中は monitor 側を文字起こししないので、Claude 自身の声が `[相手]` 行として戻ってくることはありません。
 
-ダッシュボードのヘッダの **Claude と会議** を押し、議題を入れて（空でも可）persona を選び、開始します。
+ダッシュボードのヘッダの **Claude と会議** を押し、議題を入れて（空でも可）persona を選び、開始します。同じモーダルの **声の設定** で、VOICEVOX の話者と話速・音高・抑揚・音量を試聴しながら変えられます。変更は次の文から反映されます。
 Claude は AI コンソールとは別に、画面を持たない `claude -p` として動くので、会議アシスタントと同時に使えます。
 任意の文を Claude の発言として読み上げることもできます:
 
@@ -494,6 +494,7 @@ curl -s -X POST localhost:8765/api/say -d '{"text":"こんにちは"}'
 |---|---|---|
 | `talk_voicevox_url` | `http://localhost:50021` | VOICEVOX エンジン |
 | `talk_speaker_id` | `3` | VOICEVOX のスタイル ID |
+| `talk_speed` / `talk_pitch` / `talk_intonation` / `talk_volume` | `1.0` / `0.0` / `1.0` / `1.0` | 話速 (0.5〜2.0)・音高 (-0.15〜0.15)・抑揚 (0〜2)・音量 (0〜2) |
 | `talk_output_devices` | `[]` | 再生先のデバイス名（空ならデフォルト出力） |
 | `talk_model` | `""` | 会話役のモデル（空なら claude の既定） |
 | `talk_allowed_tools` | `WebSearch,WebFetch,Read,Grep,Glob` | 会話中に使えるツール（`""` でなし） |
