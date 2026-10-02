@@ -22,6 +22,7 @@ from shadow_clerk._daemon_constants import (
     CONSOLE_COLS_FILE, CONSOLE_PTY_ROWS, DEFAULT_COLS, VIRTUAL_ROWS,
 )
 from shadow_clerk._transcript_name import TranscriptName
+from shadow_clerk.domain import ConsoleRole
 from shadow_clerk.domain.ai_assistant import AiAssistantConfig
 from shadow_clerk.domain.meeting_config import MeetingConfig
 
@@ -33,7 +34,14 @@ logger = logging.getLogger("shadow-clerk")
 _MARKER_PREFIXES = ("CLAUDE_CODE_", "CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT")
 
 
-def _load_cols() -> int:
+def _cols_file(role: ConsoleRole) -> str:
+    """列数の保存先。assistant は従来のファイル名のまま（保存済みの値を引き継ぐ）"""
+    if role is ConsoleRole.ASSISTANT:
+        return CONSOLE_COLS_FILE
+    return os.path.join(os.path.dirname(CONSOLE_COLS_FILE), f"console-{role.value}.cols")
+
+
+def _load_cols(role: ConsoleRole = ConsoleRole.ASSISTANT) -> int:
     """前回ブラウザが決めた列数。無ければ DEFAULT_COLS
 
     子は会議のたびに起動し直り、デーモンも再起動する。ブラウザは幅が変わった
@@ -41,15 +49,15 @@ def _load_cols() -> int:
     その履歴が「横幅が固定」に見える。
     """
     try:
-        with open(CONSOLE_COLS_FILE, "r", encoding="utf-8") as f:
+        with open(_cols_file(role), "r", encoding="utf-8") as f:
             return max(20, min(500, int(f.read().strip())))
     except (OSError, ValueError):
         return DEFAULT_COLS
 
 
-def _save_cols(cols: int) -> None:
+def _save_cols(cols: int, role: ConsoleRole = ConsoleRole.ASSISTANT) -> None:
     try:
-        with open(CONSOLE_COLS_FILE, "w", encoding="utf-8") as f:
+        with open(_cols_file(role), "w", encoding="utf-8") as f:
             f.write(str(cols))
     except OSError as e:
         logger.warning("列数を保存できません: %s", e)
@@ -69,12 +77,14 @@ def sanitized_env() -> dict[str, str]:
 class ConsoleSession:
     """PTY を1本持ち、子プロセスの出力を pyte の長い grid に流し込む"""
 
-    def __init__(self) -> None:
+    def __init__(self, role: ConsoleRole = ConsoleRole.ASSISTANT) -> None:
+        self.role = role
+        self.workdir = ""
         self.screen = pyte.Screen(DEFAULT_COLS, VIRTUAL_ROWS)
         self.screen.set_mode(pyte.modes.LNM)
         self._stream = pyte.Stream(self.screen)
         self._decoder = getincrementaldecoder("utf-8")("replace")
-        self._cols = _load_cols()
+        self._cols = _load_cols(role)
         self._csi_filter = PrivateCsiFilter()
         self._pty: ConsolePty | None = None
         self._reader: threading.Thread | None = None
@@ -137,6 +147,7 @@ class ConsoleSession:
             if pty_session is None:
                 return False
             self._pty = pty_session
+            self.workdir = workdir
             # get_console() のシングルトンは stop() 直後に再利用されうる。
             # 前セッションの grid 状態を引きずると、新しい子プロセスが
             # まだ何も出力していない段階で send_after_ready の ready 判定
@@ -248,7 +259,7 @@ class ConsoleSession:
         cols = max(20, min(500, cols))
         with self._lock:
             if cols != self._cols:
-                _save_cols(cols)
+                _save_cols(cols, self.role)
             self._cols = cols
             self.screen.resize(VIRTUAL_ROWS, cols)
             if self._pty is not None:
@@ -275,6 +286,7 @@ class ConsoleSession:
                 "cursor": [self.screen.cursor.y, self.screen.cursor.x],
                 "running": self.is_running(),
                 "full": True,
+                "role": self.role.value,
             }
 
     def send_after_ready(self, text: str) -> None:
@@ -407,6 +419,7 @@ class ConsoleSession:
             "cursor": [self.screen.cursor.y, self.screen.cursor.x],
             "running": self.is_running(),
             "full": True,
+            "role": self.role.value,
         }
 
     def _emit_diff(self) -> None:
@@ -452,6 +465,7 @@ class ConsoleSession:
                         "max_row": self.max_row,
                         "cursor": cursor,
                         "running": self.is_running(),
+                        "role": self.role.value,
                     }
                     self._seq += 1
             if payload is not None:
@@ -465,7 +479,8 @@ class ConsoleSession:
         fn = self._broadcast
         if fn is not None:
             fn("console", json.dumps(
-                {"running": True, "status_only": True, "auto": True}))
+                {"running": True, "status_only": True, "auto": True,
+                 "role": self.role.value}))
 
     def _emit_running(self, force: bool = False) -> None:
         """running の変化だけを別途知らせる。差分が無いときも状態は伝わる"""
@@ -476,7 +491,8 @@ class ConsoleSession:
         if not force and running == self._last_running:
             return
         self._last_running = running
-        fn("console", json.dumps({"running": running, "status_only": True}))
+        fn("console", json.dumps({"running": running, "status_only": True,
+                        "role": self.role.value}))
 
     # --- 内部 ---
 
@@ -504,12 +520,12 @@ class ConsoleSession:
         logger.info("AI Console の子プロセスが終了しました")
 
 
-_console: ConsoleSession | None = None
+_consoles: dict[ConsoleRole, ConsoleSession] = {}
 _console_lock = threading.Lock()
 
 
-def get_console() -> ConsoleSession:
-    """プロセス内で唯一の ConsoleSession を返す。PTY は1本しか立てない
+def get_console(role: ConsoleRole = ConsoleRole.ASSISTANT) -> ConsoleSession:
+    """役割ごとに1つの ConsoleSession を返す。同じ役割では PTY は1本しか立てない
 
     start_new_session=True で起こす子は端末からも切り離されており、
     daemon が異常終了する経路（main() の finally を通らない未捕捉例外や
@@ -521,12 +537,12 @@ def get_console() -> ConsoleSession:
     実害はない（atexit 自体は SIGKILL では走らないため、それでも拾い
     きれない経路が残る点は README に記載する）。
     """
-    global _console
     with _console_lock:
-        if _console is None:
-            _console = ConsoleSession()
-            atexit.register(_console.stop)
-        return _console
+        console = _consoles.get(role)
+        if console is None:
+            console = _consoles[role] = ConsoleSession(role)
+            atexit.register(console.stop)
+        return console
 
 
 def request_summary_from_console(transcript_path: str) -> bool:
