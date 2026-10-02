@@ -164,7 +164,8 @@ clerk-daemon に統合された Web ダッシュボード。ブラウザから t
 - `_daemon_talk_prompt.py`: 会話言語の決定（`talk_language` → `translate_language`。TTS が非対応なら TTS の既定言語）と system prompt の組み立て（同梱 `talk_prompts/<lang>.md` → `## Persona` → `## Topic`）
 - `TtsPlayer` / `TtsBackend`（`_daemon_tts.py`）: 文単位に分け、合成スレッドと再生スレッドでパイプライン化する。バックエンドは対応言語と既定言語を持つ。最初のバックエンドは `VoicevoxBackend`（`_daemon_tts_voicevox.py`、HTTP）
 - `TalkPersona`（`domain/talk_persona.py`）: `talk_personas` の1件。`null` → 既定、`""` → なし、名前 → その persona（無ければ既定）
-- API: `GET/POST /api/talk-mode`、`POST /api/say`（`_daemon_dashboard_ops_talk.py`、localhost のみ）。状態は `/api/status` の `talk`
+- 経路（`_daemon_talk_route.py` の `PipeWireRoute` / `NullRoute`）: 開始時に会議アプリを選ぶと、読み上げを `pw-cat` の名前付きストリーム（`_daemon_tts_pipewire.py`、常駐させて書き込む）から流し、`pw-link` でそのアプリのマイク入力につなぐ。daemon 自身の入力は候補とリンク先から除外し、アプリがマイクを開き直したら監視がつなぎ直す。PipeWire が無い環境は `NullRoute`（選択不可）。`GET /api/talk-route-targets` が候補、`POST /api/talk-mode` の `route` が選択、状態は `snapshot()["route"]`
+- API: `GET/POST /api/talk-mode`、`GET /api/talk-route-targets`、`POST /api/say`（`_daemon_dashboard_ops_talk.py`、localhost のみ）。状態は `/api/status` の `talk`
 
 ```mermaid
 sequenceDiagram
@@ -704,6 +705,7 @@ talk_volume: 1.0
 talk_output_devices: []
 talk_engine: console   # console | headless
 talk_workdir: ""
+talk_route_app: ""
 talk_model: ""
 talk_allowed_tools: WebSearch,WebFetch,Read,Grep,Glob
 talk_language: ""
