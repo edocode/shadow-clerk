@@ -5,6 +5,8 @@
 from __future__ import annotations
 import json
 import sys
+import threading
+import time
 
 import numpy as np
 
@@ -122,8 +124,85 @@ def test_restart_once_on_broken_pipe() -> None:
     sink.stop()
 
 
+class _BlockStdin(_Stdin):
+    def __init__(self) -> None:
+        super().__init__()
+        self.release = threading.Event()
+
+    def write(self, b: bytes) -> int:
+        self.release.wait(5)
+        raise ValueError("closed")
+
+    def close(self) -> None:
+        super().close()
+        self.release.set()
+
+
+def test_stop_during_blocked_write() -> None:
+    sink, procs = _sink()
+    sink.start()
+    procs[0].stdin = _BlockStdin()
+    errs: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            sink.play(np.zeros(4800, dtype=np.float32), 48000, lambda: False)
+        except BaseException as e:  # noqa: BLE001
+            errs.append(e)
+
+    th = threading.Thread(target=run)
+    th.start()
+    time.sleep(0.2)
+    t0 = time.monotonic()
+    sink.stop()
+    th.join(2)
+    check("書き込み中でも stop はすぐ戻る", time.monotonic() - t0 < 1.0 and not th.is_alive())
+    check("止められた play は例外なく戻り、起動し直さない", not errs and len(procs) == 1, repr(errs))
+
+
+def test_play_after_stop() -> None:
+    sink, procs = _sink()
+    sink.start()
+    sink.stop()
+    try:
+        sink.play(np.zeros(4800, dtype=np.float32), 48000, lambda: False)
+        check("stop 後の play は黙って戻る", len(procs) == 1)
+    except TtsError:
+        check("stop 後の play は黙って戻る", False)
+
+
+def test_popen_failure() -> None:
+    def popen(argv, **kw):
+        raise FileNotFoundError("pw-cat")
+
+    sink = PwCatSink(popen=popen, runner=lambda a: "[]", wait_sec=0.1)
+    try:
+        sink.start()
+        check("popen 失敗は TtsError", False)
+    except TtsError as e:
+        check("popen 失敗は TtsError", isinstance(e.__cause__, FileNotFoundError))
+
+
+def test_respawn_reaps_old() -> None:
+    sink, procs = _sink(broken_first=True)
+    sink.start()
+    sink.play(np.zeros(4800, dtype=np.float32), 48000, lambda: False)
+    check("起動し直すとき古いプロセスを止める", procs[0].terminated and procs[0].stdin.closed)
+    sink.stop()
+
+
+def test_no_module_level_fcntl() -> None:
+    import shadow_clerk._daemon_tts_pipewire as m
+    check("fcntl を import 時に読み込まない", "fcntl" not in vars(m))
+
+
 if __name__ == "__main__":
     test_start()
     test_play()
     test_restart_once_on_broken_pipe()
+    test_stop_during_blocked_write()
+    test_play_after_stop()
+    test_popen_failure()
+    test_respawn_reaps_old()
+    test_no_module_level_fcntl()
     sys.exit(0 if all(results) else 1)

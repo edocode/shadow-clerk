@@ -5,7 +5,6 @@ talk mode の間だけ pw-cat を1本起動し、合成した PCM を標準入�
 """
 from __future__ import annotations
 
-import fcntl
 import json
 import logging
 import subprocess
@@ -37,15 +36,22 @@ class PwCatSink:
         self._lock = threading.Lock()
         self._proc: Any = None
 
-    def _spawn(self) -> None:
-        self._proc = self._popen(
-            ["pw-cat", "--playback", "--rate", str(PWCAT_RATE), "--channels", "1", "--format", "s16",
-             "-P", f'{{ node.name = "{NODE_NAME}" }}', "-"],
-            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    def _spawn(self) -> Any:
+        """pw-cat を起動して _proc に据える。ロックを持って呼ぶ"""
         try:
-            fcntl.fcntl(self._proc.stdin.fileno(), _F_SETPIPE_SZ, _PIPE_BYTES)
-        except (OSError, ValueError) as e:
+            proc = self._popen(
+                ["pw-cat", "--playback", "--rate", str(PWCAT_RATE), "--channels", "1", "--format", "s16",
+                 "-P", f'{{ node.name = "{NODE_NAME}" }}', "-"],
+                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            raise TtsError(t("talk.pwcat_no_node")) from e
+        try:
+            import fcntl  # POSIX のみ。Windows ではパイプを絞らず続ける
+            fcntl.fcntl(proc.stdin.fileno(), _F_SETPIPE_SZ, _PIPE_BYTES)
+        except (ImportError, OSError, ValueError) as e:
             logger.debug("talk: パイプのバッファを絞れません: %s", e)
+        self._proc = proc
+        return proc
 
     def _find_port(self) -> str | None:
         try:
@@ -80,33 +86,48 @@ class PwCatSink:
             self._write(data[i:i + _BLOCK].tobytes())
 
     def _write(self, chunk: bytes) -> None:
+        """パイプへの書き込みはロックの外で行う（pw-cat が読まなくなっても stop が待たされないように）"""
         with self._lock:
-            if self._proc is None:
-                raise TtsError(t("talk.pwcat_no_node"))
-            try:
-                self._proc.stdin.write(chunk)
-                self._proc.stdin.flush()
-                return
-            except (BrokenPipeError, OSError, ValueError) as e:
-                logger.warning("talk: pw-cat が落ちたため起動し直します: %s", e)
-            self._spawn()  # つなぎ直しは経路の監視が拾う（ノード ID が変わるため）
-            try:
-                self._proc.stdin.write(chunk)
-                self._proc.stdin.flush()
-            except (BrokenPipeError, OSError, ValueError) as e:
-                raise TtsError(str(e)) from e
-
-    def stop(self) -> None:
-        with self._lock:
-            proc, self._proc = self._proc, None
+            proc = self._proc
         if proc is None:
             return
         try:
+            self._put(proc, chunk)
+            return
+        except (OSError, ValueError) as e:
+            logger.warning("talk: pw-cat が落ちたため起動し直します: %s", e)
+        with self._lock:
+            if self._proc is not proc:
+                return  # stop 済み
+            new = self._spawn()  # つなぎ直しは経路の監視が拾う（ノード ID が変わるため）
+        self._reap(proc)
+        try:
+            self._put(new, chunk)
+        except (OSError, ValueError) as e:
+            with self._lock:
+                if self._proc is not new:
+                    return
+            raise TtsError(str(e)) from e
+
+    @staticmethod
+    def _put(proc: Any, chunk: bytes) -> None:
+        proc.stdin.write(chunk)
+        proc.stdin.flush()
+
+    @staticmethod
+    def _reap(proc: Any) -> None:
+        proc.terminate()  # 先に止めて、書き込み中のスレッドを EPIPE で抜けさせる
+        try:
             proc.stdin.close()
-        except OSError:
+        except (OSError, ValueError):
             pass
-        proc.terminate()
         try:
             proc.wait(timeout=2)
         except subprocess.TimeoutExpired:
             proc.kill()
+
+    def stop(self) -> None:
+        with self._lock:
+            proc, self._proc = self._proc, None
+        if proc is not None:
+            self._reap(proc)
