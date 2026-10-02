@@ -25,7 +25,8 @@ def _talk_console() -> Any:
 
 def _talk_skill_installed() -> bool:
     from shadow_clerk.skill_install import remembered_targets, skill_installed
-    return skill_installed(TALK_SKILL_NAME, remembered_targets())
+    # talk コンソールは Claude Code なので ~/.claude/skills を読む（~/.agents/skills は読まない）
+    return skill_installed(TALK_SKILL_NAME, remembered_targets(), targets=("claude",))
 
 
 class ConsoleEngine:

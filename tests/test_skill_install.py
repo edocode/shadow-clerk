@@ -168,6 +168,27 @@ def test_skill_installed() -> None:
         check("無い skill は False", not skill_install.skill_installed("no-such-skill", [tmp]))
 
 
+def test_talk_skill_check_looks_at_claude_only() -> None:
+    """talk コンソールは Claude Code なので ~/.claude/skills を読む。~/.agents/skills にだけあっても動かない"""
+    from shadow_clerk._daemon_talk_console import _talk_skill_installed
+    talk = skill_install.TALK_SKILL_NAME
+    orig = dict(skill_install.BUILTIN_TARGETS)
+    with tempfile.TemporaryDirectory() as claude, tempfile.TemporaryDirectory() as agents:
+        skill_install.BUILTIN_TARGETS.update(claude=claude, agents=agents)
+        try:
+            skill_install.install("agents")
+            check("targets 省略は組み込みすべてを見る", skill_install.skill_installed(talk, []))
+            check("targets=claude なら agents にあっても False",
+                  not skill_install.skill_installed(talk, [], targets=("claude",)))
+            check("talk の skill 確認は agents を見ない", not _talk_skill_installed())
+            skill_install.install("claude")
+            check("claude にあれば True", skill_install.skill_installed(talk, [], targets=("claude",))
+                  and _talk_skill_installed())
+        finally:
+            skill_install.BUILTIN_TARGETS.clear()
+            skill_install.BUILTIN_TARGETS.update(orig)
+
+
 def main() -> int:
     test_bundled_dir_exists()
     test_read_version_from_bundled()
@@ -187,6 +208,7 @@ def main() -> int:
     test_install_refuses_before_touching_anything()
     test_status_outdated_when_talk_skill_missing()
     test_skill_installed()
+    test_talk_skill_check_looks_at_claude_only()
     shutil.rmtree(_DATA, ignore_errors=True)
     print(f"\n{sum(results)}/{len(results)} passed")
     return 0 if all(results) else 1

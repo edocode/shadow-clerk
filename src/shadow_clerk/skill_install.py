@@ -220,7 +220,8 @@ def skill_status(remembered: list[str]) -> dict:
     return {"bundled": bundled[SKILL_NAME], "targets": targets}
 
 
-def skill_installed(skill: str, remembered: list[str]) -> bool:
-    """組み込みか記憶済みの配布先のどこかに、その skill が読める形で置かれているか"""
-    names = list(BUILTIN_TARGETS) + [r for r in remembered if r not in BUILTIN_TARGETS]
+def skill_installed(skill: str, remembered: list[str], targets: tuple[str, ...] | None = None) -> bool:
+    """組み込み（targets で絞れる。省略はすべて）か記憶済みの配布先のどこかに、その skill が読める形で置かれているか"""
+    builtin = list(BUILTIN_TARGETS) if targets is None else list(targets)
+    names = builtin + [r for r in remembered if r not in BUILTIN_TARGETS]
     return any(read_skill_version(resolve_target(n, skill)[1]) is not None for n in names)
