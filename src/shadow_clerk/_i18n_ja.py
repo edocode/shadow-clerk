@@ -545,6 +545,8 @@ STRINGS_JA: dict[str, str] = {
     "speaker.mic": "自分",
     "speaker.monitor": "相手",
     "talk.voicevox_unreachable": "VOICEVOX エンジンに接続できません ({url}): {error}",
+    "talk.claude_start_failed": "claude を起動できません: {error}",
+    "talk.claude_exited": "claude が終了しました (code={code})",
 
     # --- err.* : エラーメッセージ ---
     "err.dotenv_load_fail": ".env の読み込みに失敗: {error}",

@@ -528,6 +528,8 @@ STRINGS_EN: dict[str, str] = {
     "speaker.mic": "Me",
     "speaker.monitor": "Others",
     "talk.voicevox_unreachable": "Cannot reach the VOICEVOX engine ({url}): {error}",
+    "talk.claude_start_failed": "Cannot start claude: {error}",
+    "talk.claude_exited": "claude exited (code={code})",
 
     # --- err.* ---
     "err.dotenv_load_fail": "Failed to load .env: {error}",
