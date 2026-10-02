@@ -35,6 +35,7 @@ async function fillRouteSel(){
   sel.innerHTML='';
   const none=document.createElement('option');none.value='';none.textContent=I18N['dash.talk_route_none'];sel.appendChild(none);
   (r.targets||[]).forEach(t=>{const o=document.createElement('option');o.value=t.app;o.textContent=t.label;sel.appendChild(o);});
+  if(!r.available)want='';
   if(want&&!(r.targets||[]).some(t=>t.app===want)){const o=document.createElement('option');o.value=want;o.textContent=want;sel.appendChild(o);}
   sel.value=want;sel.disabled=!r.available;
   note.textContent=r.available?'':I18N['dash.talk_route_unavailable'];
@@ -49,13 +50,14 @@ async function togTalk(){
 }
 function closeTalk(){document.getElementById('talkModal').classList.remove('open');}
 async function startTalk(){
+  const rs=document.getElementById('talkRoute');
   const r=await talkPost({on:true,topic:document.getElementById('talkTopic').value.trim(),
                           persona:document.getElementById('talkPersonaSel').value,
                           workdir:document.getElementById('talkWorkdir').value.trim()||null,
-                          route:(document.getElementById('talkRoute')||{}).value||null});
+                          route:(rs&&!rs.disabled&&rs.value)||null});
   if(r.status==='ok'){
-    const route=(document.getElementById('talkRoute')||{}).value||'';
-    try{const cfg=await(await fetch('/api/config')).json();
+    const route=rs.value||'';
+    if(rs&&!rs.disabled)try{const cfg=await(await fetch('/api/config')).json();
       if((cfg.talk_route_app||'')!==route){cfg.talk_route_app=route;
         await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});}}catch(e){}
     closeTalk();if(r.talk&&r.talk.engine==='console')selectConsoleRole('talk');}else document.getElementById('talkErr').textContent=r.message||'';
