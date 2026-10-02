@@ -1,5 +1,7 @@
 # Claude Talk Mode（Claude と口頭で議論する）
 
+> 会話役（`claude -p` の常駐プロセス）は `improvement/claude-talk-skill.md` で AI Console 上の skill に置き換える。
+
 ## Problem
 
 Claude と議論したいとき、キーボードで打つより口頭のほうが速く、考えながら話せる。
