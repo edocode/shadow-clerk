@@ -527,6 +527,7 @@ STRINGS_EN: dict[str, str] = {
     # --- speaker.* ---
     "speaker.mic": "Me",
     "speaker.monitor": "Others",
+    "talk.voicevox_unreachable": "Cannot reach the VOICEVOX engine ({url}): {error}",
 
     # --- err.* ---
     "err.dotenv_load_fail": "Failed to load .env: {error}",

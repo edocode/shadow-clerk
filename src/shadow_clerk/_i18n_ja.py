@@ -544,6 +544,7 @@ STRINGS_JA: dict[str, str] = {
     # --- speaker.* : スピーカーラベル表示用 ---
     "speaker.mic": "自分",
     "speaker.monitor": "相手",
+    "talk.voicevox_unreachable": "VOICEVOX エンジンに接続できません ({url}): {error}",
 
     # --- err.* : エラーメッセージ ---
     "err.dotenv_load_fail": ".env の読み込みに失敗: {error}",

@@ -181,6 +181,15 @@ DEFAULT_CONFIG = {
     "welcome_dismissed": False,
     # 更新モーダルで「あとで」を押された版。同じ版では二度と出さない
     "skill_update_dismissed_version": "",
+    # Claude talk mode
+    "talk_voicevox_url": "http://localhost:50021",
+    "talk_speaker_id": 3,
+    "talk_output_devices": [],      # 再生先のデバイス名。空ならデフォルト出力
+    "talk_model": "",               # 空なら claude の既定
+    "talk_allowed_tools": "WebSearch,WebFetch,Read,Grep,Glob",
+    "talk_language": "",            # 空なら translate_language。TTS 非対応ならその既定言語
+    "talk_personas": {},            # name → 性格・応答の仕方
+    "talk_default_persona": "",
 }
 
 # セッションファイル
