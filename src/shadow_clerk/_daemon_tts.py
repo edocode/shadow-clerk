@@ -5,6 +5,7 @@ import logging
 import queue
 import re
 import threading
+import time
 from typing import Callable, Protocol
 
 import numpy as np
@@ -65,15 +66,39 @@ def _play_one(pcm: np.ndarray, sr: int, device: int | None) -> None:
 
 
 def play_on_devices(device_names: list[str]) -> PlayFn:
-    """名前で指定した出力デバイスすべてに同時に再生する関数を返す。空ならデフォルト出力"""
+    """名前で指定した出力デバイスすべてに同時に再生する関数を返す。空ならデフォルト出力。
+
+    再生スレッドの例外は呼び出し側に投げ直す（スレッド内で消えると、無音なのにエラーが出ない）。
+    """
+    from shadow_clerk._daemon_audio import PORTAUDIO_LOCK
+
     def play(pcm: np.ndarray, sr: int) -> None:
-        targets = [_resolve_output(n) for n in device_names] or [None]
-        threads = [threading.Thread(target=_play_one, args=(pcm, sr, d), daemon=True) for d in targets]
-        for th in threads:
-            th.start()
-        for th in threads:
-            th.join()
+        errors: list[Exception] = []
+
+        def run(device: int | None) -> None:
+            try:
+                _play_one(pcm, sr, device)
+            except Exception as e:
+                errors.append(e)
+
+        with PORTAUDIO_LOCK:
+            targets = [_resolve_output(n) for n in device_names] or [None]
+            threads = [threading.Thread(target=run, args=(d,), daemon=True) for d in targets]
+            for th in threads:
+                th.start()
+            for th in threads:
+                th.join()
+        if errors:
+            raise errors[0]
     return play
+
+
+def _drain(q: queue.Queue) -> None:
+    while True:
+        try:
+            q.get_nowait()
+        except queue.Empty:
+            return
 
 
 class TtsPlayer:
@@ -85,6 +110,7 @@ class TtsPlayer:
         self._on_error = on_error
         self._texts: queue.Queue[str | None] = queue.Queue()
         self._audio: queue.Queue[tuple[np.ndarray, int] | None] = queue.Queue(maxsize=2)
+        self._abort = threading.Event()
         self._threads = [threading.Thread(target=self._synth_loop, name="tts-synth", daemon=True),
                          threading.Thread(target=self._play_loop, name="tts-play", daemon=True)]
         for th in self._threads:
@@ -95,27 +121,34 @@ class TtsPlayer:
             self._texts.put(sentence)
 
     def close(self, discard_pending: bool = True) -> None:
+        """discard_pending なら、まだ再生していない文と合成済みの音声を捨て、再生中の1文だけ待つ"""
         if discard_pending:
-            while True:
-                try:
-                    self._texts.get_nowait()
-                except queue.Empty:
-                    break
+            self._abort.set()
+            _drain(self._texts)
+            _drain(self._audio)
         self._texts.put(None)
+        deadline = time.monotonic() + 30
         for th in self._threads:
-            th.join(timeout=30)
+            th.join(timeout=max(0.0, deadline - time.monotonic()))
 
     def _synth_loop(self) -> None:
         while (text := self._texts.get()) is not None:
+            if self._abort.is_set():
+                continue
             try:
-                self._audio.put(self._backend.synthesize(text))
+                audio = self._backend.synthesize(text)
             except Exception as e:
                 logger.warning("talk: 合成に失敗: %s", e)
                 self._on_error(str(e))
+                continue
+            if not self._abort.is_set():
+                self._audio.put(audio)
         self._audio.put(None)
 
     def _play_loop(self) -> None:
         while (item := self._audio.get()) is not None:
+            if self._abort.is_set():
+                continue
             try:
                 self._play(*item)
             except Exception as e:

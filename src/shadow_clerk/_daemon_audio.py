@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import IPC_TIMEOUT_SEC
 from shadow_clerk.domain import AudioDevice
@@ -148,6 +149,11 @@ def get_default_source_name() -> str | None:
     return None
 
 
+# refresh_device_list() の Pa_Terminate は開いている全ストリームを壊す。キャプチャは
+# 1 スレッドで閉じてから呼ぶが、talk mode の TTS 再生は別スレッドなので、このロックで排他する
+PORTAUDIO_LOCK = threading.Lock()
+
+
 def refresh_device_list() -> None:
     """PortAudio のデバイス一覧を再列挙する。
 
@@ -157,8 +163,9 @@ def refresh_device_list() -> None:
     全ストリームを閉じた状態で呼ぶこと。
     """
     import sounddevice as sd
-    sd._terminate()
-    sd._initialize()
+    with PORTAUDIO_LOCK:
+        sd._terminate()
+        sd._initialize()
     # デバイス構成が変わる唯一の契機。ラベル用 description のキャッシュを捨てる
     invalidate_description_cache()
 

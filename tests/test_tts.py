@@ -137,8 +137,58 @@ def test_voicevox() -> None:
         check("停止中のエンジンは TtsError", True)
 
 
+def test_play_errors_propagate() -> None:
+    import shadow_clerk._daemon_tts as tts
+    orig = tts._play_one
+
+    def boom(pcm: np.ndarray, sr: int, device: int | None) -> None:
+        raise RuntimeError("device gone")
+
+    tts._play_one = boom
+    try:
+        tts.play_on_devices([])(np.zeros(10, dtype=np.float32), 24000)
+        check("再生スレッドの失敗を呼び出し側に返す", False)
+    except RuntimeError as e:
+        check("再生スレッドの失敗を呼び出し側に返す", str(e) == "device gone")
+    finally:
+        tts._play_one = orig
+
+
+def test_close_discards_queued_audio() -> None:
+    import time
+    played: list[float] = []
+
+    def slow_play(pcm: np.ndarray, sr: int) -> None:
+        time.sleep(0.3)
+        played.append(float(pcm[0]))
+
+    p = TtsPlayer(_FakeBackend(), slow_play, lambda _m: None)
+    p.speak("あ。いい。ううう。ええええ。")
+    time.sleep(0.1)
+    t0 = time.monotonic()
+    p.close()
+    elapsed = time.monotonic() - t0
+    check("停止で合成済みの音声も捨てる", len(played) <= 1, repr(played))
+    check("停止は再生中の1文を待つだけ", elapsed < 0.6, f"{elapsed:.2f}s")
+
+
+def test_refresh_waits_for_playback() -> None:
+    import time
+    from shadow_clerk import _daemon_audio
+    th = threading.Thread(target=_daemon_audio.refresh_device_list, daemon=True)
+    with _daemon_audio.PORTAUDIO_LOCK:
+        th.start()
+        time.sleep(0.3)
+        check("再生中は PortAudio の再列挙を待たせる", th.is_alive())
+    th.join(10)
+    check("再生が終われば再列挙する", not th.is_alive())
+
+
 if __name__ == "__main__":
     test_split()
+    test_play_errors_propagate()
+    test_close_discards_queued_audio()
+    test_refresh_waits_for_playback()
     test_resample()
     test_player_order_and_errors()
     test_voicevox()
