@@ -24,6 +24,7 @@ from shadow_clerk._daemon_vad import VADSegmenter
 from shadow_clerk._daemon_transcriber import Transcriber
 from shadow_clerk._daemon_dashboard import LogBuffer, FileWatcher, DashboardHandler
 from shadow_clerk.domain import Speaker, TranscriptLine
+from shadow_clerk._daemon_talk import TalkDriver
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -48,6 +49,13 @@ class _RecorderTranscribeMixin:
     })
     # 末尾句読点（Whisper が付加することがある）
     _TRAILING_PUNCT = re.compile(r"[。、！？\.,!?\s]+$")
+
+    def _append_transcript_line(self, tl: TranscriptLine) -> None:
+        """transcript に1行追記する。日付が変わって output_path が切り替わっても、書く時点の値を使う"""
+        with self.transcript_lock:
+            with open(self.output_path, "a", encoding="utf-8") as f:
+                f.write(tl.format())
+                f.flush()
 
     @staticmethod
     def _is_noise_text(text: str) -> bool:
@@ -83,8 +91,9 @@ class _RecorderTranscribeMixin:
                                  command_mode: bool, display_labels: dict[str, str],
                                  last_file_speaker: Speaker | None) -> Speaker | None:
         """キューから取り出した1セグメントを文字起こし・書き込みし、更新後の直前話者を返す"""
-        # ミュート中のソースはスキップ（ただしコマンドモード中は除く）
-        is_muted = (source == "mic" and self.mute_mic) or (source == "monitor" and self.mute_monitor)
+        # ミュート中のソースと、talk mode が捨てるソース（Claude の声）はスキップ（コマンドモード中は除く）
+        is_muted = ((source == "mic" and self.mute_mic) or (source == "monitor" and self.mute_monitor)
+                    or self.talk.is_suppressed(source))
         if is_muted and not command_mode:
             logger.debug("%s ミュート中、スキップ", source)
             return last_file_speaker
@@ -150,15 +159,17 @@ class _RecorderTranscribeMixin:
             logger.debug("ノイズフィルタ: %r をスキップ", text.strip())
             return last_file_speaker
         # はい/いいえフィルタ: 直前が同じ話者ならスキップ
-        if self._should_skip_response(text, file_speaker, last_file_speaker):
+        # talk mode では Claude の行がこのループの外で書かれる。直前は Claude として扱わないと、
+        # Claude の質問への「はい」が同じ話者の繰り返しとして捨てられ、会話が止まる
+        last_speaker = Speaker.CLAUDE if self.talk.active else last_file_speaker
+        if self._should_skip_response(text, file_speaker, last_speaker):
             logger.debug("応答フィルタ: %r (speaker=%s) をスキップ", text.strip(), file_speaker)
             return last_file_speaker
 
         tl = TranscriptLine(timestamp=timestamp, speaker=file_speaker, text=text)
-        with self.transcript_lock:
-            with open(self.output_path, "a", encoding="utf-8") as f:
-                f.write(tl.format())
-                f.flush()
+        self._append_transcript_line(tl)
+        if file_speaker == Speaker.SELF:
+            self.talk.on_self_line(tl)
         display_line = f"[{timestamp}] [{display_speaker}] {text}"
         print(f"  {display_line}")
         # 中間テキストをクリア
@@ -195,6 +206,8 @@ class _RecorderTranscribeMixin:
                 segment, timestamp, source, _ = self.transcribe_queue.get(timeout=2.0)
             except queue.Empty:
                 break
+            if self.talk.is_suppressed(source):
+                continue
             try:
                 file_speaker = Speaker.from_source(source)
                 display_speaker = display_labels.get(source, source)
@@ -206,10 +219,7 @@ class _RecorderTranscribeMixin:
                     if self._should_skip_response(text, file_speaker, last_file_speaker):
                         continue
                     tl = TranscriptLine(timestamp=timestamp, speaker=file_speaker, text=text)
-                    with self.transcript_lock:
-                        with open(self.output_path, "a", encoding="utf-8") as f:
-                            f.write(tl.format())
-                            f.flush()
+                    self._append_transcript_line(tl)
                     last_file_speaker = file_speaker
                     display_line = f"[{timestamp}] [{display_speaker}] {text}"
                     print(f"  {display_line}")
@@ -310,6 +320,7 @@ class _RecorderTranscribeMixin:
         print(t("rec.recording"))
         print(t("rec.output", path=self.output_path))
 
+        self.talk = TalkDriver(self._append_transcript_line)
         self.mic_segmenter = VADSegmenter()
         self.monitor_segmenter = VADSegmenter()
 
@@ -395,6 +406,7 @@ class _RecorderTranscribeMixin:
         except KeyboardInterrupt:
             self.stop_event.set()
 
+        self.talk.stop()
         logger.info("スレッド終了待機中...")
         # serve_forever は stop_event を見ないので、明示的に止めない限り
         # join は必ずタイムアウトぶん待たされる

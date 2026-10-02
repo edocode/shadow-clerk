@@ -181,6 +181,23 @@ DEFAULT_CONFIG = {
     "welcome_dismissed": False,
     # 更新モーダルで「あとで」を押された版。同じ版では二度と出さない
     "skill_update_dismissed_version": "",
+    # Claude talk mode
+    "talk_voicevox_url": "http://localhost:50021",
+    "talk_speaker_id": 3,           # VOICEVOX のスタイル ID
+    "talk_speed": 1.0,              # 話速 0.5〜2.0
+    "talk_pitch": 0.0,              # 音高 -0.15〜0.15
+    "talk_intonation": 1.0,         # 抑揚 0.0〜2.0
+    "talk_volume": 1.0,             # 音量 0.0〜2.0
+    "talk_output_devices": [],      # 再生先のデバイス名。空ならデフォルト出力
+    "talk_model": "",               # 空なら claude の既定
+    "talk_allowed_tools": "WebSearch,WebFetch,Read,Grep,Glob",
+    "talk_language": "",            # 空なら translate_language。TTS 非対応ならその既定言語
+    "talk_personas": {},            # name → 性格・応答の仕方
+    "talk_default_persona": "",
+    "talk_filler_sec": 5,           # 応答がこの秒数来なければ「ちょっと考えます」を挟む。0 で無効
+    # 読み上げ中・生成中にこれを含む発言があれば止める。部分一致なので「まとめて」に当たる
+    # 「とめて」のような短いかなは入れない。英数字の語は単語単位で照合
+    "talk_stop_words": ["待って", "ストップ", "止めて", "やめて", "stop", "wait", "hold on"],
 }
 
 # セッションファイル

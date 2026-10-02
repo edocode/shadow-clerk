@@ -89,7 +89,7 @@ where = ["src"]
 
 # スキル実体。clerk-util install-skill の配布元になるので wheel に載せる
 [tool.setuptools.package-data]
-shadow_clerk = ["skills/**/*.md"]
+shadow_clerk = ["skills/**/*.md", "talk_prompts/*.md"]
 
 [dependency-groups]
 dev = [

@@ -13,6 +13,7 @@ class Speaker(str, Enum):
 
     SELF = "自分"    # マイク入力（自分の発言）
     OTHER = "相手"   # モニター入力（相手の発言）
+    CLAUDE = "Claude"  # Claude talk mode の発言（音声入力からは来ないので from_source の対象外）
 
     @classmethod
     def from_source(cls, source: str) -> Speaker:

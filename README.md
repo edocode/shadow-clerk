@@ -468,6 +468,47 @@ Translation only. Runs locally without any external API or Claude Code (summary 
 | Fully local | `translation_provider: libretranslate` | — | No LLM needed, lower quality |
 | Hybrid | `translation_provider: api` | `llm_provider: claude` | Auto translation + high-quality summary |
 
+### Talk with Claude
+
+Talk mode lets you discuss a topic with Claude by voice. Claude asks questions and replies
+through text-to-speech; your answers are transcribed as usual. Both sides are written to the
+transcript (`[Claude]` lines are Claude's), so you can read the discussion back later.
+
+Requirements:
+
+- [Claude Code](https://claude.com/claude-code) CLI (`claude_cli_path`)
+- A running [VOICEVOX](https://voicevox.hiroshiba.jp/) engine (default `http://localhost:50021`).
+  The engine runs as a separate process and is not bundled. Follow the terms of the voice you
+  use; the dashboard shows the required credit (`VOICEVOX:<name>`) while talk mode is on.
+- Headphones. While talk mode is on, the monitor channel is not transcribed, so Claude's own
+  voice does not come back as `[Others]` lines.
+
+Click **Talk with Claude** in the dashboard header, enter a topic (or leave it empty), pick a
+persona, and start. **Voice settings** in the same dialog picks the VOICEVOX speaker and adjusts speed, pitch, intonation and volume, with a preview button; changes apply from the next sentence. Claude runs headless (`claude -p`), separately from the AI Console, so the
+meeting helper can keep running at the same time. You can also make Claude speak any text:
+
+```bash
+curl -s -X POST localhost:8765/api/say -d '{"text":"Hello"}'
+```
+
+| Key | Default | Description |
+|---|---|---|
+| `talk_voicevox_url` | `http://localhost:50021` | VOICEVOX engine |
+| `talk_speaker_id` | `3` | VOICEVOX style ID |
+| `talk_speed` / `talk_pitch` / `talk_intonation` / `talk_volume` | `1.0` / `0.0` / `1.0` / `1.0` | Speed (0.5–2.0), pitch (-0.15–0.15), intonation (0–2), volume (0–2) |
+| `talk_output_devices` | `[]` | Output device names (empty = default output) |
+| `talk_model` | `""` | Model for the talk session (empty = claude default) |
+| `talk_allowed_tools` | `WebSearch,WebFetch,Read,Grep,Glob` | Tools Claude may use while talking (`""` = none) |
+| `talk_language` | `""` | Conversation language (empty = `translate_language`). Falls back to the TTS default when unsupported (VOICEVOX: Japanese only) |
+| `talk_personas` | `{}` | Name → personality / how to respond. Edit from the start dialog |
+| `talk_default_persona` | `""` | Persona selected by default |
+| `talk_filler_sec` | `5` | If Claude has said nothing for this many seconds, say "let me think" (not written to the transcript). `0` disables it |
+| `talk_stop_words` | `["待って", "ストップ", "止めて", "やめて", "stop", "wait", "hold on"]` | Saying one of these stops Claude mid-sentence. Substring match, so avoid short kana that appear inside other words; ASCII words match whole words |
+
+Claude speaks each part of a reply as soon as it is written, in short sentences, so you can cut in
+between them. Say a stop word ("wait", "ちょっと待って") and playback stops, the rest of that turn
+is dropped, and Claude is told where it was cut off.
+
 ### Meeting minutes
 
 Three ways to generate minutes: automatically at meeting end, on demand from the dashboard, or via `clerk-util` from the command line:

@@ -154,6 +154,31 @@ clerk-daemon に統合された Web ダッシュボード。ブラウザから t
 - **フロントエンド**: `_daemon_dashboard_js_console.py` が AI Console の描画・キー入力・起動ディレクトリ設定 UI を実装する
 - **既知の制約**: alt-screen は実装していないため、Console 内で `less` / `vim` を開くと表示が崩れる
 
+### モジュール G: Claude talk mode（音声で Claude と議論する、`_daemon_talk.py`）
+
+- `TalkDriver`（`_daemon_talk.py`）: 状態とターン制御。`[自分]` 行を受け取り、Claude が応答を生成中なら溜めて、応答の確定後にまとめて送る。応答は text ブロックが届くたびに `[Claude]` 行として transcript に書き（改行は空白にまとめる）、`TtsPlayer` に渡す。送ってから `talk_filler_sec` 秒なにも話さなければつなぎの一言を読み上げる（transcript には書かない）。`talk_stop_words` を含む `[自分]` 行が来たら `TtsPlayer.interrupt()` で読み上げを途中で止め、そのターンの残りの発話を捨て、止めた位置の注記を付けて claude に送る。talk mode 中は `is_suppressed("monitor")` が真になり、monitor の文字起こしを捨てる
+- `ClaudeTalkProcess`（`_daemon_talk_claude.py`）: `claude -p --input-format stream-json --output-format stream-json` を常駐させる。`--setting-sources ""` と `--strict-mcp-config` でユーザーの hooks・プラグイン・MCP を読ませず、`--tools` で使えるツールを絞る。`assistant` イベントの text ブロックを届いた順に渡し、`result` イベントでターンの終了を知らせる
+- `_daemon_talk_prompt.py`: 会話言語の決定（`talk_language` → `translate_language`。TTS が非対応なら TTS の既定言語）と system prompt の組み立て（同梱 `talk_prompts/<lang>.md` → `## Persona` → `## Topic`）
+- `TtsPlayer` / `TtsBackend`（`_daemon_tts.py`）: 文単位に分け、合成スレッドと再生スレッドでパイプライン化する。バックエンドは対応言語と既定言語を持つ。最初のバックエンドは `VoicevoxBackend`（`_daemon_tts_voicevox.py`、HTTP）
+- `TalkPersona`（`domain/talk_persona.py`）: `talk_personas` の1件。`null` → 既定、`""` → なし、名前 → その persona（無ければ既定）
+- API: `GET/POST /api/talk-mode`、`POST /api/say`（`_daemon_dashboard_ops_talk.py`、localhost のみ）。状態は `/api/status` の `talk`
+
+```mermaid
+sequenceDiagram
+    participant U as ユーザー（マイク）
+    participant R as Recorder
+    participant T as TalkDriver
+    participant C as claude -p（常駐）
+    participant V as VOICEVOX
+    U->>R: 発話 → Whisper
+    R->>R: talk mode 中は monitor 行を捨てる
+    R->>T: [自分] 行
+    T->>C: user メッセージ（生成中に届いた行はまとめる）
+    C-->>T: result
+    T->>R: [Claude] 行を書く
+    T->>V: 文ごとに合成 → 再生
+```
+
 ## アーキテクチャ図
 
 ### システム全体構成
@@ -226,6 +251,9 @@ graph TB
     tl["translate-loop<br/><i>transcript diff → llm_client</i>"]
     fw["file-watcher<br/><i>ファイル差分検出 → SSE broadcast</i>"]
     dash["dashboard-server<br/><i>ThreadingHTTPServer port 8765</i>"]
+    talkc["talk-claude<br/><i>talk mode 中のみ。常駐 claude の stdout を読み、応答を TalkDriver へ</i>"]
+    synth["tts-synth<br/><i>talk mode 中のみ。文ごとに VOICEVOX で合成</i>"]
+    play["tts-play<br/><i>talk mode 中のみ。合成済み音声を出力デバイスへ再生</i>"]
 
     mq([mic_queue])
     moq([monitor_queue])
@@ -242,6 +270,10 @@ graph TB
     main -->|spawn| key
     main -->|spawn| fw
     main -->|spawn| dash
+    dash -.->|talk mode 開始時| talkc
+    dash -.->|talk mode 開始時| synth
+    synth --> play
+    trans -.->|"[自分] 行"| talkc
 
     mic --> mq
     mon --> moq
@@ -658,6 +690,22 @@ ai_assistant_command: claude      # AI Console で起動するコマンド (clau
 ai_assistant_args: ''             # そのコマンドの引数 (shlex で分割)
 ai_assistant_init_prompt: /clerk-meeting-helper {transcript}  # TUI 準備完了後に PTY へ送るプロンプト ({transcript}/{meeting} を置換)
 ai_assistant_workdir: ''          # 既定の起動ディレクトリ (会議ごとの上書きは meetings[].workdir)
+
+# --- Claude talk mode ---
+talk_voicevox_url: http://localhost:50021
+talk_speaker_id: 3
+talk_speed: 1.0
+talk_pitch: 0.0
+talk_intonation: 1.0
+talk_volume: 1.0
+talk_output_devices: []
+talk_model: ""
+talk_allowed_tools: WebSearch,WebFetch,Read,Grep,Glob
+talk_language: ""
+talk_personas: {}
+talk_default_persona: ""
+talk_filler_sec: 5
+talk_stop_words: [待って, ストップ, 止めて, やめて, stop, wait, hold on]
 ```
 
 - clerk-daemon 起動時に config.yaml を読み込み、CLI 引数が未指定の場合のみ `default_model`、`default_language`、`output_directory` を適用する
