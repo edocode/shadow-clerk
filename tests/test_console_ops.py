@@ -36,6 +36,7 @@ class _FakeHandler(Ops):
         self.headers = {"Content-Length": str(len(raw)), **(headers or {})}
         self.rfile = io.BytesIO(raw)
         self.sent: dict = {}
+        self.path = "/api/console"
         # daemon では DashboardHandler.recorder がクラス属性で入る
         self.recorder = type("_Rec", (), {
             "_output_dir": output_dir,
@@ -259,6 +260,32 @@ def test_console_body_rejects_non_dict_json() -> None:
               h.sent.get("status") == "error", repr(h.sent))
 
 
+def test_role_routes_to_console() -> None:
+    import shadow_clerk._daemon_dashboard_ops_console as ops_mod
+    from shadow_clerk.domain import ConsoleRole
+    got: list[ConsoleRole] = []
+    fake = _FakeConsole(running=True)
+    orig = ops_mod.get_console
+    ops_mod.get_console = lambda role=ConsoleRole.ASSISTANT: (got.append(role), fake)[1]
+    try:
+        h = _FakeHandler({"data": "x", "role": "talk"})
+        h._console_input()
+        check("input は指定の役割へ", got[-1] is ConsoleRole.TALK and fake.calls[-1] == "write:x", repr(got))
+        h = _FakeHandler({"data": "y"})
+        h._console_input()
+        check("role 省略は assistant", got[-1] is ConsoleRole.ASSISTANT)
+        h = _FakeHandler({"data": "z", "role": "nope"})
+        h._console_input()
+        check("未知の role は拒否", h.sent.get("status") == "error" and fake.calls[-1] == "write:y", repr(h.sent))
+        h = _FakeHandler()
+        h.path = "/api/console?role=talk"
+        fake.snapshot = lambda: {"role": "talk"}
+        h._serve_console()
+        check("GET も role で選ぶ", got[-1] is ConsoleRole.TALK and h.sent == {"role": "talk"}, repr(h.sent))
+    finally:
+        ops_mod.get_console = orig
+
+
 def main() -> int:
     test_input_rejects_remote()
     test_input_rejects_non_string()
@@ -276,6 +303,7 @@ def main() -> int:
     test_console_input_allows_same_origin()
     test_console_input_allows_missing_origin()
     test_console_body_rejects_non_dict_json()
+    test_role_routes_to_console()
     print(f"\n{sum(results)}/{len(results)} passed")
     return 0 if all(results) else 1
 

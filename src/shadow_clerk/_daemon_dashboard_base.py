@@ -17,6 +17,7 @@ from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_dashboard_html import _HTML_TEMPLATE
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk._markdown import render_markdown
+from shadow_clerk.domain import ConsoleRole
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -101,10 +102,10 @@ def read_local_json_body(handler: Any, label: str) -> dict | None:
     return data
 
 
-def _console_running() -> bool:
+def _console_running(role: ConsoleRole = ConsoleRole.ASSISTANT) -> bool:
     """AI Console が動いているか。循環 import を避けてここで遅延 import する"""
     from shadow_clerk._daemon_console import get_console
-    return get_console().is_running()
+    return get_console(role).is_running()
 
 
 class _DashboardHandlerBase(BaseHTTPRequestHandler):
@@ -313,6 +314,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             # 変わったときしか飛ばないので、後から開いたページにも届く
             # 定期取得のこちらに載せる
             "console_running": _console_running(),
+            "talk_console_running": _console_running(ConsoleRole.TALK),
         })
 
     def _serve_files(self) -> None:

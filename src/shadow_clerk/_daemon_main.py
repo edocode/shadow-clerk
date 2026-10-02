@@ -269,7 +269,9 @@ def main() -> None:
         # のループがアシスタントのツール実行中でも間欠的に失敗しないようにする
         from shadow_clerk._daemon_console import get_console
         from shadow_clerk._daemon_constants import IPC_TIMEOUT_SEC
-        get_console().stop(timeout=IPC_TIMEOUT_SEC)
+        from shadow_clerk.domain import ConsoleRole
+        for role in ConsoleRole:
+            get_console(role).stop(timeout=IPC_TIMEOUT_SEC)
 
 
 if __name__ == "__main__":

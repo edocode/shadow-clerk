@@ -6,12 +6,14 @@ import os
 import re
 from urllib.parse import urlparse, parse_qs
 
+from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_console import get_console, start_console_for
 from shadow_clerk._daemon_constants import FORBID_ANALYZE_FILE, MISHEARD_FILE
 from shadow_clerk._daemon_dashboard_base import is_localhost_client, read_local_json_body
 from shadow_clerk._markdown import render_markdown
 from shadow_clerk._transcript_name import TranscriptName
-from shadow_clerk.domain import misheard
+from shadow_clerk.domain import ConsoleRole, misheard
+from shadow_clerk.domain.ai_assistant import AiAssistantConfig
 from shadow_clerk.domain.forbid_analyze import ForbidAnalyze
 from shadow_clerk.domain.meeting_config import MeetingConfig
 
@@ -30,6 +32,16 @@ class _DashboardHandlerConsoleOps:
         """localhost 判定・Origin 判定・JSON ボディの読み取り。PTY へ任意のキー入力を送れるので Origin も見る"""
         return read_local_json_body(self, "console")
 
+    def _console_role(self, raw: object) -> ConsoleRole | None:
+        """role 引数を解釈する。省略は assistant。不正なら応答済みにして None"""
+        if raw is None or raw == "":
+            return ConsoleRole.ASSISTANT
+        try:
+            return ConsoleRole(raw)
+        except ValueError:
+            self._send_json({"status": "error", "message": "unknown console role"})
+            return None
+
     def _serve_console(self) -> None:
         """GET /api/console — grid 全体を返す（初回ロード・再接続用）
 
@@ -43,7 +55,10 @@ class _DashboardHandlerConsoleOps:
             logger.warning("console: 拒否 (client=%s)", client)
             self._send_json({"status": "error", "message": "console API is localhost only"})
             return
-        self._send_json(get_console().snapshot())
+        role = self._console_role(parse_qs(urlparse(self.path).query).get("role", [None])[0])
+        if role is None:
+            return
+        self._send_json(get_console(role).snapshot())
 
     def _start_console(self) -> None:
         """POST /api/console/start — アシスタントを起動して初期プロンプトを送る。
@@ -52,6 +67,14 @@ class _DashboardHandlerConsoleOps:
         """
         data = self._console_body()
         if data is None:
+            return
+        role = self._console_role(data.get("role"))
+        if role is None:
+            return
+        if role is ConsoleRole.TALK:
+            ai = AiAssistantConfig.from_config(load_config())
+            ok, _ = get_console(role).start_if_stopped(ai.argv(), ai.resolve_workdir())
+            self._send_json({"status": "ok" if ok else "error", "running": get_console(role).is_running()})
             return
         transcript = data.get("transcript")
         # ダッシュボードはファイル名しか持っていないが、スキルにはフルパスが要る。
@@ -72,15 +95,22 @@ class _DashboardHandlerConsoleOps:
 
     def _stop_console(self) -> None:
         """POST /api/console/stop — プロセスグループごと終了させる"""
-        if self._console_body() is None:
+        data = self._console_body()
+        if data is None:
             return
-        get_console().stop()
+        role = self._console_role(data.get("role"))
+        if role is None:
+            return
+        get_console(role).stop()
         self._send_json({"status": "ok", "running": False})
 
     def _console_input(self) -> None:
         """POST /api/console/input — キー入力を PTY に書き込む"""
         data = self._console_body()
         if data is None:
+            return
+        role = self._console_role(data.get("role"))
+        if role is None:
             return
         payload = data.get("data")
         if not isinstance(payload, str):
@@ -89,7 +119,7 @@ class _DashboardHandlerConsoleOps:
         if len(payload) > _MAX_INPUT_CHARS:
             self._send_json({"status": "error", "message": "data too large"})
             return
-        get_console().write(payload)
+        get_console(role).write(payload)
         self._send_json({"status": "ok"})
 
     def _console_resize(self) -> None:
@@ -97,13 +127,17 @@ class _DashboardHandlerConsoleOps:
         data = self._console_body()
         if data is None:
             return
+        role = self._console_role(data.get("role"))
+        if role is None:
+            return
         try:
             cols = int(data.get("cols", 0))
         except (TypeError, ValueError):
             self._send_json({"status": "error", "message": "cols must be an integer"})
             return
-        get_console().resize(cols)
-        self._send_json({"status": "ok", "cols": get_console().screen.columns})
+        console = get_console(role)
+        console.resize(cols)
+        self._send_json({"status": "ok", "cols": console.screen.columns})
 
     def _generated_path(self) -> tuple[str, str] | None:
         """クエリの file から (advice 名, analysis 名) を解決する。不正なら None"""
