@@ -1,7 +1,8 @@
 # Claude Talk Mode on an AI Console skill
 
-`improvement/claude-talk-mode.md` の会話役（daemon が常駐させる `claude -p`）を、AI Console 上で動く
-Claude Code の skill に置き換える。TTS・monitor の抑制・制止・つなぎの一言は daemon に残す。
+`improvement/claude-talk-mode.md` の会話役（daemon が常駐させる `claude -p`）に加えて、AI Console 上で動く
+Claude Code の skill を会話役に選べるようにし、既定をそちらにする。TTS・monitor の抑制・制止・つなぎの一言は
+daemon の共通部分に残す。
 
 ## Problem
 
@@ -14,6 +15,7 @@ Claude Code の skill に置き換える。TTS・monitor の抑制・制止・�
 - 会話役は通常の Claude Code セッション（AI Console の PTY）で動き、ファイル編集などは通常の許可確認つきで行う
 - 会議アシスタント（`clerk-meeting-helper`）と同時に使える
 - 逐次読み上げ・制止・つなぎの一言・persona・声の設定といった現行の体験を保つ
+- 速さ優先で話すだけの議論には、従来の `claude -p` 方式も選べる（`talk_engine`）
 
 Non-goals: 任意個のコンソール、2つのコンソールの同時表示、Phase 2（第三者の参加）。
 
@@ -69,22 +71,60 @@ sequenceDiagram
 
 ## 2. talk mode の流れ
 
-### 開始・終了（TalkDriver）
+### 会話の担い手（`talk_engine`）
 
-- 開始（`POST /api/talk-mode {on: true, topic, persona}`）
-  1. VOICEVOX のヘルスチェック。届かなければ開始しない
-  2. 会話言語と persona を決め、TTS の再生器を作り、monitor を抑制する
-  3. talk コンソールを起動し、準備ができたら `/clerk-talk` を送る（`send_after_ready`）。
-     作業ディレクトリは AI Console と同じ解決（`AiAssistantConfig.resolve_workdir()`）
-- 終了（トグル OFF、talk コンソールの終了、daemon の停止）: 再生を止め、抑制を解き、talk コンソールを止める。
-  talk コンソールが自分で終了したとき（`/exit` など）も talk mode を終える
+TalkDriver を「共通の部分」と「会話の担い手（engine）」に分ける。
+
+| | `console`（既定） | `headless` |
+|---|---|---|
+| 会話役 | talk コンソールの Claude Code + `clerk-talk` skill | `claude -p` の常駐プロセス（従来の実装） |
+| 発言の受け取り | skill が Monitor で `/api/watch` を読む | engine が stdin に送る（生成中はためてまとめる） |
+| 話す | skill が `/api/say` を呼ぶ | engine が text ブロックを受けて `say` する |
+| 制止 | 次の `/api/say` に `interrupted` を返す | そのターンの残りを捨て、注記を付けて送る |
+| 向いている使い方 | ファイル編集など作業を伴う議論 | 速さ優先の、話すだけの議論 |
+
+engine のインターフェース（`_daemon_talk_engine.py` の Protocol）:
+
+- `start(ctx: TalkContext) -> None` — 起動できなければ `TalkStartError`
+- `stop() -> None` — 冪等
+- `on_self_line(text: str) -> None` — `[自分]` 行（制止の注記が付くことがある）
+- `on_interrupt() -> None` — 制止された。headless はこのターンの残りを捨てる。console は何もしない
+- `filler_wanted() -> bool` — つなぎの一言を挟んでよい状態か（応答待ち）
+
+`TalkContext` は `topic`・`persona`・`language`・`config` と、engine から driver を呼ぶための
+`say(text)`・`ended(error)` を持つ。
+
+### 共通の部分（TalkDriver）
+
+- 開始（`POST /api/talk-mode {on: true, topic, persona}`）: VOICEVOX のヘルスチェック → 会話言語と persona を決める →
+  TTS の再生器を作り monitor を抑制する → `talk_engine` の engine を `start()` する。失敗したら抑制と再生器を戻す
+- 終了（トグル OFF、engine の終了、daemon の停止）: engine を `stop()` し、再生を止め、抑制を解く
+- `[自分]` 行: 制止の言葉を含めば読み上げを止め（`TtsPlayer.interrupt()`）、`cut` を覚えて `engine.on_interrupt()` を呼ぶ。
+  そのうえで `engine.on_self_line()` に渡す（headless では注記を付ける）
+- つなぎの一言: `[自分]` 行（headless は送信）から `talk_filler_sec` 秒、`say` が1回も無く `engine.filler_wanted()` が真なら読み上げる
+- `say(text)`（`/api/say` と headless engine の両方から）: 制止の直後の最初の1回（console のみ）は話さずに
+  `interrupted` を返して制止の状態を解く。それ以外は `[Claude]` 行を書いて読み上げる
+- 残す: persona と言語の解決、声の設定と試聴、snapshot、`is_suppressed()`
+
+### console engine
+
+- 開始: talk コンソールを起動し、準備ができたら `/clerk-talk` を送る（`send_after_ready`）。作業ディレクトリは
+  AI Console と同じ解決（`AiAssistantConfig.resolve_workdir()`）。`clerk-talk` skill が入っていなければ開始しない
+- talk コンソールが自分で終了したとき（`/exit` など）は `ended()` で talk mode を終える
+- `filler_wanted()`: 最後の `[自分]` 行より後に `say` が無ければ真
+
+### headless engine
+
+- 従来の `_daemon_talk_claude.py`（`ClaudeTalkProcess`, `build_claude_argv`）と、TalkDriver にあったターン管理
+  （busy・pending・まとめ送り・制止後に捨てる・注記・口火）をここへ移す
+- system prompt は同梱 `talk_prompts/<lang>.md` から組み立てる（従来どおり）。設定 `talk_model`・`talk_allowed_tools` も headless 用に残す
 
 ### skill が使う API
 
 | Method | Path | 内容 |
 |---|---|---|
-| `GET` | `/api/talk-mode` | `{active, topic, persona, persona_instructions, language, credit, error}` |
-| `POST` | `/api/say` | `{text}` → 読み上げる。制止の直後の1回は話さずに `{status: "interrupted", cut}` を返す |
+| `GET` | `/api/talk-mode` | `{active, engine, topic, persona, persona_instructions, language, credit, error}` |
+| `POST` | `/api/say` | `{text}` → 読み上げる。制止の直後の1回（console engine）は話さずに `{status: "interrupted", cut}` を返す |
 | `GET` | `/api/watch?interval=1` | 既存。`WATCH_INTERVAL_RANGE` の下限を 5 から 1 に下げる |
 
 ### 新しい skill `clerk-talk`（`src/shadow_clerk/skills/clerk-talk/SKILL.md`）
@@ -101,25 +141,15 @@ sequenceDiagram
 - ファイル編集などの依頼は通常どおり行う（許可確認は Claude Code の設定に従う）
 - 会話言語は `/api/talk-mode` の `language` に従う
 - `clerk-util install-skill` の配布対象に含める
-
-### daemon に残す処理（TalkDriver の縮小）
-
-- 残す: TTS（文の分割・パイプライン・途中停止）、monitor の抑制、`is_suppressed()`、`[自分]` 行の受け取り、
-  制止の判定（`talk_stop_words`）、つなぎの一言（`talk_filler_sec`）、persona と言語の解決、声の設定と試聴、snapshot
-- つなぎの一言: `[自分]` 行が来てから `talk_filler_sec` 秒、`/api/say` が1回も来なければ読み上げる
-  （transcript には書かない）
-- 制止: 制止の言葉を含む `[自分]` 行で読み上げを止め、止めた文を `cut` として覚える。その後の最初の
-  `/api/say` は話さずに `{status: "interrupted", cut}` を返し、そこで制止の状態を解く
-- 消す: `_daemon_talk_claude.py`、ターン管理（busy・pending・まとめ送り）、注記の送信、`KICKOFF_MESSAGE`、
-  同梱プロンプト `talk_prompts/`（内容は skill に移す）、設定の `talk_model` と `talk_allowed_tools`
+- 話し方の指示は `talk_prompts/ja.md` と重なる。skill には同じ要点を書き、headless 用の同梱プロンプトは残す
 
 ## Error Handling
 
 | 事象 | 挙動 |
 |---|---|
 | VOICEVOX に届かない | talk mode を開始しない（従来どおり） |
-| talk コンソールを起動できない | talk mode を開始せず、抑制と再生器を戻してエラーを返す |
-| talk コンソールが終了した | talk mode を終える |
+| engine を起動できない（talk コンソール / claude） | talk mode を開始せず、抑制と再生器を戻してエラーを返す |
+| engine が終了した（talk コンソールの `/exit`、claude の終了） | talk mode を終える |
 | skill が入っていない | 起動後に Claude Code が「unknown command」を出す。開始時に `/api/skill-status` 相当の確認をして、未導入なら開始しない |
 
 ## Testing
@@ -128,10 +158,12 @@ sequenceDiagram
 |---|---|
 | `tests/test_console_pty.py` | 役割ごとに別インスタンス、列数ファイルが役割ごと、SSE payload に `role` |
 | `tests/test_console_ops.py` | `role` の受け付け・既定値・不正値 |
-| `tests/test_talk_driver.py` | 開始で talk コンソールを起動し `/clerk-talk` を送る、終了で止める、コンソール終了で talk mode を終える、制止後の最初の `say` が `interrupted`、つなぎの一言 |
+| `tests/test_talk_driver.py` | 共通部分: engine の選択と開始・終了、制止で `on_interrupt`、console の制止後の最初の `say` が `interrupted`、つなぎの一言（`filler_wanted`） |
+| `tests/test_talk_engine_console.py` | talk コンソールを起動して `/clerk-talk` を送る、skill 未導入なら開始しない、コンソール終了で `ended` |
+| `tests/test_talk_engine_headless.py` | 従来の driver テストのターン管理部分（まとめ送り、制止後に捨てる、注記、口火） |
 | `tests/test_talk_api.py` | `/api/say` の `interrupted` 応答、`/api/talk-mode` の `persona_instructions` |
 | `tests/test_console_trim.py` | 既存の JS 関数名が保たれていること（変更しない） |
 
-- 削除: `tests/test_talk_claude.py`、`tests/test_talk_prompt.py` のうち system prompt 組み立ての部分
+- `tests/test_talk_claude.py`・`tests/test_talk_prompt.py` は残す（headless engine が使う）
 - 手動: assistant で meeting-helper を動かしたまま talk mode を開始し、タブを切り替えて両方が動いていること、
   会話の中でファイルを書かせると許可確認が出ること
