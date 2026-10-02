@@ -315,14 +315,14 @@ async function loadAnalysis(file){
     const el=document.getElementById('anp');if(el)el.scrollTop=el.scrollHeight;
   }catch(e){}
 }
-/* 開始と停止を1つのボタンで受ける。走っているかは _consoleRunning が持つ */
+/* 開始と停止を1つのボタンで受ける。走っているかは _consoleRoleRunning.assistant が持つ */
 async function toggleAnalysis(){
   // 連打すると「分析開始」が多重送信され、起動途中の PTY に2回目の初期
   // プロンプトが即 write されて消えうる(I1)。送信中はボタンを無効化する
   const btn=document.getElementById('btnStartAnalysis');
   if(btn){if(btn.disabled)return;btn.disabled=true;}
-  if(_consoleRunning){
-    try{await stopConsole();}finally{if(btn)btn.disabled=false;}
+  if(_consoleRoleRunning.assistant){
+    try{await stopConsole('assistant');}finally{if(btn)btn.disabled=false;}
     return;
   }
   const body=curFile?JSON.stringify({transcript:curFile}):'{}';
@@ -330,7 +330,7 @@ async function toggleAnalysis(){
     headers:{'Content-Type':'application/json'},body});
     const d=await r.json();
     if(d.status!=='ok')alert(I18N['dash.console_start_failed']||'Failed to start the AI assistant.');
-    else switchLogTab('console');
+    else selectConsoleRole('assistant');
   }catch(e){}
   finally{if(btn)btn.disabled=false;}
 }

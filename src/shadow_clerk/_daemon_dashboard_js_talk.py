@@ -19,7 +19,7 @@ async function talkPost(body){
 }
 async function fillPersonaSel(){
   let ps={},def='';
-  try{const c=await(await fetch('/api/config')).json();ps=c.talk_personas||{};def=c.talk_default_persona||'';}catch(e){}
+  try{const c=await(await fetch('/api/config')).json();ps=c.talk_personas||{};def=c.talk_default_persona||'';document.getElementById('talkWorkdir').value=c.talk_workdir||c.ai_assistant_workdir||'';}catch(e){}
   const sel=document.getElementById('talkPersonaSel');sel.innerHTML='';
   const none=document.createElement('option');none.value='';none.textContent=I18N['dash.talk_persona_none'];sel.appendChild(none);
   Object.keys(ps).forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n;sel.appendChild(o);});
@@ -35,8 +35,9 @@ async function togTalk(){
 function closeTalk(){document.getElementById('talkModal').classList.remove('open');}
 async function startTalk(){
   const r=await talkPost({on:true,topic:document.getElementById('talkTopic').value.trim(),
-                          persona:document.getElementById('talkPersonaSel').value});
-  if(r.status==='ok')closeTalk();else document.getElementById('talkErr').textContent=r.message||'';
+                          persona:document.getElementById('talkPersonaSel').value,
+                          workdir:document.getElementById('talkWorkdir').value.trim()||null});
+  if(r.status==='ok'){closeTalk();if(r.talk&&r.talk.engine==='console')selectConsoleRole('talk');}else document.getElementById('talkErr').textContent=r.message||'';
 }
 function personaAddRow(name,text,isDefault){
   const tr=document.createElement('tr');

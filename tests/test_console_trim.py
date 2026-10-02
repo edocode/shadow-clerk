@@ -297,16 +297,21 @@ check("28. 分析ボタンは1つのトグル",
 _tog = _TP[_TP.index("async function toggleAnalysis()"):]
 _tog = _tog[:_tog.index("\nasync function")]
 check("29. 走っているときは停止に回す",
-      "_consoleRunning" in _tog and "stopConsole()" in _tog, "")
+      "_consoleRoleRunning.assistant" in _tog and "stopConsole('assistant')" in _tog, "")
 
+from shadow_clerk._daemon_dashboard_js_console_role import _JS_TEMPLATE_CONSOLE_ROLE as _CR
 _upd = _T[_T.index("function updateConsoleStatus("):_T.index("/* 自動で分析")]
 check("30. ラベルを開始/停止で入れ替える",
-      "dash.stop_analysis" in _upd and "dash.start_analysis" in _upd, "")
+      "updateAnalysisBtn()" in _upd
+      and "dash.stop_analysis" in _CR and "dash.start_analysis" in _CR, "")
 
+_sa = _T[_T.index("function showAutoAnalysis("):]
+_sa = _sa[:_sa.index("\n}\n")]
 check("31. 自動起動なら生成物とコンソールを開く",
-      "if(d.auto)showAutoAnalysis()" in _T
-      and "togSumPane()" in _T and "switchSumTab('ai')" in _T
-      and "switchLogTab('console')" in _T, "")
+      "if(d.auto&&role==='assistant')showAutoAnalysis()" in _CR
+      and "if(d.auto)showAutoAnalysis()" not in _T
+      and "togSumPane()" in _sa and "switchSumTab('ai')" in _sa
+      and "selectConsoleRole('assistant')" in _sa and "_consoleRole==='talk'" in _sa, "")
 
 from shadow_clerk._i18n_ja import STRINGS_JA as _JA
 from shadow_clerk._i18n_en import STRINGS_EN as _EN
@@ -428,7 +433,8 @@ def run_async(scenario: str, extra: str = "") -> list:
 
 
 # extract() は "async function" の async を落とすので足し直す
-SEND_FNS = extract("sendConsole") + "async " + extract("_postConsole")
+SEND_FNS = ("let _consoleRole='assistant';function consoleBody(o){return JSON.stringify(Object.assign({role:_consoleRole},o||{}));}\n"
+            + extract("sendConsole") + "async " + extract("_postConsole"))
 SEND_ENV = """
 let log=[], _consoleSendQ=Promise.resolve();
 // 2文字目だけ極端に遅い応答にして、追い越しが起きれば必ず露見するようにする

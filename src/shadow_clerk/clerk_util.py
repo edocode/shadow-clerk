@@ -483,6 +483,8 @@ def cmd_install_skill(args: list[str]) -> None:
     print(f"配布元: {skill_install.bundled_skill_dir()}")
     print(f"配布先: {result['path']} ({result['mode']})")
     print(f"バージョン: {result['before'] or '(未配布)'} -> {result['after']}")
+    for s in result.get("skills", [])[1:]:
+        print(f"  + {s['skill']}: {s['path']}")
 
 
 def cmd_gcal_auth(args: list[str]) -> None:

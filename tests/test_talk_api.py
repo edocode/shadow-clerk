@@ -41,16 +41,19 @@ class _Talk:
             raise TtsError("down")
         self.calls.append(("preview", voice, text))
 
-    def start(self, topic: str, persona: str | None) -> None:
+    def start(self, topic: str, persona: str | None, workdir: str | None = None) -> None:
         if topic == "boom":
             raise TalkStartError("VOICEVOX down")
-        self.calls.append(("start", topic, persona))
+        self.calls.append(("start", topic, persona, workdir))
 
     def stop(self) -> None:
         self.calls.append(("stop",))
 
-    def say(self, text: str) -> None:
+    def api_say(self, text: str) -> str | None:
+        if text == "遮られた":
+            return "途中の文。"
         self.calls.append(("say", text))
+        return None
 
     def snapshot(self) -> dict:
         return {"active": bool(self.calls)}
@@ -73,10 +76,16 @@ class _FakeHandler(Ops):
 def test_start_stop() -> None:
     h = _FakeHandler({"on": True, "topic": "設計", "persona": "devil"})
     h._set_talk_mode()
-    check("開始", h.talk.calls == [("start", "設計", "devil")] and h.sent["status"] == "ok", repr(h.sent))
+    check("開始", h.talk.calls == [("start", "設計", "devil", None)] and h.sent["status"] == "ok", repr(h.sent))
     h = _FakeHandler({"on": True})
     h._set_talk_mode()
-    check("persona 省略は None", h.talk.calls == [("start", "", None)], repr(h.talk.calls))
+    check("persona 省略は None", h.talk.calls == [("start", "", None, None)], repr(h.talk.calls))
+    h = _FakeHandler({"on": True, "workdir": "~/work"})
+    h._set_talk_mode()
+    check("作業ディレクトリを渡す", h.talk.calls == [("start", "", None, "~/work")], repr(h.talk.calls))
+    h = _FakeHandler({"on": True, "workdir": 3})
+    h._set_talk_mode()
+    check("文字列でない作業ディレクトリは拒否", h.sent.get("status") == "error" and h.talk.calls == [])
     h = _FakeHandler({"on": False})
     h._set_talk_mode()
     check("停止", h.talk.calls == [("stop",)])
@@ -102,6 +111,10 @@ def test_validation() -> None:
 
 
 def test_say_and_remote() -> None:
+    h = _FakeHandler({"text": "遮られた"})
+    h._say()
+    check("制止の直後は interrupted と止めた文", h.sent == {"status": "interrupted", "cut": "途中の文。"}
+          and h.talk.calls == [], repr(h.sent))
     h = _FakeHandler({"text": "テストです"})
     h._say()
     check("say を渡す", h.talk.calls == [("say", "テストです")] and h.sent["status"] == "ok")

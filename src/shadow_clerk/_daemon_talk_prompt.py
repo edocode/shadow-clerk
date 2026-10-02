@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 
 from shadow_clerk._daemon_tts import TtsBackend
 from shadow_clerk.domain import Language, TalkPersona
@@ -16,8 +17,10 @@ KICKOFF_MESSAGE = ("Start the session. Ask your first question about the topic, 
                    "or ask what to talk about if no topic is given.")
 
 
-# 応答が遅いときに daemon が挟むつなぎの一言。transcript には書かず claude にも送らない
-_FILLERS = {Language.JA: "ちょっと考えます。", Language.EN: "Let me think."}
+# 応答が遅いときに daemon が挟むつなぎの一言。transcript には書かず claude にも送らない。
+# 「ちょっと考えます」のような宣言より、短い間投詞のほうがうるさくない
+_FILLERS = {Language.JA: ("うーん。", "えーっと。", "そうですね。"),
+            Language.EN: ("Hmm.", "Let me see.", "Well.")}
 
 # 制止で読み上げを止めたときに、ユーザー発言の前に付けて claude に伝える
 INTERRUPT_NOTE = ("[The user interrupted you. You were cut off while saying: \"{cut}\". "
@@ -25,7 +28,7 @@ INTERRUPT_NOTE = ("[The user interrupted you. You were cut off while saying: \"{
 
 
 def filler_phrase(lang: Language) -> str:
-    return _FILLERS.get(lang, _FILLERS[Language.JA])
+    return random.choice(_FILLERS.get(lang, _FILLERS[Language.JA]))
 
 
 def requested_language(config: dict) -> str:

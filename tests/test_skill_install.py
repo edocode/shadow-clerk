@@ -135,6 +135,84 @@ def test_status_missing_and_outdated() -> None:
         check("古ければ outdated", cur["state"] == "outdated", repr(cur))
 
 
+def test_install_copies_every_bundled_skill() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        r = skill_install.install(tmp)
+        talk = pathlib.Path(tmp) / skill_install.TALK_SKILL_NAME / "SKILL.md"
+        check("clerk-talk も配られた", talk.is_file())
+        check("戻り値に skill ごとの記録", [s["skill"] for s in r["skills"]] == list(skill_install.BUNDLED_SKILLS), repr(r))
+
+
+def test_install_refuses_before_touching_anything() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        _fake_installed(pathlib.Path(tmp) / skill_install.TALK_SKILL_NAME, None)
+        try:
+            skill_install.install(tmp)
+            check("どれかが素性不明なら拒否", False, "例外が出なかった")
+        except skill_install.InstallRefused:
+            check("どれかが素性不明なら拒否", not (pathlib.Path(tmp) / skill_install.SKILL_NAME).exists())
+
+
+def test_status_outdated_when_talk_skill_missing() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        main_ver = skill_install.read_skill_version(skill_install.bundled_skill_dir())
+        _fake_installed(pathlib.Path(tmp) / skill_install.SKILL_NAME, main_ver)
+        cur = [t for t in skill_install.skill_status([tmp])["targets"] if t["name"] == tmp][0]
+        check("clerk-talk が無ければ outdated", cur["state"] == "outdated", repr(cur))
+
+
+def test_skill_installed() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        skill_install.install(tmp)
+        check("配布済みなら True", skill_install.skill_installed(skill_install.TALK_SKILL_NAME, [tmp]))
+        check("無い skill は False", not skill_install.skill_installed("no-such-skill", [tmp]))
+
+
+def test_talk_skill_check_looks_at_claude_only() -> None:
+    """talk コンソールは Claude Code なので ~/.claude/skills を読む。~/.agents/skills にだけあっても動かない"""
+    from shadow_clerk._daemon_talk_console import _talk_skill_installed
+    talk = skill_install.TALK_SKILL_NAME
+    orig = dict(skill_install.BUILTIN_TARGETS)
+    with tempfile.TemporaryDirectory() as claude, tempfile.TemporaryDirectory() as agents:
+        skill_install.BUILTIN_TARGETS.update(claude=claude, agents=agents)
+        try:
+            skill_install.install("agents")
+            check("targets 省略は組み込みすべてを見る", skill_install.skill_installed(talk, []))
+            check("targets=claude なら agents にあっても False",
+                  not skill_install.skill_installed(talk, [], targets=("claude",)))
+            check("talk の skill 確認は agents を見ない", not _talk_skill_installed())
+            skill_install.install("claude")
+            check("claude にあれば True", skill_install.skill_installed(talk, [], targets=("claude",))
+                  and _talk_skill_installed())
+        finally:
+            skill_install.BUILTIN_TARGETS.clear()
+            skill_install.BUILTIN_TARGETS.update(orig)
+
+
+_TALK_CURL_PREFIXES = ('curl -s "http://localhost:', 'curl -s -X POST "http://localhost:',
+                       'curl -sN "http://localhost:')
+
+
+def test_talk_skill_pre_approves_its_curl_calls() -> None:
+    """初回の talk で Bash の許可確認に止まらないよう、skill が自分の curl だけを事前に許可する。
+
+    Bash の規則はコマンド文字列の前方一致なので、本文のコマンドも同じ形でなければ効かない
+    """
+    import re
+    import yaml
+    text = (skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME) / "SKILL.md").read_text(encoding="utf-8")
+    front, _, body = text[3:].partition("\n---")
+    allowed = str(yaml.safe_load(front).get("allowed-tools") or "")
+    rules = re.findall(r"Bash\([^)]*\)|\w+", allowed)
+    for prefix in _TALK_CURL_PREFIXES:
+        check(f"allowed-tools に Bash({prefix}*)", f"Bash({prefix}*)" in rules, repr(rules))
+    check("allowed-tools に Monitor", "Monitor" in rules, repr(rules))
+    calls = [body[m.start():].split("\n", 1)[0] for m in re.finditer(r"curl\s", body)]
+    check("本文に curl の呼び出しがある", len(calls) >= 3, repr(calls))
+    for call in calls:
+        check(f"許可した形で呼ぶ: {call[:40]}", call.startswith(_TALK_CURL_PREFIXES), call)
+
+
 def main() -> int:
     test_bundled_dir_exists()
     test_read_version_from_bundled()
@@ -150,6 +228,12 @@ def main() -> int:
     test_install_overwrites_own_dest_without_force()
     test_status_reports_each_target()
     test_status_missing_and_outdated()
+    test_install_copies_every_bundled_skill()
+    test_install_refuses_before_touching_anything()
+    test_status_outdated_when_talk_skill_missing()
+    test_skill_installed()
+    test_talk_skill_check_looks_at_claude_only()
+    test_talk_skill_pre_approves_its_curl_calls()
     shutil.rmtree(_DATA, ignore_errors=True)
     print(f"\n{sum(results)}/{len(results)} passed")
     return 0 if all(results) else 1

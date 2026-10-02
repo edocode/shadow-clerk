@@ -586,6 +586,36 @@ def test_singleton() -> None:
     check("get_console はシングルトン", get_console() is get_console())
 
 
+def test_console_roles() -> None:
+    from shadow_clerk._daemon_console import _cols_file, get_console
+    from shadow_clerk.domain import ConsoleRole
+    a, t = get_console(), get_console(ConsoleRole.TALK)
+    check("役割ごとに別のインスタンス", a is get_console(ConsoleRole.ASSISTANT)
+          and t is get_console(ConsoleRole.TALK) and a is not t)
+    check("snapshot に役割", a.snapshot()["role"] == "assistant" and t.snapshot()["role"] == "talk")
+    check("assistant の列数ファイルは従来のまま", _cols_file(ConsoleRole.ASSISTANT) == console_mod.CONSOLE_COLS_FILE)
+    check("talk の列数は別ファイル", _cols_file(ConsoleRole.TALK) != _cols_file(ConsoleRole.ASSISTANT))
+    sent: list[tuple[str, str]] = []
+    t.set_broadcaster(lambda ev, data: sent.append((ev, data)))
+    try:
+        t._emit_running(force=True)
+        t.emit_auto_started()
+    finally:
+        t.set_broadcaster(None)
+    check("配信にも役割", [json.loads(d)["role"] for _e, d in sent] == ["talk", "talk"], repr(sent))
+
+
+def test_console_records_workdir() -> None:
+    from shadow_clerk.domain import ConsoleRole
+    s = ConsoleSession(ConsoleRole.TALK)
+    with tempfile.TemporaryDirectory() as d:
+        try:
+            s.start(["sh", "-c", "sleep 5"], d)
+            check("起動した作業ディレクトリを覚える", s.workdir == d, s.workdir)
+        finally:
+            s.stop()
+
+
 def test_cols_persist_across_daemon_restart() -> None:
     """列数はデーモンをまたいで覚えていること
 
@@ -690,6 +720,8 @@ def main() -> int:
     test_env_sanitized()
     test_screen_geometry()
     test_singleton()
+    test_console_roles()
+    test_console_records_workdir()
     test_echo_reaches_grid()
     test_stop_kills_process_group()
     test_stop_escalates_to_sigkill()

@@ -373,11 +373,14 @@ class _RecorderTranscribeMixin:
 
             # Console の差分は既存の SSE に相乗りする
             from shadow_clerk._daemon_console import get_console
-            get_console().set_broadcaster(self._file_watcher._broadcast)
+            from shadow_clerk.domain import ConsoleRole
+            for role in ConsoleRole:
+                get_console(role).set_broadcaster(self._file_watcher._broadcast)
 
             port = getattr(self.args, "dashboard_port", 8765)
             # 子（AI アシスタント）が API を叩けるよう、実際のポートを教える
-            get_console().set_dashboard_url(f"http://localhost:{port}")
+            for role in ConsoleRole:
+                get_console(role).set_dashboard_url(f"http://localhost:{port}")
             ThreadingHTTPServer.allow_reuse_address = True
 
             class _QuietServer(ThreadingHTTPServer):

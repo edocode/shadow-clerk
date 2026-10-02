@@ -278,6 +278,7 @@ main {
    flex:1 のままだと狭く潰されて「AIコン/ソール」のように折り返す */
 #logHead .lp-tab { flex:0 0 auto; padding:5px 10px; }
 .lp-tab:hover { color:var(--text); background:transparent; }
+.lp-tab[data-bg="1"]::after { content:" ●"; color:var(--claude); }
 .lp-tab.active { color:var(--accent); border-bottom-color:var(--accent); background:transparent; }
 #meetingContent { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
 #searchPane { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }

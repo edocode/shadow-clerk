@@ -13,6 +13,7 @@ logger = logging.getLogger("shadow-clerk")
 
 _MAX_TOPIC_CHARS = 500
 _MAX_SAY_CHARS = 2000
+_MAX_WORKDIR_CHARS = 1000
 
 
 class _DashboardHandlerTalkOps:
@@ -55,11 +56,12 @@ class _DashboardHandlerTalkOps:
         self._send_json({"status": "ok"})
 
     def _set_talk_mode(self) -> None:
-        """POST /api/talk-mode {on, topic?, persona?} — persona は null で既定、"" で persona なし"""
+        """POST /api/talk-mode {on, topic?, persona?, workdir?} — persona は null で既定、"" で persona なし"""
         data = read_local_json_body(self, "talk")
         if data is None:
             return
         on, topic, persona = data.get("on"), data.get("topic", ""), data.get("persona")
+        workdir = data.get("workdir")
         if not isinstance(on, bool):
             self._send_json({"status": "error", "message": "on must be a boolean"})
             return
@@ -69,12 +71,15 @@ class _DashboardHandlerTalkOps:
         if persona is not None and not isinstance(persona, str):
             self._send_json({"status": "error", "message": "persona must be a string"})
             return
+        if workdir is not None and (not isinstance(workdir, str) or len(workdir) > _MAX_WORKDIR_CHARS):
+            self._send_json({"status": "error", "message": "workdir must be a short string"})
+            return
         talk = self.recorder.talk
         if not on:
             talk.stop()
         else:
             try:
-                talk.start(topic.strip(), persona)
+                talk.start(topic.strip(), persona, workdir)
             except TalkStartError as e:
                 self._send_json({"status": "error", "message": str(e)})
                 return
@@ -89,5 +94,5 @@ class _DashboardHandlerTalkOps:
         if not isinstance(text, str) or not text.strip() or len(text) > _MAX_SAY_CHARS:
             self._send_json({"status": "error", "message": "text must be a non-empty short string"})
             return
-        self.recorder.talk.say(text)
-        self._send_json({"status": "ok"})
+        cut = self.recorder.talk.api_say(text)
+        self._send_json({"status": "ok"} if cut is None else {"status": "interrupted", "cut": cut})

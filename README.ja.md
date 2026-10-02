@@ -483,7 +483,13 @@ talk mode では、議題について Claude と声で議論できます。Claud
 - ヘッドホン。talk mode 中は monitor 側を文字起こししないので、Claude 自身の声が `[相手]` 行として戻ってくることはありません。
 
 ダッシュボードのヘッダの **Claude と会議** を押し、議題を入れて（空でも可）persona を選び、開始します。同じモーダルの **声の設定** で、VOICEVOX の話者と話速・音高・抑揚・音量を試聴しながら変えられます。変更は次の文から反映されます。
-Claude は AI コンソールとは別に、画面を持たない `claude -p` として動くので、会議アシスタントと同時に使えます。
+既定では、Claude は2つ目の AI コンソール（**Claude と会議** タブ）で `clerk-talk` スキルとして動きます。
+ファイル編集やコマンドの実行も、通常の許可確認つきで行えます。会議アシスタントは **AI コンソール** タブで
+そのまま動かせます。`talk_engine: headless` にすると、裏で動く `claude -p` に切り替わります。少し速く
+応答しますが、許可を確認できないので、使えるのは `talk_allowed_tools` のツールだけです。スキルは
+`clerk-util install-skill` で入れます（2つまとめて入ります）。
+`clerk-talk` スキルが事前に許可するのは、`http://localhost` への自分の `curl` 呼び出し（と `Monitor`）だけです。
+それでも Claude Code が確認してきたら一度許可するか、同じ規則を Claude Code の設定に足してください。
 任意の文を Claude の発言として読み上げることもできます:
 
 ```bash
@@ -496,12 +502,14 @@ curl -s -X POST localhost:8765/api/say -d '{"text":"こんにちは"}'
 | `talk_speaker_id` | `3` | VOICEVOX のスタイル ID |
 | `talk_speed` / `talk_pitch` / `talk_intonation` / `talk_volume` | `1.0` / `0.0` / `1.0` / `1.0` | 話速 (0.5〜2.0)・音高 (-0.15〜0.15)・抑揚 (0〜2)・音量 (0〜2) |
 | `talk_output_devices` | `[]` | 再生先のデバイス名（空ならデフォルト出力） |
-| `talk_model` | `""` | 会話役のモデル（空なら claude の既定） |
-| `talk_allowed_tools` | `WebSearch,WebFetch,Read,Grep,Glob` | 会話中に使えるツール（`""` でなし） |
+| `talk_engine` | `console` | `console`（AI コンソール + clerk-talk スキル）または `headless`（`claude -p`） |
+| `talk_workdir` | `""` | 会話役の作業ディレクトリ（空なら `ai_assistant_workdir`、それも空ならホーム）。開始モーダルで毎回上書きできる |
+| `talk_model` | `""` | 会話役のモデル（空なら claude の既定）（headless のみ） |
+| `talk_allowed_tools` | `WebSearch,WebFetch,Read,Grep,Glob` | 会話中に使えるツール（`""` でなし）（headless のみ） |
 | `talk_language` | `""` | 会話の言語（空なら `translate_language`）。TTS が非対応ならその既定言語（VOICEVOX は日本語のみ） |
 | `talk_personas` | `{}` | 名前 → 性格・応答の仕方。開始モーダルから編集する |
 | `talk_default_persona` | `""` | 最初から選ばれている persona |
-| `talk_filler_sec` | `5` | Claude がこの秒数なにも話さなければ「ちょっと考えます」と挟む（transcript には書かない）。`0` で無効 |
+| `talk_filler_sec` | `8` | 発言のあと Claude がこの秒数なにも話さなければ「えーっと」などと挟む（transcript には書かない）。`0` で無効 |
 | `talk_stop_words` | `["待って", "ストップ", "止めて", "やめて", "stop", "wait", "hold on"]` | これを含む発言で、話している途中でも止める。部分一致なので、ほかの語に含まれる短いかなは入れない。英数字の語は単語単位で照合 |
 
 Claude は応答を書いた端から、短い文に区切って話します。文の切れ目で割って入れます。

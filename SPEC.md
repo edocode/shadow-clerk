@@ -152,11 +152,14 @@ clerk-daemon に統合された Web ダッシュボード。ブラウザから t
 - **セッションのライフサイクル**: 1 セッションを使い回し、会議終了では止まらない（議事録作成にそのまま使える）。停止は Console タブの停止ボタンのみ
 - **エンドポイント**: `_daemon_dashboard_ops_console.py` が `/api/console`（GET）、`/api/console/start` / `/api/console/stop` / `/api/console/input` / `/api/console/resize`（POST）、および 会議アシスタントスキルの会議別起動ディレクトリ設定エンドポイントを提供する
 - **フロントエンド**: `_daemon_dashboard_js_console.py` が AI Console の描画・キー入力・起動ディレクトリ設定 UI を実装する
+- **役割ごとに1つ**: コンソールは役割（`ConsoleRole`: assistant / talk）ごとに1つ。`get_console(role)` で取り、`/api/console*` は `role` を受け付け（省略は assistant）、SSE のペイロードにも `role` を載せる。ダッシュボードは「AI Console」と「Claude と会議」の2タブで、talk 側は talk mode の engine が `console` のときだけ使う
 - **既知の制約**: alt-screen は実装していないため、Console 内で `less` / `vim` を開くと表示が崩れる
 
 ### モジュール G: Claude talk mode（音声で Claude と議論する、`_daemon_talk.py`）
 
-- `TalkDriver`（`_daemon_talk.py`）: 状態とターン制御。`[自分]` 行を受け取り、Claude が応答を生成中なら溜めて、応答の確定後にまとめて送る。応答は text ブロックが届くたびに `[Claude]` 行として transcript に書き（改行は空白にまとめる）、`TtsPlayer` に渡す。送ってから `talk_filler_sec` 秒なにも話さなければつなぎの一言を読み上げる（transcript には書かない）。`talk_stop_words` を含む `[自分]` 行が来たら `TtsPlayer.interrupt()` で読み上げを途中で止め、そのターンの残りの発話を捨て、止めた位置の注記を付けて claude に送る。talk mode 中は `is_suppressed("monitor")` が真になり、monitor の文字起こしを捨てる
+- **engine の分割**: 共通の driver と、会話の担い手（engine）に分ける。`_daemon_talk_engine.py`（`TalkContext` / `TalkEngine` Protocol / `make_engine`）、`_daemon_talk_console.py`（`ConsoleEngine`: talk コンソールを起動して `/clerk-talk` を送る。既定）、`_daemon_talk_headless.py`（`HeadlessEngine`: 従来の `claude -p`）。`talk_engine` で選ぶ
+- **作業ディレクトリ**: 開始時の指定（開始モーダル、`POST /api/talk-mode` の `workdir`）→ `talk_workdir` → `ai_assistant_workdir` → ホームの順。開始時に明示した場所が無ければ開始しない。console engine は、talk コンソールが別のディレクトリで動いていれば起動し直す
+- `TalkDriver`（`_daemon_talk.py`）: 状態とターン制御。`[自分]` 行を受け取り、Claude が応答を生成中なら溜めて、応答の確定後にまとめて送る。応答は text ブロックが届くたびに `[Claude]` 行として transcript に書き（改行は空白にまとめる）、`TtsPlayer` に渡す。`[自分]` 行のあと `talk_filler_sec` 秒なにも話さなければ短いつなぎ（「うーん」「えーっと」など、ランダム）を読み上げる（transcript には書かない。開始直後は挟まない）。`talk_stop_words` を含む `[自分]` 行が来たら、読み上げ中（`TtsPlayer.is_busy()`）なら `TtsPlayer.interrupt()` で途中で止めて engine の `on_interrupt` に止めた文を渡す。何も話していなければ止めるものが無いので、`wants_idle_interrupt` が真の engine（headless: 生成中のターンの残りを捨て、注記を付けて claude に送る）にだけ伝える。console engine に伝えると、制止の言葉への返事の `/api/say` まで `interrupted` で止めてしまうため。talk mode 中は `is_suppressed("monitor")` が真になり、monitor の文字起こしを捨てる
 - `ClaudeTalkProcess`（`_daemon_talk_claude.py`）: `claude -p --input-format stream-json --output-format stream-json` を常駐させる。`--setting-sources ""` と `--strict-mcp-config` でユーザーの hooks・プラグイン・MCP を読ませず、`--tools` で使えるツールを絞る。`assistant` イベントの text ブロックを届いた順に渡し、`result` イベントでターンの終了を知らせる
 - `_daemon_talk_prompt.py`: 会話言語の決定（`talk_language` → `translate_language`。TTS が非対応なら TTS の既定言語）と system prompt の組み立て（同梱 `talk_prompts/<lang>.md` → `## Persona` → `## Topic`）
 - `TtsPlayer` / `TtsBackend`（`_daemon_tts.py`）: 文単位に分け、合成スレッドと再生スレッドでパイプライン化する。バックエンドは対応言語と既定言語を持つ。最初のバックエンドは `VoicevoxBackend`（`_daemon_tts_voicevox.py`、HTTP）
@@ -699,12 +702,14 @@ talk_pitch: 0.0
 talk_intonation: 1.0
 talk_volume: 1.0
 talk_output_devices: []
+talk_engine: console   # console | headless
+talk_workdir: ""
 talk_model: ""
 talk_allowed_tools: WebSearch,WebFetch,Read,Grep,Glob
 talk_language: ""
 talk_personas: {}
 talk_default_persona: ""
-talk_filler_sec: 5
+talk_filler_sec: 8
 talk_stop_words: [待って, ストップ, 止めて, やめて, stop, wait, hold on]
 ```
 
