@@ -59,6 +59,7 @@ class _FakeConsole:
         return self.running
 
     def start_if_stopped(self, argv: list[str], workdir: str) -> tuple[bool, bool]:
+        self.workdir = workdir
         started = not self.running
         self.running = True
         self.calls.append("start_if_stopped")
@@ -286,6 +287,22 @@ def test_role_routes_to_console() -> None:
         ops_mod.get_console = orig
 
 
+def test_talk_start_uses_talk_workdir() -> None:
+    """talk タブからの起動も talk mode と同じ作業ディレクトリ。違うと開始時に起動し直される"""
+    import shadow_clerk._daemon_dashboard_ops_console as ops_mod
+    fake = _FakeConsole(running=False)
+    orig_get, orig_load = ops_mod.get_console, ops_mod.load_config
+    with tempfile.TemporaryDirectory() as tmp:
+        ops_mod.get_console = lambda role=None: fake
+        ops_mod.load_config = lambda: {"talk_workdir": tmp, "ai_assistant_workdir": ""}
+        try:
+            _FakeHandler({"role": "talk"})._start_console()
+            check("talk の起動は talk_workdir で", getattr(fake, "workdir", None) == tmp,
+                  repr(getattr(fake, "workdir", None)))
+        finally:
+            ops_mod.get_console, ops_mod.load_config = orig_get, orig_load
+
+
 def main() -> int:
     test_input_rejects_remote()
     test_input_rejects_non_string()
@@ -304,6 +321,7 @@ def main() -> int:
     test_console_input_allows_missing_origin()
     test_console_body_rejects_non_dict_json()
     test_role_routes_to_console()
+    test_talk_start_uses_talk_workdir()
     print(f"\n{sum(results)}/{len(results)} passed")
     return 0 if all(results) else 1
 

@@ -72,8 +72,11 @@ class _DashboardHandlerConsoleOps:
         if role is None:
             return
         if role is ConsoleRole.TALK:
-            ai = AiAssistantConfig.from_config(load_config())
-            ok, _ = get_console(role).start_if_stopped(ai.argv(), ai.resolve_workdir())
+            # talk mode の開始と同じ作業ディレクトリ。違うと開始時にこの Claude が起動し直される
+            from shadow_clerk._daemon_talk import resolve_talk_workdir
+            config = load_config()
+            workdir = resolve_talk_workdir(config, None)
+            ok, _ = get_console(role).start_if_stopped(AiAssistantConfig.from_config(config).argv(), workdir)
             self._send_json({"status": "ok" if ok else "error", "running": get_console(role).is_running()})
             return
         transcript = data.get("transcript")
