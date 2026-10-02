@@ -21,15 +21,17 @@ def check(label: str, ok: bool, detail: str = "") -> None:
 class _Proc:
     def __init__(self, argv: list[str], workdir: str, on_text: Callable[[str], None],
                  on_turn_end: Callable[[bool], None], on_exit: Callable[[int | None], None],
-                 fail: bool = False) -> None:
+                 fail: bool = False, exit_on_start: bool = False) -> None:
         self.argv, self.workdir, self.on_text, self.on_turn_end, self.on_exit = argv, workdir, on_text, on_turn_end, on_exit
-        self.fail = fail
+        self.fail, self.exit_on_start = fail, exit_on_start
         self.sent: list[str] = []
         self.stopped = False
 
     def start(self) -> None:
         if self.fail:
             raise FileNotFoundError("claude")
+        if self.exit_on_start:
+            self.on_exit(1)  # 起動直後に落ちた claude（start() の中で読み取りスレッドが終了を見る）
 
     def send(self, text: str) -> None:
         self.sent.append(text)
@@ -41,11 +43,11 @@ class _Proc:
 _CONFIG = {"claude_cli_path": "claude", "talk_allowed_tools": "Read", "talk_model": ""}
 
 
-def _engine(fail: bool = False):
+def _engine(fail: bool = False, exit_on_start: bool = False):
     made: dict = {}
 
     def factory(argv, workdir, on_text, on_turn_end, on_exit):
-        made["proc"] = _Proc(argv, workdir, on_text, on_turn_end, on_exit, fail)
+        made["proc"] = _Proc(argv, workdir, on_text, on_turn_end, on_exit, fail, exit_on_start)
         return made["proc"]
 
     said: list[str] = []
@@ -115,6 +117,9 @@ def test_exit() -> None:
     e.stop()
     made["proc"].on_exit(0)
     check("stop() の後の終了は知らせない", ended == [] and made["proc"].stopped)
+    e, ctx, made, _s, ended = _engine(exit_on_start=True)
+    e.start(ctx)
+    check("起動中に終了しても ended で知らせる", len(ended) == 1 and "1" in ended[0], repr(ended))
 
 
 if __name__ == "__main__":

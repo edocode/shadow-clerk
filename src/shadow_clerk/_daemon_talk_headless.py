@@ -32,12 +32,13 @@ class HeadlessEngine:
     def start(self, ctx: TalkContext) -> None:
         argv = build_claude_argv(ctx.config, build_system_prompt(ctx.language, ctx.persona, ctx.topic))
         proc = self._process_factory(argv, ctx.workdir, self._on_text, self._on_turn_end, self._on_exit)
+        self._ctx = ctx  # 起動直後に claude が落ちても _on_exit が ended を伝えられるよう、start() より前に
         try:
             proc.start()
         except OSError as e:
             raise TalkStartError(t("talk.claude_start_failed", error=str(e))) from e
         with self._lock:
-            self._ctx, self._proc = ctx, proc
+            self._proc = proc
             self._send_locked(KICKOFF_MESSAGE)
 
     def stop(self) -> None:
