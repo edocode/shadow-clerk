@@ -74,6 +74,33 @@ def is_same_origin_request(headers: Any) -> bool:
     return True
 
 
+def read_local_json_body(handler: Any, label: str) -> dict | None:
+    """localhost 判定・Origin 判定・JSON ボディの読み取り。不正なら None を返して応答済みにする"""
+    client = handler.client_address[0] if handler.client_address else ""
+    if not is_localhost_client(handler.client_address):
+        logger.warning("%s: 拒否 (client=%s)", label, client)
+        handler._send_json({"status": "error", "message": f"{label} API is localhost only"})
+        return None
+    if not is_same_origin_request(handler.headers):
+        # client_address ベースの localhost 判定は、ユーザー自身が開いた
+        # 任意のページからのクロスオリジン fetch に対しては無力
+        # (ブラウザから見れば送信元は常にこのマシンの 127.0.0.1)。
+        # Origin ヘッダで自分自身へのリクエストかを見る
+        logger.warning("%s: 拒否 (cross-origin, origin=%s)", label, handler.headers.get("Origin"))
+        handler._send_json({"status": "error", "message": "cross-origin request rejected"})
+        return None
+    try:
+        length = int(handler.headers.get("Content-Length", 0))
+        data = json.loads(handler.rfile.read(length) or b"{}")
+    except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
+        handler._send_json({"status": "error", "message": "invalid request body"})
+        return None
+    if not isinstance(data, dict):
+        handler._send_json({"status": "error", "message": "request body must be a JSON object"})
+        return None
+    return data
+
+
 def _console_running() -> bool:
     """AI Console が動いているか。循環 import を避けてここで遅延 import する"""
     from shadow_clerk._daemon_console import get_console
@@ -145,6 +172,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_meeting_config()
         elif path == "/api/forbid-analyze":
             self._serve_forbid_analyze()
+        elif path == "/api/talk-mode":
+            self._serve_talk_mode()
         elif path == "/api/misheard":
             self._serve_misheard()
         else:
@@ -192,6 +221,10 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._save_meeting_config()
         elif path == "/api/forbid-analyze":
             self._save_forbid_analyze()
+        elif path == "/api/talk-mode":
+            self._set_talk_mode()
+        elif path == "/api/say":
+            self._say()
         elif path == "/api/misheard":
             self._save_misheard()
         else:
@@ -268,6 +301,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             "use_mic": self.recorder.use_mic,
             "use_monitor": self.recorder.use_monitor,
             "ptt": self.recorder._command_mode,
+            "talk": self.recorder.talk.snapshot() if getattr(self.recorder, "talk", None) else None,
             "asr_backend": self.recorder.transcriber._backend,
             "asr_model_id": self.recorder.transcriber._loaded_model_id or self.recorder.transcriber.model_size,
             "gcal_enabled": self.__class__.gcal_monitor is not None,

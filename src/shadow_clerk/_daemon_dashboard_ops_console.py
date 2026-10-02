@@ -1,7 +1,6 @@
 """Shadow-clerk daemon: ダッシュボード AI Console エンドポイント"""
 # pylint: disable=duplicate-code  # POST ボディ解析の定型は各ハンドラで共通形
 from __future__ import annotations
-import json
 import logging
 import os
 import re
@@ -9,7 +8,7 @@ from urllib.parse import urlparse, parse_qs
 
 from shadow_clerk._daemon_console import get_console, start_console_for
 from shadow_clerk._daemon_constants import FORBID_ANALYZE_FILE, MISHEARD_FILE
-from shadow_clerk._daemon_dashboard_base import is_localhost_client, is_same_origin_request
+from shadow_clerk._daemon_dashboard_base import is_localhost_client, read_local_json_body
 from shadow_clerk._markdown import render_markdown
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain import misheard
@@ -28,32 +27,8 @@ class _DashboardHandlerConsoleOps:
     """AI Console の操作（ミックスイン）"""
 
     def _console_body(self) -> dict | None:
-        """localhost 判定・Origin 判定・JSON ボディの読み取り。不正なら None を返して応答済みにする"""
-        client = self.client_address[0] if self.client_address else ""
-        if not is_localhost_client(self.client_address):
-            logger.warning("console: 拒否 (client=%s)", client)
-            self._send_json({"status": "error", "message": "console API is localhost only"})
-            return None
-        if not is_same_origin_request(self.headers):
-            # client_address ベースの localhost 判定は、ユーザー自身が開いた
-            # 任意のページからのクロスオリジン fetch に対しては無力
-            # (ブラウザから見れば送信元は常にこのマシンの 127.0.0.1)。
-            # PTY への任意のキー入力送信 (=任意コマンド実行) を許すエンド
-            # ポイントなので、Origin ヘッダで自分自身へのリクエストかを見る
-            logger.warning("console: 拒否 (cross-origin, origin=%s)",
-                           self.headers.get("Origin"))
-            self._send_json({"status": "error", "message": "cross-origin request rejected"})
-            return None
-        try:
-            length = int(self.headers.get("Content-Length", 0))
-            data = json.loads(self.rfile.read(length) or b"{}")
-        except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
-            self._send_json({"status": "error", "message": "invalid request body"})
-            return None
-        if not isinstance(data, dict):
-            self._send_json({"status": "error", "message": "request body must be a JSON object"})
-            return None
-        return data
+        """localhost 判定・Origin 判定・JSON ボディの読み取り。PTY へ任意のキー入力を送れるので Origin も見る"""
+        return read_local_json_body(self, "console")
 
     def _serve_console(self) -> None:
         """GET /api/console — grid 全体を返す（初回ロード・再接続用）
