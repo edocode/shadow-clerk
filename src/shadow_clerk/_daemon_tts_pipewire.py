@@ -40,7 +40,7 @@ class PwCatSink:
         """pw-cat を起動して _proc に据える。ロックを持って呼ぶ"""
         try:
             proc = self._popen(
-                ["pw-cat", "--playback", "--rate", str(PWCAT_RATE), "--channels", "1", "--format", "s16",
+                ["pw-cat", "--playback", "--raw", "--rate", str(PWCAT_RATE), "--channels", "1", "--format", "s16",
                  "-P", f'{{ node.name = "{NODE_NAME}" }}', "-"],
                 stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError as e:

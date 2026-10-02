@@ -84,6 +84,8 @@ def test_start() -> None:
     argv = procs[0].argv
     check("名前付きのノードで起動する", argv[:2] == ["pw-cat", "--playback"] and any(NODE_NAME in a for a in argv)
           and str(PWCAT_RATE) in argv, repr(argv))
+    # 標準入力 "-" を音声ファイルとして開こうとして "Format not recognised" で落ちる。生の PCM は --raw が要る
+    check("生の PCM を標準入力から読む（--raw）", "--raw" in argv and argv[-1] == "-", repr(argv))
     check("出力ポート名を返す", port == f"{NODE_NAME}:output_MONO", port)
     sink.stop()
     check("stop で閉じて止める", procs[0].stdin.closed and procs[0].terminated)
