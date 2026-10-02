@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import datetime
 import logging
-import os
 import threading
 from typing import Any, Callable
 
@@ -16,6 +15,7 @@ from shadow_clerk._daemon_talk_prompt import (
     KICKOFF_MESSAGE, build_system_prompt, requested_language, resolve_talk_language)
 from shadow_clerk._daemon_tts import TtsBackend, TtsError, TtsPlayer, make_backend, make_player
 from shadow_clerk.domain import Speaker, TalkPersona, TranscriptLine
+from shadow_clerk.domain.ai_assistant import AiAssistantConfig
 from shadow_clerk.i18n import t
 
 logger = logging.getLogger("shadow-clerk")
@@ -75,7 +75,7 @@ class TalkDriver:
             chosen = TalkPersona.resolve(TalkPersona.all_from_config(config.get("talk_personas")),
                                          persona, config.get("talk_default_persona"))
             argv = build_claude_argv(config, build_system_prompt(lang, chosen, topic))
-            workdir = config.get("ai_assistant_workdir") or os.path.expanduser("~")
+            workdir = AiAssistantConfig.from_config(config).resolve_workdir()
             player = self._player_factory(backend, config, self._report_error)
             proc = self._process_factory(argv, workdir, self._on_reply, self._on_exit)
             try:

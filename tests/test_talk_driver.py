@@ -55,6 +55,7 @@ class _Proc:
     def __init__(self, argv: list[str], workdir: str, on_reply: Callable[[str], None],
                  on_exit: Callable[[int | None], None], fail: bool = False) -> None:
         self.argv, self.on_reply, self.on_exit, self.fail = argv, on_reply, on_exit, fail
+        self.workdir = workdir
         self.sent: list[str] = []
         self.stopped = False
 
@@ -74,7 +75,7 @@ _CONFIG = {"translate_language": "en", "talk_language": "", "claude_cli_path": "
            "talk_personas": {"devil": "反対の立場から話す"}, "talk_default_persona": "devil"}
 
 
-def _driver(reachable: bool = True, proc_fail: bool = False):
+def _driver(reachable: bool = True, proc_fail: bool = False, **config: object):
     written: list[TranscriptLine] = []
     made: dict = {}
 
@@ -86,7 +87,7 @@ def _driver(reachable: bool = True, proc_fail: bool = False):
         made["proc"] = _Proc(argv, workdir, on_reply, on_exit, fail=proc_fail)
         return made["proc"]
 
-    d = TalkDriver(written.append, config_loader=lambda: dict(_CONFIG),
+    d = TalkDriver(written.append, config_loader=lambda: {**_CONFIG, **config},
                    backend_factory=lambda c: _Backend(reachable), player_factory=player_factory,
                    process_factory=process_factory, clock=lambda: "2026-10-02 10:00:00")
     return d, written, made
@@ -170,6 +171,17 @@ def test_process_exit_and_tts_error() -> None:
     check("終了理由を残す", "1" in snap["error"], repr(snap))
 
 
+def test_workdir_resolution() -> None:
+    import os
+    home = os.path.expanduser("~")
+    d, _w, made = _driver(ai_assistant_workdir="~")
+    d.start("x", None)
+    check("workdir の ~ を展開する", made["proc"].workdir == home, made["proc"].workdir)
+    d, _w, made = _driver(ai_assistant_workdir="~/no-such-dir-for-talk-test")
+    d.start("x", None)
+    check("存在しない workdir はホームに戻す", made["proc"].workdir == home, made["proc"].workdir)
+
+
 def test_one_line() -> None:
     check("改行・連続空白を1つに", one_line(" a\n\n b\t c ") == "a b c")
 
@@ -180,5 +192,6 @@ if __name__ == "__main__":
     test_stop()
     test_start_failures()
     test_process_exit_and_tts_error()
+    test_workdir_resolution()
     test_one_line()
     sys.exit(0 if all(results) else 1)
