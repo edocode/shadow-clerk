@@ -468,6 +468,40 @@ Translation only. Runs locally without any external API or Claude Code (summary 
 | Fully local | `translation_provider: libretranslate` | — | No LLM needed, lower quality |
 | Hybrid | `translation_provider: api` | `llm_provider: claude` | Auto translation + high-quality summary |
 
+### Talk with Claude
+
+Talk mode lets you discuss a topic with Claude by voice. Claude asks questions and replies
+through text-to-speech; your answers are transcribed as usual. Both sides are written to the
+transcript (`[Claude]` lines are Claude's), so you can read the discussion back later.
+
+Requirements:
+
+- [Claude Code](https://claude.com/claude-code) CLI (`claude_cli_path`)
+- A running [VOICEVOX](https://voicevox.hiroshiba.jp/) engine (default `http://localhost:50021`).
+  The engine runs as a separate process and is not bundled. Follow the terms of the voice you
+  use; the dashboard shows the required credit (`VOICEVOX:<name>`) while talk mode is on.
+- Headphones. While talk mode is on, the monitor channel is not transcribed, so Claude's own
+  voice does not come back as `[Others]` lines.
+
+Click **Talk with Claude** in the dashboard header, enter a topic (or leave it empty), pick a
+persona, and start. Claude runs headless (`claude -p`), separately from the AI Console, so the
+meeting helper can keep running at the same time. You can also make Claude speak any text:
+
+```bash
+curl -s -X POST localhost:8765/api/say -d '{"text":"Hello"}'
+```
+
+| Key | Default | Description |
+|---|---|---|
+| `talk_voicevox_url` | `http://localhost:50021` | VOICEVOX engine |
+| `talk_speaker_id` | `3` | VOICEVOX style ID |
+| `talk_output_devices` | `[]` | Output device names (empty = default output) |
+| `talk_model` | `""` | Model for the talk session (empty = claude default) |
+| `talk_allowed_tools` | `WebSearch,WebFetch,Read,Grep,Glob` | Tools Claude may use while talking (`""` = none) |
+| `talk_language` | `""` | Conversation language (empty = `translate_language`). Falls back to the TTS default when unsupported (VOICEVOX: Japanese only) |
+| `talk_personas` | `{}` | Name → personality / how to respond. Edit from the start dialog |
+| `talk_default_persona` | `""` | Persona selected by default |
+
 ### Meeting minutes
 
 Three ways to generate minutes: automatically at meeting end, on demand from the dashboard, or via `clerk-util` from the command line:

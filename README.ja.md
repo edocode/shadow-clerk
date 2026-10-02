@@ -468,6 +468,39 @@ api_model: gpt-4o
 | ローカル完結 | `translation_provider: libretranslate` | — | LLM 不要、品質は低い |
 | ハイブリッド | `translation_provider: api` | `llm_provider: claude` | 翻訳は自動、要約は高品質 |
 
+### Claude と会議
+
+talk mode では、議題について Claude と声で議論できます。Claude は質問や応答を音声合成で話し、
+あなたの発言はこれまでどおり文字起こしされます。両方が transcript に残る（Claude の発言は
+`[Claude]` 行）ので、あとから議論を読み返せます。
+
+必要なもの:
+
+- [Claude Code](https://claude.com/claude-code) の CLI（`claude_cli_path`）
+- 起動済みの [VOICEVOX](https://voicevox.hiroshiba.jp/) エンジン（既定 `http://localhost:50021`）。
+  エンジンは別プロセスで動かし、shadow-clerk には同梱しません。使う音声の利用規約に従ってください。
+  talk mode 中は、必要なクレジット表記（`VOICEVOX:<キャラ名>`）をダッシュボードに出します。
+- ヘッドホン。talk mode 中は monitor 側を文字起こししないので、Claude 自身の声が `[相手]` 行として戻ってくることはありません。
+
+ダッシュボードのヘッダの **Claude と会議** を押し、議題を入れて（空でも可）persona を選び、開始します。
+Claude は AI コンソールとは別に、画面を持たない `claude -p` として動くので、会議アシスタントと同時に使えます。
+任意の文を Claude の発言として読み上げることもできます:
+
+```bash
+curl -s -X POST localhost:8765/api/say -d '{"text":"こんにちは"}'
+```
+
+| キー | 既定値 | 説明 |
+|---|---|---|
+| `talk_voicevox_url` | `http://localhost:50021` | VOICEVOX エンジン |
+| `talk_speaker_id` | `3` | VOICEVOX のスタイル ID |
+| `talk_output_devices` | `[]` | 再生先のデバイス名（空ならデフォルト出力） |
+| `talk_model` | `""` | 会話役のモデル（空なら claude の既定） |
+| `talk_allowed_tools` | `WebSearch,WebFetch,Read,Grep,Glob` | 会話中に使えるツール（`""` でなし） |
+| `talk_language` | `""` | 会話の言語（空なら `translate_language`）。TTS が非対応ならその既定言語（VOICEVOX は日本語のみ） |
+| `talk_personas` | `{}` | 名前 → 性格・応答の仕方。開始モーダルから編集する |
+| `talk_default_persona` | `""` | 最初から選ばれている persona |
+
 ### 議事録生成
 
 会議終了時の自動生成、ダッシュボードからのオンデマンド生成、`clerk-util` からのコマンドライン生成、の3経路がある:
