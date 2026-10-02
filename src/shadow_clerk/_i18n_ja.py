@@ -549,6 +549,7 @@ STRINGS_JA: dict[str, str] = {
     "talk.preview_text": "こんにちは。この声と速さで話します。",
     "talk.claude_start_failed": "claude を起動できません: {error}",
     "talk.claude_exited": "claude が終了しました (code={code})",
+    "talk.pwcat_no_node": "読み上げ用の PipeWire ストリームを作れません",
     "talk.skill_missing": "{skill} スキルが入っていません。ダッシュボードのスキル配布か `clerk-util install-skill` で入れてください",
     "talk.console_start_failed": "Claude と会議のコンソールを起動できません",
     "talk.console_exited": "Claude と会議のコンソールが終了しました",

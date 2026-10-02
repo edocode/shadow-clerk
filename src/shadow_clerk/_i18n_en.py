@@ -532,6 +532,7 @@ STRINGS_EN: dict[str, str] = {
     "talk.preview_text": "Hello. This is how I will sound.",
     "talk.claude_start_failed": "Cannot start claude: {error}",
     "talk.claude_exited": "claude exited (code={code})",
+    "talk.pwcat_no_node": "Cannot create the PipeWire stream for speech",
     "talk.skill_missing": "The {skill} skill is not installed. Install it from the dashboard or with `clerk-util install-skill`",
     "talk.console_start_failed": "Cannot start the talk console",
     "talk.console_exited": "The talk console exited",
