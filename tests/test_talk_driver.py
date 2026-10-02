@@ -133,6 +133,7 @@ class _Route:
         self.connected_to: tuple[str, str] | None = None
         self.disconnected = False
         self.order: list[str] | None = None
+        self.connect_error = False
 
     def available(self) -> bool:
         return self.ok
@@ -143,6 +144,8 @@ class _Route:
                 RouteTarget("Zoom", 12, "Zoom")]
 
     def connect(self, app: str, source_port: str) -> None:
+        if self.connect_error:
+            raise RuntimeError("link failed")
         self.connected_to = (app, source_port)
 
     def disconnect(self) -> None:
@@ -216,6 +219,17 @@ def test_route_failures() -> None:
         check("engine の失敗で経路と pw-cat を片付ける", False)
     except TalkStartError:
         check("engine の失敗で経路と pw-cat を片付ける", route.disconnected and sink.stopped and not d.active)
+
+
+def test_route_connect_failure() -> None:
+    route, sink = _Route(), _Sink()
+    route.connect_error = True
+    d, _w, _m = _driver(route_factory=lambda: route, sink_factory=lambda: sink)
+    try:
+        d.start("x", None, None, "Chromium")
+        check("connect の失敗で例外が出る", False)
+    except RuntimeError:
+        check("connect の失敗で経路と pw-cat を片付ける", route.disconnected and sink.stopped and not d.active)
 
 
 def test_route_targets() -> None:
@@ -398,5 +412,6 @@ if __name__ == "__main__":
     test_route()
     test_route_none_keeps_old_behaviour()
     test_route_failures()
+    test_route_connect_failure()
     test_route_targets()
     sys.exit(0 if all(results) else 1)

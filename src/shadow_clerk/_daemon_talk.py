@@ -118,11 +118,12 @@ class TalkDriver:
                 except TtsError as e:
                     raise TalkStartError(str(e)) from e
                 player = TtsPlayer(backend, sink.play, self._report_error)
-                route_obj.connect(route, source_port)
             else:
                 player = self._player_factory(backend, config, self._report_error)
             name = "headless" if config.get("talk_engine") == "headless" else "console"
             try:
+                if route_obj is not None:
+                    route_obj.connect(route, source_port)
                 engine = self._engine_factory(name)
                 engine.start(TalkContext(topic, chosen, lang, resolved, config,
                                          self._engine_say, self._engine_ended))
@@ -268,9 +269,10 @@ class TalkDriver:
         self._error = message
 
     def snapshot(self) -> dict:
+        route = self._route
         return {"active": self._active, "engine": self._engine_name, "topic": self._topic,
                 "persona": self._persona.name if self._persona else "",
                 "persona_instructions": self._persona.instructions if self._persona else "",
                 "language": self._language, "workdir": self._workdir,
                 "credit": self._credit, "error": self._error,
-                "route": self._route.status() if self._route is not None else {"app": "", "connected": False}}
+                "route": route.status() if route is not None else {"app": "", "connected": False}}
