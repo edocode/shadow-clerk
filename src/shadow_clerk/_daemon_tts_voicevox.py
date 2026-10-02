@@ -22,7 +22,7 @@ logger = logging.getLogger("shadow-clerk")
 
 
 class VoicevoxBackend:
-    LANGUAGES = (Language.JA,)
+    LANGUAGES: tuple[Language, ...] = (Language.JA,)
     DEFAULT_LANGUAGE = Language.JA
 
     def __init__(self, url: str, speaker_id: int, timeout: float = 15.0) -> None:
