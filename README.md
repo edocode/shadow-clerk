@@ -489,6 +489,8 @@ so it can edit files and run commands with the usual permission prompts, and the
 running in the **AI Console** tab. Set `talk_engine: headless` to use a background `claude -p` process
 instead: it answers a little faster but cannot ask for permission, so it only gets the tools in
 `talk_allowed_tools`. Install the skills with `clerk-util install-skill` (both are installed together).
+The `clerk-talk` skill pre-approves only its own `curl` calls to `http://localhost` (and `Monitor`); if
+Claude Code still asks, allow them once, or add the same rules to your Claude Code settings.
 You can also make Claude speak any text:
 
 ```bash
@@ -508,7 +510,7 @@ curl -s -X POST localhost:8765/api/say -d '{"text":"Hello"}'
 | `talk_language` | `""` | Conversation language (empty = `translate_language`). Falls back to the TTS default when unsupported (VOICEVOX: Japanese only) |
 | `talk_personas` | `{}` | Name → personality / how to respond. Edit from the start dialog |
 | `talk_default_persona` | `""` | Persona selected by default |
-| `talk_filler_sec` | `5` | If Claude has said nothing for this many seconds, say "let me think" (not written to the transcript). `0` disables it |
+| `talk_filler_sec` | `8` | If Claude has said nothing for this many seconds after you spoke, say a short "hmm" (not written to the transcript). `0` disables it |
 | `talk_stop_words` | `["待って", "ストップ", "止めて", "やめて", "stop", "wait", "hold on"]` | Saying one of these stops Claude mid-sentence. Substring match, so avoid short kana that appear inside other words; ASCII words match whole words |
 
 Claude speaks each part of a reply as soon as it is written, in short sentences, so you can cut in

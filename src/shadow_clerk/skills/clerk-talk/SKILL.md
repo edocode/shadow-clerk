@@ -1,7 +1,8 @@
 ---
 description: shadow-clerk の「Claude と会議」で、ユーザーと音声で議論する。ダッシュボードの「Claude と会議」から talk コンソールで自動的に起動される。ユーザーの発言は shadow-clerk の文字起こしとして届き、あなたの応答は shadow-clerk が音声で読み上げる。「/clerk-talk」と打たれたとき、声で議論したい・Claude と会議したいと言われたときに使う。
+allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # clerk-talk — 声で議論する
@@ -11,10 +12,18 @@ metadata:
 
 ## 起動
 
-shadow-clerk の場所は環境変数 `SHADOW_CLERK_URL`（無ければ `http://localhost:8765`）。
+shadow-clerk の場所は環境変数 `SHADOW_CLERK_URL`（`http://localhost:<port>` の形。無ければ `http://localhost:8765`）。
 **URL は実際の値を埋め込んで**シェルコマンドで叩く（`WebFetch` は localhost に届かないことが多い）。
+以下の例の `8765` は実際のポートに置き換える。
 
-`GET /api/talk-mode` で会議の条件を取る。
+**コマンドは例の形のまま使う**: フラグの直後に、二重引用符で囲んだ `http://localhost:…` の URL を置く。
+この skill はその形のコマンドだけを事前に許可しているので、変数展開・別のフラグ順・パイプにすると許可の確認で止まる。
+
+会議の条件を取る:
+
+```
+curl -s "http://localhost:8765/api/talk-mode"
+```
 
 ```json
 {"active": true, "engine": "console", "topic": "…", "persona": "…",
@@ -29,14 +38,15 @@ shadow-clerk の場所は環境変数 `SHADOW_CLERK_URL`（無ければ `http://
 ## 話す
 
 ```
-curl -s -X POST "<URL>/api/say" -H 'Content-Type: application/json' -d '{"text":"…"}'
+curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/json' -d '{"text":"…"}'
 ```
 
 - **1回の `/api/say` は1〜2文**。長い説明は文ごとに分けて何度も呼ぶ。文の切れ目でユーザーが割って入れる
 - 1文は短く、句点で区切る。Markdown・箇条書き・記号・URL・コードは使わない。読み上げてそのまま伝わる文だけにする
 - 質問は一度に1つ
-- 時間がかかりそうなとき（調べもの、ファイルを読む、考え込む）は、**先に**「ちょっと考えます」と `/api/say` してから取りかかる
-- 応答が `{"status": "interrupted", "cut": "…"}` なら、ユーザーがあなたを遮った。**そのターンの発話をやめ**、次の発言を待つ。`cut` の文より後は相手に届いていない
+- **最初の発話は議題についての質問**。その前に前置きを話さない。作業ディレクトリを見るなら黙って手早く（見なくてもよい）
+- 前置き（「えーっと、少し見てみますね」など）は、数秒より長くかかる作業（ファイルを何本も読む、Web 検索、じっくり考える）の**前だけ**。軽く短い一言にし、1ターンに1回まで、言い回しは毎回変える。すぐ済む確認の前には言わない
+- 応答が `{"status": "interrupted", "cut": "…"}` なら、ユーザーがあなたを遮った。**言いかけていたことはやめる**。`cut` の文より後は相手に届いていない。いちばん新しい `[自分]` の発言（遮った言葉そのものを含む）にまだ答える必要があれば、新しく `/api/say` して答える（次の呼び出しは通る）。答えるものが無ければ次の発言を待つ
 - 最初に議題について質問を1つ話してから、聞く
 
 ## 聞く
@@ -45,7 +55,7 @@ Monitor で新しい発言を待つ:
 
 ```
 Monitor(
-  command: "curl -sN \"<URL>/api/watch?interval=1\"",
+  command: 'curl -sN "http://localhost:8765/api/watch?interval=1"',
   description: "Claude と会議の発言",
   persistent: true,
   timeout_ms: 3600000
