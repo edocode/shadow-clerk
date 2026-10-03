@@ -44,8 +44,9 @@ shadow-clerk は、いつ・何を読み上げたかを知っている。monitor
 
 ### TTS: 実際に鳴った区間を知らせる
 
-- `TtsPlayer.__init__(..., on_played: Callable[[str, float, float], None] | None = None)` — 1文を鳴らし終えたら
-  （途中で止まった場合も、鳴った範囲で）`on_played(text, start, end)` を呼ぶ。`start`/`end` は `time.time()`
+- `TtsPlayer.__init__(..., on_played: Callable[[str, float, float], None] | None = None)` — 1文を
+  鳴らし始めた時点で、開始時刻から音声の長さぶんの区間 `on_played(text, start, end)` を知らせる（`time.time()`）。
+  再生に失敗した文も記録される（実害は小さい）
 - `make_player` と、経路ありのとき driver が直接作る `TtsPlayer` の両方に渡す
 
 ### TalkDriver
@@ -75,7 +76,7 @@ shadow-clerk は、いつ・何を読み上げたかを知っている。monitor
 
 | 事象 | 挙動 |
 |---|---|
-| 再生の通知が来ない（再生失敗など） | 履歴に無いので捨てない（相手の発言として残る側に倒す） |
+| 再生の通知が来ない（合成失敗・古い文で再生しなかった） | 履歴に無いので捨てない（相手の発言として残る側に倒す） |
 | しきい値の設定が不正（数値でない・範囲外） | 既定値を使う |
 | 届け先ありの talk mode を終了した | monitor の扱いは通常（talk mode 外）に戻る |
 
@@ -84,7 +85,7 @@ shadow-clerk は、いつ・何を読み上げたかを知っている。monitor
 | ファイル | 対象 |
 |---|---|
 | `tests/test_talk_echo.py` | `EchoFilter`: 時間が重なり文も似ている → 捨てる / 時間は重なるが文が違う → 残す / 時間が外れていれば似ていても残す / 誤認識を少し含んでも似ていると判定 / 正規化後に空 → 残す / 古い履歴は消える |
-| `tests/test_tts.py` | `TtsPlayer` が鳴らし終えた文ごとに `on_played` を呼ぶ（途中停止でも呼ぶ、失敗した文では呼ばない） |
+| `tests/test_tts.py` | `TtsPlayer` が鳴らし始める文ごとに、再生より前に `on_played` を呼ぶ（end は start + 音声の長さ） |
 | `tests/test_talk_driver.py` | 届け先ありで `is_suppressed("monitor")` が偽、`is_echo` が履歴に従う / 届け先なしでは従来どおり |
 | `tests/test_talk_recorder_hook.py` | 届け先ありの talk mode で、monitor の Claude の声の行は書かれず、相手の行は `[相手]` で書かれる |
 

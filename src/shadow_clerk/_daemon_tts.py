@@ -151,7 +151,11 @@ class TtsPlayer:
             th.start()
 
     def set_on_played(self, fn: Callable[[str, float, float], None] | None) -> None:
-        """鳴らし終えた1文ごとに fn(text, start, end) を呼ぶ（talk mode で Claude 自身の声を見分けるため）"""
+        """鳴らし始める1文ごとに fn(text, start, end) を呼ぶ（talk mode で Claude 自身の声を見分けるため）。
+
+        end は start + 音声の長さの予測。再生中の文の途中が文字起こしされても見分けられるよう、再生の前に知らせる
+        （再生に失敗した文も記録される）
+        """
         self._on_played = fn
 
     def speak(self, text: str) -> None:
@@ -217,14 +221,13 @@ class TtsPlayer:
                 continue
             self._speaking = text
             try:
-                start = time.time()
-                self._play(pcm, sr, lambda: self._stale(gen))
-                end = time.time()
                 if (notify := self._on_played) is not None:
+                    start = time.time()
                     try:
-                        notify(text, start, end)
+                        notify(text, start, start + len(pcm) / sr)
                     except Exception as e:  # 通知の失敗で再生を止めない
                         logger.warning("talk: 再生の通知に失敗: %s", e)
+                self._play(pcm, sr, lambda: self._stale(gen))
             except Exception as e:
                 logger.warning("talk: 再生に失敗: %s", e)
                 self._on_error(str(e))
