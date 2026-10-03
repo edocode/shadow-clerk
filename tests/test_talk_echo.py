@@ -52,9 +52,31 @@ def test_old_history_dropped() -> None:
     check("keep_sec より古い履歴は使わない", not f.is_echo(101.0, 104.0, "それはいい考えですね"))
 
 
+def _chatty() -> EchoFilter:
+    f = EchoFilter()
+    f.record(SpokenSpan(100.0, 103.0, "それはいい考えですね。"))
+    f.record(SpokenSpan(103.2, 106.0, "はい、そうですね。期限はいつまでにしますか？"))
+    f.record(SpokenSpan(106.2, 110.0, "いいですね、それで進めましょう。来週の会議で確認します。"))
+    return f
+
+
+def test_ordinary_replies_kept() -> None:
+    f = _chatty()
+    for t in ["はい", "いいえ", "了解です", "いや、それは違うと思います", "うーん、どうでしょうね", "それでいいですか"]:
+        check(f"返事は残す: {t}", not f.is_echo(104.0, 106.0, t))
+
+
+def test_mangled_echo_dropped() -> None:
+    f = _chatty()
+    for t in ["それは良い考えですね", "期げんはいつまでにしますか", "いいですねそれで進めましょう"]:
+        check(f"言い違いの反響は捨てる: {t}", f.is_echo(104.0, 108.0, t))
+
+
 if __name__ == "__main__":
     test_normalize()
     test_echo_detected()
     test_other_side_kept()
     test_old_history_dropped()
+    test_ordinary_replies_kept()
+    test_mangled_echo_dropped()
     sys.exit(0 if all(results) else 1)

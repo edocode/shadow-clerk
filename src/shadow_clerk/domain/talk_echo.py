@@ -11,6 +11,8 @@ import unicodedata
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
+_MIN_CHARS = 6  # これ未満の行は相槌とみなして残す
+_MIN_BLOCK = 3  # 類似度に数える連続一致の最小長
 _DROP = re.compile(r"[\s\W_]+", re.UNICODE)
 
 
@@ -29,7 +31,12 @@ class SpokenSpan:
 
 
 class EchoFilter:
-    def __init__(self, tail_sec: float = 3.0, similarity: float = 0.5, keep_sec: float = 60.0) -> None:
+    """読み上げ履歴を持ち、monitor の1行が Claude 自身の声かを判定する
+
+    6文字未満の行は常に相手の発言とみなし、3文字以上連続して一致した部分だけを類似度に数える。
+    """
+
+    def __init__(self, tail_sec: float = 3.0, similarity: float = 0.6, keep_sec: float = 60.0) -> None:
         self._tail = tail_sec
         self._similarity = similarity
         self._keep = keep_sec
@@ -45,12 +52,12 @@ class EchoFilter:
     def is_echo(self, seg_start: float, seg_end: float, text: str) -> bool:
         """区間が読み上げ（終了後 tail_sec を含む）と重なり、文がその読み上げに含まれていれば真"""
         heard = normalize_for_echo(text)
-        if not heard:
+        if len(heard) < _MIN_CHARS:
             return False
         with self._lock:
             spoken = "".join(normalize_for_echo(s.text) for s in self._spans
                              if s.start <= seg_end and seg_start <= s.end + self._tail)
         if not spoken:
             return False
-        matched = sum(b.size for b in SequenceMatcher(None, heard, spoken, autojunk=False).get_matching_blocks())
+        matched = sum(b.size for b in SequenceMatcher(None, heard, spoken, autojunk=False).get_matching_blocks() if b.size >= _MIN_BLOCK)
         return matched / len(heard) >= self._similarity

@@ -32,11 +32,11 @@ shadow-clerk は、いつ・何を読み上げたかを知っている。monitor
 ### Domain: `domain/talk_echo.py`
 
 - `SpokenSpan(start: float, end: float, text: str)`（frozen dataclass）— 実際に鳴った1文の区間（epoch 秒）と文
-- `EchoFilter(tail_sec: float = 3.0, similarity: float = 0.5, keep_sec: float = 60.0)`
+- `EchoFilter(tail_sec: float = 3.0, similarity: float = 0.6, keep_sec: float = 60.0)`
   - `record(span: SpokenSpan) -> None` — 履歴に足す。`keep_sec` より古いものは捨てる
   - `is_echo(seg_start: float, seg_end: float, text: str) -> bool`
     1. 時間: 区間 `[seg_start, seg_end]` が、どれかの `[span.start, span.end + tail_sec]` と重なる
-    2. 文: 重なった span の文をつなげたものと `text` を、空白・句読点・記号を除いて比べ、一致度が `similarity` 以上。
+    2. 文: 重なった span の文をつなげたものと `text` を、空白・句読点・記号を除いて比べ、3文字以上連続して一致した部分の割合が `similarity` 以上。正規化して6文字未満の行は常に相手の発言として残す。
        一致度は `difflib.SequenceMatcher` で、短いほう（`text`）が長いほうにどれだけ含まれるかを見る
        （`matching blocks の合計 / len(text の正規化後)`）。`text` が正規化後に空なら False
   - スレッドから使うので内部はロックで守る
@@ -69,7 +69,7 @@ shadow-clerk は、いつ・何を読み上げたかを知っている。monitor
 | キー | 既定値 | 説明 |
 |---|---|---|
 | `talk_echo_tail_sec` | `3.0` | 読み上げ終了後、Claude の声とみなす余裕（秒） |
-| `talk_echo_similarity` | `0.5` | 読み上げた文との一致度がこれ以上なら Claude の声とみなす（0〜1） |
+| `talk_echo_similarity` | `0.6` | 読み上げた文との一致度がこれ以上なら Claude の声とみなす（0〜1） |
 
 ## Error Handling
 
