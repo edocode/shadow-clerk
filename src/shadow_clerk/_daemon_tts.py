@@ -137,6 +137,7 @@ class TtsPlayer:
         self._backend = backend
         self._play = play
         self._on_error = on_error
+        self._on_played: Callable[[str, float, float], None] | None = None
         self._texts: queue.Queue[tuple[int, str] | None] = queue.Queue()
         self._audio: queue.Queue[tuple[int, str, np.ndarray, int] | None] = queue.Queue(maxsize=2)
         self._abort = threading.Event()
@@ -148,6 +149,10 @@ class TtsPlayer:
                          threading.Thread(target=self._play_loop, name="tts-play", daemon=True)]
         for th in self._threads:
             th.start()
+
+    def set_on_played(self, fn: Callable[[str, float, float], None] | None) -> None:
+        """鳴らし終えた1文ごとに fn(text, start, end) を呼ぶ（talk mode で Claude 自身の声を見分けるため）"""
+        self._on_played = fn
 
     def speak(self, text: str) -> None:
         gen = self._gen
@@ -212,7 +217,14 @@ class TtsPlayer:
                 continue
             self._speaking = text
             try:
+                start = time.time()
                 self._play(pcm, sr, lambda: self._stale(gen))
+                end = time.time()
+                if self._on_played is not None:
+                    try:
+                        self._on_played(text, start, end)
+                    except Exception as e:  # 通知の失敗で再生を止めない
+                        logger.warning("talk: 再生の通知に失敗: %s", e)
             except Exception as e:
                 logger.warning("talk: 再生に失敗: %s", e)
                 self._on_error(str(e))
