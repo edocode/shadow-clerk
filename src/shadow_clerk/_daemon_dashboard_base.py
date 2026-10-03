@@ -228,6 +228,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._save_forbid_analyze()
         elif path == "/api/talk-mode":
             self._set_talk_mode()
+        elif path == "/api/talk-end":
+            self._end_talk()
         elif path == "/api/say":
             self._say()
         elif path == "/api/talk-preview":

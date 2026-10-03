@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」で、ユーザーと音声で議論する。ダッシュボードの「Claude と会議」から talk コンソールで自動的に起動される。ユーザーの発言は shadow-clerk の文字起こしとして届き、あなたの応答は shadow-clerk が音声で読み上げる。「/clerk-talk」と打たれたとき、声で議論したい・Claude と会議したいと言われたときに使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor
 metadata:
-  version: "1.3.0"
+  version: "1.4.0"
 ---
 
 # clerk-talk — 声で議論する
@@ -127,5 +127,19 @@ Monitor(
 
 ## 終わり
 
-ユーザーが終わりを告げたら、最後に要点を1〜2文で確認して、Monitor を止める（`TaskStop`）。
-talk mode の終了はダッシュボードのトグルで行うので、あなたから止めなくてよい。
+聞き取り（Monitor）をやめることは、この会話そのものを終えることと同じ。あなたの判断では終えない。
+
+- 「やめましょう」「もういいや」「了解」「ありがとう」のような言葉は、話題や案をやめる意味のことが多い。
+  会話の終わりと決めつけない
+- 終わりそうだと感じたら、声で尋ねる（例:「今日はここまでにして、会話を終えますか？」）。
+  尋ねたあとも Monitor は張ったままにして、返事を待つ
+- はっきり終えてよいと返事があったときだけ、要点を1〜2文で `/api/say` で確認してから、会話を終える API を呼ぶ。
+  返事があいまいなら終えずに続ける
+
+```bash
+curl -s -X POST "http://localhost:8765/api/talk-end"
+```
+
+- `/api/talk-end` は、読み上げ中の文を言い終えてから talk mode を終える。このセッションもそこで終了するので、
+  `TaskStop` で Monitor を止める必要はない。呼んだあとは何もしない
+- ユーザーがダッシュボードのトグルで終えたときは、あなたは何もしなくてよい

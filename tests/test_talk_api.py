@@ -55,6 +55,10 @@ class _Talk:
         self.calls.append(("say", text))
         return None
 
+    def end_after_speech(self) -> bool:
+        self.calls.append(("end",))
+        return True
+
     def route_targets(self) -> dict:
         return {"available": True, "targets": [{"app": "Chromium", "label": "Chromium — WebRTC"}]}
 
@@ -129,6 +133,15 @@ def test_say_and_remote() -> None:
     check("GET も外部からは拒否", h.sent.get("status") == "error")
 
 
+def test_talk_end() -> None:
+    h = _FakeHandler()
+    h._end_talk()
+    check("読み上げ後の終了を頼む", h.talk.calls == [("end",)] and h.sent == {"status": "ok", "ending": True}, repr(h.sent))
+    h = _FakeHandler(client="10.0.0.9")
+    h._end_talk()
+    check("外部からの終了は拒否", h.sent.get("status") == "error" and h.talk.calls == [])
+
+
 def test_voices() -> None:
     h = _FakeHandler()
     h._serve_talk_voices()
@@ -186,5 +199,6 @@ if __name__ == "__main__":
     test_start_error()
     test_validation()
     test_say_and_remote()
+    test_talk_end()
     test_route()
     sys.exit(0 if all(results) else 1)
