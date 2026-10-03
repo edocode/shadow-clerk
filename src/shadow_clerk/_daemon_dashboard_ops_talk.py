@@ -94,6 +94,12 @@ class _DashboardHandlerTalkOps:
                 return
         self._send_json({"status": "ok", "talk": talk.snapshot()})
 
+    def _end_talk(self) -> None:
+        """POST /api/talk-end — 読み上げ中の文を言い終えてから talk mode を終える（talk の skill 用）"""
+        if read_local_json_body(self, "talk") is None:
+            return
+        self._send_json({"status": "ok", "ending": self.recorder.talk.end_after_speech()})
+
     def _say(self) -> None:
         """POST /api/say {text} — [Claude] 行を書いて読み上げる（talk mode でなくても使える）"""
         data = read_local_json_body(self, "talk")

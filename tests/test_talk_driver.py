@@ -327,6 +327,44 @@ def test_no_route_keeps_suppressing_monitor() -> None:
     d.stop()
 
 
+def _wait(pred: Callable[[], bool], timeout: float = 3.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if pred():
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_end_after_speech() -> None:
+    d, _w, made = _driver()
+    check("talk mode 外では終えない", d.end_after_speech() is False)
+    d.start("x", None)
+    player = made["player"]
+    player.speaking = "それでは、また。"
+    check("終了を受け付ける", d.end_after_speech(timeout=5.0) is True)
+    time.sleep(0.4)
+    check("読み上げ中は終えない", d.active and not player.closed)
+    player.speaking = ""
+    check("言い終えたら talk mode を終える", _wait(lambda: not d.active) and player.closed)
+
+    d.start("x", None)
+    made["player"].speaking = "終わらない文。"
+    d.end_after_speech(timeout=0.3)
+    check("言い終えなくても上限で終える", _wait(lambda: not d.active))
+
+    d.start("x", None)
+    old = made["player"]
+    old.speaking = "前の会話の文。"
+    d.end_after_speech(timeout=5.0)
+    d.stop()
+    d.start("x", None)
+    old.speaking = ""
+    time.sleep(0.5)
+    check("待つ間に始めた次の talk mode は止めない", d.active)
+    d.stop()
+
+
 def test_route_targets() -> None:
     d, _w, _m = _driver(route_factory=lambda: _Route(), sink_factory=lambda: _Sink())
     got = d.route_targets()
@@ -512,4 +550,5 @@ if __name__ == "__main__":
     test_route_targets()
     test_echo_with_route()
     test_no_route_keeps_suppressing_monitor()
+    test_end_after_speech()
     sys.exit(0 if all(results) else 1)

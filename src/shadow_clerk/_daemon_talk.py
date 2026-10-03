@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import threading
+import time
 from typing import Any, Callable
 
 from shadow_clerk._daemon_config import load_config
@@ -157,9 +158,10 @@ class TalkDriver:
             logger.info("talk: 開始 (engine=%s, topic=%r, persona=%s, language=%s)",
                         name, topic, chosen.name if chosen else "-", lang.value)
 
-    def stop(self) -> None:
+    def stop(self, player: Any = None) -> None:
+        """talk mode を終える。player を渡すと、その再生器の会話のときだけ終える"""
         with self._lock:
-            if not self._active:
+            if not self._active or (player is not None and self._player is not player):
                 return
             self._active = False
             engine, player = self._engine, self._player
@@ -237,6 +239,26 @@ class TalkDriver:
                 return
             self._said += 1
         self.say(text)
+
+    def end_after_speech(self, timeout: float = 30.0) -> bool:
+        """読み上げ中の文を言い終えてから talk mode を終える。待たずに返る。talk mode 外なら False
+
+        talk の skill が自分から会話を終えるときに使う。すぐ止めると締めの言葉が途中で切れ、
+        呼んだ子プロセス自身もその場で終了させられて応答を受け取れない
+        """
+        with self._lock:
+            if not self._active:
+                return False
+            player = self._player
+        threading.Thread(target=self._end_when_quiet, args=(player, timeout),
+                         name="talk-end", daemon=True).start()
+        return True
+
+    def _end_when_quiet(self, player: Any, timeout: float) -> None:
+        deadline = time.monotonic() + timeout
+        while player.is_busy() and time.monotonic() < deadline:
+            time.sleep(0.2)
+        self.stop(player)  # 待つ間にユーザーが止めて始め直した会話は終えない
 
     def _engine_ended(self, reason: str) -> None:
         self._report_error(reason)

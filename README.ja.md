@@ -510,6 +510,9 @@ Claude が話している間は、monitor の中間文字起こし（途中表�
 curl -s -X POST localhost:8765/api/say -d '{"text":"こんにちは"}'
 ```
 
+Claude は自分の判断で聞き取りをやめません。会話が終わりそうなときは先に尋ね、はっきり終えてよいと返事があったときだけ
+`POST /api/talk-end` で talk mode を終えます。読み上げ中の文は言い終えてから終わります。
+
 | キー | 既定値 | 説明 |
 |---|---|---|
 | `talk_voicevox_url` | `http://localhost:50021` | VOICEVOX エンジン |

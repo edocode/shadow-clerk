@@ -512,6 +512,9 @@ You can also make Claude speak any text:
 curl -s -X POST localhost:8765/api/say -d '{"text":"Hello"}'
 ```
 
+Claude never stops listening on its own: when the conversation seems to be over, it asks first, and only on a
+clear yes does it end talk mode with `POST /api/talk-end`. That call lets the sentence being spoken finish first.
+
 | Key | Default | Description |
 |---|---|---|
 | `talk_voicevox_url` | `http://localhost:50021` | VOICEVOX engine |
