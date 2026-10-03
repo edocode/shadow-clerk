@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」で、ユーザーと音声で議論する。ダッシュボードの「Claude と会議」から talk コンソールで自動的に起動される。ユーザーの発言は shadow-clerk の文字起こしとして届き、あなたの応答は shadow-clerk が音声で読み上げる。「/clerk-talk」と打たれたとき、声で議論したい・Claude と会議したいと言われたときに使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor
 metadata:
-  version: "1.3.0"
+  version: "1.4.0"
 ---
 
 # clerk-talk — 声で議論する
@@ -127,5 +127,12 @@ Monitor(
 
 ## 終わり
 
-ユーザーが終わりを告げたら、最後に要点を1〜2文で確認して、Monitor を止める（`TaskStop`）。
-talk mode の終了はダッシュボードのトグルで行うので、あなたから止めなくてよい。
+Monitor は、あなたの判断では止めない。止めると、ユーザーの声がもう届かなくなる。
+
+- 「やめましょう」「もういいや」「了解」「ありがとう」のような言葉は、話題や案をやめる意味のことが多い。
+  会話の終わりと決めつけない
+- 終わりそうだと感じたら、声で尋ねる（例:「今日はここまでにして、聞き取りを止めますか？」）。
+  尋ねたあとも Monitor は張ったままにして、返事を待つ
+- はっきり止めてよいと返事があったときだけ、要点を1〜2文で確認してから Monitor を止める（`TaskStop`）。
+  返事があいまいなら止めずに続ける
+- talk mode の終了はダッシュボードのトグルで行うので、talk mode そのものをあなたから止めなくてよい
