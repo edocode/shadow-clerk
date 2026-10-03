@@ -218,11 +218,18 @@ def test_talk_skill_reads_glossary_and_misheard() -> None:
     text = (skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME) / "SKILL.md").read_text(encoding="utf-8")
     for needle in ('/api/glossary"', '/api/misheard"', "POST"):
         check(f"talk skill が {needle} を使う", needle in text)
-    check("talk skill の版が 1.2.0", skill_install.read_skill_version(
-        skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME)) == "1.2.0")
+    check("talk skill の版が 1.3.0", skill_install.read_skill_version(
+        skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME)) == "1.3.0")
     quirks = skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME) / "../clerk-meeting-helper/references/transcript-quirks.md"
     check("参照している崩れ方の説明が同梱されている", "../clerk-meeting-helper/references/transcript-quirks.md" in text
           and quirks.resolve().is_file(), str(quirks))
+
+
+def test_talk_skill_watches_advice() -> None:
+    """会議アシスタントの advice を見張り、誰も話していないときだけ自分から切り出すこと"""
+    text = (skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME) / "SKILL.md").read_text(encoding="utf-8")
+    check("advice を Monitor で見張る", '/api/watch?kind=advice' in text)
+    check("[相手] の発言も切り出す条件に入る", "[相手]" in text and "[自分]" in text)
 
 
 def main() -> int:
@@ -247,6 +254,7 @@ def main() -> int:
     test_talk_skill_check_looks_at_claude_only()
     test_talk_skill_pre_approves_its_curl_calls()
     test_talk_skill_reads_glossary_and_misheard()
+    test_talk_skill_watches_advice()
     shutil.rmtree(_DATA, ignore_errors=True)
     print(f"\n{sum(results)}/{len(results)} passed")
     return 0 if all(results) else 1
