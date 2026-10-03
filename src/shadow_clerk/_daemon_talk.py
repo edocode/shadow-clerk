@@ -18,7 +18,7 @@ from shadow_clerk._daemon_talk_route import TalkRoute, make_route
 from shadow_clerk._daemon_talk_prompt import filler_phrase, requested_language, resolve_talk_language
 from shadow_clerk._daemon_tts import TtsBackend, TtsError, TtsPlayer, make_backend, make_player
 from shadow_clerk._daemon_tts_pipewire import PwCatSink
-from shadow_clerk.domain import Language, Speaker, TalkPersona, TalkVoice, TranscriptLine
+from shadow_clerk.domain import EchoFilter, Language, SpokenSpan, Speaker, TalkPersona, TalkVoice, TranscriptLine
 from shadow_clerk.domain.ai_assistant import AiAssistantConfig
 from shadow_clerk.i18n import t
 
@@ -42,6 +42,14 @@ def stop_pattern(words: object) -> re.Pattern[str] | None:
     alts = [rf"\b{re.escape(w)}\b" if w.isascii() else re.escape(w)
             for w in (str(x).strip() for x in words) if w]
     return re.compile("|".join(alts), re.IGNORECASE) if alts else None
+
+
+def _float_setting(config: dict, key: str, default: float, lo: float, hi: float) -> float:
+    try:
+        value = float(config.get(key, default))
+    except (TypeError, ValueError):
+        return default
+    return value if lo <= value <= hi else default
 
 
 def resolve_talk_workdir(config: dict, requested: str | None) -> str:
@@ -81,6 +89,7 @@ class TalkDriver:
         self._player: Any = None
         self._route: Any = None
         self._sink: Any = None
+        self._echo = EchoFilter()
         self._topic = ""
         self._persona: TalkPersona | None = None
         self._lang = Language.JA
@@ -120,6 +129,9 @@ class TalkDriver:
                 player = TtsPlayer(backend, sink.play, self._report_error)
             else:
                 player = self._player_factory(backend, config, self._report_error)
+            echo = EchoFilter(tail_sec=_float_setting(config, "talk_echo_tail_sec", 1.0, 0.0, 30.0),
+                              similarity=_float_setting(config, "talk_echo_similarity", 0.6, 0.0, 1.0))
+            player.set_on_played(lambda text, s, e: echo.record(SpokenSpan(s, e, text)))
             name = "headless" if config.get("talk_engine") == "headless" else "console"
             try:
                 if route_obj is not None:
@@ -135,7 +147,7 @@ class TalkDriver:
                 player.close()
                 raise
             self._engine, self._engine_name, self._player = engine, name, player
-            self._route, self._sink = route_obj, sink
+            self._route, self._sink, self._echo = route_obj, sink, echo
             self._topic, self._persona, self._lang = topic, chosen, lang
             self._language, self._workdir = lang.value, resolved
             self._credit, self._error = backend.credit(), ""
@@ -177,8 +189,20 @@ class TalkDriver:
         return self._active
 
     def is_suppressed(self, source: str) -> bool:
-        """この source の文字起こしを捨てるか。フェーズ1は talk mode 中の monitor（Claude の声）"""
-        return self._active and source == "monitor"
+        """この source の文字起こしを捨てるか。届け先が無い talk mode の monitor（Claude の声しか来ない）"""
+        return self._active and source == "monitor" and self._route is None
+
+    def is_echo(self, source: str, seg_start: float, seg_end: float, text: str) -> bool:
+        """届け先ありの talk mode で、monitor の1行が Claude 自身の読み上げの文字起こしか"""
+        if not (self._active and source == "monitor" and self._route is not None):
+            return False
+        return self._echo.is_echo(seg_start, seg_end, text)
+
+    def hides_interim(self, source: str, seg_start: float, seg_end: float) -> bool:
+        """中間文字起こしを出さないか。Claude の声が混ざる monitor の区間（確定行は is_echo で別に判定する）"""
+        return self.is_suppressed(source) or (
+            self._active and source == "monitor" and self._route is not None
+            and self._echo.overlaps(seg_start, seg_end))
 
     def on_self_line(self, line: TranscriptLine) -> None:
         with self._lock:

@@ -74,6 +74,37 @@ def test_player_order_and_errors() -> None:
     check("失敗を on_error に通知する", errors == ["boom"], repr(errors))
 
 
+def test_on_played() -> None:
+    import time
+    played: list[tuple[str, float, float]] = []
+    events: list[str] = []
+
+    def play(pcm: np.ndarray, sr: int, stop: object) -> None:
+        if float(pcm[0]) == 4.0:  # 4 文字の文だけ失敗させる
+            raise RuntimeError("device gone")
+        time.sleep(0.05)
+        events.append(f"play:{int(pcm[0])}")
+
+    p = TtsPlayer(_FakeBackend(), play, lambda _m: None)
+    p.set_on_played(lambda text, s, e: (played.append((text, s, e)), events.append(f"notify:{len(text)}")))
+    t0 = time.time()
+    p.speak("あ。かか。いいい。")  # _FakeBackend の PCM 値は文字数: 2, 3, 4 → 4 文字の「いいい。」だけ失敗する
+    p.close(discard_pending=False)
+    texts = [x[0] for x in played]
+    check("鳴らし始めた文ごとに知らせる（失敗した文も含む）", texts == ["あ。", "かか。", "いいい。"], repr(texts))
+    check("end は start + 音声の長さ", all(t0 <= s and abs(e - s - 10 / 24000) < 1e-5 for _t, s, e in played), repr(played))
+    check("通知は再生が終わる前", events.index("notify:2") < events.index("play:2"), repr(events))
+
+    plays: list[float] = []
+    errors: list[str] = []
+    p2 = TtsPlayer(_FakeBackend(), lambda pcm, sr, stop: plays.append(float(pcm[0])), errors.append)
+    p2.set_on_played(lambda text, s, e: (_ for _ in ()).throw(ValueError("boom")))
+    p2.speak("あ。いい。ううう。")
+    p2.close(discard_pending=False)
+    check("on_played の例外で再生スレッドは止まらない", plays == [2.0, 3.0, 4.0], repr(plays))
+    check("on_played の例外は on_error に流さない", errors == [], repr(errors))
+
+
 def _wav_bytes(samples: np.ndarray, sr: int) -> bytes:
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
@@ -268,5 +299,6 @@ if __name__ == "__main__":
     test_refresh_waits_for_playback()
     test_resample()
     test_player_order_and_errors()
+    test_on_played()
     test_voicevox()
     sys.exit(0 if all(results) else 1)
