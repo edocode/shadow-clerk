@@ -16,8 +16,9 @@ from urllib.parse import urlparse, parse_qs
 
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_constants import SESSION_FILE
-from shadow_clerk._daemon_dashboard_base import is_localhost_client
+from shadow_clerk._daemon_dashboard_base import is_localhost_client, read_local_json_body
 from shadow_clerk._transcript_name import TranscriptName
+from shadow_clerk.domain import Language
 from shadow_clerk.domain.meeting_config import MeetingConfig
 
 logger = logging.getLogger("shadow-clerk")
@@ -175,6 +176,22 @@ class _DashboardHandlerSkillOps:
         self._send_json({"status": "ok", "meetings": out})
 
     # --- 監視ストリーム ---
+
+    def _set_language(self) -> None:
+        """POST /api/language {language} — 検出言語を切り替える。"auto" で自動検出
+
+        talk の skill が、ユーザーが英語で話したいときに使う（ja のままだと英語がカタカナで起こされる）。
+        /api/command と違い、既知の言語コードしか通さない
+        """
+        data = read_local_json_body(self, "language")
+        if data is None:
+            return
+        lang = data.get("language")
+        if lang != "auto" and lang not in {v.value for v in Language}:
+            self._send_json({"status": "error", "message": "language must be auto or a known language code"})
+            return
+        self.recorder._execute_command("unset_language" if lang == "auto" else f"set_language {lang}")
+        self._send_json({"status": "ok", "language": lang})
 
     def _serve_skill_status(self) -> None:
         """GET /api/skill-status — 記録済みの配布先ごとに状態を返す"""

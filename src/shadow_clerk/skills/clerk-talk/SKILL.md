@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」で、ユーザーと音声で議論する。ダッシュボードの「Claude と会議」から talk コンソールで自動的に起動される。ユーザーの発言は shadow-clerk の文字起こしとして届き、あなたの応答は shadow-clerk が音声で読み上げる。「/clerk-talk」と打たれたとき、声で議論したい・Claude と会議したいと言われたときに使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor
 metadata:
-  version: "1.4.0"
+  version: "1.5.0"
 ---
 
 # clerk-talk — 声で議論する
@@ -95,6 +95,24 @@ Monitor(
 - 「ちょっと待って」などで遮られたときは、相手が話し終えるまで話さない
 - Monitor が切れたら（timeout など）貼り直す
 
+### 聞き取る言語を切り替える
+
+音声認識は、いまの検出言語（`/api/session` の `language`）の言葉として発言を起こす。`ja` のままユーザーが英語を
+話すと、英語がカタカナで起こされる。
+
+- ユーザーが英語で話したいと言ったとき（英語の練習など）は、検出言語を切り替える。`[自分]` の行が英語の音を
+  カタカナにしたように見えるときは、切り替えるかを一言尋ねてから切り替える
+- 切り替える前に `/api/session` の `language` を見て、元の言語を覚えておく
+
+```
+curl -s -X POST "http://localhost:8765/api/language" -H 'Content-Type: application/json' -d '{"language":"en"}'
+```
+
+- `language` は `ja` `en` `zh` `ko` `de` `fr` `es` `pt` `ru` のどれか、または `auto`（自動検出。短い発言では外れやすい）
+- 切り替えには数秒かかる。切り替えたら声で短く知らせる（例:「英語で聞き取るようにしました」）
+- 元の言語で話したいと言われたら、覚えておいた言語に戻す
+- 検出言語は talk mode を終えても残る。会話を終えるときに切り替えたままなら、元の言語に戻してから終える
+
 ### 会議アシスタントの論点を見張る
 
 会議アシスタント（`/clerk-meeting-helper`）が同じ transcript を分析していると、未解決の論点・提案を advice ファイルに
@@ -133,7 +151,8 @@ Monitor(
   会話の終わりと決めつけない
 - 終わりそうだと感じたら、声で尋ねる（例:「今日はここまでにして、会話を終えますか？」）。
   尋ねたあとも Monitor は張ったままにして、返事を待つ
-- はっきり終えてよいと返事があったときだけ、要点を1〜2文で `/api/say` で確認してから、会話を終える API を呼ぶ。
+- はっきり終えてよいと返事があったときだけ、要点を1〜2文で `/api/say` で確認してから、会話を終える API を呼ぶ
+  （検出言語を切り替えていたら、その前に元の言語に戻す）。
   返事があいまいなら終えずに続ける
 
 ```bash
