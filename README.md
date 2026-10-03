@@ -499,6 +499,13 @@ yourself in the meeting app mutes Claude too, because the voice goes into the sa
 `pw-link` and `pw-cat`; on other platforms the option is disabled. With a route set, speech plays to PipeWire's
 default output and `talk_output_devices` is not used.
 
+While a meeting app is chosen, the other participants are transcribed as `[Others]` again, so Claude can follow
+them. Claude's own voice also reaches your headset and therefore the monitor channel; lines that overlap
+Claude's speech in time and match what it said are dropped. Very short lines (under 6 characters after removing
+spaces and punctuation) are always kept as the other side's words. If someone talks over Claude, their words in
+that overlap may be dropped too. Without a meeting app chosen, the monitor stays muted during talk mode as before.
+Interim (live) monitor text is not shown while Claude is speaking.
+
 You can also make Claude speak any text:
 
 ```bash
@@ -513,6 +520,8 @@ curl -s -X POST localhost:8765/api/say -d '{"text":"Hello"}'
 | `talk_output_devices` | `[]` | Output device names (empty = default output). Not used when a route is set; pw-cat plays to the default output |
 | `talk_engine` | `console` | `console` (AI Console + clerk-talk skill) or `headless` (`claude -p`) |
 | `talk_route_app` | `""` | Last app chosen under "Send Claude's voice to" (start-dialog default) |
+| `talk_echo_tail_sec` | `1.0` | A matching monitor line that starts within this many seconds after Claude stops speaking is treated as Claude's own voice. Replies that start later are kept even if they repeat Claude's words |
+| `talk_echo_similarity` | `0.6` | How closely (0–1) a monitor line must match Claude's speech to be dropped |
 | `talk_workdir` | `""` | Working directory for the talk session (empty = `ai_assistant_workdir`, then home). The start dialog can override it per session |
 | `talk_model` | `""` | Model for the talk session (empty = claude default) (headless only) |
 | `talk_allowed_tools` | `WebSearch,WebFetch,Read,Grep,Glob` | Tools Claude may use while talking (`""` = none) (headless only) |

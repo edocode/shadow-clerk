@@ -635,7 +635,8 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
             segment = segmenter.process_frame(frame, timestamp)
             if segment is not None:
                 ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                self.transcribe_queue.put((segment, ts, label, command_mode_latch))
+                self.transcribe_queue.put((segment, ts, label, command_mode_latch,
+                                           timestamp - len(segment) / SAMPLE_RATE))
                 command_mode_latch = False  # 次のセグメント用にリセット
                 if label == "mic":
                     self._command_mode_release_time = 0.0  # 猶予タイマーもクリア
@@ -647,7 +648,8 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
                 now = time.time()
                 if now - last_interim_time >= 1.5:
                     interim_audio = segmenter.get_interim_segment()
-                    if interim_audio is not None:
+                    if interim_audio is not None and not self.talk.hides_interim(
+                            label, now - len(interim_audio) / SAMPLE_RATE, now):
                         try:
                             self.interim_queue.put_nowait(
                                 (interim_audio, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -660,4 +662,5 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         segment = segmenter.flush()
         if segment is not None:
             ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.transcribe_queue.put((segment, ts, label, command_mode_latch))
+            self.transcribe_queue.put((segment, ts, label, command_mode_latch,
+                                       time.time() - len(segment) / SAMPLE_RATE))
