@@ -707,9 +707,15 @@ def test_resize_matches_child_and_grid() -> None:
     console_mod.CONSOLE_COLS_FILE = os.path.join(tmp.name, "console.cols")
     sess = ConsoleSession()
     sess.start(["bash", "--norc", "--noprofile", "-i"], os.getcwd())
+    # POSIX では子にも grid と同じ高さを伝える。低く伝えると、子の行番号の絶対指定や
+    # 全面の描き直しが grid の上端に入り、下に古い画面が残って入力欄が見えなくなる
+    packed = fcntl.ioctl(sess._pty.fd, _termios.TIOCGWINSZ, b"\0" * 8)
+    check("起動時の子の高さが grid と同じ", _struct.unpack("HHHH", packed)[0] == VIRTUAL_ROWS,
+          str(_struct.unpack("HHHH", packed)[0]))
     sess.resize(90)
     packed = fcntl.ioctl(sess._pty.fd, _termios.TIOCGWINSZ, b"\0" * 8)
     check("子の winsize が新しい幅", _struct.unpack("HHHH", packed)[1] == 90)
+    check("幅を変えても子の高さは grid と同じ", _struct.unpack("HHHH", packed)[0] == VIRTUAL_ROWS)
     check("grid も同じ幅", sess.screen.columns == 90, str(sess.screen.columns))
     sess.stop()
     console_mod.CONSOLE_COLS_FILE = saved_file
