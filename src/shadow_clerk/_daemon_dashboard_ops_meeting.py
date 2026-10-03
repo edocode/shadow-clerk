@@ -1,12 +1,22 @@
 """Shadow-clerk daemon: ダッシュボード 会議切り出し・沈黙分割エンドポイント"""
 # pylint: disable=duplicate-code  # POST ボディ解析・パス解決の定型は各ハンドラで共通形
 from __future__ import annotations
+import datetime
 import json
 import os
 import re
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name
+from shadow_clerk.domain import MEETING_END_MARKER, meeting_start_marker
+
+
+def _start_marker_at(ts: str) -> str:
+    """行の時刻（YYYY-MM-DD HH:MM:SS）から会議開始の区切り行を作る。読めなければ時刻なし"""
+    try:
+        return meeting_start_marker(datetime.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S"))
+    except ValueError:
+        return "--- 会議開始 ---\n"
 
 
 class _DashboardHandlerMeetingOps:
@@ -69,9 +79,9 @@ class _DashboardHandlerMeetingOps:
                 meeting_path = os.path.join(output_dir, meeting_name)
                 # 会議開始/終了マーカー付きで作成
                 with open(meeting_path, "w", encoding="utf-8") as f:
-                    f.write("--- meeting start ---\n")
+                    f.write(_start_marker_at(start_ts))
                     f.writelines(extracted)
-                    f.write("--- meeting end ---\n")
+                    f.write(MEETING_END_MARKER)
             else:
                 # 既存会議ファイルにマージ
                 meeting_name = os.path.basename(target)
@@ -150,10 +160,8 @@ class _DashboardHandlerMeetingOps:
         data_lines.sort(key=sort_key)
 
         # マーカーを先頭・末尾に付与して返す
-        result = ["--- meeting start ---\n"]
-        result.extend(data_lines)
-        result.append("--- meeting end ---\n")
-        return result
+        first = next((m.group(1) for line in data_lines if (m := ts_pattern.match(line))), "")
+        return [_start_marker_at(first), *data_lines, MEETING_END_MARKER]
 
     @classmethod
     def _extract_translation_lines(cls, tr_path: str, meeting_tr_path: str, start_ts: str, end_ts: str, is_new: bool = True) -> None:
@@ -335,9 +343,9 @@ class _DashboardHandlerMeetingOps:
                 meeting_name = TranscriptName(meeting_ts, None).filename
                 meeting_path = os.path.join(output_dir, meeting_name)
                 with open(meeting_path, "w", encoding="utf-8") as f:
-                    f.write("--- meeting start ---\n")
+                    f.write(_start_marker_at(first_ts))
                     f.writelines(l for _, l in seg)
-                    f.write("--- meeting end ---\n")
+                    f.write(MEETING_END_MARKER)
                 created.append(meeting_name)
 
             # 元ファイルから分割済み行を削除（一時ファイル→rename で安全に書き戻し）

@@ -81,6 +81,8 @@ main {
 .extract-option { display:flex; align-items:center; gap:8px; padding:8px 0; cursor:pointer; font-size:13px; text-align:left; color:var(--text); }
 .extract-option input[type=radio] { width:auto !important; margin:0; flex-shrink:0; }
 .extract-option .eo-label { white-space:nowrap; }
+/* 末尾の説明文は折り返す。折り返さないとモーダルが横にはみ出してスクロールバーが出る */
+.extract-option .eo-label:last-child { white-space:normal; min-width:0; }
 .extract-option select { width:auto !important; flex:1; min-width:120px; margin-left:4px; padding:3px 6px; font-size:12px; }
 .ts { color:var(--muted); }
 .sp-s { color:var(--self); font-weight:600; }
@@ -381,6 +383,9 @@ main {
   z-index:100; justify-content:center; align-items:center;
 }
 .modal-overlay.open { display:flex; }
+.toast { position:fixed; bottom:56px; left:50%; transform:translateX(-50%); z-index:200;
+  background:var(--panel); border:1px solid var(--border); border-radius:8px;
+  padding:8px 16px; font-size:13px; box-shadow:0 4px 16px rgba(0,0,0,.5); }
 .modal {
   background:var(--panel); border:1px solid var(--border); border-radius:12px;
   width:676px; max-height:80vh; display:flex; flex-direction:column;
