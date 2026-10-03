@@ -6,7 +6,7 @@ let talkActive=false;
 function updateTalk(s){
   talkActive=!!s.active;
   const b=document.getElementById('btnTalk');
-  if(b){b.textContent=I18N[talkActive?'dash.talk_stop':'dash.talk_start'];b.classList.toggle('pri',talkActive);}
+  if(b){b.textContent=I18N[talkActive?'dash.talk_stop':'dash.talk_start'];b.classList.toggle('dan',talkActive);}
   const info=document.getElementById('talkInfo');if(!info)return;
   const parts=talkActive?[s.topic,s.persona,s.language,s.credit].filter(x=>x):[];
   if(talkActive&&s.route&&s.route.app)parts.push('→ '+s.route.app+'（'+I18N[s.route.connected?'dash.talk_route_connected':'dash.talk_route_disconnected']+'）');
