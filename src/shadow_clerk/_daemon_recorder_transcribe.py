@@ -154,6 +154,7 @@ class _RecorderTranscribeMixin:
         text = self.word_replacer.apply(text, self.transcriber.language)
         if self.talk.is_echo(source, seg_start, seg_start + duration, text):
             logger.debug("talk: Claude 自身の声として捨てる: %r", text.strip())
+            self._clear_interim(source)
             return last_file_speaker
         file_speaker = Speaker.from_source(source)
 
@@ -175,11 +176,12 @@ class _RecorderTranscribeMixin:
             self.talk.on_self_line(tl)
         display_line = f"[{timestamp}] [{display_speaker}] {text}"
         print(f"  {display_line}")
-        # 中間テキストをクリア
-        if hasattr(self, "_file_watcher"):
-            self._file_watcher._broadcast("interim_clear", json.dumps(
-                {"source": source}, ensure_ascii=False))
+        self._clear_interim(source)
         return file_speaker
+
+    def _clear_interim(self, source: str) -> None:
+        if hasattr(self, "_file_watcher"):
+            self._file_watcher._broadcast("interim_clear", json.dumps({"source": source}, ensure_ascii=False))
 
     def _transcribe_thread(self) -> None:
         """文字起こしスレッド"""

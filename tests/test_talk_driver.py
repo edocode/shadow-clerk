@@ -308,8 +308,12 @@ def test_echo_with_route() -> None:
         check("読み上げと重なり似ていれば Claude の声", d.is_echo("monitor", now - 2, now, "それはいい考えですね"))
         check("文が違えば相手の発言", not d.is_echo("monitor", now - 2, now, "来週の金曜でどうでしょう"))
         check("mic の行は判定しない", not d.is_echo("mic", now - 2, now, "それはいい考えですね"))
+        check("読み上げ中は monitor の中間文字起こしを出さない", d.hides_interim("monitor", now - 2, now))
+        check("読み上げと重ならなければ中間文字起こしを出す", not d.hides_interim("monitor", now + 5, now + 6))
+        check("mic の中間文字起こしは止めない", not d.hides_interim("mic", now - 2, now))
     finally:
         d.stop()
+    check("talk mode を終えたら中間文字起こしを止めない", not d.hides_interim("monitor", time.time() - 2, time.time()))
     check("talk mode を終えたら判定しない", not d.is_echo("monitor", time.time() - 2, time.time(), "それはいい考えですね"))
 
 
@@ -318,6 +322,7 @@ def test_no_route_keeps_suppressing_monitor() -> None:
     d.start("x", None)
     check("届け先なしなら従来どおり monitor を捨てる", d.is_suppressed("monitor"))
     check("届け先なしでは is_echo は偽", not d.is_echo("monitor", 0, 1, "なにか"))
+    check("届け先なしなら monitor の中間文字起こしも出さない", d.hides_interim("monitor", 0, 1))
     check("再生の通知を受け取る口を渡している", made["player"].on_played is not None)
     d.stop()
 

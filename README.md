@@ -504,6 +504,7 @@ them. Claude's own voice also reaches your headset and therefore the monitor cha
 Claude's speech in time and match what it said are dropped. Very short lines (under 6 characters after removing
 spaces and punctuation) are always kept as the other side's words. If someone talks over Claude, their words in
 that overlap may be dropped too. Without a meeting app chosen, the monitor stays muted during talk mode as before.
+Interim (live) monitor text is not shown while Claude is speaking.
 
 You can also make Claude speak any text:
 

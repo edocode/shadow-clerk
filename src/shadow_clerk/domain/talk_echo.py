@@ -49,14 +49,20 @@ class EchoFilter:
             horizon = span.end - self._keep
             self._spans = [s for s in self._spans if s.end >= horizon]
 
+    def _overlapping(self, seg_start: float, seg_end: float) -> list[SpokenSpan]:
+        with self._lock:
+            return [s for s in self._spans if s.start <= seg_end and seg_start <= s.end + self._tail]
+
+    def overlaps(self, seg_start: float, seg_end: float) -> bool:
+        """区間が読み上げ（終了後 tail_sec を含む）と重なるか"""
+        return bool(self._overlapping(seg_start, seg_end))
+
     def is_echo(self, seg_start: float, seg_end: float, text: str) -> bool:
         """区間が読み上げ（終了後 tail_sec を含む）と重なり、文がその読み上げに含まれていれば真"""
         heard = normalize_for_echo(text)
         if len(heard) < _MIN_CHARS:
             return False
-        with self._lock:
-            spoken = "".join(normalize_for_echo(s.text) for s in self._spans
-                             if s.start <= seg_end and seg_start <= s.end + self._tail)
+        spoken = "".join(normalize_for_echo(s.text) for s in self._overlapping(seg_start, seg_end))
         if not spoken:
             return False
         matched = sum(b.size for b in SequenceMatcher(None, heard, spoken, autojunk=False).get_matching_blocks() if b.size >= _MIN_BLOCK)

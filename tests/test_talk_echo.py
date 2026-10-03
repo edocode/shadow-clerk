@@ -72,6 +72,13 @@ def test_mangled_echo_dropped() -> None:
         check(f"言い違いの反響は捨てる: {t}", f.is_echo(104.0, 108.0, t))
 
 
+def test_overlaps() -> None:
+    f = _filter()
+    check("読み上げ中の区間は重なる", f.overlaps(101.0, 102.0))
+    check("余裕を過ぎた区間は重ならない", not f.overlaps(120.0, 121.0))
+    check("履歴が無ければ重ならない", not EchoFilter().overlaps(101.0, 102.0))
+
+
 def test_reply_repeating_claude_kept() -> None:
     # 既定の余裕では、Claude が話し終えてから話し始めた返事は、Claude の言葉を繰り返していても残す
     f = EchoFilter()
@@ -88,4 +95,5 @@ if __name__ == "__main__":
     test_ordinary_replies_kept()
     test_mangled_echo_dropped()
     test_reply_repeating_claude_kept()
+    test_overlaps()
     sys.exit(0 if all(results) else 1)

@@ -198,6 +198,12 @@ class TalkDriver:
             return False
         return self._echo.is_echo(seg_start, seg_end, text)
 
+    def hides_interim(self, source: str, seg_start: float, seg_end: float) -> bool:
+        """中間文字起こしを出さないか。Claude の声が混ざる monitor の区間（確定行は is_echo で別に判定する）"""
+        return self.is_suppressed(source) or (
+            self._active and source == "monitor" and self._route is not None
+            and self._echo.overlaps(seg_start, seg_end))
+
     def on_self_line(self, line: TranscriptLine) -> None:
         with self._lock:
             if not self._active:

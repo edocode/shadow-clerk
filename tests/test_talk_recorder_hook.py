@@ -79,8 +79,11 @@ def test_echo_dropped_other_side_kept() -> None:
     talk = _Talk(active=True)
     talk.route = True
     rec = _Rec(talk, said="これは Claude の声です")
+    events: list[tuple[str, str]] = []
+    rec._file_watcher = type("_FW", (), {"_broadcast": staticmethod(lambda ev, data: events.append((ev, data)))})()
     _run(rec, "monitor")
     check("届け先ありの talk mode で Claude の声は書かない", _lines(rec) == [], repr(_lines(rec)))
+    check("捨てたときも中間テキストを消す", [e for e, _ in events] == ["interim_clear"], repr(events))
     rec = _Rec(talk, said="相手の発言です")
     _run(rec, "monitor")
     check("相手の発言は [相手] で書く", _lines(rec) == ["[2026-10-02 10:00:00] [相手] 相手の発言です"], repr(_lines(rec)))
