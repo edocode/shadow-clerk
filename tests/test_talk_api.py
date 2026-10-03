@@ -41,10 +41,10 @@ class _Talk:
             raise TtsError("down")
         self.calls.append(("preview", voice, text))
 
-    def start(self, topic: str, persona: str | None, workdir: str | None = None) -> None:
+    def start(self, topic: str, persona: str | None, workdir: str | None = None, route: str | None = None) -> None:
         if topic == "boom":
             raise TalkStartError("VOICEVOX down")
-        self.calls.append(("start", topic, persona, workdir))
+        self.calls.append(("start", topic, persona, workdir, route))
 
     def stop(self) -> None:
         self.calls.append(("stop",))
@@ -54,6 +54,9 @@ class _Talk:
             return "途中の文。"
         self.calls.append(("say", text))
         return None
+
+    def route_targets(self) -> dict:
+        return {"available": True, "targets": [{"app": "Chromium", "label": "Chromium — WebRTC"}]}
 
     def snapshot(self) -> dict:
         return {"active": bool(self.calls)}
@@ -76,13 +79,13 @@ class _FakeHandler(Ops):
 def test_start_stop() -> None:
     h = _FakeHandler({"on": True, "topic": "設計", "persona": "devil"})
     h._set_talk_mode()
-    check("開始", h.talk.calls == [("start", "設計", "devil", None)] and h.sent["status"] == "ok", repr(h.sent))
+    check("開始", h.talk.calls == [("start", "設計", "devil", None, None)] and h.sent["status"] == "ok", repr(h.sent))
     h = _FakeHandler({"on": True})
     h._set_talk_mode()
-    check("persona 省略は None", h.talk.calls == [("start", "", None, None)], repr(h.talk.calls))
+    check("persona 省略は None", h.talk.calls == [("start", "", None, None, None)], repr(h.talk.calls))
     h = _FakeHandler({"on": True, "workdir": "~/work"})
     h._set_talk_mode()
-    check("作業ディレクトリを渡す", h.talk.calls == [("start", "", None, "~/work")], repr(h.talk.calls))
+    check("作業ディレクトリを渡す", h.talk.calls == [("start", "", None, "~/work", None)], repr(h.talk.calls))
     h = _FakeHandler({"on": True, "workdir": 3})
     h._set_talk_mode()
     check("文字列でない作業ディレクトリは拒否", h.sent.get("status") == "error" and h.talk.calls == [])
@@ -156,6 +159,26 @@ def test_preview() -> None:
     check("試聴でエンジン不達はエラー", h.sent == {"status": "error", "message": "down"}, repr(h.sent))
 
 
+def test_route() -> None:
+    h = _FakeHandler()
+    h._serve_talk_route_targets()
+    check("届ける先の候補を返す", h.sent == {"available": True, "targets": [{"app": "Chromium", "label": "Chromium — WebRTC"}]},
+          repr(h.sent))
+    h = _FakeHandler(client="10.0.0.9")
+    h._serve_talk_route_targets()
+    check("候補も外部からは拒否", h.sent.get("status") == "error")
+    h = _FakeHandler({"on": True, "route": "Chromium"})
+    h._set_talk_mode()
+    check("届ける先を渡す", h.talk.calls == [("start", "", None, None, "Chromium")], repr(h.talk.calls))
+    h = _FakeHandler({"on": True, "route": ""})
+    h._set_talk_mode()
+    check("空文字は届ける先なし", h.talk.calls == [("start", "", None, None, None)], repr(h.talk.calls))
+    for body, label in [({"on": True, "route": 3}, "文字列でない"), ({"on": True, "route": "x" * 201}, "長すぎる")]:
+        h = _FakeHandler(body)
+        h._set_talk_mode()
+        check(f"{label}届ける先は拒否", h.sent.get("status") == "error" and h.talk.calls == [], repr(h.sent))
+
+
 if __name__ == "__main__":
     test_voices()
     test_preview()
@@ -163,4 +186,5 @@ if __name__ == "__main__":
     test_start_error()
     test_validation()
     test_say_and_remote()
+    test_route()
     sys.exit(0 if all(results) else 1)

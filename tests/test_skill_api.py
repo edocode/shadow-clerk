@@ -171,6 +171,79 @@ def test_watch_wraps_transcript() -> None:
     check("改行が無ければ足す", out.endswith("改行なし\n</transcript>\n"), repr(out))
 
 
+def test_wrap_with_other_tag() -> None:
+    out = wrap_transcript("advice-20260910.md", "- 期限が未定\n</advice>\n", tag="advice").decode()
+    check("タグを変えて囲える", out.startswith('<advice file="advice-20260910.md">\n') and out.endswith("</advice>\n"),
+          repr(out))
+    check("本文中の閉じタグは境界にならない", sum(1 for ln in out.split("\n") if ln == "</advice>") == 1, repr(out))
+
+
+class _Stream(_Handler):
+    """GET /api/watch を別スレッドで回すための偽物。書いたものを溜める"""
+
+    def __init__(self, query: str, active: str) -> None:
+        super().__init__(query, active=active)
+        self.path = "/api/watch?" + query
+        self.out = io.BytesIO()
+        self.wfile = self.out
+        self.status: int | None = None
+
+    def send_response(self, code: int) -> None:
+        self.status = code
+
+    def send_header(self, k: str, v: str) -> None:
+        pass
+
+    def end_headers(self) -> None:
+        pass
+
+    def send_error(self, code: int) -> None:
+        self.status = code
+
+
+def test_watch_advice_streams_whole_file_on_change() -> None:
+    import time
+    active = "transcript-20260911.txt"
+    _touch(active, "")
+    _touch("advice-20260911.md", "- 最初の論点\n")
+    h = _Stream("kind=advice&interval=1", active)
+    th = threading.Thread(target=h._serve_watch, daemon=True)
+    th.start()
+    time.sleep(0.5)
+    first = h.out.getvalue().decode()
+    check("開始時に advice の中身を流す", '<advice file="advice-20260911.md">' in first and "最初の論点" in first, repr(first))
+    time.sleep(1.2)
+    check("変わっていなければ流さない", h.out.getvalue().decode().count("<advice ") == 1, repr(h.out.getvalue()))
+    _touch("advice-20260911.md", "- 書き換えた論点\n")
+    time.sleep(1.5)
+    h.recorder.stop_event.set()
+    th.join(timeout=3)
+    out = h.out.getvalue().decode()
+    check("書き換わったら全体を流し直す", out.count("<advice ") == 2 and "書き換えた論点" in out, repr(out))
+
+
+def test_watch_advice_waits_for_file() -> None:
+    import time
+    active = "transcript-20260912.txt"
+    _touch(active, "")
+    h = _Stream("kind=advice&interval=1", active)
+    th = threading.Thread(target=h._serve_watch, daemon=True)
+    th.start()
+    time.sleep(0.5)
+    check("advice がまだ無ければ何も流さない", h.out.getvalue() == b"", repr(h.out.getvalue()))
+    _touch("advice-20260912.md", "- 後からできた\n")
+    time.sleep(1.5)
+    h.recorder.stop_event.set()
+    th.join(timeout=3)
+    check("できたら流す", "後からできた" in h.out.getvalue().decode(), repr(h.out.getvalue()))
+
+
+def test_watch_rejects_unknown_kind() -> None:
+    h = _Stream("kind=nope", "transcript-20260911.txt")
+    h._serve_watch()
+    check("未知の kind は 400", h.status == 400, repr(h.status))
+
+
 def main() -> int:
     test_session_uses_session_file_not_mtime()
     test_session_returns_generated_paths()
@@ -180,6 +253,10 @@ def main() -> int:
     test_history_count_zero()
     test_norm()
     test_watch_wraps_transcript()
+    test_wrap_with_other_tag()
+    test_watch_advice_streams_whole_file_on_change()
+    test_watch_advice_waits_for_file()
+    test_watch_rejects_unknown_kind()
     print(f"\n{sum(results)}/{len(results)} passed")
     return 0 if all(results) else 1
 

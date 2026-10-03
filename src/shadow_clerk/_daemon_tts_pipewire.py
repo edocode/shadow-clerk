@@ -1,0 +1,135 @@
+"""Shadow-clerk daemon: 名前付きの PipeWire ストリームで TTS を鳴らす（pw-cat を常駐させる）
+
+sounddevice のストリームには名前を付けられず、会議アプリの入力に pw-link でつなぐ相手として見つけられない。
+talk mode の間だけ pw-cat を1本起動し、合成した PCM を標準入力に書く。ヘッドセットへは自動接続でつながる。
+"""
+from __future__ import annotations
+
+import json
+import logging
+import subprocess
+import threading
+import time
+from typing import Any, Callable
+
+import numpy as np
+
+from shadow_clerk._daemon_talk_route import Runner, run_command
+from shadow_clerk._daemon_tts import TtsError, resample
+from shadow_clerk.i18n import t
+
+logger = logging.getLogger("shadow-clerk")
+
+NODE_NAME = "shadow-clerk-talk"
+PWCAT_RATE = 48000
+_BLOCK = PWCAT_RATE // 10      # 0.1 秒ずつ書き、合間に should_stop を見る
+_PIPE_BYTES = _BLOCK * 2        # パイプを絞る（F_SETPIPE_SZ は 16KiB に丸めるので約 0.17 秒）。既定の 64KB だと止めても 0.7 秒鳴り続ける
+_F_SETPIPE_SZ = 1031
+
+
+class PwCatSink:
+    def __init__(self, popen: Callable[..., Any] = subprocess.Popen, runner: Runner = run_command,
+                 wait_sec: float = 2.0) -> None:
+        self._popen = popen
+        self._runner = runner
+        self._wait_sec = wait_sec
+        self._lock = threading.Lock()
+        self._proc: Any = None
+
+    def _spawn(self) -> Any:
+        """pw-cat を起動して _proc に据える。ロックを持って呼ぶ"""
+        try:
+            proc = self._popen(
+                ["pw-cat", "--playback", "--raw", "--rate", str(PWCAT_RATE), "--channels", "1", "--format", "s16",
+                 "-P", f'{{ node.name = "{NODE_NAME}" }}', "-"],
+                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            raise TtsError(t("talk.pwcat_no_node")) from e
+        try:
+            import fcntl  # POSIX のみ。Windows ではパイプを絞らず続ける
+            fcntl.fcntl(proc.stdin.fileno(), _F_SETPIPE_SZ, _PIPE_BYTES)
+        except (ImportError, OSError, ValueError) as e:
+            logger.debug("talk: パイプのバッファを絞れません: %s", e)
+        self._proc = proc
+        return proc
+
+    def _find_port(self) -> str | None:
+        try:
+            objs = json.loads(self._runner(["pw-dump"]))
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return None
+        nodes = {o["id"] for o in objs if o.get("type") == "PipeWire:Interface:Node"
+                 and ((o.get("info") or {}).get("props") or {}).get("node.name") == NODE_NAME}
+        for o in objs:
+            p = (o.get("info") or {}).get("props") or {}
+            if o.get("type") == "PipeWire:Interface:Port" and p.get("node.id") in nodes and p.get("port.direction") == "out":
+                return f"{NODE_NAME}:{p.get('port.name')}"
+        return None
+
+    def start(self) -> str:
+        with self._lock:
+            self._spawn()
+        deadline = time.monotonic() + self._wait_sec
+        while time.monotonic() < deadline:
+            port = self._find_port()
+            if port:
+                return port
+            time.sleep(0.05)
+        self.stop()
+        raise TtsError(t("talk.pwcat_no_node"))
+
+    def play(self, pcm: np.ndarray, sr: int, should_stop: Callable[[], bool]) -> None:
+        data = (np.clip(resample(pcm, sr, PWCAT_RATE), -1.0, 1.0) * 32767).astype("<i2")
+        for i in range(0, len(data), _BLOCK):
+            if should_stop():
+                return
+            self._write(data[i:i + _BLOCK].tobytes())
+
+    def _write(self, chunk: bytes) -> None:
+        """パイプへの書き込みはロックの外で行う（pw-cat が読まなくなっても stop が待たされないように）"""
+        with self._lock:
+            proc = self._proc
+        if proc is None:
+            return
+        try:
+            self._put(proc, chunk)
+            return
+        except (OSError, ValueError) as e:
+            err = e
+        with self._lock:
+            if self._proc is not proc:
+                logger.debug("talk: 停止中の書き込みが失敗しました: %s", err)
+                return  # stop 済み
+            logger.warning("talk: pw-cat が落ちたため起動し直します: %s", err)
+            new = self._spawn()  # つなぎ直しは経路の監視が拾う（ノード ID が変わるため）
+        self._reap(proc)
+        try:
+            self._put(new, chunk)
+        except (OSError, ValueError) as e:
+            with self._lock:
+                if self._proc is not new:
+                    return
+            raise TtsError(str(e)) from e
+
+    @staticmethod
+    def _put(proc: Any, chunk: bytes) -> None:
+        proc.stdin.write(chunk)
+        proc.stdin.flush()
+
+    @staticmethod
+    def _reap(proc: Any) -> None:
+        proc.terminate()  # 先に止めて、書き込み中のスレッドを EPIPE で抜けさせる
+        try:
+            proc.stdin.close()
+        except (OSError, ValueError):
+            pass
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+    def stop(self) -> None:
+        with self._lock:
+            proc, self._proc = self._proc, None
+        if proc is not None:
+            self._reap(proc)

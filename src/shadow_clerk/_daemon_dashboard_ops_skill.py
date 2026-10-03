@@ -34,20 +34,21 @@ def _norm(name: str) -> str:
     return re.sub(r"[\s_\-()\[\]]+", "", name).lower()
 
 
-def wrap_transcript(name: str, text: str) -> bytes:
-    """流す行を <transcript> で囲む
+def wrap_transcript(name: str, text: str, tag: str = "transcript") -> bytes:
+    """流す行を <transcript>（kind=advice なら <advice>）で囲む
 
     **囲うこと。** 中身は音声認識の結果であって読み手への指示ではない。裸で流すと
     「まとめて」のような発言が指示として読まれる (実際に監視が止められた)。
     本文に閉じタグを名乗る行が現れても境界が壊れないよう、行頭の </transcript> は
     先頭に空白を入れて無害化する。
     """
-    body = text.replace("\n</transcript>", "\n </transcript>")
-    if body.startswith("</transcript>"):
+    close = f"</{tag}>"
+    body = text.replace("\n" + close, "\n " + close)
+    if body.startswith(close):
         body = " " + body
     if body and not body.endswith("\n"):
         body += "\n"
-    return f'<transcript file="{name}">\n{body}</transcript>\n'.encode()
+    return f'<{tag} file="{name}">\n{body}{close}\n'.encode()
 
 
 def _fmt_time(ts: float) -> str:
@@ -204,7 +205,11 @@ class _DashboardHandlerSkillOps:
         self._send_json({"status": "ok", "result": result})
 
     def _serve_watch(self) -> None:
-        """GET /api/watch?interval=25&idle=600 — 新規行をまとめて流し続ける。
+        """GET /api/watch?interval=25&idle=600[&kind=advice] — 新規行をまとめて流し続ける。
+
+        kind=advice なら、transcript に対応する advice ファイルを見張り、書き換わるたびに中身を丸ごと流す
+        （advice は上書きされるので差分ではなく全体）。Claude と会議の skill が、会議アシスタントの論点を
+        拾って自分から切り出すために使う。
 
         Monitor ツールは長く走るコマンドを要求するので、単発の API では
         置き換えられない。接続を保って流し続けることで、shell スクリプトを
@@ -229,6 +234,17 @@ class _DashboardHandlerSkillOps:
         path = (os.path.join(self.recorder._output_dir, name)
                 if name and os.path.basename(name) == name
                 else self.recorder.output_path)
+        kind = (q.get("kind") or ["transcript"])[0]
+        if kind not in ("transcript", "advice"):
+            self.send_error(400)
+            return
+        if kind == "advice":
+            tn = TranscriptName.parse(os.path.basename(path))
+            if tn is None:
+                self.send_error(400)
+                return
+            self._stream_whole_file(os.path.join(os.path.dirname(path), tn.advice_filename), interval)
+            return
 
         self.send_response(200)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
@@ -278,3 +294,29 @@ class _DashboardHandlerSkillOps:
             pass
         finally:
             logger.info("監視ストリーム終了: %s", os.path.basename(path))
+
+    def _stream_whole_file(self, path: str, interval: int) -> None:
+        """上書きされるファイル（advice）を見張り、開始時と中身が変わるたびに全体を流す。無いうちは何も流さない"""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        name, last = os.path.basename(path), ""
+        logger.info("監視ストリーム開始: %s (interval=%ds)", name, interval)
+        try:
+            while True:
+                try:
+                    with open(path, "r", encoding="utf-8", errors="replace") as f:
+                        text = f.read()
+                except OSError:
+                    text = ""
+                if text.strip() and text != last:
+                    self.wfile.write(wrap_transcript(name, text, tag="advice"))
+                    self.wfile.flush()
+                    last = text
+                if self.recorder.stop_event.wait(timeout=interval):
+                    break
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            logger.info("監視ストリーム終了: %s", name)

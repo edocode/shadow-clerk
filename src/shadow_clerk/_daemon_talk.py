@@ -14,8 +14,10 @@ from typing import Any, Callable
 
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_talk_engine import TalkContext, TalkEngine, TalkStartError, make_engine
+from shadow_clerk._daemon_talk_route import TalkRoute, make_route
 from shadow_clerk._daemon_talk_prompt import filler_phrase, requested_language, resolve_talk_language
 from shadow_clerk._daemon_tts import TtsBackend, TtsError, TtsPlayer, make_backend, make_player
+from shadow_clerk._daemon_tts_pipewire import PwCatSink
 from shadow_clerk.domain import Language, Speaker, TalkPersona, TalkVoice, TranscriptLine
 from shadow_clerk.domain.ai_assistant import AiAssistantConfig
 from shadow_clerk.i18n import t
@@ -61,18 +63,24 @@ class TalkDriver:
                  backend_factory: Callable[[dict, TalkVoice | None], TtsBackend] = make_backend,
                  player_factory: Callable[[TtsBackend, dict, Callable[[str], None]], TtsPlayer] = make_player,
                  engine_factory: Callable[[str], TalkEngine] = make_engine,
+                 route_factory: Callable[[], TalkRoute] = make_route,
+                 sink_factory: Callable[[], Any] = PwCatSink,
                  clock: Callable[[], str] = now_timestamp) -> None:
         self._write_line = write_line
         self._config_loader = config_loader
         self._backend_factory = backend_factory
         self._player_factory = player_factory
         self._engine_factory = engine_factory
+        self._route_factory = route_factory
+        self._sink_factory = sink_factory
         self._clock = clock
         self._lock = threading.Lock()
         self._active = False
         self._engine: Any = None
         self._engine_name = ""
         self._player: Any = None
+        self._route: Any = None
+        self._sink: Any = None
         self._topic = ""
         self._persona: TalkPersona | None = None
         self._lang = Language.JA
@@ -84,7 +92,8 @@ class TalkDriver:
         self._stop_re: re.Pattern[str] | None = None
         self._said = 0  # 話した回数。つなぎのタイマーが「その後に話したか」を見る
 
-    def start(self, topic: str, persona: str | None, workdir: str | None = None) -> None:
+    def start(self, topic: str, persona: str | None, workdir: str | None = None,
+              route: str | None = None) -> None:
         with self._lock:
             if self._active:
                 return
@@ -98,16 +107,35 @@ class TalkDriver:
             lang = resolve_talk_language(requested_language(config), backend)
             chosen = TalkPersona.resolve(TalkPersona.all_from_config(config.get("talk_personas")),
                                          persona, config.get("talk_default_persona"))
-            player = self._player_factory(backend, config, self._report_error)
+            route_obj, sink = None, None
+            if route:
+                route_obj = self._route_factory()
+                if not route_obj.available():
+                    raise TalkStartError(t("talk.route_unavailable"))
+                sink = self._sink_factory()
+                try:
+                    source_port = sink.start()
+                except TtsError as e:
+                    raise TalkStartError(str(e)) from e
+                player = TtsPlayer(backend, sink.play, self._report_error)
+            else:
+                player = self._player_factory(backend, config, self._report_error)
             name = "headless" if config.get("talk_engine") == "headless" else "console"
             try:
+                if route_obj is not None:
+                    route_obj.connect(route, source_port)
                 engine = self._engine_factory(name)
                 engine.start(TalkContext(topic, chosen, lang, resolved, config,
                                          self._engine_say, self._engine_ended))
             except Exception:
+                if route_obj is not None:
+                    route_obj.disconnect()
+                if sink is not None:
+                    sink.stop()  # play スレッドが pw-cat への書き込みで詰まっていても、先に止めれば close が待たされない
                 player.close()
                 raise
             self._engine, self._engine_name, self._player = engine, name, player
+            self._route, self._sink = route_obj, sink
             self._topic, self._persona, self._lang = topic, chosen, lang
             self._language, self._workdir = lang.value, resolved
             self._credit, self._error = backend.credit(), ""
@@ -123,11 +151,26 @@ class TalkDriver:
                 return
             self._active = False
             engine, player = self._engine, self._player
-            self._engine = self._player = None
+            route, sink = self._route, self._sink
+            self._engine = self._player = self._route = self._sink = None
         # engine の後始末（子の終了待ち）と再生の後始末はロックの外で
         engine.stop()
+        if route is not None:
+            route.disconnect()
+        if sink is not None:
+            sink.stop()  # player.close の前に止める（play スレッドの書き込み待ちを解く）
         player.close()
         logger.info("talk: 終了")
+
+    def route_targets(self) -> dict:
+        """届ける先の候補。同じアプリの録音ストリームは1つにまとめる（つなぐときはアプリ単位）"""
+        route = self._route_factory()
+        if not route.available():
+            return {"available": False, "targets": []}
+        seen: dict[str, str] = {}
+        for target in route.targets():
+            seen.setdefault(target.app, target.label)
+        return {"available": True, "targets": [{"app": a, "label": label} for a, label in seen.items()]}
 
     @property
     def active(self) -> bool:
@@ -226,8 +269,10 @@ class TalkDriver:
         self._error = message
 
     def snapshot(self) -> dict:
+        route = self._route
         return {"active": self._active, "engine": self._engine_name, "topic": self._topic,
                 "persona": self._persona.name if self._persona else "",
                 "persona_instructions": self._persona.instructions if self._persona else "",
                 "language": self._language, "workdir": self._workdir,
-                "credit": self._credit, "error": self._error}
+                "credit": self._credit, "error": self._error,
+                "route": route.status() if route is not None else {"app": "", "connected": False}}

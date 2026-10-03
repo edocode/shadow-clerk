@@ -490,6 +490,13 @@ talk mode では、議題について Claude と声で議論できます。Claud
 `clerk-util install-skill` で入れます（2つまとめて入ります）。
 `clerk-talk` スキルが事前に許可するのは、`http://localhost` への自分の `curl` 呼び出し（と `Monitor`）だけです。
 それでも Claude Code が確認してきたら一度許可するか、同じ規則を Claude Code の設定に足してください。
+**Claude の声を会議に届ける（Linux・PipeWire）。** 開始モーダルの **Claude の声を届ける先** で会議アプリを選びます。
+shadow-clerk は名前付きの PipeWire ストリームから読み上げ、`pw-link` でそのアプリのマイク入力につなぐので、
+相手には自分のマイクの音と一緒に Claude の声が届き、自分にもヘッドセットから聞こえます。会議アプリがマイクを
+開き直しても、自動でつなぎ直します。会議アプリで自分をミュートすると Claude の声も届きません（同じ入力に
+入るため）。`pw-dump`・`pw-link`・`pw-cat` が必要で、ほかの環境では選べません。届ける先を選ぶと再生は PipeWire のデフォルト出力に出るため、
+`talk_output_devices` は使われません。
+
 任意の文を Claude の発言として読み上げることもできます:
 
 ```bash
@@ -501,8 +508,9 @@ curl -s -X POST localhost:8765/api/say -d '{"text":"こんにちは"}'
 | `talk_voicevox_url` | `http://localhost:50021` | VOICEVOX エンジン |
 | `talk_speaker_id` | `3` | VOICEVOX のスタイル ID |
 | `talk_speed` / `talk_pitch` / `talk_intonation` / `talk_volume` | `1.0` / `0.0` / `1.0` / `1.0` | 話速 (0.5〜2.0)・音高 (-0.15〜0.15)・抑揚 (0〜2)・音量 (0〜2) |
-| `talk_output_devices` | `[]` | 再生先のデバイス名（空ならデフォルト出力） |
+| `talk_output_devices` | `[]` | 再生先のデバイス名（空ならデフォルト出力）。届ける先を選んだときは使われず、pw-cat がデフォルト出力に鳴らす |
 | `talk_engine` | `console` | `console`（AI コンソール + clerk-talk スキル）または `headless`（`claude -p`） |
+| `talk_route_app` | `""` | 最後に選んだ「Claude の声を届ける先」のアプリ（開始モーダルの初期値） |
 | `talk_workdir` | `""` | 会話役の作業ディレクトリ（空なら `ai_assistant_workdir`、それも空ならホーム）。開始モーダルで毎回上書きできる |
 | `talk_model` | `""` | 会話役のモデル（空なら claude の既定）（headless のみ） |
 | `talk_allowed_tools` | `WebSearch,WebFetch,Read,Grep,Glob` | 会話中に使えるツール（`""` でなし）（headless のみ） |

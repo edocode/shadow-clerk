@@ -177,6 +177,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_talk_mode()
         elif path == "/api/talk-voices":
             self._serve_talk_voices()
+        elif path == "/api/talk-route-targets":
+            self._serve_talk_route_targets()
         elif path == "/api/misheard":
             self._serve_misheard()
         else:

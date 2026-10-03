@@ -9,6 +9,7 @@ function updateTalk(s){
   if(b){b.textContent=I18N[talkActive?'dash.talk_stop':'dash.talk_start'];b.classList.toggle('pri',talkActive);}
   const info=document.getElementById('talkInfo');if(!info)return;
   const parts=talkActive?[s.topic,s.persona,s.language,s.credit].filter(x=>x):[];
+  if(talkActive&&s.route&&s.route.app)parts.push('→ '+s.route.app+'（'+I18N[s.route.connected?'dash.talk_route_connected':'dash.talk_route_disconnected']+'）');
   if(s.error)parts.push('⚠ '+s.error);
   info.textContent=parts.join(' / ');
 }
@@ -25,19 +26,41 @@ async function fillPersonaSel(){
   Object.keys(ps).forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n;sel.appendChild(o);});
   sel.value=(def in ps)?def:'';
 }
+async function fillRouteSel(){
+  const sel=document.getElementById('talkRoute'),note=document.getElementById('talkRouteNote');
+  if(!sel)return;
+  let r={available:false,targets:[]},want='';
+  try{r=await(await fetch('/api/talk-route-targets')).json();}catch(e){}
+  try{want=(await(await fetch('/api/config')).json()).talk_route_app||'';}catch(e){}
+  sel.innerHTML='';
+  const none=document.createElement('option');none.value='';none.textContent=I18N['dash.talk_route_none'];sel.appendChild(none);
+  (r.targets||[]).forEach(t=>{const o=document.createElement('option');o.value=t.app;o.textContent=t.label;sel.appendChild(o);});
+  if(!r.available)want='';
+  if(want&&!(r.targets||[]).some(t=>t.app===want)){const o=document.createElement('option');o.value=want;o.textContent=want;sel.appendChild(o);}
+  sel.value=want;sel.disabled=!r.available;
+  note.textContent=r.available?'':I18N['dash.talk_route_unavailable'];
+}
 async function togTalk(){
   if(talkActive){await talkPost({on:false});return;}
   await fillPersonaSel();
+  await fillRouteSel();
   document.getElementById('talkTopic').value='';
   document.getElementById('talkErr').textContent='';
   document.getElementById('talkModal').classList.add('open');
 }
 function closeTalk(){document.getElementById('talkModal').classList.remove('open');}
 async function startTalk(){
+  const rs=document.getElementById('talkRoute');
   const r=await talkPost({on:true,topic:document.getElementById('talkTopic').value.trim(),
                           persona:document.getElementById('talkPersonaSel').value,
-                          workdir:document.getElementById('talkWorkdir').value.trim()||null});
-  if(r.status==='ok'){closeTalk();if(r.talk&&r.talk.engine==='console')selectConsoleRole('talk');}else document.getElementById('talkErr').textContent=r.message||'';
+                          workdir:document.getElementById('talkWorkdir').value.trim()||null,
+                          route:(rs&&!rs.disabled&&rs.value)||null});
+  if(r.status==='ok'){
+    const route=rs.value||'';
+    if(rs&&!rs.disabled)try{const cfg=await(await fetch('/api/config')).json();
+      if((cfg.talk_route_app||'')!==route){cfg.talk_route_app=route;
+        await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});}}catch(e){}
+    closeTalk();if(r.talk&&r.talk.engine==='console')selectConsoleRole('talk');}else document.getElementById('talkErr').textContent=r.message||'';
 }
 function personaAddRow(name,text,isDefault){
   const tr=document.createElement('tr');

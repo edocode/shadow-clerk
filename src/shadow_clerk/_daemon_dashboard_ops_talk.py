@@ -14,6 +14,7 @@ logger = logging.getLogger("shadow-clerk")
 _MAX_TOPIC_CHARS = 500
 _MAX_SAY_CHARS = 2000
 _MAX_WORKDIR_CHARS = 1000
+_MAX_ROUTE_CHARS = 200
 
 
 class _DashboardHandlerTalkOps:
@@ -39,6 +40,11 @@ class _DashboardHandlerTalkOps:
         except TtsError as e:
             self._send_json({"status": "error", "message": str(e)})
 
+    def _serve_talk_route_targets(self) -> None:
+        """GET /api/talk-route-targets — Claude の声を届ける先の候補"""
+        if not self._reject_remote():
+            self._send_json(self.recorder.talk.route_targets())
+
     def _talk_preview(self) -> None:
         """POST /api/talk-preview {text?, voice?} — 保存前の声で試し読みする。transcript には書かない"""
         data = read_local_json_body(self, "talk")
@@ -56,12 +62,12 @@ class _DashboardHandlerTalkOps:
         self._send_json({"status": "ok"})
 
     def _set_talk_mode(self) -> None:
-        """POST /api/talk-mode {on, topic?, persona?, workdir?} — persona は null で既定、"" で persona なし"""
+        """POST /api/talk-mode {on, topic?, persona?, workdir?, route?} — persona は null で既定、"" で persona なし"""
         data = read_local_json_body(self, "talk")
         if data is None:
             return
         on, topic, persona = data.get("on"), data.get("topic", ""), data.get("persona")
-        workdir = data.get("workdir")
+        workdir, route = data.get("workdir"), data.get("route")
         if not isinstance(on, bool):
             self._send_json({"status": "error", "message": "on must be a boolean"})
             return
@@ -74,12 +80,15 @@ class _DashboardHandlerTalkOps:
         if workdir is not None and (not isinstance(workdir, str) or len(workdir) > _MAX_WORKDIR_CHARS):
             self._send_json({"status": "error", "message": "workdir must be a short string"})
             return
+        if route is not None and (not isinstance(route, str) or len(route) > _MAX_ROUTE_CHARS):
+            self._send_json({"status": "error", "message": "route must be a short string"})
+            return
         talk = self.recorder.talk
         if not on:
             talk.stop()
         else:
             try:
-                talk.start(topic.strip(), persona, workdir)
+                talk.start(topic.strip(), persona, workdir, route or None)
             except TalkStartError as e:
                 self._send_json({"status": "error", "message": str(e)})
                 return
