@@ -129,7 +129,7 @@ class TalkDriver:
                 player = TtsPlayer(backend, sink.play, self._report_error)
             else:
                 player = self._player_factory(backend, config, self._report_error)
-            echo = EchoFilter(tail_sec=_float_setting(config, "talk_echo_tail_sec", 3.0, 0.0, 30.0),
+            echo = EchoFilter(tail_sec=_float_setting(config, "talk_echo_tail_sec", 1.0, 0.0, 30.0),
                               similarity=_float_setting(config, "talk_echo_similarity", 0.6, 0.0, 1.0))
             player.set_on_played(lambda text, s, e: echo.record(SpokenSpan(s, e, text)))
             name = "headless" if config.get("talk_engine") == "headless" else "console"

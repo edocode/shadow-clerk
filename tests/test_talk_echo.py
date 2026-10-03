@@ -72,6 +72,14 @@ def test_mangled_echo_dropped() -> None:
         check(f"言い違いの反響は捨てる: {t}", f.is_echo(104.0, 108.0, t))
 
 
+def test_reply_repeating_claude_kept() -> None:
+    # 既定の余裕では、Claude が話し終えてから話し始めた返事は、Claude の言葉を繰り返していても残す
+    f = EchoFilter()
+    f.record(SpokenSpan(100.0, 103.0, "明日の会議は10時からでよろしいですか"))
+    check("話し終えた後に始まる返事は残す", not f.is_echo(104.2, 106.0, "はい、明日の会議は10時からで大丈夫です"))
+    check("読み上げ中に始まる反響は捨てる", f.is_echo(100.2, 104.0, "明日の会議は10時からでよろしいですか"))
+
+
 if __name__ == "__main__":
     test_normalize()
     test_echo_detected()
@@ -79,4 +87,5 @@ if __name__ == "__main__":
     test_old_history_dropped()
     test_ordinary_replies_kept()
     test_mangled_echo_dropped()
+    test_reply_repeating_claude_kept()
     sys.exit(0 if all(results) else 1)

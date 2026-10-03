@@ -36,7 +36,7 @@ class EchoFilter:
     6文字未満の行は常に相手の発言とみなし、3文字以上連続して一致した部分だけを類似度に数える。
     """
 
-    def __init__(self, tail_sec: float = 3.0, similarity: float = 0.6, keep_sec: float = 60.0) -> None:
+    def __init__(self, tail_sec: float = 1.0, similarity: float = 0.6, keep_sec: float = 60.0) -> None:
         self._tail = tail_sec
         self._similarity = similarity
         self._keep = keep_sec

@@ -517,7 +517,7 @@ curl -s -X POST localhost:8765/api/say -d '{"text":"こんにちは"}'
 | `talk_output_devices` | `[]` | 再生先のデバイス名（空ならデフォルト出力）。届ける先を選んだときは使われず、pw-cat がデフォルト出力に鳴らす |
 | `talk_engine` | `console` | `console`（AI コンソール + clerk-talk スキル）または `headless`（`claude -p`） |
 | `talk_route_app` | `""` | 最後に選んだ「Claude の声を届ける先」のアプリ（開始モーダルの初期値） |
-| `talk_echo_tail_sec` | `3.0` | Claude が話し終えてから、一致する monitor の行を Claude 自身の声とみなす秒数 |
+| `talk_echo_tail_sec` | `1.0` | Claude が話し終えてからこの秒数までに始まった、一致する monitor の行を Claude 自身の声とみなす。それより後に始まった返事は、Claude の言葉を繰り返していても残す |
 | `talk_echo_similarity` | `0.6` | monitor の行が Claude の読み上げとこの割合（0〜1）以上一致したら捨てる |
 | `talk_workdir` | `""` | 会話役の作業ディレクトリ（空なら `ai_assistant_workdir`、それも空ならホーム）。開始モーダルで毎回上書きできる |
 | `talk_model` | `""` | 会話役のモデル（空なら claude の既定）（headless のみ） |

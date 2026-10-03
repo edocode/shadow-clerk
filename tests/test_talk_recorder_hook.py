@@ -61,7 +61,7 @@ def _lines(rec: _Rec) -> list[str]:
 
 
 def _run(rec: _Rec, source: str, last: Speaker | None = None) -> None:
-    rec._process_transcribe_item(np.zeros(16000, dtype=np.float32), "2026-10-02 10:00:00",
+    rec._process_transcribe_item(np.zeros(16000, dtype=np.float32), "2026-10-02 10:00:00", 1000.25,
                                  source, False, {"mic": "自分", "monitor": "相手"}, last)
 
 
@@ -84,8 +84,7 @@ def test_echo_dropped_other_side_kept() -> None:
     rec = _Rec(talk, said="相手の発言です")
     _run(rec, "monitor")
     check("相手の発言は [相手] で書く", _lines(rec) == ["[2026-10-02 10:00:00] [相手] 相手の発言です"], repr(_lines(rec)))
-    s, e = talk.echo_calls[-1][1], talk.echo_calls[-1][2]
-    check("区間は確定時刻と音声の長さから渡す", 0.9 <= e - s <= 2.1, repr(talk.echo_calls[-1]))
+    check("区間は録音側が測った開始時刻と音声の長さから渡す", talk.echo_calls[-1][1:3] == (1000.25, 1001.25), repr(talk.echo_calls[-1]))
 
 
 def test_inactive() -> None:

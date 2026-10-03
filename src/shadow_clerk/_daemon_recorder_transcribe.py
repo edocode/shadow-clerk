@@ -3,7 +3,6 @@
 翻訳ループ・中間翻訳・LLMクエリは _daemon_recorder_translate.py 参照。
 """
 from __future__ import annotations
-import datetime
 import json
 import logging
 import os
@@ -88,15 +87,7 @@ class _RecorderTranscribeMixin:
         # 直前が同じ話者 or 不明 → スキップ
         return True
 
-    def _is_echo(self, source: str, timestamp: str, duration: float, text: str) -> bool:
-        """確定時刻（秒に丸めた文字列）と長さから区間を作り、Claude 自身の声か talk に尋ねる"""
-        try:
-            end = datetime.datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S").timestamp() + 1.0
-        except ValueError:
-            return False
-        return self.talk.is_echo(source, end - 1.0 - duration, end, text)
-
-    def _process_transcribe_item(self, segment: Any, timestamp: str, source: str,
+    def _process_transcribe_item(self, segment: Any, timestamp: str, seg_start: float, source: str,
                                  command_mode: bool, display_labels: dict[str, str],
                                  last_file_speaker: Speaker | None) -> Speaker | None:
         """キューから取り出した1セグメントを文字起こし・書き込みし、更新後の直前話者を返す"""
@@ -161,7 +152,7 @@ class _RecorderTranscribeMixin:
                 self.output_path = new_path
 
         text = self.word_replacer.apply(text, self.transcriber.language)
-        if self._is_echo(source, timestamp, duration, text):
+        if self.talk.is_echo(source, seg_start, seg_start + duration, text):
             logger.debug("talk: Claude 自身の声として捨てる: %r", text.strip())
             return last_file_speaker
         file_speaker = Speaker.from_source(source)
@@ -201,12 +192,12 @@ class _RecorderTranscribeMixin:
 
         while not self.stop_event.is_set():
             try:
-                segment, timestamp, source, command_mode = self.transcribe_queue.get(timeout=1.0)
+                segment, timestamp, source, command_mode, seg_start = self.transcribe_queue.get(timeout=1.0)
             except queue.Empty:
                 continue
             try:
                 last_file_speaker = self._process_transcribe_item(
-                    segment, timestamp, source, command_mode, display_labels, last_file_speaker)
+                    segment, timestamp, seg_start, source, command_mode, display_labels, last_file_speaker)
             except Exception:
                 # ここでスレッドが死ぬと以降の文字起こしが無言で全停止するため、
                 # セグメント単位でエラーを記録して継続する
@@ -215,7 +206,7 @@ class _RecorderTranscribeMixin:
         # キュー残りを処理（VAD スレッドの flush がまだ put していない可能性があるため猶予付き）
         while True:
             try:
-                segment, timestamp, source, _ = self.transcribe_queue.get(timeout=2.0)
+                segment, timestamp, source, _, seg_start = self.transcribe_queue.get(timeout=2.0)
             except queue.Empty:
                 break
             if self.talk.is_suppressed(source):
@@ -226,7 +217,7 @@ class _RecorderTranscribeMixin:
                 text = self.transcriber.transcribe(segment)
                 if text.strip():
                     text = self.word_replacer.apply(text, self.transcriber.language)
-                    if self._is_echo(source, timestamp, len(segment) / SAMPLE_RATE, text):
+                    if self.talk.is_echo(source, seg_start, seg_start + len(segment) / SAMPLE_RATE, text):
                         continue
                     if self._is_noise_text(text):
                         continue

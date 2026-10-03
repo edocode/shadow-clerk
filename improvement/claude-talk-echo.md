@@ -32,7 +32,7 @@ shadow-clerk は、いつ・何を読み上げたかを知っている。monitor
 ### Domain: `domain/talk_echo.py`
 
 - `SpokenSpan(start: float, end: float, text: str)`（frozen dataclass）— 実際に鳴った1文の区間（epoch 秒）と文
-- `EchoFilter(tail_sec: float = 3.0, similarity: float = 0.6, keep_sec: float = 60.0)`
+- `EchoFilter(tail_sec: float = 1.0, similarity: float = 0.6, keep_sec: float = 60.0)`
   - `record(span: SpokenSpan) -> None` — 履歴に足す。`keep_sec` より古いものは捨てる
   - `is_echo(seg_start: float, seg_end: float, text: str) -> bool`
     1. 時間: 区間 `[seg_start, seg_end]` が、どれかの `[span.start, span.end + tail_sec]` と重なる
@@ -60,16 +60,18 @@ shadow-clerk は、いつ・何を読み上げたかを知っている。monitor
 ### 文字起こし側（`_daemon_recorder_transcribe.py`）
 
 - `_process_transcribe_item` で、本文が決まったあと（`word_replacer.apply` の後、ノイズ・応答フィルタの前）に
-  `self.talk.is_echo(source, seg_end - duration, seg_end, text)` を尋ね、真なら書かずに debug ログを出して捨てる
-  - `seg_end` は `timestamp`（区間が確定した時刻、秒単位の文字列）を epoch に直したもの、`duration` は
-    `len(segment) / SAMPLE_RATE`。`timestamp` は秒に丸められているので、`tail_sec` の余裕で吸収する
+  `self.talk.is_echo(source, seg_start, seg_start + duration, text)` を尋ね、真なら書かずに debug ログを出して捨てる
+  - `seg_start` は VAD スレッドが区間の確定時に `time.time() - len(segment) / SAMPLE_RATE` で測り、キューの要素に
+    載せる（epoch 秒）。`duration` は `len(segment) / SAMPLE_RATE`。秒に丸めた `timestamp` からは作らない。
+    丸めの誤差に `tail_sec` を広げて対応すると、Claude が話し終えた直後に始まる返事（Claude の言葉を繰り返す
+    確認など）まで捨ててしまうため
 - 終了時にキューの残りを処理する経路にも同じ判定を入れる
 
 ### Config
 
 | キー | 既定値 | 説明 |
 |---|---|---|
-| `talk_echo_tail_sec` | `3.0` | 読み上げ終了後、Claude の声とみなす余裕（秒） |
+| `talk_echo_tail_sec` | `1.0` | 読み上げ終了後この秒数までに始まった行を Claude の声とみなす（再生・録音の遅れの吸収） |
 | `talk_echo_similarity` | `0.6` | 読み上げた文との一致度がこれ以上なら Claude の声とみなす（0〜1） |
 
 ## Error Handling

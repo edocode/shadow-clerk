@@ -519,7 +519,7 @@ curl -s -X POST localhost:8765/api/say -d '{"text":"Hello"}'
 | `talk_output_devices` | `[]` | Output device names (empty = default output). Not used when a route is set; pw-cat plays to the default output |
 | `talk_engine` | `console` | `console` (AI Console + clerk-talk skill) or `headless` (`claude -p`) |
 | `talk_route_app` | `""` | Last app chosen under "Send Claude's voice to" (start-dialog default) |
-| `talk_echo_tail_sec` | `3.0` | Seconds after Claude stops speaking during which matching monitor lines are treated as Claude's own voice |
+| `talk_echo_tail_sec` | `1.0` | A matching monitor line that starts within this many seconds after Claude stops speaking is treated as Claude's own voice. Replies that start later are kept even if they repeat Claude's words |
 | `talk_echo_similarity` | `0.6` | How closely (0–1) a monitor line must match Claude's speech to be dropped |
 | `talk_workdir` | `""` | Working directory for the talk session (empty = `ai_assistant_workdir`, then home). The start dialog can override it per session |
 | `talk_model` | `""` | Model for the talk session (empty = claude default) (headless only) |
