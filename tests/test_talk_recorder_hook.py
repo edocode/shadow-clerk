@@ -22,12 +22,17 @@ def check(label: str, ok: bool, detail: str = "") -> None:
 
 
 class _Talk:
-    def __init__(self, active: bool) -> None:
-        self.active = active
+    def __init__(self, active: bool, route: bool = False) -> None:
+        self.active, self.route = active, route
         self.self_lines: list[TranscriptLine] = []
+        self.echo_calls: list[tuple] = []
 
     def is_suppressed(self, source: str) -> bool:
-        return self.active and source == "monitor"
+        return self.active and source == "monitor" and not self.route
+
+    def is_echo(self, source: str, s: float, e: float, text: str) -> bool:
+        self.echo_calls.append((source, s, e, text))
+        return self.active and self.route and source == "monitor" and "Claude の声" in text
 
     def on_self_line(self, line: TranscriptLine) -> None:
         self.self_lines.append(line)
@@ -70,6 +75,19 @@ def test_suppress_monitor() -> None:
     check("[自分] 行を通知する", [tl.speaker for tl in talk.self_lines] == [Speaker.SELF])
 
 
+def test_echo_dropped_other_side_kept() -> None:
+    talk = _Talk(active=True)
+    talk.route = True
+    rec = _Rec(talk, said="これは Claude の声です")
+    _run(rec, "monitor")
+    check("届け先ありの talk mode で Claude の声は書かない", _lines(rec) == [], repr(_lines(rec)))
+    rec = _Rec(talk, said="相手の発言です")
+    _run(rec, "monitor")
+    check("相手の発言は [相手] で書く", _lines(rec) == ["[2026-10-02 10:00:00] [相手] 相手の発言です"], repr(_lines(rec)))
+    s, e = talk.echo_calls[-1][1], talk.echo_calls[-1][2]
+    check("区間は確定時刻と音声の長さから渡す", 0.9 <= e - s <= 2.1, repr(talk.echo_calls[-1]))
+
+
 def test_inactive() -> None:
     talk = _Talk(active=False)
     rec = _Rec(talk)
@@ -101,5 +119,6 @@ if __name__ == "__main__":
     test_short_reply_kept_in_talk_mode()
     test_suppress_monitor()
     test_inactive()
+    test_echo_dropped_other_side_kept()
     test_append_line()
     sys.exit(0 if all(results) else 1)

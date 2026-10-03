@@ -50,6 +50,10 @@ class _Player:
         self.on_error = on_error
         self.speaking = ""
         self.interrupts = 0
+        self.on_played = None
+
+    def set_on_played(self, fn) -> None:
+        self.on_played = fn
 
     def speak(self, text: str) -> None:
         self.spoken.append(text)
@@ -203,6 +207,9 @@ class _RoutePlayer:
     def __init__(self, *_a: object, **_k: object) -> None:
         pass
 
+    def set_on_played(self, fn: Callable[[str, float, float], None]) -> None:
+        pass
+
     def close(self, discard_pending: bool = True) -> None:
         if self.wait_for is not None:
             self.wait_for.wait(5)
@@ -287,6 +294,32 @@ def test_route_connect_failure() -> None:
         check("connect の失敗で例外が出る", False)
     except RuntimeError:
         check("connect の失敗で経路と pw-cat を片付ける", route.disconnected and sink.stopped and not d.active)
+
+
+def test_echo_with_route() -> None:
+    route, sink = _Route(), _Sink()
+    d, _w, made = _driver(route_factory=lambda: route, sink_factory=lambda: sink,
+                          talk_echo_tail_sec=3.0, talk_echo_similarity=0.6)
+    d.start("x", None, None, "Chromium")
+    try:
+        check("届け先ありなら monitor を文字起こし前に捨てない", not d.is_suppressed("monitor"))
+        now = time.time()
+        d._player._on_played("それはいい考えですね。", now - 2, now - 1)  # 経路ありは本物の TtsPlayer
+        check("読み上げと重なり似ていれば Claude の声", d.is_echo("monitor", now - 2, now, "それはいい考えですね"))
+        check("文が違えば相手の発言", not d.is_echo("monitor", now - 2, now, "来週の金曜でどうでしょう"))
+        check("mic の行は判定しない", not d.is_echo("mic", now - 2, now, "それはいい考えですね"))
+    finally:
+        d.stop()
+    check("talk mode を終えたら判定しない", not d.is_echo("monitor", time.time() - 2, time.time(), "それはいい考えですね"))
+
+
+def test_no_route_keeps_suppressing_monitor() -> None:
+    d, _w, made = _driver()
+    d.start("x", None)
+    check("届け先なしなら従来どおり monitor を捨てる", d.is_suppressed("monitor"))
+    check("届け先なしでは is_echo は偽", not d.is_echo("monitor", 0, 1, "なにか"))
+    check("再生の通知を受け取る口を渡している", made["player"].on_played is not None)
+    d.stop()
 
 
 def test_route_targets() -> None:
@@ -472,4 +505,6 @@ if __name__ == "__main__":
     test_route_failures()
     test_route_connect_failure()
     test_route_targets()
+    test_echo_with_route()
+    test_no_route_keeps_suppressing_monitor()
     sys.exit(0 if all(results) else 1)

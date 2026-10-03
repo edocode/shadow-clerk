@@ -3,6 +3,7 @@
 翻訳ループ・中間翻訳・LLMクエリは _daemon_recorder_translate.py 参照。
 """
 from __future__ import annotations
+import datetime
 import json
 import logging
 import os
@@ -87,6 +88,14 @@ class _RecorderTranscribeMixin:
         # 直前が同じ話者 or 不明 → スキップ
         return True
 
+    def _is_echo(self, source: str, timestamp: str, duration: float, text: str) -> bool:
+        """確定時刻（秒に丸めた文字列）と長さから区間を作り、Claude 自身の声か talk に尋ねる"""
+        try:
+            end = datetime.datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S").timestamp() + 1.0
+        except ValueError:
+            return False
+        return self.talk.is_echo(source, end - 1.0 - duration, end, text)
+
     def _process_transcribe_item(self, segment: Any, timestamp: str, source: str,
                                  command_mode: bool, display_labels: dict[str, str],
                                  last_file_speaker: Speaker | None) -> Speaker | None:
@@ -152,6 +161,9 @@ class _RecorderTranscribeMixin:
                 self.output_path = new_path
 
         text = self.word_replacer.apply(text, self.transcriber.language)
+        if self._is_echo(source, timestamp, duration, text):
+            logger.debug("talk: Claude 自身の声として捨てる: %r", text.strip())
+            return last_file_speaker
         file_speaker = Speaker.from_source(source)
 
         # ノイズフィルタ: 短い感嘆語（「あっ」「ピッ」等）
@@ -214,6 +226,8 @@ class _RecorderTranscribeMixin:
                 text = self.transcriber.transcribe(segment)
                 if text.strip():
                     text = self.word_replacer.apply(text, self.transcriber.language)
+                    if self._is_echo(source, timestamp, len(segment) / SAMPLE_RATE, text):
+                        continue
                     if self._is_noise_text(text):
                         continue
                     if self._should_skip_response(text, file_speaker, last_file_speaker):
