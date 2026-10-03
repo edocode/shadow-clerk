@@ -14,7 +14,7 @@ import time
 
 from shadow_clerk.i18n import t
 from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name
-from shadow_clerk.domain import MeetingSession
+from shadow_clerk.domain import MEETING_END_MARKER, MeetingSession, meeting_start_marker
 from shadow_clerk._daemon_constants import (
     SESSION_FILE,
     VOICE_CMD_PREFIX, VOICE_CMD_SUFFIX, VOICE_COMMANDS,
@@ -509,9 +509,8 @@ class _RecorderCommandMixin:
             filename = now.strftime(f"transcript-%Y%m%d%H%M{name_suffix}.txt")
             with self.transcript_lock:
                 self.output_path = os.path.join(self._output_dir, filename)
-                marker = f"--- 会議開始 {now.strftime('%Y-%m-%d %H:%M')} ---\n"
                 with open(self.output_path, "a", encoding="utf-8") as f:
-                    f.write(marker)
+                    f.write(meeting_start_marker(now))
             self.current_session = MeetingSession.start(self.output_path, now)
             with open(SESSION_FILE, "w", encoding="utf-8") as f:
                 f.write(self.output_path)
@@ -521,7 +520,7 @@ class _RecorderCommandMixin:
             self._maybe_start_analysis(self.output_path)
 
         elif cmd == "end_meeting":
-            marker = "--- 会議終了 ---\n"
+            marker = MEETING_END_MARKER
             with self.transcript_lock:
                 session_transcript = self.output_path
                 with open(session_transcript, "a", encoding="utf-8") as f:

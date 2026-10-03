@@ -7,6 +7,13 @@ from dataclasses import dataclass
 
 from shadow_clerk._transcript_name import TranscriptName
 
+# 会議ファイルの区切り行。録音中の会議も、後から切り出した会議も同じ形で書く
+MEETING_END_MARKER = "--- 会議終了 ---\n"
+
+
+def meeting_start_marker(started_at: datetime.datetime) -> str:
+    return f"--- 会議開始 {started_at.strftime('%Y-%m-%d %H:%M')} ---\n"
+
 
 @dataclass(frozen=True)
 class MeetingSession:

@@ -7,12 +7,22 @@ onclick からしか呼ばれない。core の esc / curFile / fileInfo など�
 
 _JS_TEMPLATE_MODALS = """\
 /* --- Bulk delete modal --- */
-function openBulkDelModal(){
-  const sel=getSelectedLines();if(!sel.length)return;
+// 消す行。「範囲内のすべて」なら選んだ2行の間の行も含む。プレビューと削除で必ずこれを使う
+// (プレビューが選んだ行だけを見せたまま、間の行まで消していた)
+function bulkDelTargets(){
+  const sel=getSelectedLines();
+  const mode=document.querySelector('input[name="bulkDelMode"]:checked');
+  if(!(mode&&mode.value==='range'&&sel.length===2))return sel;
+  const ts0=sel[0].dataset.ts||'';const ts1=sel[1].dataset.ts||'';
+  const tsMin=ts0<ts1?ts0:ts1;const tsMax=ts0<ts1?ts1:ts0;
+  return Array.from(document.querySelectorAll('#tp .ln[data-ts]'))
+    .filter(ln=>{const ts=ln.dataset.ts||'';return ts>=tsMin&&ts<=tsMax;});
+}
+function renderBulkDelPreview(){
   const tDiv=document.getElementById('bulkDelTranscript');
   const rDiv=document.getElementById('bulkDelTranslation');
   tDiv.innerHTML='';rDiv.innerHTML='';
-  sel.forEach(ln=>{
+  bulkDelTargets().forEach(ln=>{
     const d=document.createElement('div');d.textContent=ln.dataset.raw||ln.textContent;tDiv.appendChild(d);
     const ts=ln.dataset.ts||'';
     if(ts){
@@ -22,24 +32,19 @@ function openBulkDelModal(){
     }
   });
   if(!rDiv.children.length){const d=document.createElement('div');d.textContent='—';rDiv.appendChild(d);}
+}
+function openBulkDelModal(){
+  const sel=getSelectedLines();if(!sel.length)return;
   const rangeOpt=document.getElementById('bulkDelRangeOpt');
   if(sel.length===2){rangeOpt.style.display='';document.querySelector('input[name="bulkDelMode"][value="range"]').checked=true;}
   else{rangeOpt.style.display='none';}
+  renderBulkDelPreview();
   document.getElementById('bulkDelModal').classList.add('open');
 }
 function closeBulkDelModal(){document.getElementById('bulkDelModal').classList.remove('open');
   const r=document.querySelector('input[name="bulkDelMode"][value="range"]');if(r)r.checked=true;}
 async function doBulkDel(){
-  const sel=getSelectedLines();if(!sel.length)return;
-  const mode=document.querySelector('input[name="bulkDelMode"]:checked');
-  const isRange=mode&&mode.value==='range'&&sel.length===2;
-  let targets=sel;
-  if(isRange){
-    const ts0=sel[0].dataset.ts||'';const ts1=sel[1].dataset.ts||'';
-    const tsMin=ts0<ts1?ts0:ts1;const tsMax=ts0<ts1?ts1:ts0;
-    const allLn=document.querySelectorAll('#tp .ln[data-ts]');
-    targets=Array.from(allLn).filter(ln=>{const ts=ln.dataset.ts||'';return ts>=tsMin&&ts<=tsMax;});
-  }
+  const targets=bulkDelTargets();if(!targets.length)return;
   const lines=targets.map(ln=>ln.dataset.raw||'').filter(Boolean);
   const file=document.getElementById('tf').textContent;
   try{
@@ -92,6 +97,13 @@ async function doFileDel(){
     else{alert(I18N[errKey]||d.message||'Error');}
   }catch(e){alert(I18N[errKey]||'Error');}
 }
+/* --- Toast --- */
+// 数秒で消える知らせ。alert は閉じるまで画面ごと止めるので、成功の知らせには使わない
+function showToast(msg){
+  const el=document.createElement('div');el.className='toast';el.textContent=msg;
+  document.body.appendChild(el);setTimeout(()=>el.remove(),4000);
+}
+
 /* --- Extract meeting modal --- */
 function _dtPlusDays(dateStr,n){
   // new Date('YYYY-MM-DD') は UTC 解釈になり、UTC より遅いタイムゾーンで1日ずれるため
@@ -188,7 +200,7 @@ async function doExtractMeeting(){
       if(d.status==='ok'){
         deselectAll();closeExtractModal();
         loadFiles();loadT(curFile);loadR(curFile);
-        if(d.message)alert(d.message);
+        if(d.message)showToast(d.message);
       }else{alert(d.message||I18N['dash.extract_split_error']||'Failed');}
     }catch(e){alert(I18N['dash.extract_split_error']||'Failed');}
     return;
@@ -214,7 +226,7 @@ async function doExtractMeeting(){
     if(d.status==='ok'){
       deselectAll();closeExtractModal();
       loadFiles();loadT(curFile);loadR(curFile);
-      if(d.message)alert(d.message);
+      if(d.message)showToast(d.message);
     }else{alert(d.message||I18N['dash.extract_meeting_error']||'Failed');}
   }catch(e){alert(I18N['dash.extract_meeting_error']||'Failed');}
 }
