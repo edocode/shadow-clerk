@@ -220,11 +220,8 @@ class TtsPlayer:
                 start = time.time()
                 self._play(pcm, sr, lambda: self._stale(gen))
                 end = time.time()
-                if self._on_played is not None:
-                    try:
-                        self._on_played(text, start, end)
-                    except Exception as e:  # 通知の失敗で再生を止めない
-                        logger.warning("talk: 再生の通知に失敗: %s", e)
+                if (notify := self._on_played) is not None:
+                    notify(text, start, end)
             except Exception as e:
                 logger.warning("talk: 再生に失敗: %s", e)
                 self._on_error(str(e))

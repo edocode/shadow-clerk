@@ -92,11 +92,14 @@ def test_on_played() -> None:
     check("鳴らし終えた文ごとに知らせる（失敗した文は除く）", texts == ["あ。", "かか。"], repr(texts))
     check("start <= end で、実際の再生時間を持つ", all(t0 <= s <= e and e - s >= 0.04 for _t, s, e in played), repr(played))
 
-    p2 = TtsPlayer(_FakeBackend(), lambda pcm, sr, stop: None, lambda _m: None)
+    plays: list[float] = []
+    errors: list[str] = []
+    p2 = TtsPlayer(_FakeBackend(), lambda pcm, sr, stop: plays.append(float(pcm[0])), errors.append)
     p2.set_on_played(lambda text, s, e: (_ for _ in ()).throw(ValueError("boom")))
-    p2.speak("あ。いい。")
+    p2.speak("あ。いい。ううう。")
     p2.close(discard_pending=False)
-    check("on_played の例外で再生スレッドは止まらない", True)
+    check("on_played の例外で再生スレッドは止まらない", plays == [2.0, 3.0, 4.0], repr(plays))
+    check("on_played の例外は on_error に流さない", errors == [], repr(errors))
 
 
 def _wav_bytes(samples: np.ndarray, sr: int) -> bytes:
