@@ -545,6 +545,10 @@ curl -s -X POST localhost:8765/api/say -d '{"text":"こんにちは"}'
 Claude は自分の判断で聞き取りをやめません。会話が終わりそうなときは先に尋ね、はっきり終えてよいと返事があったときだけ
 `POST /api/talk-end` で talk mode を終えます。読み上げ中の文は言い終えてから終わります。
 
+別の言語で話したいときは（検出言語が `ja` のまま英語を話すとカタカナで起こされるので、英語の練習など）、Claude に
+そう伝えてください。`POST /api/language`（`{"language": "en"}`、または `"auto"`）で検出言語を切り替え、会話を
+終える前に元に戻します。
+
 | キー | 既定値 | 説明 |
 |---|---|---|
 | `talk_voicevox_url` | `http://localhost:50021` | VOICEVOX エンジン |

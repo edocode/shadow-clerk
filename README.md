@@ -548,6 +548,10 @@ curl -s -X POST localhost:8765/api/say -d '{"text":"Hello"}'
 Claude never stops listening on its own: when the conversation seems to be over, it asks first, and only on a
 clear yes does it end talk mode with `POST /api/talk-end`. That call lets the sentence being spoken finish first.
 
+If you want to speak another language (for example to practise English while the recognition language is `ja`,
+which would turn English into katakana), just tell Claude: it switches the recognition language with
+`POST /api/language` (`{"language": "en"}`, or `"auto"`) and switches back before the conversation ends.
+
 | Key | Default | Description |
 |---|---|---|
 | `talk_voicevox_url` | `http://localhost:50021` | VOICEVOX engine |
