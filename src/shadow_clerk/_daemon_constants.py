@@ -2,6 +2,7 @@
 
 import os
 import re
+import sys
 from shadow_clerk import DATA_DIR, CONFIG_FILE
 
 # --- オプショナル依存パッケージ ---
@@ -73,8 +74,12 @@ VIRTUAL_ROWS = 10000
 # 一方で実行数を VIRTUAL_ROWS 本体に合わせると、Windows の ConPTY 上で
 # Claude Code の fullscreen レンダラーが壊れ、本文の直後から入力欄の手前
 # (2000行超) までが常に空行になる現象を確認した(Linux の POSIX pty では
-# 再現しない)。実端末らしい行数を伝えて回避する。
-CONSOLE_PTY_ROWS = 50
+# 再現しない)。Windows だけ実端末らしい行数を伝えて回避する。
+# POSIX pty では VIRTUAL_ROWS のまま伝える。低く伝えると、子が行番号を絶対
+# 指定する描画や全面の描き直しが grid の上端 (0〜49 行) に入り、その下に古い
+# 画面が残る。クライアントは max_row までを見せるので、古い入力欄だけが見え、
+# 打った文字が上端の見えない位置に出て「入力できない」ように見える。
+CONSOLE_PTY_ROWS = 50 if sys.platform == "win32" else VIRTUAL_ROWS
 DEFAULT_COLS = 120
 # ブラウザが決めた列数を覚えておく先。デーモンを再起動するたびに 120 桁へ
 # 戻ると、子はページが幅を報せてくるまでその幅で描き、その履歴が残る
