@@ -44,15 +44,15 @@ shadow-clerk は、いつ・何を読み上げたかを知っている。monitor
 
 ### TTS: 実際に鳴った区間を知らせる
 
-- `TtsPlayer.__init__(..., on_played: Callable[[str, float, float], None] | None = None)` — 1文を
-  鳴らし始めた時点で、開始時刻から音声の長さぶんの区間 `on_played(text, start, end)` を知らせる（`time.time()`）。
+- `TtsPlayer.set_on_played(fn: Callable[[str, float, float], None] | None)` — 1文を
+  鳴らし始めた時点で、開始時刻から音声の長さぶんの区間 `fn(text, start, end)` を知らせる（`time.time()`）。
   再生に失敗した文も記録される（実害は小さい）
-- `make_player` と、経路ありのとき driver が直接作る `TtsPlayer` の両方に渡す
+- コンストラクタや `make_player` の引数ではなく、`TalkDriver` がプレーヤーを作った後に設定する
 
 ### TalkDriver
 
 - `EchoFilter` を1つ持つ（設定 `talk_echo_tail_sec`・`talk_echo_similarity` から作る。開始ごとに作り直す）
-- `TtsPlayer` に `on_played=lambda text, s, e: echo.record(SpokenSpan(s, e, text))` を渡す
+- プレーヤー作成後に `player.set_on_played(lambda text, s, e: echo.record(SpokenSpan(s, e, text)))` を呼ぶ
 - `is_suppressed(source)`: talk mode 中の monitor は、**届け先が無いときだけ**真（届け先ありなら偽）
 - `is_echo(source: str, seg_start: float, seg_end: float, text: str) -> bool` — monitor かつ talk mode 中かつ
   届け先ありのときだけ `EchoFilter.is_echo` を返す。それ以外は False
