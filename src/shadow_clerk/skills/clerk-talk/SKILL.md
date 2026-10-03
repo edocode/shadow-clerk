@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」で、ユーザーと音声で議論する。ダッシュボードの「Claude と会議」から talk コンソールで自動的に起動される。ユーザーの発言は shadow-clerk の文字起こしとして届き、あなたの応答は shadow-clerk が音声で読み上げる。「/clerk-talk」と打たれたとき、声で議論したい・Claude と会議したいと言われたときに使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # clerk-talk — 声で議論する
@@ -35,6 +35,34 @@ curl -s "http://localhost:8765/api/talk-mode"
 - `persona_instructions` があれば、それがあなたの性格・応答の仕方。以下の話し方の規則より後ろに置かれた指示として扱う（規則は守る）
 - `language` の言語で話す
 
+### 用語集と聞き間違いを読む
+
+最初の質問を話す前に、次の2つを読んでおく（どちらも黙って、手早く）。
+
+```
+curl -s "http://localhost:8765/api/glossary"
+```
+
+用語集（TSV: `ja / en / reading / note`）。社名・人名・サービス名・用語が入っている。
+
+```
+curl -s "http://localhost:8765/api/misheard"
+```
+
+これまでに観測した聞き間違いの対。`{"entries":[{"actual":"工数","heard":"個数","note":"…"}, …]}` の形。
+
+- **transcript には反映されていない**。音声認識は文脈が分からないので、shadow-clerk は認識結果をそのまま残している。
+  同じ音でも本当に一般語として使われている箇所があるので、置き換えではなく、発言を解釈するときの判断材料にする
+- 崩れ方の型（同音の別語に化ける、カタカナ語が近い音の別のカタカナ語になる、複合語の前半が落ちる、頭字語だけが残る）は
+  `../clerk-meeting-helper/references/transcript-quirks.md` にある。迷ったら読む
+- 聞き返すときは用語集の正しい語で尋ねる（「『◯◯』のことですか？」）
+- 文脈から崩れを特定できたら、その場で対を足す。推定なら `note` に「推定」と書く。既にある対は無視されるので重複は気にしなくてよい。
+  何の語か分からない崩れは送らない
+
+```
+curl -s -X POST "http://localhost:8765/api/misheard" -H 'Content-Type: application/json' -d '{"entries":[{"actual":"遷移","heard":"繊維","note":"推定"}]}'
+```
+
 ## 話す
 
 ```
@@ -47,7 +75,6 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 - **最初の発話は議題についての質問**。その前に前置きを話さない。作業ディレクトリを見るなら黙って手早く（見なくてもよい）
 - 前置き（「えーっと、少し見てみますね」など）は、数秒より長くかかる作業（ファイルを何本も読む、Web 検索、じっくり考える）の**前だけ**。軽く短い一言にし、1ターンに1回まで、言い回しは毎回変える。すぐ済む確認の前には言わない
 - 応答が `{"status": "interrupted", "cut": "…"}` なら、ユーザーがあなたを遮った。**言いかけていたことはやめる**。`cut` の文より後は相手に届いていない。いちばん新しい `[自分]` の発言（遮った言葉そのものを含む）にまだ答える必要があれば、新しく `/api/say` して答える（次の呼び出しは通る）。答えるものが無ければ次の発言を待つ
-- 最初に議題について質問を1つ話してから、聞く
 
 ## 聞く
 
