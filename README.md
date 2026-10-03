@@ -3,9 +3,30 @@
 [![PyPI version](https://img.shields.io/pypi/v/shadow-clerk.svg)](https://pypi.org/project/shadow-clerk/)
 [![Python versions](https://img.shields.io/pypi/pyversions/shadow-clerk.svg)](https://pypi.org/project/shadow-clerk/)
 
-A tool that records web meeting audio in real-time and transcribes it. Also supports translation and meeting minutes generation.
+A tool that records web meeting audio (your microphone and the speaker output) in real time and transcribes it, with live translation and meeting minutes. On top of that it can:
+
+- run an AI assistant (Claude Code or Codex) beside the meeting in the **AI Console**, which points out open questions as the meeting goes and can write the minutes;
+- let you **talk a topic through with Claude** by voice (VOICEVOX speech), and on Linux with PipeWire send Claude's voice into a meeting app;
+- start and end meeting sessions from **Google Calendar**;
+- put **browser screenshots** on the transcript timeline with a Chrome extension.
+
+It runs on Linux and Windows. Transcription and LibreTranslate translation work fully offline; the rest is optional.
 
 Available on PyPI: <https://pypi.org/project/shadow-clerk/>
+
+## Contents
+
+- [Platform support](#platform-support)
+- [Features and requirements](#features-and-requirements)
+- [Setup](#setup)
+- [Usage](#usage)
+  - [Starting the daemon](#starting-the-daemon) · [Recording & transcription](#recording--transcription) · [Audio device selection](#audio-device-selection) · [Audio level meters](#audio-level-meters)
+  - [Dashboard](#dashboard) · [Voice commands](#voice-commands) · [CLI options](#cli-options) · [clerk-util subcommands](#clerk-util-subcommands)
+  - [Translation & Summary Providers](#translation--summary-providers) · [Talk with Claude](#talk-with-claude) · [Meeting minutes](#meeting-minutes) · [AI Console](#ai-console) · [Browser screenshots](#browser-screenshots)
+- [Configuration](#configuration)
+- [File structure](#file-structure)
+- [Troubleshooting](#troubleshooting)
+- [Building standalone binaries](#building-standalone-binaries)
 
 ## Platform support
 
@@ -41,10 +62,8 @@ Other notes:
 - **`voice_command_key`**: The default `f23` is a Linux/xremap convention. On Windows set it to `null` (disable PTT) or to one of `menu`/`ctrl_r`/`ctrl_l`/`alt_r`/`alt_l`/`shift_r`/`shift_l` in `config.yaml`.
 - **Stopping the daemon**: `clerk-util stop` works (Windows path uses `taskkill`). `clerk-util start` runs the daemon in the foreground with Ctrl+C handling, mirroring Linux. `clerk-daemon --daemon` detaches instead: there is no `fork()`, so it relaunches itself with `DETACHED_PROCESS` and the parent exits.
 - **AI Console**: uses ConPTY through [pywinpty](https://github.com/andfoy/pywinpty), declared as a Windows-only dependency. Without it the daemon still runs; only the console reports the missing package and refuses to start.
-
-### Standalone binary
-
-`clerk-daemon.exe` and `clerk-util.exe` can be built with PyInstaller. See [Building a standalone binary](#building-a-standalone-binary).
+- **Talk with Claude**: sending Claude's voice into a meeting app needs PipeWire, so that option is disabled on Windows.
+- **Standalone binary**: `clerk-daemon.exe` and `clerk-util.exe` can be built with PyInstaller. See [Building standalone binaries](#building-standalone-binaries).
 
 ## Features and requirements
 
@@ -56,13 +75,18 @@ Other notes:
 | Interim transcription | Same | 2 | 5 | `interim_transcription: true`, `interim_model` |
 | Translation (LibreTranslate) | LibreTranslate server | 2 | 4 | `translation_provider: libretranslate` |
 | Translation (OpenAI compatible API) | OpenAI compatible API | 3-5 | 2-5 | `translation_provider: api`, `api_endpoint`, `api_model` |
-| Translation (Claude) | Claude Code | 5 | 2 | `translation_provider: claude` |
+| Translation (Claude) | Claude Code CLI (`claude -p`) | 5 | 2 | `translation_provider: claude` |
 | Language detection (pre-translation) | langdetect (included) | — | — | Automatically detects source language to select correct prompt |
-| Summary (Claude) | Claude Code | 5 | 3 | `llm_provider: claude` |
+| Summary (Claude) | Claude Code CLI (`claude -p`) | 5 | 3 | `llm_provider: claude` |
 | Summary (OpenAI compatible API) | OpenAI compatible API | 3-5 | 2-5 | `llm_provider: api`, `api_endpoint`, `api_model` |
 | Voice commands (PTT) | None (built-in) | — | — | `voice_command_key` |
-| Voice commands (LLM matching) | OpenAI compatible API | — | — | `api_endpoint`, `api_model` |
+| Voice commands (LLM matching) | OpenAI compatible API | — | — | `llm_provider: api`, `api_endpoint`, `api_model` |
 | Spell check (pre-translation) | transformers (auto-downloaded on first use) | — | — | `libretranslate_spell_check: true` |
+| [AI Console](#ai-console) (meeting assistant) | Claude Code or Codex CLI, skill from `clerk-util install-skill` | — | — | `auto_analyze`, `ai_assistant_command` |
+| [Talk with Claude](#talk-with-claude) | Claude Code CLI, a running VOICEVOX engine | — | — | `talk_*` |
+| Send Claude's voice into a meeting app | Linux with PipeWire (`pw-dump`, `pw-link`, `pw-cat`) | — | — | `talk_route_app` |
+| [Google Calendar](#optional-google-calendar-integration) (auto start/end, expected attendees) | `gcal` extra, OAuth credentials | — | — | `gcal_integration`, `gcal_credentials_file` |
+| [Browser screenshots](#browser-screenshots) in the transcript | Chrome extension in `extension/` | — | — | — |
 
 **Minimal setup without LLM:** Transcription + LibreTranslate translation requires no external API or Claude Code. Everything runs locally.
 
@@ -70,11 +94,13 @@ See the [Feature Tour](docs/feature-tour.en.md) for a visual walkthrough with sc
 
 ## Setup
 
-### 1. System packages
+### 1. System packages (Linux only)
 
 ```bash
 sudo apt install libportaudio2 portaudio19-dev
 ```
+
+On Windows no system package is needed — the `sounddevice` wheel ships PortAudio. Use the install command in [Windows-specific notes](#windows-specific-notes) instead of step 2.
 
 ### 2. Install
 
@@ -185,12 +211,12 @@ Then authenticate and configure:
 # One-time OAuth setup (opens browser)
 clerk-util gcal-auth ~/credentials.json
 
-# Enable in config
+# Enable in config (gcal-auth already does this when it succeeds)
 clerk-util write-config-value gcal_integration true
 clerk-util write-config-value gcal_credentials_file ~/credentials.json
 ```
 
-When enabled, clerk-daemon polls Google Calendar every 60 seconds. Events automatically trigger `start_meeting` / `end_meeting`, creating transcript files named `transcript-YYYYMMDDHHMM@EventTitle.txt`.
+When enabled, clerk-daemon polls Google Calendar every 60 seconds. Events automatically trigger `start_meeting` / `end_meeting`, creating transcript files named `transcript-YYYYMMDDHHMM@EventTitle.txt`. The event's invitees are saved as the meeting's expected attendees and shown above its summary, and the 📅 button in the dashboard header lists today's events.
 
 See [docs/google-calendar-setup.md](docs/google-calendar-setup.md) for full setup instructions including how to obtain `credentials.json` from Google Cloud Console.
 
@@ -248,58 +274,6 @@ claude_cli_model: haiku   # or sonnet / opus / a full model id
 
 This uses your existing Claude Code OAuth login. No extra setup needed — translation and summarization run inside the daemon as background threads, no Claude Code session required.
 
-## Building a standalone binary
-
-`packaging/shadow-clerk.spec` produces a one-directory PyInstaller bundle containing both `clerk-daemon` and `clerk-util`.
-
-**PyInstaller does not cross-compile.** It only builds for the OS it runs on: the bootloader is a native binary, and the analysis step imports every module to trace dependencies. A Windows `.exe` therefore has to be built on Windows — a machine, a VM, or a `windows-latest` GitHub Actions runner. Wine with a Windows Python is the usual workaround, but analysis imports `pywinpty` (ConPTY), `PyAudioWPatch` (WASAPI) and `ctranslate2`, which are exactly the pieces Wine emulates poorly.
-
-```powershell
-# Windows (PowerShell)
-uv sync
-uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
-dist\shadow-clerk\clerk-daemon.exe --list-devices   # smoke test
-```
-
-```bash
-# Linux / macOS
-uv sync
-uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
-./dist/shadow-clerk/clerk-daemon --list-devices      # smoke test
-```
-
-`--list-devices` is a good smoke test: it exercises the bundled PortAudio and the native extensions without recording anything.
-
-To bundle ReazonSpeech and Google Calendar as well, replace the `uv sync` line — in
-this order, because `reazonspeech-k2-asr` is not declared anywhere and a later sync
-would remove it:
-
-```powershell
-uv sync --extra reazonspeech --extra gcal
-uv pip install "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
-uv run python -c "import sherpa_onnx, reazonspeech.k2.asr; print('ok')"   # check before building
-uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
-```
-
-The `spell-check` extra is **not** bundled even if you install it: the spec drops
-`torch`, `transformers` and `sentencepiece` in `_EXCLUDES`. Remove them from that
-list to include it, and expect the bundle to grow by several GB.
-
-**Without a Windows machine**, `.github/workflows/build-binary.yml` runs exactly
-those steps on `windows-latest` and `ubuntu-latest`. Push a `v*` tag and both
-binaries are attached to the release, or start it by hand from the Actions tab and
-download them as artifacts.
-
-**Do not `uv pip install pyinstaller`.** `uv sync` makes the environment match what the project declares and removes everything else, so the next `uv sync --extra ...` would drop it again. `--with` puts PyInstaller in a temporary layer over the project environment instead: it can still see the project's packages, and nothing is left behind to be removed.
-
-Notes:
-
-- **Output**: `dist/shadow-clerk/`, roughly 460 MB with the default dependencies and no extras.
-- **Extras are collected only if installed** in the environment you build from, so install them before building — every extra you want named in one `uv sync`, and any `uv pip install` last. See [Setup](#2-install) for why the order matters. The spec collects `sherpa_onnx` (which carries its own `onnxruntime` DLL in `lib/`) and `reazonspeech.k2.asr` when they are there; the ASR weights themselves are fetched on first use, like the Whisper models.
-- **Whisper models are not bundled.** `small` is around 500 MB and is fetched from Hugging Face on first run, then cached (`%USERPROFILE%\.cache\huggingface` on Windows, `~/.cache/huggingface` elsewhere). For an offline bundle, add that cache to `datas` in the spec, or ship a converted CT2 model and point `--model` at it.
-- **`packaging/hooks/` overrides PyInstaller's bundled hooks.** There is one today: the bundled `hook-webrtcvad.py` calls `copy_metadata('webrtcvad')`, but this project depends on `webrtcvad-wheels`, so without the override the build aborts with `ImportErrorWhenRunningHook`.
-- Add a dependency that ships DLLs or data files? Add it to `_PACKAGES` in the spec. PyInstaller only follows `import` statements, so anything else is silently left out and fails at runtime rather than at build time.
-
 ## Usage
 
 ### Starting the daemon
@@ -318,6 +292,8 @@ uv run clerk-daemon
 
 > **Note:** `uv run` uses the project `.venv`, while `uv tool install` uses its own isolated environment. Make sure extras (e.g. `spell-check`, `reazonspeech`) are installed in the matching environment.
 
+The dashboard is served at <http://localhost:8765>.
+
 ### Recording & transcription
 
 ```bash
@@ -333,22 +309,55 @@ clerk-daemon \
   --model small \
   --output ~/my-transcript.txt \
   --verbose
+
+# In the background (logs go to daemon.log in the data directory)
+clerk-daemon -d
 ```
 
-Press `Ctrl+C` to stop recording.
+Press `Ctrl+C` to stop recording (or `clerk-util stop` for a background daemon).
+
+### Audio device selection
+
+`mic_device` / `monitor_device` pin capture to a device by **name**, not device number — device numbers shift between daemon runs and can even change while the daemon is running. `null` (the default) follows the OS default device. Pick a device from the dashboard settings panel.
+
+If the configured device disappears (unplugged, sink removed), the daemon falls back to the automatic device and keeps recording, then switches back on its own once the device reappears. The configured value is never overwritten by the fallback. If the device never actually disappeared — another application just grabbed it exclusively — the daemon won't retry on its own; use "Refresh list" to force a retry once it's free.
+
+The `--mic` / `--monitor` CLI flags (device numbers, see [CLI options](#cli-options)) take priority over `mic_device` / `monitor_device`. While a flag is in effect, the corresponding dropdown is disabled on the dashboard.
+
+A device connected after the daemon started won't appear in the dropdown until the list is refreshed ("Refresh list" in the settings panel); refreshing briefly interrupts both capture streams.
+
+### Audio level meters
+
+The dashboard header shows a level bar for each capture path (mic/speaker), next to the mute buttons. The bars use the crest factor — peak level divided by RMS — to tell real speech from noise: speech runs 3–10 or higher, while steady electrical noise (a dead built-in mic emitting only hum, say) sits at 1–2.
+
+A bar highlights yellow after 10 seconds of loud-but-flat audio (steady noise, no speech dynamics) — this applies to both mic and monitor. The mic bar additionally turns red after 30 seconds of exact silence: a live microphone always has some noise floor, so true zero means nothing is reaching it at all (e.g. a powered-off headset whose dongle still shows up as a device). The monitor skips this check — a sink monitor reads back exactly zero whenever nothing is playing, which is its normal idle state, not a fault. Both bars also get a fallback outline when the configured device for that path is unavailable and the automatic one is in use, matching the fallback described above.
+
+### Dashboard
+
+The dashboard (<http://localhost:8765>, `--dashboard-port` to change) shows the transcript and translation live and is where most features are driven from.
+
+| Area | What it holds |
+|---|---|
+| Header | Meeting and translation toggles, **Summary** (generate minutes), **Talk with Claude**, font size, transcript/translation layout, **Glossary**, PTT, custom **Commands**, 📅 today's Google Calendar events (only when the integration is on), ⚙ settings, ❓ help |
+| Left pane: **Dates** / **Meetings** / **Search** | Daily transcripts by date; meeting files grouped by name (sort by name or newest, rename a meeting group, ⚙ per-meeting working directory); search by year/month/day/hour and text across transcripts, translations and summaries |
+| Transcript / Translation | Live text with mute buttons and [level meters](#audio-level-meters). ⏱ turns part of a daily transcript into meetings: split it all (or a selection) at silences of a chosen length, or extract the selected lines. 📂 assigns a meeting file to an existing or new meeting name, 🗑 deletes the file or merges a meeting back into the daily transcript |
+| Right pane: **Summary** / **AI Analysis** | The minutes (copy, reload, regenerate; expected attendees from the calendar on top). **AI Analysis** shows the AI Console's Advice and Analysis documents and its **Start analysis** button |
+| Bottom pane: **AI Console** / **Talk with Claude** / **Logs** | The two [AI Console](#ai-console) terminals (meeting assistant and [talk](#talk-with-claude)) with the transcript beside them, and the daemon log |
+
+A **Welcome** dialog appears on first run: it offers to install the skill for an AI agent and points to the settings worth checking first ("Do not show this again" hides it). When the bundled skill is newer than the installed copy, a dialog offers to update it.
 
 ### Voice commands
 
 #### Push-to-Talk (recommended)
 
-Hold down the Menu key (next to Right Alt) while speaking a command — no wake word needed:
+Hold down the push-to-talk key while speaking a command — no wake word needed:
 
 ```
-[Hold Menu key] "start translation" → Translation starts
-[Hold Menu key] "start meeting"     → Meeting session starts
+[Hold PTT key] "start translation" → Translation starts
+[Hold PTT key] "start meeting"     → Meeting session starts
 ```
 
-The trigger key can be changed via `voice_command_key` in `config.yaml` (`ctrl_r`, `ctrl_l`, `alt_r`, `alt_l`, `shift_r`, `shift_l`). Set to `null` to disable.
+The key is `voice_command_key` in `config.yaml`. The default `f23` suits a keyboard remapper (e.g. xremap mapping the Menu key to F23); other values are `menu` (the Menu key next to Right Alt), `ctrl_r`, `ctrl_l`, `alt_r`, `alt_l`, `shift_r`, `shift_l`. Set to `null` to disable. On Windows, see [Windows-specific notes](#windows-specific-notes).
 
 #### Prefix mode (fallback)
 
@@ -368,7 +377,7 @@ The separator (comma, space) between the wake word and command is optional. The 
 
 #### Custom voice commands
 
-You can register custom voice commands in `config.yaml` under `custom_commands`. They are evaluated after built-in commands:
+You can register custom voice commands in `config.yaml` under `custom_commands` (or with the **Commands** button on the dashboard). They are evaluated after built-in commands:
 
 ```yaml
 custom_commands:
@@ -381,8 +390,8 @@ custom_commands:
 - `pattern`: Regular expression (case-insensitive)
 - `action`: Shell command to execute
 
-Start the meeting analysis by voice — glossary already has `クラーク` as a
-wake word, so this pattern fires when you say it while holding the PTT key:
+Start the meeting analysis by voice. This pattern fires when you say it while
+holding the PTT key, with or without a leading `クラーク`:
 
 ```yaml
 custom_commands:
@@ -392,13 +401,15 @@ custom_commands:
 
 #### LLM fallback
 
-If a voice command doesn't match any built-in or custom command and `api_endpoint` is configured, the utterance is sent to the LLM as a query. The response is printed to stdout and saved to `.clerk_response`.
+If a voice command doesn't match any built-in or custom command and an LLM is configured (`api_endpoint`, or `llm_provider: claude`), the utterance is sent to the LLM as a query. The response is printed to stdout and saved to `.clerk_response`.
 
 ```
 "sheruku, what is 1+1?" → LLM returns the answer
 ```
 
 ### CLI options
+
+`clerk-daemon` options:
 
 | Option | Description | Default |
 |---|---|---|
@@ -407,7 +418,7 @@ If a voice command doesn't match any built-in or custom command and `api_endpoin
 | `--language`, `-l` | Language code (`ja`, `en`, etc.). Auto-detect if omitted | Auto |
 | `--mic` | Microphone device number | Auto-detect (or `mic_device` config) |
 | `--monitor` | Monitor device number (sounddevice) | Auto-detect (or `monitor_device` config) |
-| `--backend` | Audio backend (`auto`, `pipewire`, `pulseaudio`, `sounddevice`) | `auto` |
+| `--backend` | Audio backend (`auto`, `pipewire`, `pulseaudio`, `sounddevice`, `wasapi`) | `auto` |
 | `--list-devices` | List devices and exit | - |
 | `--verbose`, `-v` | Verbose logging | - |
 | `--dashboard` / `--no-dashboard` | Enable/disable dashboard | Enabled |
@@ -415,6 +426,27 @@ If a voice command doesn't match any built-in or custom command and `api_endpoin
 | `--beam-size` | Whisper beam size (`1`=fast, `5`=accurate) | `5` |
 | `--compute-type` | Whisper compute precision (`int8`, `float16`, `float32`) | `int8` |
 | `--device` | Whisper device (`cpu`, `cuda`) | `cpu` |
+| `--daemon`, `-d` | Run in the background; logs go to `daemon.log` in the data directory | - |
+
+### clerk-util subcommands
+
+`clerk-util` manages the daemon and the data directory. Run `clerk-util help` for the same list.
+
+| Subcommand | Description |
+|---|---|
+| `start [opts]` | Run clerk-daemon with these options, in the foreground (add `-d` to run it in the background) |
+| `stop` | Stop clerk-daemon (SIGTERM on Linux, `taskkill` on Windows) |
+| `restart [opts]` | Stop clerk-daemon, wait for it to exit, then start it with these options |
+| `recorder-status` | Print `running` or `stopped` |
+| `command <cmd>` | Send a command to the running daemon: `start_meeting`, `end_meeting`, `translate_start`, `translate_stop`, ... |
+| `summarize [DATE\|FILE] [--mode full\|update]` | Generate minutes (`full` by default). DATE is `YYYYMMDD` or `YYYYMMDDHHMM[@name]`, FILE a `transcript-*.txt`; without either, the current meeting or today |
+| `ls` | List the data directory (and the output directory if it differs) |
+| `read-config` | Print `config.yaml` (writes one with the defaults if missing) |
+| `write-config-value <key> <value>` | Change one key in `config.yaml` |
+| `gcal-auth <credentials.json> [token_file]` | Google Calendar OAuth; on success it also enables `gcal_integration` |
+| `install-skill [--target claude\|agents\|<path>] [--link] [--force]` | Install the bundled skills for an AI agent (see [AI Console](#ai-console)) |
+| `run-llm <args...>` | Run the LLM client directly (`translate`, `query`, `match-command`, `summarize`, `spell-check`) |
+| `help` | Show usage |
 
 ### Translation & Summary Providers
 
@@ -491,6 +523,7 @@ instead: it answers a little faster but cannot ask for permission, so it only ge
 `talk_allowed_tools`. Install the skills with `clerk-util install-skill` (both are installed together).
 The `clerk-talk` skill pre-approves only its own `curl` calls to `http://localhost` (and `Monitor`); if
 Claude Code still asks, allow them once, or add the same rules to your Claude Code settings.
+
 **Sending Claude's voice to a meeting (Linux, PipeWire).** In the start dialog, pick the meeting app under
 **Send Claude's voice to**. shadow-clerk plays the speech through a named PipeWire stream and links it into that
 app's microphone input with `pw-link`, so the other participants hear Claude mixed with your microphone, and you
@@ -540,11 +573,11 @@ is dropped, and Claude is told where it was cut off.
 Three ways to generate minutes: automatically at meeting end, on demand from the dashboard, or via `clerk-util` from the command line:
 
 ```
-clerk-util start                                   # Start daemon (background)
+clerk-util start -d                                # Start daemon (background)
 clerk-util stop                                    # Stop daemon
 clerk-util recorder-status                         # Show running state
-clerk-util summarize                               # Update minutes from transcript diff
-clerk-util summarize --mode full                   # Regenerate from full transcript
+clerk-util summarize                               # Generate minutes for the current meeting (or today)
+clerk-util summarize --mode update                 # Update minutes from the transcript diff
 clerk-util summarize 20260425 --mode full          # Specify date
 clerk-util command start_meeting                   # Start meeting session
 clerk-util command end_meeting                     # End meeting session (auto_summary linked)
@@ -552,94 +585,125 @@ clerk-util command translate_start                 # Start translation loop
 clerk-util command translate_stop                  # Stop translation loop
 ```
 
-Meeting start/end is also available via **voice commands** ("clerk, start meeting" / "clerk, end meeting") or **dashboard buttons**. The dashboard's "Generate Summary" button can trigger minutes generation at any time.
+Meeting start/end is also available via **voice commands** ("sheruku, start meeting" / "sheruku, end meeting") or **dashboard buttons**. The dashboard's **Summary** button can trigger minutes generation at any time.
 
-Generated meeting minutes are saved to `~/.local/share/shadow-clerk/summary-YYYYMMDD.md`.
+When `auto_summary` is on and the [AI Console](#ai-console) is running at meeting end, the minutes are written by the assistant in the console instead (`auto_summary_via_console`, on by default); otherwise the configured LLM writes them.
+
+Generated meeting minutes are saved to `~/.local/share/shadow-clerk/summary-YYYYMMDD.md` (`summary-YYYYMMDDHHMM@Title.md` for a meeting). Put a `summary_template.md` in the data directory to use your own minutes format.
 
 ### AI Console
-- The assistant reaches these APIs at `$SHADOW_CLERK_URL`, injected into the console's environment, so it never has to guess the port.
 
 An AI assistant (`claude` or `codex`) can run inside a PTY under the dashboard's **AI Console** tab (next to **Logs**), watching the meeting transcript and writing generated documents back for the dashboard to display.
 
-- **Starting**: automatically when a meeting starts (`auto_analyze: true
-auto_summary_via_console: true   # let the console write the minutes when it is running`), or manually via the "Start Analysis" button. Either way, `ai_assistant_init_prompt` (default `/clerk-meeting-helper {transcript} {lang}`) is sent to the PTY once the assistant's TUI is ready — `{transcript}` and `{meeting}` are substituted with the active file paths, and `{lang}` with `translate_language`, so the skill writes in the language you read.
-- **Generated documents**: shown in the Summary panel's `[Summary][Advice][Analysis]` tabs:
+- **Installing the skill**: the assistant runs a bundled skill (`clerk-meeting-helper`; `clerk-talk` for [talk mode](#talk-with-claude) is installed with it) that has to be copied into the agent's own skills directory. The Welcome dialog offers this on a first run, and the command does the same:
+
+  ```bash
+  clerk-util install-skill                        # ~/.claude/skills/   (Claude Code)
+  clerk-util install-skill --target agents        # ~/.agents/skills/   (Codex and others)
+  clerk-util install-skill --target /path/to/dir  # anywhere else; remembered for updates
+  clerk-util install-skill --link                 # symlink instead of copy (POSIX only)
+  ```
+
+  A destination holding a skill shadow-clerk did not write is left alone unless you pass `--force`.
+- **Starting**: automatically when a meeting starts (`auto_analyze: true`), or manually with the **Start analysis** button (AI Analysis tab) or the console's **Launch** button. Either way, `ai_assistant_init_prompt` (default `/clerk-meeting-helper {transcript} {lang}`) is sent to the PTY once the assistant's TUI is ready — `{transcript}` and `{meeting}` are substituted with the active file paths, and `{lang}` with `translate_language`, so the skill writes in the language you read.
+- **Reaching the dashboard**: the assistant calls the dashboard's HTTP API at `$SHADOW_CLERK_URL`, which the console puts in its environment, so it never has to guess the port.
+- **Generated documents**: shown in the right pane's **AI Analysis** tab:
   - `advice-<stem>.md` — open questions and suggestions (overwritten each time)
   - `analysis-<stem>.md` — confirmed facts (appended)
 
   Both are Markdown and are rendered to HTML server-side. Raw HTML inside them
   is escaped, never rendered.
+- **Minutes**: with `auto_summary: true` and `auto_summary_via_console: true` (the default), the minutes at meeting end are written by the assistant while it is running.
 - **Session lifecycle**: one PTY session is reused for the whole run; it is **not** stopped when the meeting ends, so it stays available for writing up minutes afterward. Stop it from the Console tab's stop button.
 - **Working directory**: `ai_assistant_workdir` sets the default launch directory. Per-meeting overrides live in `DATA_DIR/meeting.yaml` (`meetings[].workdir`), editable from the gear icon (⚙) on each meeting's row in the meeting list. The first time shadow-clerk writes to a `config.yaml` it didn't create itself, it saves a one-time `<path>.bak` copy alongside it, since the YAML writer preserves keys but not your hand-written comments.
 - **Permissions**: the assistant runs shell scripts from the meeting skill, so allow them in that working directory's `.claude/settings.json` — otherwise it stops mid-meeting at a permission prompt.
-
-- **Installing the skill**: the assistant runs a bundled skill that has to be
-  copied into the agent's own skills directory. The dashboard offers this on a
-  first run, and the command does the same:
-
-```bash
-clerk-util install-skill                        # ~/.claude/skills/   (Claude Code)
-clerk-util install-skill --target agents        # ~/.agents/skills/   (Codex and others)
-clerk-util install-skill --target /path/to/dir  # anywhere else; remembered for updates
-clerk-util install-skill --link                 # symlink instead of copy (POSIX only)
-```
-
-  A destination holding a skill shadow-clerk did not write is left alone unless
-  you pass `--force`. Per-meeting working directories live in
-  `DATA_DIR/meeting.yaml`.
 - **Orphaned process on SIGKILL**: the daemon stops the assistant on normal shutdown, but if the daemon itself is killed with SIGKILL (`kill -9`), the assistant process can be left running (it is detached from any terminal). Find and kill it manually with `pgrep -af claude` (or `codex`).
 - **Security note if you expose the dashboard**: the AI Console's terminal content (including whatever the assistant reads or prints from your files) is streamed over the same `/api/events` SSE used by the rest of the dashboard, and that SSE fan-out has no per-client filtering. If you bind the dashboard beyond localhost, anyone who can reach it can watch the assistant's terminal live. Console input (`/api/console/input` etc.) itself stays localhost-only and additionally checks the `Origin` header to reject cross-origin requests from your own browser.
 
+### Browser screenshots
+
+A small Chrome extension in [`extension/`](extension/) captures the visible tab — a shared screen in a browser meeting, say — saves the image in the data directory, and adds a `[画面]` line to the transcript being recorded, so the image sits on the same timeline as the speech. Load it unpacked from `chrome://extensions`; see [extension/README.md](extension/README.md) for installation, settings and what gets written.
+
+## Configuration
+
 ### Configuration file
 
-Customize defaults and auto-features in `~/.local/share/shadow-clerk/config.yaml`:
+Customize defaults and auto-features in `~/.local/share/shadow-clerk/config.yaml`. The main keys, with their defaults:
 
 ```yaml
-# shadow-clerk config
+# --- Meeting automation ---
 translate_language: en        # Translation target language (ja/en/etc)
 auto_translate: false         # Auto-start translation on start meeting
 auto_summary: false           # Auto-generate summary on end meeting
+auto_summary_via_console: true  # With auto_summary: let the AI Console write the minutes when it is running
 auto_analyze: false           # Launch the AI assistant and run the meeting skill when a meeting starts
+
+# --- AI Console ---
 ai_assistant_command: claude  # Command to run in the AI Console (claude, codex, ...)
 ai_assistant_args: ''         # Arguments for that command, split with shlex
 ai_assistant_init_prompt: /clerk-meeting-helper {transcript} {lang}  # Sent to the PTY once the TUI is ready. {transcript}, {meeting} and {lang} are substituted ({lang} = translate_language)
-ai_assistant_workdir: ''      # Default working directory. Per-meeting overrides live in `DATA_DIR/meeting.yaml` の meetings[].workdir
+ai_assistant_workdir: ''      # Default working directory. Per-meeting overrides live in meetings[].workdir of DATA_DIR/meeting.yaml
+
+# --- Transcription ---
 default_language: null        # Default language for clerk-daemon (null=auto-detect)
 default_model: small          # Default Whisper model for clerk-daemon
 output_directory: null        # Transcript output directory (null=data directory)
+initial_prompt: null          # Whisper initial_prompt (vocabulary hints for recognition)
+whisper_beam_size: 5          # Whisper beam size (1=fast, 5=accurate)
+whisper_compute_type: int8    # Compute precision (int8/float16/float32)
+whisper_device: cpu           # Device (cpu/cuda)
+interim_transcription: false  # Interim transcription (real-time display while speaking)
+interim_model: base           # Model for interim transcription
+japanese_asr_model: default   # Japanese ASR model (default/kotoba-whisper/reazonspeech-k2)
+kotoba_whisper_model: kotoba-tech/kotoba-whisper-v2.0-faster  # Kotoba-Whisper model
+interim_japanese_asr_model: default  # Japanese ASR for interim transcription
+reazonspeech_precision: fp32  # ReazonSpeech k2: fp32 / int8 / int8-fp32 (fp16 is invalid)
+
+# --- Audio devices ---
 mic_device: null              # Microphone device name (null=OS default; not an index — indices shift between runs)
 monitor_device: null          # Monitor/speaker device name (null=OS default). Selectable from the dashboard settings panel
+
+# --- LLM, translation and summary ---
 llm_provider: claude          # LLM for summary ("claude" or "api")
 translation_provider: null    # Translation provider (null=use llm_provider, "claude", "api", "libretranslate")
+claude_cli_path: claude       # claude command (full path if not on PATH)
+claude_cli_model: haiku       # Model for claude -p (haiku / sonnet / opus / full model id)
 api_endpoint: null            # OpenAI Compatible API base URL
 api_model: null               # API model name (gpt-4o, etc.)
 api_key_env: SHADOW_CLERK_API_KEY  # Environment variable name for API key
 api_disable_thinking: false   # Disable reasoning-model thinking for translation/interim (Qwen3 etc.; sends enable_thinking=false). Summary always keeps thinking.
-summary_source: null          # Summary source (null=auto: prefer translation if exists / "transcript" / "translate")
-summary_language: null        # Summary output language (null=fallback to ui_language / ja, en, zh, ...)
+interim_translation: true     # Translate interim transcription to dashboard's interim panel
+interim_translation_provider: null  # null=auto, "api", "libretranslate", or "claude"
+translation_hiragana_step: true  # Have the LLM reread Japanese as kana before translating, to catch misrecognized homophones
 libretranslate_endpoint: null     # LibreTranslate API URL (e.g. http://localhost:5000)
 libretranslate_api_key: null      # LibreTranslate API key (null if not required)
 libretranslate_spell_check: false # Spell check before LibreTranslate translation
 spell_check_model: mbyhphat/t5-japanese-typo-correction  # Spell check model
-custom_commands: []               # Custom voice commands (list of pattern + action)
-initial_prompt: null              # Whisper initial_prompt (vocabulary hints for recognition)
-voice_command_key: f23         # Push-to-Talk key (null=disabled)
-wake_word: シェルク              # Wake word (trigger word for voice commands)
-whisper_beam_size: 5           # Whisper beam size (1=fast, 5=accurate)
-whisper_compute_type: int8     # Compute precision (int8/float16/float32)
-whisper_device: cpu            # Device (cpu/cuda)
-interim_transcription: false   # Interim transcription (real-time display while speaking)
-interim_model: base            # Model for interim transcription
-interim_translation: true      # Translate interim transcription to dashboard's interim panel
-interim_translation_provider: null  # null=auto, "api", "libretranslate", or "claude"
-japanese_asr_model: default    # Japanese ASR model (default/kotoba-whisper/reazonspeech-k2)
-kotoba_whisper_model: kotoba-tech/kotoba-whisper-v2.0-faster  # Kotoba-Whisper model
-interim_japanese_asr_model: default  # Japanese ASR for interim transcription
-reazonspeech_precision: fp32   # ReazonSpeech k2: fp32 / int8 / int8-fp32 (fp16 is invalid)
-ui_language: ja                # UI language (ja/en) — dashboard, terminal output, LLM prompts
+summary_source: null          # Summary source (null=auto: prefer translation if exists / "transcript" / "translate")
+summary_language: null        # Summary output language (null=fallback to ui_language / ja, en, zh, ...)
+summary_length: half          # Minimum length of the minutes (half / 1page / 2pages ... 5pages, in A4 pages)
+summary_hiragana_step: true   # Same kana rereading step before summarizing
+
+# --- Voice commands ---
+voice_command_key: f23        # Push-to-Talk key (null=disabled)
+wake_word: シェルク             # Wake word (trigger word for voice commands)
+custom_commands: []           # Custom voice commands (list of pattern + action)
+
+# --- Google Calendar ---
+gcal_integration: false       # Start/end meetings from calendar events
+gcal_credentials_file: null   # OAuth credentials.json
+gcal_token_file: null         # Saved token (null=DATA_DIR/gcal_token.json)
+gcal_calendar_id: primary     # Calendar to watch
+gcal_buffer_minutes: 2        # Send start_meeting this many minutes before an event starts
+gcal_end_buffer_minutes: 1    # Send end_meeting this many minutes after it ends
+
+# --- UI ---
+ui_language: ja               # UI language (ja/en) — dashboard, terminal output, LLM prompts
 ```
 
-Manage configuration from Claude Code:
+Talk mode keys (`talk_*`) are listed under [Talk with Claude](#talk-with-claude). The dashboard also keeps a few keys of its own in this file (`welcome_dismissed`, `skill_update_dismissed_version`, `skill_install_targets`); you don't need to edit them.
+
+Manage configuration from the command line (or from ⚙ on the dashboard):
 
 ```
 clerk-util read-config                                # Show current config
@@ -669,43 +733,44 @@ clerk-util write-config-value summary_language en   # summarize in English
 clerk-util write-config-value summary_language ja   # summarize in Japanese
 ```
 
-### Audio device selection
-
-`mic_device` / `monitor_device` pin capture to a device by **name**, not device number — device numbers shift between daemon runs and can even change while the daemon is running. `null` (the default) follows the OS default device. Pick a device from the dashboard settings panel.
-
-If the configured device disappears (unplugged, sink removed), the daemon falls back to the automatic device and keeps recording, then switches back on its own once the device reappears. The configured value is never overwritten by the fallback. If the device never actually disappeared — another application just grabbed it exclusively — the daemon won't retry on its own; use "Refresh list" to force a retry once it's free.
-
-The `--mic` / `--monitor` CLI flags (device numbers, see CLI options above) take priority over `mic_device` / `monitor_device`. While a flag is in effect, the corresponding dropdown is disabled on the dashboard.
-
-A device connected after the daemon started won't appear in the dropdown until the list is refreshed ("Refresh list" in the settings panel); refreshing briefly interrupts both capture streams.
-
-### Audio level meters
-
-The dashboard header shows a level bar for each capture path (mic/speaker), next to the mute buttons. The bars use the crest factor — peak level divided by RMS — to tell real speech from noise: speech runs 3–10 or higher, while steady electrical noise (a dead built-in mic emitting only hum, say) sits at 1–2.
-
-A bar highlights yellow after 10 seconds of loud-but-flat audio (steady noise, no speech dynamics) — this applies to both mic and monitor. The mic bar additionally turns red after 30 seconds of exact silence: a live microphone always has some noise floor, so true zero means nothing is reaching it at all (e.g. a powered-off headset whose dongle still shows up as a device). The monitor skips this check — a sink monitor reads back exactly zero whenever nothing is playing, which is its normal idle state, not a fault. Both bars also get a fallback outline when the configured device for that path is unavailable and the automatic one is in use, matching the fallback described above.
-
 ## File structure
 
 ```
 shadow-clerk/                          # Repository
   pyproject.toml                       # Project definition & dependencies
   src/shadow_clerk/                    # Main package
-    __init__.py                        # Data directory configuration
-    clerk_daemon.py                    # Recording, VAD, transcription & dashboard
-    llm_client.py                      # External API translation & summary
+    clerk_daemon.py                    # clerk-daemon entry point (recording, transcription, dashboard: _daemon_*.py)
+    clerk_util.py                      # clerk-util: data directory operations & process management
+    llm_client.py                      # Translation, summary & LLM queries (_llm_*.py)
+    gcal_monitor.py                    # Google Calendar polling
+    skill_install.py                   # install-skill
     i18n.py                            # Internationalization (ja/en)
-    clerk_util.py                      # Data directory operations & process management
+    domain/                            # Domain value objects
+    skills/                            # Bundled skills: clerk-meeting-helper, clerk-talk
+    talk_prompts/                      # Talk mode system prompts
+  extension/                           # Chrome screenshot extension
+  packaging/                           # PyInstaller spec and hooks
+  docs/                                # Feature tour, Google Calendar setup
+  tests/                               # Tests
+  SPEC.md                              # Architecture and module design (Japanese)
 
 ~/.local/share/shadow-clerk/           # Runtime data
   transcript-YYYYMMDD.txt              # Transcription output (date-based)
   transcript-YYYYMMDDHHMM.txt          # Meeting session transcript
   transcript-YYYYMMDDHHMM@Title.txt    # Meeting session transcript (with event title)
   transcript-YYYYMMDD-<lang>.txt       # Translation output
+  transcript-YYYYMMDDHHMM@Title.attendees.json  # Expected attendees from the calendar event
   summary-YYYYMMDD.md                  # Meeting minutes (corresponds to transcript)
   summary-YYYYMMDDHHMM@Title.md        # Meeting minutes (named session)
+  advice-YYYYMMDDHHMM@Title.md         # AI Console: open questions and suggestions
+  analysis-YYYYMMDDHHMM@Title.md       # AI Console: confirmed facts
+  shot-YYYYMMDDHHMM@Title-HHMMSS.png   # Browser screenshots
+  meeting.yaml                         # Per-meeting working directories
   glossary.txt                         # Glossary (TSV: translation terms & reading-based text replacement)
+  misheard.tsv                         # Misheard word pairs collected by the skills
   config.yaml                          # Configuration file
+  .env                                 # API key (SHADOW_CLERK_API_KEY)
+  daemon.log / daemon.pid              # Daemon log and PID
   gcal_token.json                      # Google Calendar OAuth token (created by gcal-auth)
 ```
 
@@ -816,3 +881,56 @@ When `interim_transcription` is on, the daemon also emits a translation of each 
 - `interim_translation_provider: null | "api" | "libretranslate" | "claude"` — pick the backend explicitly. `null` falls back to `translation_provider`; if that is `claude` it is auto-routed to `api` then `libretranslate` (claude is too slow for interim, ~5-10s per call). Set to `claude` only if you accept the latency.
 
 The interim panel needs sub-second responses to be useful, so `libretranslate` (local) is recommended; `api` is OK with a fast model. Confirmed-transcript translation is unaffected — it always uses `translation_provider`.
+
+## Building standalone binaries
+
+`packaging/shadow-clerk.spec` produces a one-directory PyInstaller bundle containing both `clerk-daemon` and `clerk-util`.
+
+**Without a Windows machine**, `.github/workflows/build-binary.yml` builds the bundle on `windows-latest` and `ubuntu-latest` with ReazonSpeech and Google Calendar included. Push a `v*` tag and both
+binaries are attached to the release, or start it by hand from the Actions tab and
+download them as artifacts.
+
+**PyInstaller does not cross-compile.** It only builds for the OS it runs on: the bootloader is a native binary, and the analysis step imports every module to trace dependencies. A Windows `.exe` therefore has to be built on Windows — a machine, a VM, or a `windows-latest` GitHub Actions runner. Wine with a Windows Python is the usual workaround, but analysis imports `pywinpty` (ConPTY), `PyAudioWPatch` (WASAPI) and `ctranslate2`, which are exactly the pieces Wine emulates poorly.
+
+To build locally:
+
+```powershell
+# Windows (PowerShell)
+uv sync
+uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
+dist\shadow-clerk\clerk-daemon.exe --list-devices   # smoke test
+```
+
+```bash
+# Linux / macOS
+uv sync
+uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
+./dist/shadow-clerk/clerk-daemon --list-devices      # smoke test
+```
+
+`--list-devices` is a good smoke test: it exercises the bundled PortAudio and the native extensions without recording anything.
+
+To bundle ReazonSpeech and Google Calendar as well, replace the `uv sync` line — in
+this order, because `reazonspeech-k2-asr` is not declared anywhere and a later sync
+would remove it:
+
+```powershell
+uv sync --extra reazonspeech --extra gcal
+uv pip install "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
+uv run python -c "import sherpa_onnx, reazonspeech.k2.asr; print('ok')"   # check before building
+uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
+```
+
+The `spell-check` extra is **not** bundled even if you install it: the spec drops
+`torch`, `transformers` and `sentencepiece` in `_EXCLUDES`. Remove them from that
+list to include it, and expect the bundle to grow by several GB.
+
+**Do not `uv pip install pyinstaller`.** `uv sync` makes the environment match what the project declares and removes everything else, so the next `uv sync --extra ...` would drop it again. `--with` puts PyInstaller in a temporary layer over the project environment instead: it can still see the project's packages, and nothing is left behind to be removed.
+
+Notes:
+
+- **Output**: `dist/shadow-clerk/`, roughly 460 MB with the default dependencies and no extras.
+- **Extras are collected only if installed** in the environment you build from, so install them before building — every extra you want named in one `uv sync`, and any `uv pip install` last. See [Setup](#2-install) for why the order matters. The spec collects `sherpa_onnx` (which carries its own `onnxruntime` DLL in `lib/`) and `reazonspeech.k2.asr` when they are there; the ASR weights themselves are fetched on first use, like the Whisper models.
+- **Whisper models are not bundled.** `small` is around 500 MB and is fetched from Hugging Face on first run, then cached (`%USERPROFILE%\.cache\huggingface` on Windows, `~/.cache/huggingface` elsewhere). For an offline bundle, add that cache to `datas` in the spec, or ship a converted CT2 model and point `--model` at it.
+- **`packaging/hooks/` overrides PyInstaller's bundled hooks.** There is one today: the bundled `hook-webrtcvad.py` calls `copy_metadata('webrtcvad')`, but this project depends on `webrtcvad-wheels`, so without the override the build aborts with `ImportErrorWhenRunningHook`.
+- Add a dependency that ships DLLs or data files? Add it to `_PACKAGES` in the spec. PyInstaller only follows `import` statements, so anything else is silently left out and fails at runtime rather than at build time.

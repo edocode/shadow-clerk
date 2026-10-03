@@ -3,9 +3,30 @@
 [![PyPI version](https://img.shields.io/pypi/v/shadow-clerk.svg)](https://pypi.org/project/shadow-clerk/)
 [![Python versions](https://img.shields.io/pypi/pyversions/shadow-clerk.svg)](https://pypi.org/project/shadow-clerk/)
 
-Web会議の音声をリアルタイムで録音・文字起こしするツール。翻訳や議事録生成もできる。
+Web会議の音声（自分のマイクとスピーカー出力）をリアルタイムで録音・文字起こしするツール。翻訳や議事録生成もできる。さらに次のこともできる:
+
+- **AI コンソール**で AI アシスタント（Claude Code または Codex）を会議に同席させ、進行中に不明点を指摘させたり、議事録を書かせたりする
+- **Claude と声で議論する**（VOICEVOX で読み上げ）。Linux + PipeWire なら Claude の声を会議アプリに流せる
+- **Google カレンダー**の予定に合わせて会議セッションを開始・終了する
+- Chrome 拡張で**ブラウザのスクリーンショット**を transcript の時系列に差し込む
+
+Linux と Windows で動く。文字起こしと LibreTranslate による翻訳は完全にローカルで完結し、それ以外はすべてオプション。
 
 PyPI で公開中: <https://pypi.org/project/shadow-clerk/>
+
+## 目次
+
+- [動作環境](#動作環境)
+- [機能と必要なもの](#機能と必要なもの)
+- [セットアップ](#セットアップ)
+- [使い方](#使い方)
+  - [デーモンの起動](#デーモンの起動) · [録音・文字起こし](#録音文字起こし) · [音声デバイスの選択](#音声デバイスの選択) · [入力レベル表示](#入力レベル表示)
+  - [ダッシュボード](#ダッシュボード) · [音声コマンド](#音声コマンド) · [CLI オプション](#cli-オプション) · [clerk-util のサブコマンド](#clerk-util-のサブコマンド)
+  - [翻訳・要約のプロバイダ](#翻訳要約のプロバイダ) · [Claude と会議](#claude-と会議) · [議事録生成](#議事録生成) · [AI コンソール](#ai-コンソール) · [ブラウザのスクリーンショット](#ブラウザのスクリーンショット)
+- [設定](#設定)
+- [ファイル構成](#ファイル構成)
+- [トラブルシューティング](#トラブルシューティング)
+- [スタンドアロンバイナリのビルド](#スタンドアロンバイナリのビルド)
 
 ## 動作環境
 
@@ -41,10 +62,8 @@ uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "re
 - **`voice_command_key`**: デフォルトの `f23` は Linux/xremap 用の慣習。Windows では `null`(PTT 無効)または `menu`/`ctrl_r`/`ctrl_l`/`alt_r`/`alt_l`/`shift_r`/`shift_l` のいずれかを `config.yaml` で設定する。
 - **daemon の停止**: `clerk-util stop` が動作する(Windows では内部で `taskkill` を使用)。`clerk-util start` はフォアグラウンドで起動し Ctrl+C で停止できる(Linux と同じ挙動)。`clerk-daemon --daemon` は分離起動する: `fork()` が無いので `DETACHED_PROCESS` で自分を起こし直し、親は抜ける。
 - **AI コンソール**: ConPTY を [pywinpty](https://github.com/andfoy/pywinpty) 経由で使う(Windows 限定 dep として宣言済み)。入っていなくても daemon 自体は動き、コンソールだけが「pywinpty が要る」と報告して起動しない。
-
-### スタンドアロンバイナリ
-
-`clerk-daemon.exe` と `clerk-util.exe` を PyInstaller で作れる。[スタンドアロンバイナリのビルド](#スタンドアロンバイナリのビルド)を参照。
+- **Claude と会議**: Claude の声を会議アプリに届ける機能は PipeWire が前提なので、Windows では選べない。
+- **スタンドアロンバイナリ**: `clerk-daemon.exe` と `clerk-util.exe` を PyInstaller で作れる。[スタンドアロンバイナリのビルド](#スタンドアロンバイナリのビルド)を参照。
 
 ## 機能と必要なもの
 
@@ -56,13 +75,18 @@ uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "re
 | 中間文字起こし | 同上 | 2 | 5 | `interim_transcription: true`, `interim_model` |
 | 翻訳 (LibreTranslate) | LibreTranslate サーバー | 2 | 4 | `translation_provider: libretranslate` |
 | 翻訳 (OpenAI 互換 API) | OpenAI 互換 API | 3-5 | 2-5 | `translation_provider: api`, `api_endpoint`, `api_model` |
-| 翻訳 (Claude) | Claude Code | 5 | 2 | `translation_provider: claude` |
+| 翻訳 (Claude) | Claude Code の CLI（`claude -p`） | 5 | 2 | `translation_provider: claude` |
 | 言語検出（翻訳前） | langdetect（同梱） | — | — | 翻訳元言語を自動検出してプロンプトを切り替える |
-| 要約 (Claude) | Claude Code | 5 | 3 | `llm_provider: claude` |
+| 要約 (Claude) | Claude Code の CLI（`claude -p`） | 5 | 3 | `llm_provider: claude` |
 | 要約 (OpenAI 互換 API) | OpenAI 互換 API | 3-5 | 2-5 | `llm_provider: api`, `api_endpoint`, `api_model` |
 | 音声コマンド (PTT) | なし（組み込み） | — | — | `voice_command_key` |
-| 音声コマンド (LLM マッチング) | OpenAI 互換 API | — | — | `api_endpoint`, `api_model` |
+| 音声コマンド (LLM マッチング) | OpenAI 互換 API | — | — | `llm_provider: api`, `api_endpoint`, `api_model` |
 | 誤字訂正 (翻訳前) | transformers（初回に自動DL） | — | — | `libretranslate_spell_check: true` |
+| [AI コンソール](#ai-コンソール)（会議アシスタント） | Claude Code または Codex の CLI、`clerk-util install-skill` で入れるスキル | — | — | `auto_analyze`, `ai_assistant_command` |
+| [Claude と会議](#claude-と会議) | Claude Code の CLI、起動済みの VOICEVOX エンジン | — | — | `talk_*` |
+| Claude の声を会議アプリに届ける | Linux + PipeWire（`pw-dump`・`pw-link`・`pw-cat`） | — | — | `talk_route_app` |
+| [Google Calendar](#オプション-google-calendar-連携)（会議の自動開始・終了、参加予定者） | `gcal` extra、OAuth 認証情報 | — | — | `gcal_integration`, `gcal_credentials_file` |
+| [ブラウザのスクリーンショット](#ブラウザのスクリーンショット)を transcript に残す | `extension/` の Chrome 拡張 | — | — | — |
 
 **LLM なしで使える最小構成:** 文字起こし + LibreTranslate 翻訳であれば、外部 API や Claude Code は不要。すべてローカルで完結する。
 
@@ -70,11 +94,13 @@ uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "re
 
 ## セットアップ
 
-### 1. システムパッケージ
+### 1. システムパッケージ（Linux のみ）
 
 ```bash
 sudo apt install libportaudio2 portaudio19-dev
 ```
+
+Windows ではシステムパッケージは要らない（`sounddevice` の wheel が PortAudio を同梱している）。手順 2 の代わりに [Windows 固有の注意点](#windows-固有の注意点) のコマンドでインストールする。
 
 ### 2. インストール
 
@@ -189,7 +215,7 @@ clerk-util write-config-value gcal_integration true
 clerk-util write-config-value gcal_credentials_file ~/credentials.json
 ```
 
-有効にすると、clerk-daemon が 60 秒ごとに Google カレンダーをポーリングする。予定時刻に `start_meeting` / `end_meeting` が自動送信され、`transcript-YYYYMMDDHHMM@予定タイトル.txt` として記録される。
+有効にすると、clerk-daemon が 60 秒ごとに Google カレンダーをポーリングする。予定時刻に `start_meeting` / `end_meeting` が自動送信され、`transcript-YYYYMMDDHHMM@予定タイトル.txt` として記録される。予定の招待者は会議の参加予定者として保存され、議事録の上に表示される。ダッシュボードのヘッダの 📅 ボタンで今日の予定を一覧できる。
 
 `credentials.json` の取得方法は [docs/google-calendar-setup.md](docs/google-calendar-setup.md) を参照。
 
@@ -247,57 +273,6 @@ claude_cli_model: haiku   # sonnet / opus / モデル ID も指定可
 
 既存の Claude Code OAuth ログインをそのまま使う。追加セットアップ不要、翻訳・要約は daemon 内のバックグラウンドスレッドで実行されるので Claude Code セッションを開きっぱなしにする必要なし。
 
-## スタンドアロンバイナリのビルド
-
-`packaging/shadow-clerk.spec` で、`clerk-daemon` と `clerk-util` の両方を含む 1 ディレクトリ配布を作れる。
-
-**PyInstaller はクロスコンパイルしない。** 動かしている OS 向けの実行ファイルしか作らない — bootloader が OS ごとのネイティブバイナリで、解析も実際にモジュールを import して依存を辿るため。したがって Windows の `.exe` は Windows 上で作る必要がある(実機・VM・GitHub Actions の `windows-latest` のいずれか)。Wine に Windows 版 Python を入れる回避策はあるが、解析時に `pywinpty`(ConPTY)・`PyAudioWPatch`(WASAPI)・`ctranslate2` を import するので、まさに Wine が苦手な部分に当たる。
-
-```powershell
-# Windows (PowerShell)
-uv sync
-uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
-dist\shadow-clerk\clerk-daemon.exe --list-devices   # 動作確認
-```
-
-```bash
-# Linux / macOS
-uv sync
-uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
-./dist/shadow-clerk/clerk-daemon --list-devices      # 動作確認
-```
-
-`--list-devices` は動作確認に向いている。録音を始めずに、同梱した PortAudio とネイティブ拡張が読めているかを確かめられる。
-
-ReazonSpeech と Google Calendar も同梱するなら `uv sync` の行を差し替える。**この順で**
-——`reazonspeech-k2-asr` はどこにも宣言できないので、あとから sync すると消える:
-
-```powershell
-uv sync --extra reazonspeech --extra gcal
-uv pip install "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
-uv run python -c "import sherpa_onnx, reazonspeech.k2.asr; print('ok')"   # ビルド前に確認
-uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
-```
-
-`spell-check` extra は**入れても同梱されない**。spec の `_EXCLUDES` が `torch` /
-`transformers` / `sentencepiece` を落としているため。同梱したければそこから外す
-——配布物が数 GB 増える。
-
-**Windows 機が無くても作れる。** `.github/workflows/build-binary.yml` が上と同じ
-手順を `windows-latest` と `ubuntu-latest` で走らせる。`v*` のタグを push すれば
-両方のバイナリが Release に添付され、Actions タブから手で起動すれば成果物として
-ダウンロードできる。
-
-**`uv pip install pyinstaller` はしないこと。** `uv sync` は環境をプロジェクトの宣言どおりに揃え、それ以外を消す。入れておいても次の `uv sync --extra ...` で消えてしまう。`--with` はプロジェクト環境の上に一時的な層として PyInstaller を載せるので、プロジェクトの依存は見えたまま、環境には何も残らない。
-
-補足:
-
-- **出力先**: `dist/shadow-clerk/`。既定の依存のみ(extra なし)でおよそ 460MB。
-- **extra はビルドした環境に入っているものだけが集められる。** ビルド前に入れておくこと——欲しい extra は 1 回の `uv sync` にまとめ、`uv pip install` は最後に。順序が効く理由は[セットアップ](#2-インストール)にある。入っていれば spec が `sherpa_onnx`(`lib/` に onnxruntime の DLL を抱えている)と `reazonspeech.k2.asr` を集める。モデルの重み自体は Whisper と同じく初回利用時に取得される。
-- **Whisper のモデルは同梱されない。** `small` で約 500MB あり、初回起動時に Hugging Face から取得されてキャッシュに残る(Windows は `%USERPROFILE%\.cache\huggingface`、それ以外は `~/.cache/huggingface`)。オフラインで配布したいなら、そのキャッシュを spec の `datas` に足すか、CT2 形式に変換したモデルを同梱して `--model` にパスを渡す。
-- **`packaging/hooks/` は PyInstaller 同梱フックの差し替え。** 現在 1 つある: 同梱の `hook-webrtcvad.py` は `copy_metadata('webrtcvad')` を呼ぶが、このプロジェクトが使うのは `webrtcvad-wheels` なので、差し替えないと `ImportErrorWhenRunningHook` でビルドが止まる。
-- DLL やデータファイルを持つ依存を足したら、spec の `_PACKAGES` にも足すこと。PyInstaller は `import` しか追わないので、漏れると**ビルドは通って実行時に落ちる**。
-
 ## 使い方
 
 ### デーモンの起動
@@ -316,6 +291,8 @@ uv run clerk-daemon
 
 > **注意:** `uv run` はプロジェクトの `.venv` を、`uv tool install` は専用の隔離環境を使用します。extras（`spell-check`, `reazonspeech` など）は対応する環境にインストールしてください。
 
+ダッシュボードは <http://localhost:8765> で開ける。
+
 ### 録音・文字起こし
 
 ```bash
@@ -331,22 +308,55 @@ clerk-daemon \
   --model small \
   --output ~/my-transcript.txt \
   --verbose
+
+# バックグラウンドで起動（ログはデータディレクトリの daemon.log に出る）
+clerk-daemon -d
 ```
 
-録音中は `Ctrl+C` で停止する。
+録音中は `Ctrl+C` で停止する（バックグラウンドの daemon は `clerk-util stop`）。
+
+### 音声デバイスの選択
+
+`mic_device` / `monitor_device` はデバイスを**名前**で固定する（番号ではない — 番号は daemon 起動ごとに変わり、稼働中にも移動しうる）。デフォルトの `null` は OS のデフォルトデバイスに追従する。ダッシュボードの設定パネルから選択できる。
+
+指定したデバイスが見つからなくなった場合（抜線、シンク削除など）、daemon は自動デバイスにフォールバックして録音を継続し、デバイスが復帰すると自動で元に戻る。設定値はフォールバック中も書き換えられない。デバイス自体は存在するのに開けなかった場合（他アプリに排他的に掴まれている等）は自動では再試行しない。手が空いたら「一覧を更新」で再試行させる。
+
+`--mic` / `--monitor` CLI オプション（番号指定、[CLI オプション](#cli-オプション)参照）は `mic_device` / `monitor_device` より優先される。CLI オプションが有効な間は、ダッシュボードの対応するドロップダウンは操作不能になる。
+
+daemon 起動後に接続したデバイスは、一覧を更新するまでドロップダウンに表示されない（設定パネルの「一覧を更新」ボタン）。更新中は両方のキャプチャストリームが一瞬途切れる。
+
+### 入力レベル表示
+
+ダッシュボードのヘッダーには、ミュートボタンの隣にキャプチャ系統（マイク/スピーカー）ごとのレベルバーが表示される。バーはクレストファクタ（peak を rms で割った値）で音声とノイズを見分ける。音声は 3〜10 以上あるが、内蔵マイクのハムのような定常的な電気ノイズは 1〜2 しかない。
+
+「音量はあるのに変化がない」状態が10秒続くとバーが黄色（定常ノイズ）になる。これはマイク・スピーカーいずれの系統にも適用される。マイクはさらに、完全な無音（音量が正確にゼロ）が30秒続くと赤色（無音デバイス）になる——生きたマイクには常にノイズフロアがあるため、厳密にゼロが続くのは音が届いていない証拠（例：電源が切れた状態でもドングルだけはデバイスとして認識されるヘッドセット）。スピーカー側の監視（monitor）にはこの判定を適用しない。sink monitor は何も再生していない間、厳密なゼロを返すのが正常な待機状態であり、故障ではないため。指定デバイスが使えず自動デバイスで代替中の系統には、いずれもフォールバックと同じ意味でリング状の枠が付く。
+
+### ダッシュボード
+
+ダッシュボード（<http://localhost:8765>。ポートは `--dashboard-port` で変更）には transcript と翻訳がリアルタイムに流れ、ほとんどの機能はここから操作する。
+
+| 場所 | 内容 |
+|---|---|
+| ヘッダ | 会議・翻訳の開始/停止、**要約**（議事録を生成）、**Claude と会議**、文字サイズ、transcript/翻訳の並べ方、**用語集**、PTT、カスタム**コマンド**、📅 今日の Google カレンダーの予定（連携が有効なときだけ）、⚙ 設定、❓ ヘルプ |
+| 左ペイン: **日付** / **会議** / **検索** | 日付ごとの transcript。会議名ごとにまとめた会議ファイル（ABC順/新しい順の切り替え、会議名の変更、⚙ で会議ごとの起動ディレクトリ）。年・月・日・時とキーワードで transcript・翻訳・要約を横断検索 |
+| Transcript / Translation | リアルタイムの本文。ミュートボタンと[入力レベル表示](#入力レベル表示)付き。⏱ で日次 transcript の一部を会議として切り出す: 全体（または選択範囲）を指定した長さの沈黙で分割するか、選択した行をそのまま切り出す。📂 でファイルを既存または新しい会議名に紐付け、🗑 でファイルを削除するか、会議を日次ファイルに戻す |
+| 右ペイン: **議事録** / **AI分析** | 議事録（コピー・再読み込み・再生成。カレンダー由来の参加予定者を上部に表示）。**AI分析** には AI コンソールが書く Advice と Analysis、**分析開始** ボタンがある |
+| 下部ペイン: **AI コンソール** / **Claude と会議** / **ログ** | 2つの [AI コンソール](#ai-コンソール)の端末（会議アシスタントと [Claude と会議](#claude-と会議)）を transcript と並べて表示。daemon のログ |
+
+初回起動時は **ようこそ** ダイアログが開き、AI エージェント向けのスキルの導入と、最初に見ておくとよい設定を案内する（「今後このメッセージを表示しない」で出なくなる）。同梱スキルが導入済みのものより新しくなると、更新を勧めるダイアログが出る。
 
 ### 音声コマンド
 
 #### Push-to-Talk（推奨）
 
-Menu キー（右 Alt の隣）を押しながらコマンドを発話すると、ウェイクワードなしでコマンドとして認識される:
+PTT キーを押しながらコマンドを発話すると、ウェイクワードなしでコマンドとして認識される:
 
 ```
-[Menu キー押しながら] 「翻訳開始」 → 翻訳が開始される
-[Menu キー押しながら] 「会議開始」 → 会議セッションが開始される
+[PTT キー押しながら] 「翻訳開始」 → 翻訳が開始される
+[PTT キー押しながら] 「会議開始」 → 会議セッションが開始される
 ```
 
-トリガーキーは `config.yaml` の `voice_command_key` で変更できる（`ctrl_r`, `ctrl_l`, `alt_r`, `alt_l`, `shift_r`, `shift_l`）。`null` に設定すると無効化される。
+キーは `config.yaml` の `voice_command_key` で決まる。デフォルトの `f23` はキーリマッパー（xremap で Menu キーを F23 に割り当てる等）と組み合わせる前提。ほかに `menu`（右 Alt の隣の Menu キー）、`ctrl_r`, `ctrl_l`, `alt_r`, `alt_l`, `shift_r`, `shift_l` を指定できる。`null` に設定すると無効化される。Windows では [Windows 固有の注意点](#windows-固有の注意点) も参照。
 
 #### プレフィックス方式（フォールバック）
 
@@ -362,13 +372,11 @@ Menu キー（右 Alt の隣）を押しながらコマンドを発話すると�
 | 「シェルク、翻訳開始」 | 翻訳ループを開始 |
 | 「シェルク、翻訳停止」 | 翻訳ループを停止 |
 
-ウェイクワードは `config.yaml` の `wake_word` で変更できる。
-
-プレフィックスとコマンドの間の区切り（カンマ、読点、スペース）は省略可能。
+プレフィックスとコマンドの間の区切り（カンマ、読点、スペース）は省略可能。ウェイクワードは `config.yaml` の `wake_word` で変更できる。
 
 #### カスタム音声コマンド
 
-`config.yaml` の `custom_commands` に独自の音声コマンドを登録できる。組み込みコマンドにマッチしない場合に順番に評価される:
+`config.yaml` の `custom_commands`（またはダッシュボードの **コマンド** ボタン）に独自の音声コマンドを登録できる。組み込みコマンドにマッチしない場合に順番に評価される:
 
 ```yaml
 custom_commands:
@@ -381,8 +389,8 @@ custom_commands:
 - `pattern`: 正規表現（大文字小文字を区別しない）
 - `action`: 実行するシェルコマンド
 
-音声で分析を開始することもできる — 用語集にはすでに `クラーク` がウェイクワードの
-バリアントとして登録されているので、PTT キーを押しながらこう発話すると発火する:
+音声で分析を開始することもできる。PTT キーを押しながらこう発話すると発火する
+（先頭に `クラーク` が付いていてもよい）:
 
 ```yaml
 custom_commands:
@@ -392,13 +400,15 @@ custom_commands:
 
 #### LLM フォールバック
 
-組み込みコマンドにもカスタムコマンドにもマッチしない場合、`api_endpoint` が設定されていれば LLM にクエリとして送信される。回答は stdout に表示され、`.clerk_response` ファイルに保存される。
+組み込みコマンドにもカスタムコマンドにもマッチしない場合、LLM が使える設定（`api_endpoint` を設定済み、または `llm_provider: claude`）なら LLM にクエリとして送信される。回答は stdout に表示され、`.clerk_response` ファイルに保存される。
 
 ```
 「シェルク、1+1の答えは？」 → LLM が回答を返す
 ```
 
 ### CLI オプション
+
+`clerk-daemon` のオプション:
 
 | オプション | 説明 | デフォルト |
 |---|---|---|
@@ -407,7 +417,7 @@ custom_commands:
 | `--language`, `-l` | 言語コード (`ja`, `en` 等)。省略で自動検出 | 自動 |
 | `--mic` | マイクデバイス番号 | 自動検出（または `mic_device` 設定） |
 | `--monitor` | モニターデバイス番号 (sounddevice) | 自動検出（または `monitor_device` 設定） |
-| `--backend` | 音声バックエンド (`auto`, `pipewire`, `pulseaudio`, `sounddevice`) | `auto` |
+| `--backend` | 音声バックエンド (`auto`, `pipewire`, `pulseaudio`, `sounddevice`, `wasapi`) | `auto` |
 | `--list-devices` | デバイス一覧を表示して終了 | - |
 | `--verbose`, `-v` | 詳細ログ出力 | - |
 | `--dashboard` / `--no-dashboard` | ダッシュボード有効/無効 | 有効 |
@@ -415,6 +425,27 @@ custom_commands:
 | `--beam-size` | Whisper beam size (`1`=高速, `5`=高精度) | `5` |
 | `--compute-type` | Whisper 計算精度 (`int8`, `float16`, `float32`) | `int8` |
 | `--device` | Whisper デバイス (`cpu`, `cuda`) | `cpu` |
+| `--daemon`, `-d` | デーモンとして起動（バックグラウンド実行、ログはデータディレクトリの `daemon.log` に出力） | - |
+
+### clerk-util のサブコマンド
+
+`clerk-util` は daemon とデータディレクトリを操作する。同じ一覧は `clerk-util help` でも出る。
+
+| サブコマンド | 説明 |
+|---|---|
+| `start [opts]` | clerk-daemon をそのオプションでフォアグラウンド起動する（`-d` を付けるとバックグラウンド） |
+| `stop` | clerk-daemon を停止（Linux は SIGTERM、Windows は `taskkill`） |
+| `restart [opts]` | clerk-daemon を停止し、終了を待ってからそのオプションで起動する |
+| `recorder-status` | `running` か `stopped` を表示 |
+| `command <cmd>` | 動作中の daemon にコマンドを送る: `start_meeting`, `end_meeting`, `translate_start`, `translate_stop` など |
+| `summarize [DATE\|FILE] [--mode full\|update]` | 議事録を生成（既定は `full`）。DATE は `YYYYMMDD` か `YYYYMMDDHHMM[@name]`、FILE は `transcript-*.txt`。省略すると進行中の会議、なければ今日 |
+| `ls` | データディレクトリの一覧（出力先が別ならそちらも） |
+| `read-config` | `config.yaml` を表示（なければデフォルト値で作る） |
+| `write-config-value <key> <value>` | `config.yaml` のキーを1つ変更 |
+| `gcal-auth <credentials.json> [token_file]` | Google Calendar の OAuth 認証。成功すると `gcal_integration` も有効にする |
+| `install-skill [--target claude\|agents\|<path>] [--link] [--force]` | AI エージェント向けに同梱スキルを配る（[AI コンソール](#ai-コンソール)参照） |
+| `run-llm <args...>` | LLM クライアントを直接実行（`translate`, `query`, `match-command`, `summarize`, `spell-check`） |
+| `help` | 使い方を表示 |
 
 ### 翻訳・要約のプロバイダ
 
@@ -490,6 +521,7 @@ talk mode では、議題について Claude と声で議論できます。Claud
 `clerk-util install-skill` で入れます（2つまとめて入ります）。
 `clerk-talk` スキルが事前に許可するのは、`http://localhost` への自分の `curl` 呼び出し（と `Monitor`）だけです。
 それでも Claude Code が確認してきたら一度許可するか、同じ規則を Claude Code の設定に足してください。
+
 **Claude の声を会議に届ける（Linux・PipeWire）。** 開始モーダルの **Claude の声を届ける先** で会議アプリを選びます。
 shadow-clerk は名前付きの PipeWire ストリームから読み上げ、`pw-link` でそのアプリのマイク入力につなぐので、
 相手には自分のマイクの音と一緒に Claude の声が届き、自分にもヘッドセットから聞こえます。会議アプリがマイクを
@@ -538,11 +570,11 @@ Claude は応答を書いた端から、短い文に区切って話します。�
 会議終了時の自動生成、ダッシュボードからのオンデマンド生成、`clerk-util` からのコマンドライン生成、の3経路がある:
 
 ```
-clerk-util start                                   # daemon 起動（バックグラウンド）
+clerk-util start -d                                # daemon 起動（バックグラウンド）
 clerk-util stop                                    # daemon 停止
 clerk-util recorder-status                         # 動作状態
-clerk-util summarize                               # 差分から議事録を更新
-clerk-util summarize --mode full                   # 全文から再生成
+clerk-util summarize                               # 進行中の会議（なければ今日）の議事録を生成
+clerk-util summarize --mode update                 # 差分から議事録を更新
 clerk-util summarize 20260425 --mode full          # 日付指定
 clerk-util command start_meeting                   # 会議セッション開始
 clerk-util command end_meeting                     # 会議セッション終了（auto_summary 連動）
@@ -550,93 +582,125 @@ clerk-util command translate_start                 # 翻訳ループ開始
 clerk-util command translate_stop                  # 翻訳ループ停止
 ```
 
-会議の開始・終了は **音声コマンド**（「シェルク、会議開始」「シェルク、会議終了」）または **ダッシュボードのボタン** からも操作可能。ダッシュボードの「要約生成」ボタンで任意のタイミングで議事録生成も可能。
+会議の開始・終了は **音声コマンド**（「シェルク、会議開始」「シェルク、会議終了」）または **ダッシュボードのボタン** からも操作可能。ダッシュボードの **要約** ボタンで任意のタイミングで議事録生成も可能。
 
-生成された議事録は `~/.local/share/shadow-clerk/summary-YYYYMMDD.md` に保存される。
+`auto_summary` が有効で、会議終了時に [AI コンソール](#ai-コンソール)が動いていれば、議事録はコンソールのアシスタントが書く（`auto_summary_via_console`、既定で有効）。動いていなければ設定した LLM が書く。
+
+生成された議事録は `~/.local/share/shadow-clerk/summary-YYYYMMDD.md`（会議なら `summary-YYYYMMDDHHMM@会議名.md`）に保存される。データディレクトリに `summary_template.md` を置くと、議事録の書式をそれに合わせられる。
 
 ### AI コンソール
-- アシスタントは `$SHADOW_CLERK_URL`（コンソールが子プロセスに渡す）で API に届くので、ポートを推測しない。
 
-ダッシュボードの **AI Console** タブ（**Logs** タブの隣）で、AI アシスタント（`claude` または `codex`）を PTY 上で動かし、会議の文字起こしを監視させて生成物を書かせることができる。
+ダッシュボードの **AI コンソール** タブ（**ログ** タブの隣）で、AI アシスタント（`claude` または `codex`）を PTY 上で動かし、会議の文字起こしを監視させて生成物を書かせることができる。
 
-- **起動**: 会議開始時（`auto_analyze: true
-auto_summary_via_console: true   # コンソールが走っていれば議事録をそちらに作らせる`）または「分析開始」ボタンで手動起動。いずれの場合もアシスタントの TUI が準備できたタイミングで `ai_assistant_init_prompt`（デフォルト `/clerk-meeting-helper {transcript} {lang}`）が PTY に送られる。`{transcript}` と `{meeting}` は実際のファイルパスに、`{lang}` は `translate_language` に置き換えられ、スキルは読みたい言語で書く
-- **生成物**: Summary パネルの `[Summary][提案][分析]` タブに表示される
+- **スキルの導入**: アシスタントは同梱スキル（`clerk-meeting-helper`。[Claude と会議](#claude-と会議)用の `clerk-talk` も一緒に入る）を使う。エージェント側のスキルディレクトリへコピーする必要があり、初回起動時に ようこそ ダイアログが案内する。コマンドからでも同じことができる:
+
+  ```bash
+  clerk-util install-skill                        # ~/.claude/skills/   (Claude Code)
+  clerk-util install-skill --target agents        # ~/.agents/skills/   (Codex ほか)
+  clerk-util install-skill --target /path/to/dir  # それ以外。更新対象として記憶される
+  clerk-util install-skill --link                 # コピーではなく symlink (POSIX のみ)
+  ```
+
+  shadow-clerk が書いたものではないスキルが配布先にある場合、`--force` を付けない限り触らない。
+- **起動**: 会議開始時（`auto_analyze: true`）に自動で、または **分析開始** ボタン（AI分析 タブ）やコンソールの **起動** ボタンで手動で起動する。いずれの場合もアシスタントの TUI が準備できたタイミングで `ai_assistant_init_prompt`（デフォルト `/clerk-meeting-helper {transcript} {lang}`）が PTY に送られる。`{transcript}` と `{meeting}` は実際のファイルパスに、`{lang}` は `translate_language` に置き換えられ、スキルは読みたい言語で書く
+- **ダッシュボードへの接続**: アシスタントはダッシュボードの HTTP API を `$SHADOW_CLERK_URL`（コンソールが環境変数として渡す）で呼ぶので、ポートを推測しない
+- **生成物**: 右ペインの **AI分析** タブに表示される
   - `advice-<stem>.md` — 未解決の質問・提案（毎回上書き）
   - `analysis-<stem>.md` — 確定した事実（追記）
 
   どちらも Markdown で、サーバ側で HTML に起こしてから配る。生成物に混ざった
   生 HTML はレンダリングせず、実体参照に落とす。
+- **議事録**: `auto_summary: true` かつ `auto_summary_via_console: true`（既定）なら、会議終了時の議事録は動いているアシスタントが書く
 - **セッションのライフサイクル**: 1 つの PTY セッションを使い回し、会議が終わっても停止しない — 会議後の議事録作成にもそのまま使える。停止するには Console タブの停止ボタンを押す
 - **起動ディレクトリ**: `ai_assistant_workdir` が既定の起動ディレクトリを決める。会議ごとの上書きは `DATA_DIR/meeting.yaml`（`meetings[].workdir`）にあり、会議一覧の各行の ⚙ アイコンから編集できる。shadow-clerk が自分で作ったのではない `config.yaml` を初めて書き換えるときは、隣に一度だけ `<path>.bak` を残す（YAML の書き出しはキーは保つが、手書きのコメントは保たないため）
 - **権限**: アシスタントは会議アシスタントスキルのシェルスクリプトを実行するので、その起動ディレクトリの `.claude/settings.json` で許可しておくこと — しないと会議中に承認プロンプトで止まる
-
-- **スキルの導入**: アシスタントは同梱スキルを使う。エージェント側のスキル
-  ディレクトリへコピーする必要があり、初回起動時にダッシュボードが案内する。
-  コマンドからでも同じことができる:
-
-```bash
-clerk-util install-skill                        # ~/.claude/skills/   (Claude Code)
-clerk-util install-skill --target agents        # ~/.agents/skills/   (Codex ほか)
-clerk-util install-skill --target /path/to/dir  # それ以外。更新対象として記憶される
-clerk-util install-skill --link                 # コピーではなく symlink (POSIX のみ)
-```
-
-  shadow-clerk が書いたものではないスキルが配布先にある場合、`--force` を
-  付けない限り触らない。会議ごとの起動ディレクトリは `DATA_DIR/meeting.yaml`。
 - **SIGKILL 時に残るプロセス**: 通常の終了ではデーモンがアシスタントを止めるが、デーモン自体が SIGKILL（`kill -9`）で落ちた場合、アシスタントのプロセスが端末から切り離されたまま残ることがある。`pgrep -af claude`（または `codex`）で探して手で kill すること
-- **ダッシュボードを外部公開する場合の注意**: AI Console の端末内容（アシスタントがファイルから読んだ・出力した内容を含む）は他のダッシュボード機能と同じ `/api/events` の SSE に相乗りして配信されており、この SSE のファンアウトはクライアント単位の絞り込みを持たない。ダッシュボードを localhost 以外にバインドすると、到達できる相手はアシスタントの端末をそのまま覗ける。Console への入力系（`/api/console/input` 等）自体は localhost 限定に加え、`Origin` ヘッダを見て自分のブラウザからのクロスオリジンリクエストも拒否する
+- **ダッシュボードを外部公開する場合の注意**: AI コンソールの端末内容（アシスタントがファイルから読んだ・出力した内容を含む）は他のダッシュボード機能と同じ `/api/events` の SSE に相乗りして配信されており、この SSE のファンアウトはクライアント単位の絞り込みを持たない。ダッシュボードを localhost 以外にバインドすると、到達できる相手はアシスタントの端末をそのまま覗ける。Console への入力系（`/api/console/input` 等）自体は localhost 限定に加え、`Origin` ヘッダを見て自分のブラウザからのクロスオリジンリクエストも拒否する
+
+### ブラウザのスクリーンショット
+
+[`extension/`](extension/) にある小さな Chrome 拡張で、表示中のタブ（ブラウザ会議の画面共有など）をキャプチャできる。画像はデータディレクトリに保存され、録音中の transcript に `[画面]` 行が1行加わるので、画像が発言と同じ時系列に並ぶ。`chrome://extensions` から「パッケージ化されていない拡張機能を読み込む」で入れる。インストール方法・設定・書き出す内容は [extension/README.md](extension/README.md) を参照。
+
+## 設定
 
 ### 設定ファイル
 
-`~/.local/share/shadow-clerk/config.yaml` でデフォルト値や自動機能を設定できる:
+`~/.local/share/shadow-clerk/config.yaml` でデフォルト値や自動機能を設定できる。主なキーとデフォルト値:
 
 ```yaml
-# shadow-clerk 設定
+# --- 会議の自動化 ---
 translate_language: en        # 翻訳先言語 (ja/en/etc)
 auto_translate: false         # start meeting 時に自動翻訳を開始
 auto_summary: false           # end meeting 時に自動 summary 生成
+auto_summary_via_console: true  # auto_summary 時、AI コンソールが動いていれば議事録をそちらに書かせる
 auto_analyze: false           # 会議開始と同時に AI アシスタントを起動し 会議アシスタントスキルを走らせる
-ai_assistant_command: claude  # AI Console で起動するコマンド (claude, codex, ...)
+
+# --- AI コンソール ---
+ai_assistant_command: claude  # AI コンソールで起動するコマンド (claude, codex, ...)
 ai_assistant_args: ''         # そのコマンドの引数 (shlex で分割)
 ai_assistant_init_prompt: /clerk-meeting-helper {transcript} {lang}  # TUI 準備完了後に PTY へ送るプロンプト。{transcript} {meeting} {lang} が置換される（{lang} は translate_language）
-ai_assistant_workdir: ''      # 既定の起動ディレクトリ。会議ごとの上書きは `DATA_DIR/meeting.yaml` の meetings[].workdir にある
+ai_assistant_workdir: ''      # 既定の起動ディレクトリ。会議ごとの上書きは DATA_DIR/meeting.yaml の meetings[].workdir にある
+
+# --- 文字起こし ---
 default_language: null        # clerk-daemon のデフォルト言語 (null=自動検出)
 default_model: small          # clerk-daemon のデフォルト Whisper モデル
 output_directory: null        # transcript 出力先ディレクトリ (null=データディレクトリ)
+initial_prompt: null          # Whisper の initial_prompt (音声認識のヒント語彙)
+whisper_beam_size: 5          # Whisper beam size (1=高速, 5=高精度)
+whisper_compute_type: int8    # 計算精度 (int8/float16/float32)
+whisper_device: cpu           # デバイス (cpu/cuda)
+interim_transcription: false  # 中間文字起こし（発話中にリアルタイム表示）
+interim_model: base           # 中間文字起こし用モデル
+japanese_asr_model: default   # 日本語 ASR モデル (default/kotoba-whisper/reazonspeech-k2)
+kotoba_whisper_model: kotoba-tech/kotoba-whisper-v2.0-faster  # Kotoba-Whisper モデル
+interim_japanese_asr_model: default  # 中間文字起こし用の日本語 ASR モデル
+reazonspeech_precision: fp32  # ReazonSpeech k2: fp32 / int8 / int8-fp32 (fp16 は無効)
+
+# --- 音声デバイス ---
 mic_device: null              # マイクデバイス名 (null=OS デフォルトに追従。番号ではない — 番号は起動ごとに変わり、稼働中にも移動する)
 monitor_device: null          # スピーカー（モニター）デバイス名 (null=OS デフォルトに追従)。ダッシュボードの設定パネルから選択できる
+
+# --- LLM・翻訳・要約 ---
 llm_provider: claude          # 要約の LLM ("claude" or "api")
 translation_provider: null    # 翻訳プロバイダ (null=llm_provider を使用, "claude", "api", "libretranslate")
+claude_cli_path: claude       # claude コマンド (PATH 上にない場合はフルパス)
+claude_cli_model: haiku       # claude -p のモデル (haiku / sonnet / opus / モデル ID)
 api_endpoint: null            # OpenAI Compatible API の base URL
 api_model: null               # API モデル名 (gpt-4o, etc.)
 api_key_env: SHADOW_CLERK_API_KEY  # API キーを格納する環境変数名
 api_disable_thinking: false   # 翻訳・中間翻訳で reasoning モデルの思考を無効化 (Qwen3 等; enable_thinking=false を送信)。要約は常に思考する
-summary_source: null          # 要約ソース (null=auto: translationがあれば優先 / "transcript" / "translate")
-summary_language: null        # 要約の言語 (null=ui_language にフォールバック / ja, en, zh, ...)
+interim_translation: true     # 中間文字起こしを翻訳して dashboard interim パネルに表示
+interim_translation_provider: null  # null=自動 / "api" / "libretranslate" / "claude"
+translation_hiragana_step: true  # 翻訳前に日本語を平仮名で読み直させ、同音の誤変換を拾わせる
 libretranslate_endpoint: null     # LibreTranslate API URL (例: http://localhost:5000)
 libretranslate_api_key: null      # LibreTranslate API キー (不要なら null)
 libretranslate_spell_check: false # LibreTranslate 翻訳前の誤字訂正
 spell_check_model: mbyhphat/t5-japanese-typo-correction  # 誤字訂正モデル
-custom_commands: []               # カスタム音声コマンド (pattern + action のリスト)
-initial_prompt: null              # Whisper の initial_prompt (音声認識のヒント語彙)
-voice_command_key: f23         # Push-to-Talk キー (null=無効)
-wake_word: シェルク              # ウェイクワード（音声コマンドのトリガーワード）
-whisper_beam_size: 5           # Whisper beam size (1=高速, 5=高精度)
-whisper_compute_type: int8     # 計算精度 (int8/float16/float32)
-whisper_device: cpu            # デバイス (cpu/cuda)
-interim_transcription: false   # 中間文字起こし（発話中にリアルタイム表示）
-interim_model: base            # 中間文字起こし用モデル
-interim_translation: true      # 中間文字起こしを翻訳して dashboard interim パネルに表示
-interim_translation_provider: null  # null=自動 / "api" / "libretranslate" / "claude"
-japanese_asr_model: default    # 日本語 ASR モデル (default/kotoba-whisper/reazonspeech-k2)
-kotoba_whisper_model: kotoba-tech/kotoba-whisper-v2.0-faster  # Kotoba-Whisper モデル
-interim_japanese_asr_model: default  # 中間文字起こし用の日本語 ASR モデル
-reazonspeech_precision: fp32   # ReazonSpeech k2: fp32 / int8 / int8-fp32 (fp16 は無効)
-ui_language: ja                # UI言語 (ja/en) — ダッシュボード・ターミナル出力・LLMプロンプト
+summary_source: null          # 要約ソース (null=auto: translationがあれば優先 / "transcript" / "translate")
+summary_language: null        # 要約の言語 (null=ui_language にフォールバック / ja, en, zh, ...)
+summary_length: half          # 議事録の最低限の長さ (half / 1page / 2pages ... 5pages。A4 換算)
+summary_hiragana_step: true   # 要約前にも同じ平仮名の読み直しをさせる
+
+# --- 音声コマンド ---
+voice_command_key: f23        # Push-to-Talk キー (null=無効)
+wake_word: シェルク             # ウェイクワード（音声コマンドのトリガーワード）
+custom_commands: []           # カスタム音声コマンド (pattern + action のリスト)
+
+# --- Google Calendar ---
+gcal_integration: false       # カレンダーの予定で会議を開始・終了する
+gcal_credentials_file: null   # OAuth の credentials.json
+gcal_token_file: null         # 認証済みトークンの保存先 (null=DATA_DIR/gcal_token.json)
+gcal_calendar_id: primary     # 監視するカレンダー
+gcal_buffer_minutes: 2        # 予定開始の N 分前に start_meeting を送る
+gcal_end_buffer_minutes: 1    # 予定終了の N 分後に end_meeting を送る
+
+# --- UI ---
+ui_language: ja               # UI言語 (ja/en) — ダッシュボード・ターミナル出力・LLMプロンプト
 ```
 
-Claude Code から設定を操作:
+talk mode のキー（`talk_*`）は [Claude と会議](#claude-と会議) の表にある。ほかにダッシュボードが自分用に使うキー（`welcome_dismissed`, `skill_update_dismissed_version`, `skill_install_targets`）もこのファイルに入るが、手で編集する必要はない。
+
+コマンドラインから（またはダッシュボードの ⚙ から）設定を操作:
 
 ```
 clerk-util read-config                                # 現在の設定を表示
@@ -646,7 +710,7 @@ clerk-util write-config-value auto_translate true     # 自動翻訳を有効化
 
 `auto_translate: true` にすると、会議セッション開始時に自動で翻訳が開始される。
 `auto_summary: true` にすると、会議セッション終了時に自動で議事録が生成される。
-`auto_analyze: true` にすると、会議セッション開始時に AI Console で AI アシスタントが起動する。
+`auto_analyze: true` にすると、会議セッション開始時に AI コンソールで AI アシスタントが起動する。
 
 ### 翻訳ファイルからの要約生成
 
@@ -666,42 +730,44 @@ clerk-util write-config-value summary_language en   # 英語で要約
 clerk-util write-config-value summary_language ja   # 日本語で要約
 ```
 
-### 音声デバイスの選択
-
-`mic_device` / `monitor_device` はデバイスを**名前**で固定する（番号ではない — 番号は daemon 起動ごとに変わり、稼働中にも移動しうる）。デフォルトの `null` は OS のデフォルトデバイスに追従する。ダッシュボードの設定パネルから選択できる。
-
-指定したデバイスが見つからなくなった場合（抜線、シンク削除など）、daemon は自動デバイスにフォールバックして録音を継続し、デバイスが復帰すると自動で元に戻る。設定値はフォールバック中も書き換えられない。デバイス自体は存在するのに開けなかった場合（他アプリに排他的に掴まれている等）は自動では再試行しない。手が空いたら「一覧を更新」で再試行させる。
-
-`--mic` / `--monitor` CLI オプション（番号指定、上記の CLI オプション参照）は `mic_device` / `monitor_device` より優先される。CLI オプションが有効な間は、ダッシュボードの対応するドロップダウンは操作不能になる。
-
-daemon 起動後に接続したデバイスは、一覧を更新するまでドロップダウンに表示されない（設定パネルの「一覧を更新」ボタン）。更新中は両方のキャプチャストリームが一瞬途切れる。
-
-### 入力レベル表示
-
-ダッシュボードのヘッダーには、ミュートボタンの隣にキャプチャ系統（マイク/スピーカー）ごとのレベルバーが表示される。バーはクレストファクタ（peak を rms で割った値）で音声とノイズを見分ける。音声は 3〜10 以上あるが、内蔵マイクのハムのような定常的な電気ノイズは 1〜2 しかない。
-
-「音量はあるのに変化がない」状態が10秒続くとバーが黄色（定常ノイズ）になる。これはマイク・スピーカーいずれの系統にも適用される。マイクはさらに、完全な無音（音量が正確にゼロ）が30秒続くと赤色（無音デバイス）になる——生きたマイクには常にノイズフロアがあるため、厳密にゼロが続くのは音が届いていない証拠（例：電源が切れた状態でもドングルだけはデバイスとして認識されるヘッドセット）。スピーカー側の監視（monitor）にはこの判定を適用しない。sink monitor は何も再生していない間、厳密なゼロを返すのが正常な待機状態であり、故障ではないため。指定デバイスが使えず自動デバイスで代替中の系統には、いずれもフォールバックと同じ意味でリング状の枠が付く。
-
 ## ファイル構成
 
 ```
 shadow-clerk/                          # リポジトリ
   pyproject.toml                       # プロジェクト定義・依存関係
   src/shadow_clerk/                    # メインパッケージ
-    __init__.py                        # データディレクトリ設定
-    clerk_daemon.py                    # 録音・VAD・文字起こし・ダッシュボード
-    llm_client.py                      # 外部 API 翻訳・Summary 生成
+    clerk_daemon.py                    # clerk-daemon の入口（録音・文字起こし・ダッシュボードは _daemon_*.py）
+    clerk_util.py                      # clerk-util: データディレクトリ操作・プロセス管理
+    llm_client.py                      # 翻訳・要約・LLM クエリ（_llm_*.py）
+    gcal_monitor.py                    # Google カレンダーのポーリング
+    skill_install.py                   # install-skill
     i18n.py                            # 多言語対応 (ja/en)
-    clerk_util.py                      # データディレクトリ操作・プロセス管理
+    domain/                            # ドメインの値オブジェクト
+    skills/                            # 同梱スキル: clerk-meeting-helper, clerk-talk
+    talk_prompts/                      # talk mode のシステムプロンプト
+  extension/                           # スクリーンショット用 Chrome 拡張
+  packaging/                           # PyInstaller の spec とフック
+  docs/                                # Feature Tour、Google Calendar の設定手順
+  tests/                               # テスト
+  SPEC.md                              # アーキテクチャとモジュール設計
 
 ~/.local/share/shadow-clerk/           # ランタイムデータ
   transcript-YYYYMMDD.txt              # 文字起こし結果（日付ベース）
   transcript-YYYYMMDDHHMM.txt          # 会議セッション用（ad-hoc）
   transcript-YYYYMMDDHHMM@会議名.txt   # 会議セッション用（カレンダー連携 or 名前付き）
   transcript-YYYYMMDD-<lang>.txt       # 翻訳結果
+  transcript-YYYYMMDDHHMM@会議名.attendees.json  # カレンダーの予定から取った参加予定者
   summary-YYYYMMDD.md                  # 議事録（transcript に対応）
+  summary-YYYYMMDDHHMM@会議名.md       # 議事録（名前付きの会議）
+  advice-YYYYMMDDHHMM@会議名.md        # AI コンソール: 未解決の質問・提案
+  analysis-YYYYMMDDHHMM@会議名.md      # AI コンソール: 確定した事実
+  shot-YYYYMMDDHHMM@会議名-HHMMSS.png  # ブラウザのスクリーンショット
+  meeting.yaml                         # 会議ごとの起動ディレクトリ
   glossary.txt                         # 用語集 (TSV: 翻訳用語 & reading ベースのテキスト置換)
+  misheard.tsv                         # スキルが集めた聞き間違いの対
   config.yaml                          # 設定ファイル
+  .env                                 # API キー (SHADOW_CLERK_API_KEY)
+  daemon.log / daemon.pid              # daemon のログと PID
   gcal_token.json                      # Google Calendar OAuth トークン（gcal-auth で生成）
 ```
 
@@ -812,3 +878,55 @@ whisper_beam_size: 1
 - `interim_translation_provider: null | "api" | "libretranslate" | "claude"` — バックエンドを明示。`null` は `translation_provider` を踏襲し、それが `claude` なら interim には遅すぎるため `api` → `libretranslate` の順で自動フォールバック(claude は1呼び出し 5〜10秒)。`claude` を直接指定するのは遅延を承知の場合だけ
 
 中間パネルは1秒以下のレスポンスが前提なので、`libretranslate`(ローカル)が最も推奨、`api` も高速モデルなら可。確定 transcript の翻訳は `translation_provider` を使い、ここの設定の影響は受けない。
+
+## スタンドアロンバイナリのビルド
+
+`packaging/shadow-clerk.spec` で、`clerk-daemon` と `clerk-util` の両方を含む 1 ディレクトリ配布を作れる。
+
+**Windows 機が無くても作れる。** `.github/workflows/build-binary.yml` が `windows-latest` と `ubuntu-latest` で、ReazonSpeech と Google Calendar を含めてビルドする。`v*` のタグを push すれば
+両方のバイナリが Release に添付され、Actions タブから手で起動すれば成果物として
+ダウンロードできる。
+
+**PyInstaller はクロスコンパイルしない。** 動かしている OS 向けの実行ファイルしか作らない — bootloader が OS ごとのネイティブバイナリで、解析も実際にモジュールを import して依存を辿るため。したがって Windows の `.exe` は Windows 上で作る必要がある(実機・VM・GitHub Actions の `windows-latest` のいずれか)。Wine に Windows 版 Python を入れる回避策はあるが、解析時に `pywinpty`(ConPTY)・`PyAudioWPatch`(WASAPI)・`ctranslate2` を import するので、まさに Wine が苦手な部分に当たる。
+
+手元でビルドするには:
+
+```powershell
+# Windows (PowerShell)
+uv sync
+uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
+dist\shadow-clerk\clerk-daemon.exe --list-devices   # 動作確認
+```
+
+```bash
+# Linux / macOS
+uv sync
+uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
+./dist/shadow-clerk/clerk-daemon --list-devices      # 動作確認
+```
+
+`--list-devices` は動作確認に向いている。録音を始めずに、同梱した PortAudio とネイティブ拡張が読めているかを確かめられる。
+
+ReazonSpeech と Google Calendar も同梱するなら `uv sync` の行を差し替える。**この順で**
+——`reazonspeech-k2-asr` はどこにも宣言できないので、あとから sync すると消える:
+
+```powershell
+uv sync --extra reazonspeech --extra gcal
+uv pip install "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
+uv run python -c "import sherpa_onnx, reazonspeech.k2.asr; print('ok')"   # ビルド前に確認
+uv run --with pyinstaller pyinstaller packaging/shadow-clerk.spec
+```
+
+`spell-check` extra は**入れても同梱されない**。spec の `_EXCLUDES` が `torch` /
+`transformers` / `sentencepiece` を落としているため。同梱したければそこから外す
+——配布物が数 GB 増える。
+
+**`uv pip install pyinstaller` はしないこと。** `uv sync` は環境をプロジェクトの宣言どおりに揃え、それ以外を消す。入れておいても次の `uv sync --extra ...` で消えてしまう。`--with` はプロジェクト環境の上に一時的な層として PyInstaller を載せるので、プロジェクトの依存は見えたまま、環境には何も残らない。
+
+補足:
+
+- **出力先**: `dist/shadow-clerk/`。既定の依存のみ(extra なし)でおよそ 460MB。
+- **extra はビルドした環境に入っているものだけが集められる。** ビルド前に入れておくこと——欲しい extra は 1 回の `uv sync` にまとめ、`uv pip install` は最後に。順序が効く理由は[セットアップ](#2-インストール)にある。入っていれば spec が `sherpa_onnx`(`lib/` に onnxruntime の DLL を抱えている)と `reazonspeech.k2.asr` を集める。モデルの重み自体は Whisper と同じく初回利用時に取得される。
+- **Whisper のモデルは同梱されない。** `small` で約 500MB あり、初回起動時に Hugging Face から取得されてキャッシュに残る(Windows は `%USERPROFILE%\.cache\huggingface`、それ以外は `~/.cache/huggingface`)。オフラインで配布したいなら、そのキャッシュを spec の `datas` に足すか、CT2 形式に変換したモデルを同梱して `--model` にパスを渡す。
+- **`packaging/hooks/` は PyInstaller 同梱フックの差し替え。** 現在 1 つある: 同梱の `hook-webrtcvad.py` は `copy_metadata('webrtcvad')` を呼ぶが、このプロジェクトが使うのは `webrtcvad-wheels` なので、差し替えないと `ImportErrorWhenRunningHook` でビルドが止まる。
+- DLL やデータファイルを持つ依存を足したら、spec の `_PACKAGES` にも足すこと。PyInstaller は `import` しか追わないので、漏れると**ビルドは通って実行時に落ちる**。
