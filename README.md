@@ -549,6 +549,10 @@ gets the lines with a note). Interim transcription runs for this even
 when `interim_transcription` is off (it is then not shown on the dashboard). `GET /api/speaking` returns the flag
 (`{"speaking": true, "sources": ["monitor"]}`); the talk skill also uses it before raising a point on its own.
 
+Your own voice counts too: while the microphone's voice detection hears you speaking (muted mic and push-to-talk
+excluded), a reply waits for you to finish, even without a meeting app chosen. Use earphones, since Claude's own
+voice leaking into the microphone would count as you speaking.
+
 You can also make Claude speak any text:
 
 ```bash

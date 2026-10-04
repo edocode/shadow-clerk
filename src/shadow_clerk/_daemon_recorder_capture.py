@@ -27,6 +27,7 @@ from shadow_clerk._daemon_audio import (
     refresh_device_list, resolve_mic_device, resolve_monitor_device, snapshot_devices,
 )
 from shadow_clerk._daemon_recorder_monitor import _RecorderMonitorBackendMixin
+from shadow_clerk._daemon_talk import mic_voice_due
 from shadow_clerk._daemon_vad import VADSegmenter
 from shadow_clerk._daemon_transcriber import Transcriber, GlossaryReplacer
 from shadow_clerk.domain import AudioDevice, MeetingSession
@@ -603,6 +604,7 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         PTT_GRACE_SEC = 1.5  # キーリリース後の猶予時間
         interim_seq = 0
         last_interim_time = 0.0
+        last_voice = 0.0
         interim_enabled = load_config().get("interim_transcription", False)
 
         while not self.stop_event.is_set():
@@ -645,6 +647,12 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
                 last_interim_time = 0.0
                 # final segment 確定時に config を再読み込み（ランタイム切替対応）
                 interim_enabled = load_config().get("interim_transcription", False)
+            elif label == "mic" and segmenter.in_speech:
+                # mic に中間文字起こしは無い。VAD が声を検出している間を「話している」として Claude に知らせる
+                now = time.time()
+                if mic_voice_due(last_voice, now, self.mute_mic, command_mode_latch):
+                    self.talk.on_voice("mic")
+                    last_voice = now
             elif (interim_enabled or self.talk.routed) and label == "monitor" and segmenter.in_speech:
                 now = time.time()
                 if now - last_interim_time >= 1.5:

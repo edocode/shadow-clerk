@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」で、ユーザーと音声で議論する。ダッシュボードの「Claude と会議」から talk コンソールで自動的に起動される。ユーザーの発言は shadow-clerk の文字起こしとして届き、あなたの応答は shadow-clerk が音声で読み上げる。「/clerk-talk」と打たれたとき、声で議論したい・Claude と会議したいと言われたときに使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.7.1"
+  version: "1.7.2"
 ---
 
 # clerk-talk — 声で議論する
@@ -82,7 +82,7 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 ```
 
 - `display`（空でない文字列）を付けると、声は `text` を読み、transcript の `[Claude]` 行には `display` を書く（綴りを見せたくない語学の練習用）
-- 会議の届け先があるとき（`/api/talk-mode` の `route.app` が空でない）は、ほかの参加者が話している間 `/api/say` は
+- 会議の届け先があるとき（`/api/talk-mode` の `route.app` が空でない）は、ほかの参加者かユーザーが話している間、届け先がないときもユーザーが話している間、`/api/say` は
   話し終えるまで待ってから読み上げる（最長 10 秒ほど）。呼び出しがすぐ返らなくても繰り返さない
 - 応答が `{"status": "held", "heard": ["[…] [相手] …", …]}` なら、待っている間に誰かが話したので、その文は**読み上げていない**。
   話題が変わったかもしれない。`heard` の発言（Monitor にも届く）を踏まえて言い直す。まだ通じる内容ならそのまま、
@@ -171,7 +171,7 @@ Monitor(
     curl -s "http://localhost:8765/api/speaking"
     ```
 
-    `{"speaking": true, "sources": ["monitor"]}` なら誰かが話している（中間文字起こしに文字が出ている）。切り出さずに待つ
+    `{"speaking": true, "sources": ["monitor"]}` なら誰かが話している（`monitor` は中間文字起こしに文字が出ている、`mic` はユーザーの声を検出している）。切り出さずに待つ
   - あなた自身も話していない（直前の `/api/say` の読み上げが終わっている頃合い）
   - その論点が新しく、いまの話題に関係があるか、放っておくと困るもの（期限・未決定・食い違い）
   - 直近の発言が `[相手]` 中心なら、放っておくと困るものに限る
