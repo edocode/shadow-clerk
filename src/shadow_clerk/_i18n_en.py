@@ -384,6 +384,13 @@ STRINGS_EN: dict[str, str] = {
     "cfg.preset_name": "Preset name",
     "cfg.preset_name_ph": "e.g. Meeting mode",
     "cfg.preset_delete": "Delete this preset",
+    "talk.preset_select": "Select a preset...",
+    "talk.preset_load": "Load",
+    "talk.preset_save_as": "Save as preset",
+    "talk.preset_save_title": "Save as preset",
+    "talk.preset_name": "Preset name",
+    "talk.preset_name_ph": "e.g. Code review meeting",
+    "talk.preset_delete": "Delete this preset",
 
     # --- llm.* ---
     "llm.translate_system": (

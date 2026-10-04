@@ -231,6 +231,7 @@ PID_FILE = os.path.join(DATA_DIR, "daemon.pid")
 LOG_FILE = os.path.join(DATA_DIR, "daemon.log")
 GLOSSARY_FILE = os.path.join(DATA_DIR, "glossary.txt")
 CONFIG_PRESETS_FILE = os.path.join(DATA_DIR, "config-presets.yaml")
+TALK_PRESETS_FILE = os.path.join(DATA_DIR, "talk-presets.yaml")
 
 # 音声コマンド検出パターン生成
 # 既知のウェイクワードには Whisper の誤認識揺れを許容するパターンを用意
