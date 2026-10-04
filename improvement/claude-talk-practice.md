@@ -20,10 +20,12 @@
 - 練習の形は 会話・発音・英作文 の3つ。英語以外の言語でも同じ流れで使える
 - 練習中、AI分析 タブの Advice に「いまの直し」、Analysis に「練習の記録と例文」が出る
 - 例文は、ダッシュボードでクリックすると練習中の言語の発音で読み上げられる
+- 練習中、Claude が話す練習言語の文（例文・お手本・英語での会話）は、ブラウザの読み上げ（Chrome の英語の声など）
+  で読まれる。日本語の説明はこれまでどおり VOICEVOX
 - 日付をまたいでも、Claude にユーザーの発言が届き続ける
 
-Non-goals: Claude 自身の発話を英語の音声で読み上げること（VOICEVOX のまま）、発音の自動採点（判定は音声認識に
-通るかどうかで行う）、観察役の Claude を別に立てる構成（必要なら後で足す）。
+Non-goals: 発音の自動採点（判定は音声認識に通るかどうかで行う）、観察役の Claude を別に立てる構成（必要なら
+後で足す）、届け先（会議アプリ）ありの talk mode でブラウザの読み上げを使うこと（練習は 1 対 1 で相手がいない前提）。
 
 ## Approach
 
@@ -85,6 +87,26 @@ Non-goals: Claude 自身の発話を英語の音声で読み上げること（VO
 - 読み上げはスピーカーから鳴るので、monitor が聞こえていると `[相手]` として書かれる。練習中は skill が
   スピーカー（monitor）をミュートするので起きない（下記）。練習の外で例文をクリックしたときは書かれうるが、まれなので許容する
 
+### Claude の発話: 練習言語の文はブラウザで読む
+
+練習は 1 対 1 で相手がいない前提なので、会議アプリへの届け先も echo の除去も考えなくてよい。
+
+- **指定**: `POST /api/talk-speech {"browser_lang": "en" | null}`（localhost のみ、talk mode 中だけ有効、終了で
+  null に戻る）。skill が練習を始めるときに練習言語を、終えるときに null を送る。届け先ありの talk mode では拒否する
+- **振り分け**: `TtsPlayer` に渡す前に、文ごとに文字の種類で練習言語の文かを判定する（domain の関数。ラテン文字
+  の言語は「かな・漢字が無く、ラテン文字が文字の過半」、ko はハングル、ru はキリル文字、zh は「かなが無く漢字が
+  ある」）。該当する文はブラウザで、それ以外は VOICEVOX で読む。順番は1本の再生キューで保つ
+- **鳴らすタブ**: ダッシュボードは `speechSynthesis` があり、その言語の声を持つときに
+  `POST /api/talk-speech/ready {"tab": <id>, "langs": [...]}` を送る（ページを開いたとき・声の一覧が変わったとき、
+  以後 30 秒ごと）。daemon は最後に名乗ったタブ1つだけに `talk_speak {id, tab, text, lang}` を SSE で送り、
+  ほかのタブは無視する
+- **再生の状態**: タブは `onend` / `onerror` で `POST /api/talk-speech/done {"id": …}` を返す。再生キューは done か
+  タイムアウト（文字数から見積もった長さ + 5 秒）まで次の文に進まない（`is_busy()` も真のまま）。制止の言葉で
+  止めるときは `talk_speak_cancel` を送り、タブは `speechSynthesis.cancel()` する
+- **鳴らせるタブが無い**（60 秒以内に ready が無い、ready のタブに声が無い）ときは、その文を VOICEVOX で読む
+- `[Claude]` 行の書き込み、`on_played` の通知（echo 用）はこれまでどおり（区間はタブの開始・終了から取らず、
+  見積もりで足りる。練習中は monitor をミュートしているので echo の判定は効かない）
+
 ### skill: `clerk-practice`（新規、1.0.0）
 
 `clerk-talk` と同じく talk の console で動く。`allowed-tools` は `clerk-talk` と同じ（`curl` と Monitor）。
@@ -94,7 +116,8 @@ install-skill` で一緒に入る。
 1. **始める**: 練習する言語を確かめ（例:「英語ですね」）、「練習用の会議を作りますね」と言って
    `POST /api/meeting` で `<言語名>練習`（例: 英語練習）を `analyze: false` で始める。元の聞き取り言語を覚えて
    から `/api/language` で切り替える。`/api/mute` でスピーカー（monitor）をミュートし、切り替え前の状態を覚える
-   （練習は一人で行うので monitor は要らない。ダッシュボードで例文を読み上げても `[相手]` に入らない）。`/api/watch` は書き込み先の変化を追うので貼り直さなくてよい
+   （練習は一人で行うので monitor は要らない。ダッシュボードで例文を読み上げても `[相手]` に入らない）。
+   `POST /api/talk-speech` で練習言語の文をブラウザで読ませる`/api/watch` は書き込み先の変化を追うので貼り直さなくてよい
 2. **前回を踏まえて提案する**: `/api/meeting-history?meeting=<会議名>&count=3&tail=15` で過去回の末尾を読み、
    前回のまとめから今日の練習を1〜2個提案して選んでもらう（初回なら3つの形を紹介する）
 3. **練習する**:
@@ -111,7 +134,7 @@ install-skill` で一緒に入る。
      （`🔊 ` で始める）
 5. **終える**: ユーザーに確かめてから、「今日の練習のまとめ: …」で始まる発話（やったこと、できたこと、次の課題）
    を `/api/say` で話す。これが transcript の末尾に残り、次回の手がかりになる。聞き取り言語とスピーカーの
-   ミュートを元に戻し、`POST /api/meeting` で会議を終える。talk mode 自体を終えるかは確かめる（終えるなら `/api/talk-end`）
+   ミュートを元に戻し、`/api/talk-speech` を null に戻し、`POST /api/meeting` で会議を終える。talk mode 自体を終えるかは確かめる（終えるなら `/api/talk-end`）
 
 ## Error Handling
 
@@ -122,6 +145,8 @@ install-skill` で一緒に入る。
 | 過去回が無い | 初回として3つの形を紹介する |
 | ブラウザに読み上げ機能・その言語の声が無い | `.say` を付けない / 既定の声で読む |
 | watch 中に書き込み先が変わった | notice を流して新しいファイルに移る |
+| ブラウザの読み上げが終わらない・タブが閉じた | タイムアウトで次の文に進む。ready が 60 秒途絶えたら VOICEVOX に戻す |
+| 届け先ありの talk mode で `/api/talk-speech` | 拒否する（ブラウザの音は会議アプリに届かない） |
 | 練習を始めたときにスピーカーがすでにミュート | 切り替え前の状態（`previous`）を覚えて、終わるときにその状態に戻す |
 
 ## Testing
@@ -132,6 +157,8 @@ install-skill` で一緒に入る。
 | `tests/test_meeting_api.py`（新規） | `/api/meeting` の start（analyze false で AI を起動しない、名前の検証、会議中は何もしない）と end、`/api/generated` の replace / append / 種類と字数の検証、localhost 以外の拒否 |
 | `tests/test_say_js.py`（新規、node） | `🔊` で始まる項目に `.say` が付き、クリックで `speechSynthesis.speak` が言語つきで呼ばれる。`speechSynthesis` が無ければ付かない |
 | `tests/test_meeting_api.py` | `/api/mute` の切り替えと `previous`、source と muted の検証 |
+| `tests/test_talk_speech.py`（新規） | 文字の種類による判定（en / ko / ru / zh / ja）、振り分け（練習言語の文だけブラウザへ・順番を保つ）、done まで次に進まない・タイムアウト、制止で cancel を送る、ready が無ければ VOICEVOX、届け先ありでは拒否、talk mode 終了で null に戻る |
+| `tests/test_talk_speech_js.py`（新規、node） | ready の送信（声がある言語だけ）、自分宛ての talk_speak だけ読む、onend で done を送る、cancel で止める |
 | `tests/test_skill_install.py` | `clerk-practice` が同梱・インストールされる、`clerk-talk` の版 |
 
 手動: talk mode で「英語の練習をしたい」と言い、会議「英語練習」ができること、Advice / Analysis が更新される
