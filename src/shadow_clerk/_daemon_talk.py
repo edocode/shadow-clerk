@@ -78,6 +78,12 @@ FILLER_COOLDOWN_SEC = 30.0
 # 中間文字起こしがこの秒数更新されなければ話し終えたとみなす（確定行が捨てられて消されなかったときの保険）
 SPEAKING_STALE_SEC = 4.0
 _FLOOR_POLL_SEC = 0.1
+MIC_VOICE_INTERVAL_SEC = 0.5  # mic の VAD が声を検出している間、on_voice を呼ぶ間隔
+
+
+def mic_voice_due(last: float, now: float, muted: bool, command_mode: bool) -> bool:
+    """mic の VAD が声を検出中に on_voice を呼ぶか。ミュート中と PTT / コマンドモード中は呼ばず、呼ぶのは間隔ごと"""
+    return not (muted or command_mode) and now - last >= MIC_VOICE_INTERVAL_SEC
 _HEARD_LINES_MAX = 20  # 待つ間に届いた発言として返す最大行数
 
 class TalkDriver:
@@ -219,15 +225,18 @@ class TalkDriver:
         """届け先ありの talk mode か。会議のほかの参加者に声が届く"""
         return self._active and self._route is not None
 
-    def on_interim(self, source: str) -> None:
-        """中間文字起こしに文字が出た。確定行の処理（clear_interim）か SPEAKING_STALE_SEC の無更新で消える"""
+    def on_voice(self, source: str) -> None:
+        """source が話している。monitor は中間文字起こしに文字が出たとき、mic は VAD が声を検出している間。
+        確定行の処理（clear_interim）か SPEAKING_STALE_SEC の無更新で消える"""
         self._heard[source] = time.monotonic()
+
+    on_interim = on_voice
 
     def clear_interim(self, source: str) -> None:
         self._heard.pop(source, None)
 
     def speaking(self) -> list[str]:
-        """中間文字起こしに文字が出ている source。transcript の確定行を待つより早く「話している」と分かる"""
+        """話している source（monitor は中間文字起こし、mic は VAD）。transcript の確定行を待つより早く「話している」と分かる"""
         now = time.monotonic()
         return sorted(s for s, at in list(self._heard.items()) if now - at < SPEAKING_STALE_SEC)
 
@@ -345,12 +354,12 @@ class TalkDriver:
 
         lang が読み上げの言語（VOICEVOX）と違えば、その文はダッシュボードのブラウザで読む。届け先ありの talk mode
         （ブラウザの音は会議アプリに届かない）と talk mode の外（一時的な再生器）では lang を見ない
-        届け先ありで相手が話し終えるのを待つ間に発言が届いたら、話題が変わったかもしれないので話さずにその発言を返す
+        話し終えるのを待つ間に発言が届いたら、話題が変わったかもしれないので話さずにその発言を返す
         """
         text = one_line(text)
         if not text:
             return []
-        if self.routed:
+        if self._active:
             heard = self._wait_for_floor()
             if heard is None or heard:
                 return heard or []
@@ -365,13 +374,17 @@ class TalkDriver:
         self._speak_once(self._backend_factory(config, None), config, text)
         return []
 
+    def _floor_taken(self) -> bool:
+        speaking = self.speaking()
+        return bool(speaking) if self.routed else "mic" in speaking
+
     def _wait_for_floor(self) -> list[TranscriptLine] | None:
-        """会議のほかの参加者が話し終えるまで待つ（最長 talk_floor_wait_sec）。待つ間に届いた発言を返す。
-        待つ間に talk mode が終われば None"""
+        """届け先ありなら誰かが、なければ自分（mic）が話し終えるまで待つ（最長 talk_floor_wait_sec）。
+        待つ間に届いた発言を返す。待つ間に talk mode が終われば None"""
         with self._lock:
             seen = self._lines_seen
         deadline = time.monotonic() + self._floor_wait_sec
-        while self._active and self.speaking() and time.monotonic() < deadline:
+        while self._active and self._floor_taken() and time.monotonic() < deadline:
             time.sleep(_FLOOR_POLL_SEC)
         with self._lock:
             if not self._active:

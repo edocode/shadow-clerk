@@ -10,7 +10,8 @@ from typing import Callable
 
 import numpy as np
 
-from shadow_clerk._daemon_talk import TalkDriver, TalkStartError, one_line, stop_pattern
+from shadow_clerk._daemon_talk import (
+    MIC_VOICE_INTERVAL_SEC, TalkDriver, TalkStartError, mic_voice_due, one_line, stop_pattern)
 from shadow_clerk._daemon_tts import TtsError, TtsPlayer
 from shadow_clerk.domain import Language, Speaker, TalkVoice, TranscriptLine
 
@@ -417,6 +418,90 @@ def test_no_route_keeps_suppressing_monitor() -> None:
     d.stop()
 
 
+def test_mic_voice_floor() -> None:
+    d, written, _m = _driver(talk_floor_wait_sec=5)  # 届け先なし
+    d.start("x", None)
+    try:
+        check("on_voice は on_interim の別名で mic を話していることにする", (d.on_voice("mic"), d.speaking())[1] == ["mic"])
+        t = threading.Thread(target=d.say, args=("いいと思います。",))
+        t.start()
+        time.sleep(0.3)
+        check("届け先なしでも mic が話している間は話さない", written == [] and t.is_alive(), repr(written))
+        d.clear_interim("mic")
+        t.join(2)
+        check("mic の確定行を処理したら話す", [tl.text for tl in written] == ["いいと思います。"], repr(written))
+        d.on_voice("mic")
+        d._heard["mic"] = time.monotonic() - 10
+        check("古い mic の声は待たせない", d.api_say("古い。") == {"status": "ok"})
+        d.on_voice("monitor")
+        check("届け先なしで monitor は待たせない", d.api_say("相手。") == {"status": "ok"})
+        d._floor_wait_sec = 0.3
+        d.on_voice("mic")
+        started = time.monotonic()
+        d.say("長い。")
+        check("届け先なしの待ちも talk_floor_wait_sec まで", 0.25 < time.monotonic() - started < 2, repr(written))
+        d._floor_wait_sec = 5
+        d.clear_interim("mic")
+        d.on_voice("mic")
+        other = TranscriptLine("2026-10-03 10:00:01", Speaker.SELF, "ちょっと待って、やっぱり")
+        result: dict = {}
+        t = threading.Thread(target=lambda: result.update(d.api_say("先に言います。")))
+        t.start()
+        time.sleep(0.2)
+        d.on_self_line(other)
+        d.clear_interim("mic")
+        t.join(2)
+        check("待つ間に mic の行が届けば届け先なしでも話さずに返す", result.get("status") == "held"
+              and result["heard"] == ["[2026-10-03 10:00:01] [自分] ちょっと待って、やっぱり"], repr(result))
+    finally:
+        d.stop()
+    d2, written2, _m2 = _driver(talk_floor_wait_sec=5)
+    d2.on_voice("mic")
+    d2.say("talk mode の外。")
+    check("talk mode の外では待たない", [tl.text for tl in written2] == ["talk mode の外。"], repr(written2))
+
+
+def test_mic_voice_keeps_routed_behaviour() -> None:
+    route, sink = _Route(), _Sink()
+    d, written, _m = _driver(route_factory=lambda: route, sink_factory=lambda: sink, talk_floor_wait_sec=5)
+    d.start("x", None, None, "Chromium")
+    try:
+        d.on_voice("monitor")
+        t = threading.Thread(target=d.say, args=("はい。",))
+        t.start()
+        time.sleep(0.3)
+        check("届け先ありは monitor でも待つ", written == [] and t.is_alive())
+        d.on_voice("mic")
+        d.clear_interim("monitor")
+        time.sleep(0.3)
+        check("届け先ありは mic が話している間も待つ", written == [] and t.is_alive())
+        d.clear_interim("mic")
+        t.join(2)
+        check("両方終われば話す", [tl.text for tl in written] == ["はい。"], repr(written))
+    finally:
+        d.stop()
+
+
+def test_filler_suppressed_while_mic_speaks() -> None:
+    d, _w, made = _driver(talk_filler_sec=0.05)
+    d.start("x", None)
+    d.on_voice("mic")
+    d.on_self_line(_self("質問です"))
+    time.sleep(0.25)
+    check("mic が話している間はつなぎを挟まない", made["player"].spoken == [], repr(made["player"].spoken))
+    d.stop()
+
+
+def test_mic_voice_gate() -> None:
+    gap = MIC_VOICE_INTERVAL_SEC
+    check("初回は知らせる", mic_voice_due(0.0, 100.0, False, False))
+    check("間隔内は知らせない", not mic_voice_due(100.0, 100.0 + gap / 2, False, False))
+    check("間隔が空けば知らせる", mic_voice_due(100.0, 100.0 + gap, False, False))
+    check("mic をミュート中は知らせない", not mic_voice_due(0.0, 100.0, True, False))
+    check("PTT / コマンドモード中は知らせない", not mic_voice_due(0.0, 100.0, False, True))
+    check("間隔は 0.5 秒", gap == 0.5)
+
+
 def _wait(pred: Callable[[], bool], timeout: float = 3.0) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -684,5 +769,9 @@ if __name__ == "__main__":
     test_wait_for_floor_with_route()
     test_floor_wait_limit_and_stop()
     test_held_when_others_spoke()
+    test_mic_voice_floor()
+    test_mic_voice_keeps_routed_behaviour()
+    test_filler_suppressed_while_mic_speaks()
+    test_mic_voice_gate()
     test_end_after_speech()
     sys.exit(0 if all(results) else 1)
