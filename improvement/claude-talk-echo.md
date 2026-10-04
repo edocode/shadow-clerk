@@ -67,8 +67,8 @@ monitor が静かになった後に始まる区間は新しい発言として残
   `self.talk.is_echo(source, seg_start, seg_start + duration, text)` を尋ね、真なら書かずに debug ログを出して捨てる
   - `seg_start` は VAD スレッドが区間の確定時に `time.time() - len(segment) / SAMPLE_RATE` で測り、キューの要素に
     載せる（epoch 秒）。`duration` は `len(segment) / SAMPLE_RATE`。秒に丸めた `timestamp` からは作らない。
-    丸めの誤差に `tail_sec` を広げて対応すると、Claude が話し終えた直後に始まる返事（Claude の言葉を繰り返す
-    確認など）まで捨ててしまうため
+    丸めの誤差を `tail_sec` で吸収しようとすると、tail が長くなって Claude が話し終えた直後に始まる返事まで捨ててしまうため
+    （既定の tail は出力と録音の遅れ分の 0.3 秒）
 - 終了時にキューの残りを処理する経路にも同じ判定を入れる
 - 捨てたときも `interim_clear` を送り、画面に Claude の声の中間テキストを残さない
 
