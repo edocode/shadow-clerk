@@ -469,6 +469,44 @@ def test_send_after_ready_retypes_dropped_text() -> None:
     sess.stop()
 
 
+# 入力を読むが一切エコーしない子。打った本文が画面に現れないので、
+# 送信スレッドは打ち直しと Enter の再送でしばらく居座る
+_SILENT_CHILD = """
+import sys, termios, time
+fd = sys.stdin.fileno()
+attrs = termios.tcgetattr(fd)
+attrs[3] &= ~(termios.ECHO | termios.ICANON)
+termios.tcsetattr(fd, termios.TCSANOW, attrs)
+print("silent", flush=True)
+time.sleep(60)
+"""
+
+
+def test_restart_cancels_stale_prompt_sender() -> None:
+    """起動し直したら、前のセッションの送信スレッドは新しいセッションに手を出さない
+
+    talk コンソールはモデルや作業ディレクトリが変わると stop → start で起こし直す。
+    前のセッションの送信スレッドが打ち直し・Enter の再送で居座っていると、
+    新しいセッションの初期プロンプトは「重複」として捨てられ、古いスレッドは
+    新しい子の空の入力欄に Enter を送り続けていた
+    """
+    import sys as _sys
+    sess = ConsoleSession()
+    sess.set_broadcaster(lambda ev, data: None)
+    sess.start([_sys.executable, "-c", _SILENT_CHILD], os.getcwd())
+    sess.send_after_ready("STALE_BODY\r")
+    wait_for(lambda: "silent" in grid_text(sess), 5.0)
+    time.sleep(1.5)  # ready 判定を抜けて打ち直しの最中にする
+    sess.stop()
+    sess.start(["bash", "--norc", "--noprofile", "-i"], os.getcwd())
+    sess.send_after_ready("echo FRESH_$((1+1))\r")
+    ok = wait_for(lambda: "FRESH_2" in grid_text(sess), 10.0)
+    check("起動し直した後の初期プロンプトが捨てられない", ok)
+    time.sleep(CONSOLE_TICK_SEC * 5)
+    check("前のセッションの本文が新しい子に入らない", "STALE_BODY" not in grid_text(sess))
+    sess.stop()
+
+
 def test_emit_diff_does_not_fake_readiness() -> None:
     """_emit_diff 自身の副作用 (render_rows が screen.buffer[0] を実体化する)
     が ready 判定を誤って進めないことを確認する。
@@ -771,6 +809,7 @@ def main() -> int:
     test_cursor_up_overwrite()
     test_send_after_ready()
     test_send_after_ready_retypes_dropped_text()
+    test_restart_cancels_stale_prompt_sender()
     test_emit_diff_does_not_fake_readiness()
     test_stop_start_no_duplicate_tick_thread()
     test_beyond_virtual_rows()
