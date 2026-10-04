@@ -98,6 +98,17 @@ def test_start_meeting_wires_maybe_start_analysis() -> None:
           bool(calls) and calls[0] == host.output_path, str(calls))
 
 
+def test_start_meeting_without_analysis() -> None:
+    """語学の練習は analyze=False で始める。auto_analyze が有効でもアシスタントを起動しない"""
+    calls: list[str] = []
+    host = _MeetingHost(DATA)
+    host._maybe_start_analysis = lambda path: calls.append(path) or True  # type: ignore[method-assign]
+    host.start_meeting("英語練習", analyze=False)
+    check("analyze=False ならアシスタントを起動しない", calls == [], str(calls))
+    check("会議は始まる", host.output_path.endswith("@英語練習.txt") and host.current_session is not None,
+          host.output_path)
+
+
 def test_summary_goes_to_console_when_running() -> None:
     """コンソールが走っていれば議事録はそちらに頼み、LLM は回さない"""
     asked, spawned = [], []
@@ -171,6 +182,7 @@ def main() -> int:
     test_summary_via_console_can_be_turned_off()
     test_summary_console_failure_falls_back()
     test_start_meeting_wires_maybe_start_analysis()
+    test_start_meeting_without_analysis()
     print(f"\n{sum(results)}/{len(results)} passed")
     return 0 if all(results) else 1
 

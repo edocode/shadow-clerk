@@ -50,6 +50,7 @@ STRINGS_JA: dict[str, str] = {
     "dash.badge_ai": "AI分析あり",
     "dash.tab_ai": "AI分析",
     "dash.no_advice": "提案はまだありません。",
+    "dash.say_title": "クリックで読み上げ",
     "dash.no_analysis": "分析はまだありません。",
     "dash.start_analysis": "分析開始",
     "dash.start_analysis_title": "AI アシスタントを起動して会議スキルを実行します",

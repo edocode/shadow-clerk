@@ -518,9 +518,10 @@ talk mode では、議題について Claude と声で議論できます。Claud
 ファイル編集やコマンドの実行も、通常の許可確認つきで行えます。会議アシスタントは **AI コンソール** タブで
 そのまま動かせます。`talk_engine: headless` にすると、裏で動く `claude -p` に切り替わります。少し速く
 応答しますが、許可を確認できないので、使えるのは `talk_allowed_tools` のツールだけです。スキルは
-`clerk-util install-skill` で入れます（2つまとめて入ります）。
-`clerk-talk` スキルが事前に許可するのは、`http://localhost` への自分の `curl` 呼び出し（と `Monitor`）だけです。
+`clerk-util install-skill` で入れます（まとめて入ります）。
+`clerk-talk` スキルが事前に許可するのは、`http://localhost` への自分の `curl` 呼び出し（と `Monitor`、`Agent`）だけです。
 それでも Claude Code が確認してきたら一度許可するか、同じ規則を Claude Code の設定に足してください。
+[ブラウザ拡張](#ブラウザのスクリーンショット)で撮った画面は、会話中にバックグラウンドのサブエージェントが見て、「ここの枠」のような発言に付き合えるようにします。
 
 **Claude の声を会議に届ける（Linux・PipeWire）。** 開始モーダルの **Claude の声を届ける先** で会議アプリを選びます。
 shadow-clerk は名前付きの PipeWire ストリームから読み上げ、`pw-link` でそのアプリのマイク入力につなぐので、
@@ -556,6 +557,27 @@ Claude は自分の判断で聞き取りをやめません。会話が終わり�
 別の言語で話したいときは（検出言語が `ja` のまま英語を話すとカタカナで起こされるので、英語の練習など）、Claude に
 そう伝えてください。`POST /api/language`（`{"language": "en"}`、または `"auto"`）で検出言語を切り替え、会話を
 終える前に元に戻します。
+
+**語学の練習。** talk mode 中に「英語の練習をしたい」のように頼むと、Claude は同梱の `clerk-practice` スキルに
+切り替えます。会議アシスタントなしで練習用の会議（英語なら `英語練習`）を始め、過去数回の練習の末尾を読んで今日の
+練習を提案し、会話・発音・作文の練習をします。直しは AI分析 タブの **Advice** に、練習の記録と例文は **Analysis**
+に書かれます。🔊 で始まる行はクリックすると、いま聞き取っている言語で読み上げられます。練習言語の文は VOICEVOX では
+なくブラウザの声（Web Speech API）で話すので、ダッシュボードを開いて一度クリックしておいてください（ブラウザは
+利用者の操作があるまで読み上げを許しません）。そういうタブが無いときは VOICEVOX で読みます。練習中はスピーカー
+（monitor）をミュートし、最後に「今日の練習のまとめ: …」を話して、次の回の手がかりにします。
+
+スキルが使う API は次のとおりです（localhost のみ。手で呼んでもかまいません）:
+
+| エンドポイント | 本文 / クエリ | 動作 |
+|---|---|---|
+| `POST /api/meeting` | `{"action": "start", "name": "…", "analyze": false}` または `{"action": "end"}` | 会議の開始・終了。`analyze: false` なら `auto_analyze` でも AI アシスタントを起動しない |
+| `POST /api/mute` | `{"source": "mic" または "monitor", "muted": true}` | ミュートボタンと同じ。`previous` を返す |
+| `POST /api/generated` | `{"kind": "advice" または "analysis", "mode": "replace" または "append", "text": "…"}` | いまの transcript の advice / analysis を書く（20,000 字まで） |
+| `GET /api/meeting-history` | `?meeting=…&count=3&tail=15` | `tail`（0〜50）で各回の transcript の末尾を足す |
+| `POST /api/say` | `{"text": "…", "lang": "en"}` | VOICEVOX の言語と違う `lang` はダッシュボードのブラウザの声で読む（声を会議アプリに届けているときは無視） |
+
+`file` を付けない `GET /api/watch` は、いまの書き込み先を追います。日付が変わったり会議が始まる・終わったりすると
+`<notice>…</notice>` を流して新しいファイルに移るので、0 時をまたいでも Claude に発言が届き続けます。
 
 | キー | 既定値 | 説明 |
 |---|---|---|
@@ -607,7 +629,7 @@ clerk-util command translate_stop                  # 翻訳ループ停止
 
 ダッシュボードの **AI コンソール** タブ（**ログ** タブの隣）で、AI アシスタント（`claude` または `codex`）を PTY 上で動かし、会議の文字起こしを監視させて生成物を書かせることができる。
 
-- **スキルの導入**: アシスタントは同梱スキル（`clerk-meeting-helper`。[Claude と会議](#claude-と会議)用の `clerk-talk` も一緒に入る）を使う。エージェント側のスキルディレクトリへコピーする必要があり、初回起動時に ようこそ ダイアログが案内する。コマンドからでも同じことができる:
+- **スキルの導入**: アシスタントは同梱スキル（`clerk-meeting-helper`。[Claude と会議](#claude-と会議)用の `clerk-talk` と `clerk-practice` も一緒に入る）を使う。エージェント側のスキルディレクトリへコピーする必要があり、初回起動時に ようこそ ダイアログが案内する。コマンドからでも同じことができる:
 
   ```bash
   clerk-util install-skill                        # ~/.claude/skills/   (Claude Code)
@@ -758,7 +780,7 @@ shadow-clerk/                          # リポジトリ
     skill_install.py                   # install-skill
     i18n.py                            # 多言語対応 (ja/en)
     domain/                            # ドメインの値オブジェクト
-    skills/                            # 同梱スキル: clerk-meeting-helper, clerk-talk
+    skills/                            # 同梱スキル: clerk-meeting-helper, clerk-talk, clerk-practice
     talk_prompts/                      # talk mode のシステムプロンプト
   extension/                           # スクリーンショット用 Chrome 拡張
   packaging/                           # PyInstaller の spec とフック

@@ -50,6 +50,7 @@ STRINGS_EN: dict[str, str] = {
     "dash.badge_ai": "Has AI analysis",
     "dash.tab_ai": "AI Analysis",
     "dash.no_advice": "No advice yet.",
+    "dash.say_title": "Click to read aloud",
     "dash.no_analysis": "No analysis yet.",
     "dash.start_analysis": "Start analysis",
     "dash.start_analysis_title": "Launch the AI assistant and run the meeting skill",

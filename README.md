@@ -520,9 +520,10 @@ persona, and start. **Voice settings** in the same dialog picks the VOICEVOX spe
 so it can edit files and run commands with the usual permission prompts, and the meeting helper keeps
 running in the **AI Console** tab. Set `talk_engine: headless` to use a background `claude -p` process
 instead: it answers a little faster but cannot ask for permission, so it only gets the tools in
-`talk_allowed_tools`. Install the skills with `clerk-util install-skill` (both are installed together).
-The `clerk-talk` skill pre-approves only its own `curl` calls to `http://localhost` (and `Monitor`); if
+`talk_allowed_tools`. Install the skills with `clerk-util install-skill` (all of them are installed together).
+The `clerk-talk` skill pre-approves only its own `curl` calls to `http://localhost` (and `Monitor` and `Agent`); if
 Claude Code still asks, allow them once, or add the same rules to your Claude Code settings.
+Screen captures taken with the [browser extension](#browser-screenshots) during talk mode are looked at by a background subagent, so Claude can follow "this box here".
 
 **Sending Claude's voice to a meeting (Linux, PipeWire).** In the start dialog, pick the meeting app under
 **Send Claude's voice to**. shadow-clerk plays the speech through a named PipeWire stream and links it into that
@@ -560,6 +561,29 @@ clear yes does it end talk mode with `POST /api/talk-end`. That call lets the se
 If you want to speak another language (for example to practise English while the recognition language is `ja`,
 which would turn English into katakana), just tell Claude: it switches the recognition language with
 `POST /api/language` (`{"language": "en"}`, or `"auto"`) and switches back before the conversation ends.
+
+**Language practice.** In talk mode, say that you want to practise a language ("I want to practise English").
+Claude switches to the bundled `clerk-practice` skill: it starts a practice meeting (`英語練習` for English) without
+the meeting assistant, reads the end of the last few practice sessions to suggest what to do today, and runs
+conversation, pronunciation or composition practice. Corrections go to **Advice** and the practice log with example
+sentences to **Analysis** in the AI analysis tab; lines starting with 🔊 are read aloud in the current recognition
+language when you click them. Claude speaks practice-language sentences with the browser's voice (Web Speech API)
+instead of VOICEVOX, so keep the dashboard open and click it once (browsers only allow speech after a user action);
+without such a tab those sentences fall back to VOICEVOX. The speaker (monitor) is muted while practising, and
+Claude ends with a "今日の練習のまとめ: …" line that the next session builds on.
+
+The skill uses these localhost-only endpoints, which you can also call yourself:
+
+| Endpoint | Body / query | Effect |
+|---|---|---|
+| `POST /api/meeting` | `{"action": "start", "name": "…", "analyze": false}` or `{"action": "end"}` | Start or end a meeting; `analyze: false` skips the AI assistant even with `auto_analyze` |
+| `POST /api/mute` | `{"source": "mic" or "monitor", "muted": true}` | Same as the mute buttons; returns `previous` |
+| `POST /api/generated` | `{"kind": "advice" or "analysis", "mode": "replace" or "append", "text": "…"}` | Write the current transcript's advice/analysis (up to 20,000 characters) |
+| `GET /api/meeting-history` | `?meeting=…&count=3&tail=15` | `tail` (0–50) adds the last lines of each past transcript |
+| `POST /api/say` | `{"text": "…", "lang": "en"}` | A `lang` other than the VOICEVOX language is read by the dashboard's browser voice (ignored when Claude's voice is sent to a meeting app) |
+
+`GET /api/watch` without `file` follows the current transcript: when the day changes or a meeting starts or ends it
+sends `<notice>…</notice>` and continues with the new file, so Claude keeps hearing you past midnight.
 
 | Key | Default | Description |
 |---|---|---|
@@ -611,7 +635,7 @@ Generated meeting minutes are saved to `~/.local/share/shadow-clerk/summary-YYYY
 
 An AI assistant (`claude` or `codex`) can run inside a PTY under the dashboard's **AI Console** tab (next to **Logs**), watching the meeting transcript and writing generated documents back for the dashboard to display.
 
-- **Installing the skill**: the assistant runs a bundled skill (`clerk-meeting-helper`; `clerk-talk` for [talk mode](#talk-with-claude) is installed with it) that has to be copied into the agent's own skills directory. The Welcome dialog offers this on a first run, and the command does the same:
+- **Installing the skill**: the assistant runs a bundled skill (`clerk-meeting-helper`; `clerk-talk` and `clerk-practice` for [talk mode](#talk-with-claude) are installed with it) that has to be copied into the agent's own skills directory. The Welcome dialog offers this on a first run, and the command does the same:
 
   ```bash
   clerk-util install-skill                        # ~/.claude/skills/   (Claude Code)
@@ -762,7 +786,7 @@ shadow-clerk/                          # Repository
     skill_install.py                   # install-skill
     i18n.py                            # Internationalization (ja/en)
     domain/                            # Domain value objects
-    skills/                            # Bundled skills: clerk-meeting-helper, clerk-talk
+    skills/                            # Bundled skills: clerk-meeting-helper, clerk-talk, clerk-practice
     talk_prompts/                      # Talk mode system prompts
   extension/                           # Chrome screenshot extension
   packaging/                           # PyInstaller spec and hooks

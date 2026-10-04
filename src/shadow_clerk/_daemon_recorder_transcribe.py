@@ -390,6 +390,8 @@ class _RecorderTranscribeMixin:
             from shadow_clerk.domain import ConsoleRole
             for role in ConsoleRole:
                 get_console(role).set_broadcaster(self._file_watcher._broadcast)
+            # 練習言語の文をブラウザで読ませる talk_speak も同じ SSE で送る
+            self.talk.set_broadcaster(self._file_watcher._broadcast)
 
             port = getattr(self.args, "dashboard_port", 8765)
             # 子（AI アシスタント）が API を叩けるよう、実際のポートを教える

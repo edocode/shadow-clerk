@@ -332,6 +332,8 @@ main {
 .md-body p { margin:4px 0; }
 .md-body ul, .md-body ol { margin:4px 0; padding-left:20px; }
 .md-body li { margin:2px 0; }
+.md-body .say { cursor:pointer; border-radius:3px; }
+.md-body .say:hover { background:var(--bg); }
 .md-body code { background:var(--bg); padding:1px 4px; border-radius:3px; font-size:.92em; }
 .md-body pre { background:var(--bg); padding:6px 8px; border-radius:4px;
   overflow-x:auto; margin:6px 0; font-size:.92em; }

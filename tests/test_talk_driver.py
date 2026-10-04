@@ -55,7 +55,10 @@ class _Player:
     def set_on_played(self, fn) -> None:
         self.on_played = fn
 
-    def speak(self, text: str) -> None:
+    def set_remote(self, remote) -> None:
+        self.remote = remote
+
+    def speak(self, text: str, lang: Language | None = None) -> None:
         self.spoken.append(text)
 
     def is_busy(self) -> bool:
