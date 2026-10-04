@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、会話・発音・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -29,7 +29,8 @@ shadow-clerk の場所は環境変数 `SHADOW_CLERK_URL`（`http://localhost:<po
 ## 1. 始める
 
 1. 練習する言語を確かめる（例:「英語ですね」）
-2. いまの状態を覚える。応答の `language`（いま聞き取っている言語。`auto` もありうる）を覚えておく
+2. いまの状態を覚える。応答の `language`（いま聞き取っている言語。`auto` もありうる）を覚えておく。**ここではまだ `/api/language` を呼ばない**
+  （何を練習するかを決めるあいだは母語で話すので、聞き取りは元の言語のままにする）
 
 ```
 curl -s "http://localhost:8765/api/status"
@@ -53,13 +54,7 @@ curl -s "http://localhost:8765/api/session"
 curl -s -X POST "http://localhost:8765/api/meeting" -H 'Content-Type: application/json' -d '{"action":"start","name":"英語練習","analyze":false}'
 ```
 
-5. 聞き取る言語を練習する言語に切り替える。切り替えには数秒かかる。切り替えたら声で短く知らせる
-
-```
-curl -s -X POST "http://localhost:8765/api/language" -H 'Content-Type: application/json' -d '{"language":"en"}'
-```
-
-6. スピーカー（monitor）をミュートし、応答の `previous`（切り替え前の状態）を覚えておく。練習は一人で行うので
+5. スピーカー（monitor）をミュートし、応答の `previous`（切り替え前の状態）を覚えておく。練習は一人で行うので
    monitor は要らない。ダッシュボードで例文を読み上げても `[相手]` として書かれなくなる
 
 ```
@@ -80,6 +75,17 @@ curl -s "http://localhost:8765/api/meeting-history?meeting=英語練習&count=3&
 
 ## 3. 練習する
 
+- **練習が実際に始まるとき**、「では、始めましょう」のように一言かけてから、聞き取る言語を練習する言語に切り替える。
+  切り替えには数秒かかるので、黙らずに短く知らせる（例:「聞き取りを英語にしますね。数秒かかります」）
+
+```
+curl -s -X POST "http://localhost:8765/api/language" -H 'Content-Type: application/json' -d '{"language":"en"}'
+```
+
+- ユーザーが練習の途中で母語で話したがったとき（「ちょっと日本語で聞きたい」など。`[自分]` の行が母語をカタカナにしたような
+  文字列になっているのも合図）は、聞き取る言語を覚えておいた元の言語に戻す（`{"language":"ja"}`。元が `auto` なら `auto`）。
+  これも数秒かかるので一言添える。練習に戻るときは、上のとおり練習する言語に切り替え直す
+
 ### 話し方
 
 - **説明はユーザーの母語、練習する文は練習する言語**で話す。1回の発話は短く
@@ -93,6 +99,8 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 - **1回の `/api/say` には1つの言語の文だけを入れる。** 説明と例文が混ざるときは分けて、話す順に送る。
   「ゼイ アー ゼア、と言ってみましょう」なら、「次の文を言ってみましょう。」を `lang` なしで送り、
   続けて `They are there.` を `lang` 付きで送る。練習する言語の文をカタカナにして送らない
+- `display` を付けると、声は `text` を読み、transcript の `[Claude]` 行には `display` を書く（`text` と同じく空でない文字列）。
+  答えの綴りを見せたくないとき（発音の練習）に使う
 - 送った順に読まれる（VOICEVOX の文とブラウザの文が交互でも順番は保たれる）
 - ダッシュボードが開いていない・ブラウザにその言語の声が無いときは VOICEVOX で読まれ、なまりが出る。
   お手本が聞き取りにくいと言われたら、ダッシュボードを開いて一度クリックしておくよう伝える
@@ -122,6 +130,16 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 - 音声認識は文脈で補うので、文の中の単語は通りやすい。単語単体や紛らわしい組（light と right、sheep と ship など）で試す
 - 通らなければ、どう聞こえたか（認識結果）と、口の形・舌の位置のコツを母語で短く伝え、もう一度言ってもらう
 - お手本は `lang` 付きの `/api/say` で聞かせる
+- **お題の単語は綴りを見せない。** 綴りが `[Claude]` 行に出ると、ユーザーは読んでから言えてしまい、認識結果も綴りと並んで
+  判定がゆがむ。`text` に本物の単語、`lang` に言語、`display` にカタカナと意味だけを入れて送る。
+  ブラウザの声は正しい発音で読み、transcript には「ライト（右）」としか残らない
+
+```
+curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/json' -d '{"text":"right","lang":"en","display":"ライト（右）"}'
+```
+
+- 同じ組の次の単語も同様に送る（例: `{"text":"light","lang":"en","display":"ライト（光）"}`）
+- ユーザーが言った後、判定してから初めて、綴りと 🔊 の例文を `/api/generated` で Analysis に書く（綴りはそこで見せる）
 
 ### 作文
 
@@ -161,7 +179,10 @@ curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: applicat
 
 ## 5. 終える
 
+- 終えるかを確かめる**前に**、聞き取る言語を元の言語に戻す（下の `/api/language`。数秒かかるので一言添える）。
+  終えるかの確認もまとめも母語なので、練習する言語のままだと聞き取りが崩れる
 - 終えるかは**ユーザーに確かめてから**（例:「今日の練習はここまでにしますか？」）。はっきり終えてよいと返事があるまで続ける
+  （練習を続けることになったら、練習する言語に切り替え直す）
 - 終えるときは、「今日の練習のまとめ: 」で始まる発話を `lang` なしの `/api/say` で話す。やったこと・できたこと・
   次の課題を1〜3文で入れる。この行が transcript の末尾に残り、次回の提案の手がかりになる
 
@@ -169,7 +190,7 @@ curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: applicat
 curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/json' -d '{"text":"今日の練習のまとめ: 過去形の会話と L と R の発音をやりました。went は自然に言えるようになりました。次は right と light の言い分けです。"}'
 ```
 
-- 聞き取る言語を、覚えておいた元の言語に戻す（元が `auto` なら `{"language":"auto"}`）
+- 聞き取る言語を、覚えておいた元の言語に戻す（上で戻していなければ。元が `auto` なら `{"language":"auto"}`）
 
 ```
 curl -s -X POST "http://localhost:8765/api/language" -H 'Content-Type: application/json' -d '{"language":"ja"}'

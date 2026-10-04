@@ -580,7 +580,7 @@ The skill uses these localhost-only endpoints, which you can also call yourself:
 | `POST /api/mute` | `{"source": "mic" or "monitor", "muted": true}` | Same as the mute buttons; returns `previous` |
 | `POST /api/generated` | `{"kind": "advice" or "analysis", "mode": "replace" or "append", "text": "…"}` | Write the current transcript's advice/analysis (up to 20,000 characters) |
 | `GET /api/meeting-history` | `?meeting=…&count=3&tail=15` | `tail` (0–50) adds the last lines of each past transcript |
-| `POST /api/say` | `{"text": "…", "lang": "en"}` | A `lang` other than the VOICEVOX language is read by the dashboard's browser voice (ignored when Claude's voice is sent to a meeting app) |
+| `POST /api/say` | `{"text": "…", "lang": "en", "display": "…"}` | A `lang` other than the VOICEVOX language is read by the dashboard's browser voice (ignored when Claude's voice is sent to a meeting app). `display`, if given, is written to the transcript instead of `text` (which is what is spoken), e.g. to hide the spelling in pronunciation drills |
 
 `GET /api/watch` without `file` follows the current transcript: when the day changes or a meeting starts or ends it
 sends `<notice>…</notice>` and continues with the new file, so Claude keeps hearing you past midnight.

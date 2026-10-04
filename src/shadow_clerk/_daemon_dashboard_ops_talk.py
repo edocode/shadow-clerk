@@ -108,22 +108,25 @@ class _DashboardHandlerTalkOps:
         self._send_json({"status": "ok", "ending": self.recorder.talk.end_after_speech()})
 
     def _say(self) -> None:
-        """POST /api/say {text, lang?} — [Claude] 行を書いて読み上げる（talk mode でなくても使える）
+        """POST /api/say {text, lang?, display?} — [Claude] 行を書いて読み上げる（talk mode でなくても使える）
 
         lang（例: "en"）が読み上げの言語と違えば、その文はダッシュボードのブラウザの声で読む（語学の練習用）。
         文の言語は話す本人（skill）が知っているので、daemon は推測しない
+        display があれば transcript の [Claude] 行にはそれを書き、声は text を読む（答えの綴りを見せない練習用）
         """
         data = read_local_json_body(self, "talk")
         if data is None:
             return
-        text, lang = data.get("text"), data.get("lang")
-        if not isinstance(text, str) or not text.strip() or len(text) > _MAX_SAY_CHARS:
-            self._send_json({"status": "error", "message": "text must be a non-empty short string"})
-            return
+        text, lang, display = data.get("text"), data.get("lang"), data.get("display")
+        for name, value in (("text", text), ("display", display)):
+            if (value is not None or name == "text") and (
+                    not isinstance(value, str) or not value.strip() or len(value) > _MAX_SAY_CHARS):
+                self._send_json({"status": "error", "message": f"{name} must be a non-empty short string"})
+                return
         if lang is not None and (not isinstance(lang, str) or lang not in {v.value for v in Language}):
             self._send_json({"status": "error", "message": "lang must be a known language code"})
             return
-        self._send_json(self.recorder.talk.api_say(text, Language(lang) if lang is not None else None))
+        self._send_json(self.recorder.talk.api_say(text, Language(lang) if lang is not None else None, display))
 
     def _talk_speech_ready(self) -> None:
         """POST /api/talk-speech/ready {tab, langs} — 練習言語の文を読めるダッシュボードのタブが名乗る（30 秒ごと）"""
