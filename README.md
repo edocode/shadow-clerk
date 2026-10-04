@@ -563,7 +563,7 @@ which would turn English into katakana), just tell Claude: it switches the recog
 | `talk_echo_tail_sec` | `1.0` | A matching monitor line that starts within this many seconds after Claude stops speaking is treated as Claude's own voice. Replies that start later are kept even if they repeat Claude's words |
 | `talk_echo_similarity` | `0.6` | How closely (0–1) a monitor line must match Claude's speech to be dropped |
 | `talk_workdir` | `""` | Working directory for the talk session (empty = `ai_assistant_workdir`, then home). The start dialog can override it per session |
-| `talk_model` | `""` | Model for the talk session (empty = claude default) (headless only) |
+| `talk_model` | `""` | Model for the talk session (empty = claude default); applies to both engines, picked in the start dialog |
 | `talk_allowed_tools` | `WebSearch,WebFetch,Read,Grep,Glob` | Tools Claude may use while talking (`""` = none) (headless only) |
 | `talk_language` | `""` | Conversation language (empty = `translate_language`). Falls back to the TTS default when unsupported (VOICEVOX: Japanese only) |
 | `talk_personas` | `{}` | Name → personality / how to respond. Edit from the start dialog |

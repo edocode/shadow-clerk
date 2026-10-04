@@ -40,26 +40,42 @@ async function fillRouteSel(){
   sel.value=want;sel.disabled=!r.available;
   note.textContent=r.available?'':I18N['dash.talk_route_unavailable'];
 }
+async function fillModelSel(){
+  const sel=document.getElementById('talkModel');
+  if(!sel)return;
+  let want='';
+  try{want=(await(await fetch('/api/config')).json()).talk_model||'';}catch(e){}
+  sel.innerHTML='';
+  [['','dash.talk_model_default'],['opus','dash.talk_model_opus'],['sonnet','dash.talk_model_sonnet'],['haiku','dash.talk_model_haiku']].forEach(([v,k])=>{
+    const o=document.createElement('option');o.value=v;o.textContent=I18N[k];sel.appendChild(o);});
+  if(want&&!['opus','sonnet','haiku'].includes(want)){const o=document.createElement('option');o.value=want;o.textContent=want;sel.appendChild(o);}
+  sel.value=want;
+}
+async function saveTalkCfg(key,val){
+  try{const cfg=await(await fetch('/api/config')).json();
+    if((cfg[key]||'')===val)return;
+    cfg[key]=val;
+    await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});}catch(e){}
+}
 async function togTalk(){
   if(talkActive){await talkPost({on:false});return;}
   await fillPersonaSel();
   await fillRouteSel();
+  await fillModelSel();
   document.getElementById('talkTopic').value='';
   document.getElementById('talkErr').textContent='';
   document.getElementById('talkModal').classList.add('open');
 }
 function closeTalk(){document.getElementById('talkModal').classList.remove('open');}
 async function startTalk(){
-  const rs=document.getElementById('talkRoute');
+  const rs=document.getElementById('talkRoute'),ms=document.getElementById('talkModel');
+  if(ms)await saveTalkCfg('talk_model',ms.value);
   const r=await talkPost({on:true,topic:document.getElementById('talkTopic').value.trim(),
                           persona:document.getElementById('talkPersonaSel').value,
                           workdir:document.getElementById('talkWorkdir').value.trim()||null,
                           route:(rs&&!rs.disabled&&rs.value)||null});
   if(r.status==='ok'){
-    const route=rs.value||'';
-    if(rs&&!rs.disabled)try{const cfg=await(await fetch('/api/config')).json();
-      if((cfg.talk_route_app||'')!==route){cfg.talk_route_app=route;
-        await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});}}catch(e){}
+    if(rs&&!rs.disabled)await saveTalkCfg('talk_route_app',rs.value||'');
     closeTalk();if(r.talk&&r.talk.engine==='console')selectConsoleRole('talk');}else document.getElementById('talkErr').textContent=r.message||'';
 }
 function personaAddRow(name,text,isDefault){

@@ -279,6 +279,8 @@ _HTML_TEMPLATE = (
     "      <select id=\"talkRoute\"></select>\n"
     "      <button onclick=\"fillRouteSel()\" style=\"font-size:12px;\">{{i18n:dash.talk_route_reload}}</button>\n"
     "      <div id=\"talkRouteNote\" style=\"font-size:11px;color:var(--muted);\"></div>\n"
+    "      <label style=\"display:block;font-size:12px;margin-top:8px;\">{{i18n:dash.talk_model}}</label>\n"
+    "      <select id=\"talkModel\"></select>\n"
     "      <label style=\"display:block;font-size:12px;margin-top:8px;\">{{i18n:dash.talk_persona}}</label>\n"
     "      <select id=\"talkPersonaSel\"></select>\n"
     "      <button onclick=\"openPersonas()\" style=\"font-size:12px;\">{{i18n:dash.talk_edit_personas}}</button>\n"
