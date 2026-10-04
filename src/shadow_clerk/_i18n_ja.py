@@ -275,6 +275,8 @@ STRINGS_JA: dict[str, str] = {
     "cfg.section.summary": "要約",
     "cfg.section.api": "LLM / API",
     "cfg.section.gcal": "Google Calendar 連携",
+    "cfg.section.talk": "Claude と会議",
+    "cfg.talk_filler_sec": "相槌までの秒数（0 で無効。次の会話から反映）",
     "cfg.section.ai_console": "AI コンソール",
 
     # --- cfg.* : 設定モーダルフィールド ---

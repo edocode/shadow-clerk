@@ -48,13 +48,16 @@ def test_prompt() -> None:
 
 
 def test_filler_phrase() -> None:
-    ja = {"うーん。", "えーっと。", "そうですね。"}
-    en = {"Hmm.", "Let me see.", "Well."}
-    got_ja = {filler_phrase(Language.JA) for _ in range(200)}
-    check("日本語のつなぎは短い間投詞から選ぶ", got_ja == ja, repr(got_ja))
-    got_en = {filler_phrase(Language.EN) for _ in range(200)}
+    from shadow_clerk._daemon_talk_prompt import _FILLERS
+    ja, en = set(_FILLERS[Language.JA]), set(_FILLERS[Language.EN])
+    check("日本語のつなぎは8つ以上", len(ja) >= 8, repr(ja))
+    check("英語のつなぎは6つ以上", len(en) >= 6, repr(en))
+    got_ja = {filler_phrase(Language.JA) for _ in range(500)}
+    check("日本語のつなぎは候補から満遍なく選ぶ", got_ja == ja, repr(got_ja - ja))
+    got_en = {filler_phrase(Language.EN) for _ in range(500)}
     check("英語のつなぎも選ぶ", got_en == en, repr(got_en))
     check("未知の言語は日本語のつなぎ", all(filler_phrase(Language.KO) in ja for _ in range(50)))
+    check("直前と同じつなぎは選ばない", all(filler_phrase(Language.JA, "うーん。") != "うーん。" for _ in range(200)))
 
 
 if __name__ == "__main__":
