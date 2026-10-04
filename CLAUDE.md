@@ -100,7 +100,19 @@ glossary and `misheard.tsv` exist for exactly that.
 
 ## Git Workflow
 
-- All development on `main` branch, direct push
+- Never commit on `main`. Every change goes on a branch (`feat/<topic>`,
+  `fix/<topic>`, `docs/<topic>`) and reaches `main` through a GitHub PR
+- Work in a git worktree next to the main checkout, branched from `origin/main`:
+  ```bash
+  git fetch origin
+  git worktree add -b feat/<topic> ../shadow-clerk-<topic> origin/main
+  ```
+  Leave the main checkout alone — other sessions and the installed daemon use it.
+  Each worktree needs its own `uv sync` (with the extras you need). Remove it with
+  `git worktree remove ../shadow-clerk-<topic>` after the PR is merged
+- To try a branch in the real daemon, `uv tool install` from the worktree path
+  (with the full extras list); the tool then runs that worktree's code until it is
+  reinstalled from elsewhere
 - Commit messages: English, concise, descriptive
 - No CI on push. The only workflow is `.github/workflows/build-binary.yml`,
   which builds the standalone binaries and runs on a `v*` tag or by hand
