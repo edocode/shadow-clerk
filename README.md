@@ -521,8 +521,9 @@ so it can edit files and run commands with the usual permission prompts, and the
 running in the **AI Console** tab. Set `talk_engine: headless` to use a background `claude -p` process
 instead: it answers a little faster but cannot ask for permission, so it only gets the tools in
 `talk_allowed_tools`. Install the skills with `clerk-util install-skill` (all of them are installed together).
-The `clerk-talk` skill pre-approves only its own `curl` calls to `http://localhost` (and `Monitor`); if
+The `clerk-talk` skill pre-approves only its own `curl` calls to `http://localhost` (and `Monitor` and `Agent`); if
 Claude Code still asks, allow them once, or add the same rules to your Claude Code settings.
+Screen captures taken with the [browser extension](#browser-screenshots) during talk mode are looked at by a background subagent, so Claude can follow "this box here".
 
 **Sending Claude's voice to a meeting (Linux, PipeWire).** In the start dialog, pick the meeting app under
 **Send Claude's voice to**. shadow-clerk plays the speech through a named PipeWire stream and links it into that

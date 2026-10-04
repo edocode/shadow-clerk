@@ -261,6 +261,16 @@ def test_talk_skill_watches_advice() -> None:
     check("[相手] の発言も切り出す条件に入る", "[相手]" in text and "[自分]" in text)
 
 
+def test_skills_read_screen_captures_via_subagent() -> None:
+    """[画面] 行は自分で Read せず、背景のサブエージェントに読ませる（画像1枚で context を食うため）"""
+    for skill in (skill_install.TALK_SKILL_NAME, skill_install.PRACTICE_SKILL_NAME):
+        front, body = _skill_parts(skill)
+        check(f"{skill}: allowed-tools に Agent", "Agent" in str(front.get("allowed-tools")), repr(front.get("allowed-tools")))
+        check(f"{skill}: [画面] 行を扱う", "[画面]" in body)
+        check(f"{skill}: サブエージェントに読ませる", "サブエージェント" in body and "バックグラウンド" in body)
+        check(f"{skill}: 画像を自分で Read しない", "Read しない" in body)
+
+
 def main() -> int:
     test_bundled_dir_exists()
     test_read_version_from_bundled()
@@ -285,6 +295,7 @@ def main() -> int:
     test_talk_skill_reads_glossary_and_misheard()
     test_talk_skill_watches_advice()
     test_practice_skill()
+    test_skills_read_screen_captures_via_subagent()
     shutil.rmtree(_DATA, ignore_errors=True)
     print(f"\n{sum(results)}/{len(results)} passed")
     return 0 if all(results) else 1

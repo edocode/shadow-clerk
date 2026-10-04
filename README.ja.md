@@ -519,8 +519,9 @@ talk mode では、議題について Claude と声で議論できます。Claud
 そのまま動かせます。`talk_engine: headless` にすると、裏で動く `claude -p` に切り替わります。少し速く
 応答しますが、許可を確認できないので、使えるのは `talk_allowed_tools` のツールだけです。スキルは
 `clerk-util install-skill` で入れます（まとめて入ります）。
-`clerk-talk` スキルが事前に許可するのは、`http://localhost` への自分の `curl` 呼び出し（と `Monitor`）だけです。
+`clerk-talk` スキルが事前に許可するのは、`http://localhost` への自分の `curl` 呼び出し（と `Monitor`、`Agent`）だけです。
 それでも Claude Code が確認してきたら一度許可するか、同じ規則を Claude Code の設定に足してください。
+[ブラウザ拡張](#ブラウザのスクリーンショット)で撮った画面は、会話中にバックグラウンドのサブエージェントが見て、「ここの枠」のような発言に付き合えるようにします。
 
 **Claude の声を会議に届ける（Linux・PipeWire）。** 開始モーダルの **Claude の声を届ける先** で会議アプリを選びます。
 shadow-clerk は名前付きの PipeWire ストリームから読み上げ、`pw-link` でそのアプリのマイク入力につなぐので、

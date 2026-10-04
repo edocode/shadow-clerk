@@ -1,6 +1,6 @@
 ---
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、会話・発音・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
-allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor
+allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
   version: "1.0.0"
 ---
@@ -103,6 +103,18 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 - **会話の途中では直さない。** 間違いがあっても、正しい言い方で言い直して見せる程度にする（例: ユーザーが
   「I go to there yesterday.」と言ったら「Oh, you went there yesterday? What did you do?」と返す）
 - 直しは Advice にためて、話の切れ目でまとめて伝える
+
+### `[画面]` 行が来たら
+
+`[画面]` は、ユーザーがブラウザ拡張で撮った画面のキャプチャ（例: 練習用に読む文章を映したもの）。**無視しない。練習の発言としても扱わない。**
+手順は `clerk-talk` の「`[画面]` 行が来たら」と同じ。
+
+- 声で一言だけ知らせ（例:「画面、見てみますね」）、10 秒待ってから、画像は**自分で Read しない**。Agent ツールで
+  **バックグラウンドのサブエージェント**に読ませる。画像のパスは `/api/session` の `dir` + `/` + 行の `shot-….png`
+- サブエージェントには、画像のパスと撮影行の前後 10 行ほどの発言を渡し、画面の構造を数行で説明させる。
+  **練習に関わる部分**（読む文章、問題文、直してほしい文など）がどこかが分かる形で。個人情報は必要な分以外そのまま写さない
+- 説明が返ったら練習に使う（映した文章を音読してもらう、文を直す、など）。説明をそのまま読み上げない
+- 同時に動かすのは1件まで。タブのタイトルと URL は声に出さない
 
 ### 発音
 
