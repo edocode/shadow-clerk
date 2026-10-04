@@ -298,6 +298,7 @@ function _renderGenerated(paneId,labelId,d,emptyKey){
   el.innerHTML=(d.html&&d.html.trim())
     ?'<div class="md-body">'+d.html+'</div>'
     :'<div style="color:var(--muted);font-size:12px;padding:8px">'+esc(I18N[emptyKey]||'')+'</div>';
+  decorateSay(el);
   const lbl=document.getElementById(labelId);if(lbl)lbl.textContent=d.file||'';
   if(wasBottom)el.scrollTop=el.scrollHeight;
 }

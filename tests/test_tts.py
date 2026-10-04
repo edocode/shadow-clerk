@@ -7,6 +7,7 @@ import io
 import json
 import sys
 import threading
+import time
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -103,6 +104,86 @@ def test_on_played() -> None:
     p2.close(discard_pending=False)
     check("on_played の例外で再生スレッドは止まらない", plays == [2.0, 3.0, 4.0], repr(plays))
     check("on_played の例外は on_error に流さない", errors == [], repr(errors))
+
+
+class _Remote:
+    """ブラウザの代役。hold を渡すと、それがセットされるか should_stop が真になるまで読み終えない"""
+
+    def __init__(self, langs: tuple[Language, ...] = (Language.EN,), events: list[str] | None = None,
+                 hold: threading.Event | None = None) -> None:
+        self.langs, self.hold = set(langs), hold
+        self.events = events if events is not None else []
+        self.stopped: list[str] = []
+
+    def can_speak(self, lang: Language) -> bool:
+        return lang in self.langs
+
+    def speak(self, text: str, lang: Language, should_stop) -> bool:
+        self.events.append(f"remote:{text}")
+        while self.hold is not None and not self.hold.is_set():
+            if should_stop():
+                self.stopped.append(text)
+                return True
+            time.sleep(0.01)
+        return True
+
+
+def test_remote_keeps_order() -> None:
+    events: list[str] = []
+    p = TtsPlayer(_FakeBackend(), lambda pcm, sr, stop: events.append(f"vv:{int(pcm[0])}"), lambda _m: None)
+    p.set_remote(_Remote(events=events))
+    p.speak("あ。")
+    p.speak("Hi there.", Language.EN)
+    p.speak("かか。")
+    p.close(discard_pending=False)
+    check("VOICEVOX とブラウザの文を送った順に鳴らす", events == ["vv:2", "remote:Hi there.", "vv:3"], repr(events))
+
+
+def test_remote_busy_until_done_and_interrupt() -> None:
+    hold = threading.Event()
+    r = _Remote(hold=hold)
+    p = TtsPlayer(_FakeBackend(), lambda *_a: None, lambda _m: None)
+    p.set_remote(r)
+    p.speak("Hello.", Language.EN)
+    time.sleep(0.2)
+    check("ブラウザが読み終えるまで busy", p.is_busy())
+    hold.set()
+    time.sleep(0.2)
+    check("読み終えたら busy でない", not p.is_busy())
+    r.hold = threading.Event()
+    p.speak("Stop me.", Language.EN)
+    time.sleep(0.2)
+    cut = p.interrupt()
+    time.sleep(0.2)
+    check("interrupt はブラウザで読んでいる文を返して止める",
+          cut == "Stop me." and r.stopped == ["Stop me."] and not p.is_busy(), repr((cut, r.stopped)))
+    p.close()
+
+
+def test_remote_fallback() -> None:
+    played: list[int] = []
+    p = TtsPlayer(_FakeBackend(), lambda pcm, sr, stop: played.append(int(pcm[0])), lambda _m: None)
+    p.set_remote(_Remote(langs=()))
+    p.speak("Bonjour.", Language.FR)
+    p.close(discard_pending=False)
+    check("読めるタブが無ければ VOICEVOX で読む", played == [8], repr(played))
+    played2: list[int] = []
+    p2 = TtsPlayer(_FakeBackend(), lambda pcm, sr, stop: played2.append(int(pcm[0])), lambda _m: None)
+    p2.speak("Hello.", Language.EN)
+    p2.close(discard_pending=False)
+    check("読む先を持たない再生器（届け先あり）は lang があっても VOICEVOX", played2 == [6], repr(played2))
+
+
+def test_remote_on_played_uses_estimate() -> None:
+    from shadow_clerk.domain import estimate_speech_sec
+    spans: list[tuple[str, float, float]] = []
+    p = TtsPlayer(_FakeBackend(), lambda *_a: None, lambda _m: None)
+    p.set_remote(_Remote())
+    p.set_on_played(lambda text, s, e: spans.append((text, s, e)))
+    p.speak("They are there.", Language.EN)
+    p.close(discard_pending=False)
+    check("ブラウザの文も見積もりの区間で知らせる", len(spans) == 1 and spans[0][0] == "They are there."
+          and abs(spans[0][2] - spans[0][1] - estimate_speech_sec("They are there.")) < 1e-6, repr(spans))
 
 
 def _wav_bytes(samples: np.ndarray, sr: int) -> bytes:
@@ -301,4 +382,8 @@ if __name__ == "__main__":
     test_player_order_and_errors()
     test_on_played()
     test_voicevox()
+    test_remote_keeps_order()
+    test_remote_busy_until_done_and_interrupt()
+    test_remote_fallback()
+    test_remote_on_played_uses_estimate()
     sys.exit(0 if all(results) else 1)

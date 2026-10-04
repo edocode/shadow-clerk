@@ -232,8 +232,18 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._end_talk()
         elif path == "/api/language":
             self._set_language()
+        elif path == "/api/meeting":
+            self._meeting()
+        elif path == "/api/mute":
+            self._set_mute()
+        elif path == "/api/generated":
+            self._write_generated()
         elif path == "/api/say":
             self._say()
+        elif path == "/api/talk-speech/ready":
+            self._talk_speech_ready()
+        elif path == "/api/talk-speech/done":
+            self._talk_speech_done()
         elif path == "/api/talk-preview":
             self._talk_preview()
         elif path == "/api/misheard":

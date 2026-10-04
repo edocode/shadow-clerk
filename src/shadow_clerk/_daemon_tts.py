@@ -10,7 +10,7 @@ from typing import Any, Callable, Protocol
 
 import numpy as np
 
-from shadow_clerk.domain import Language, TalkVoice
+from shadow_clerk.domain import Language, TalkVoice, estimate_speech_sec
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -38,6 +38,13 @@ class TtsBackend(Protocol):
     def synthesize(self, text: str) -> tuple[np.ndarray, int]: ...
     def credit(self) -> str: ...
     def voices(self) -> list[dict[str, Any]]: ...
+
+
+class RemoteSpeaker(Protocol):
+    """このプロセスの外（ダッシュボードのブラウザ）で文を読む先。speak は読み終える・止める・諦めるまで返らない"""
+
+    def can_speak(self, lang: Language) -> bool: ...
+    def speak(self, text: str, lang: Language, should_stop: Callable[[], bool]) -> bool: ...
 
 
 def _split_long(sentence: str) -> list[str]:
@@ -131,6 +138,9 @@ class TtsPlayer:
 
     文には世代番号を付ける。interrupt() で世代を進めると、古い世代の文は合成も再生もされず、
     再生中の文も should_stop で途中で止まる。
+
+    lang 付きの文は、set_remote で渡した先（ブラウザ）が読めればそちらで読み、読めなければ合成して鳴らす。
+    どちらの文も同じ再生キューを通るので、送った順に鳴る。
     """
 
     def __init__(self, backend: TtsBackend, play: PlayFn, on_error: Callable[[str], None]) -> None:
@@ -138,8 +148,10 @@ class TtsPlayer:
         self._play = play
         self._on_error = on_error
         self._on_played: Callable[[str, float, float], None] | None = None
-        self._texts: queue.Queue[tuple[int, str] | None] = queue.Queue()
-        self._audio: queue.Queue[tuple[int, str, np.ndarray, int] | None] = queue.Queue(maxsize=2)
+        self._remote: RemoteSpeaker | None = None
+        self._texts: queue.Queue[tuple[int, str, Language | None] | None] = queue.Queue()
+        # pcm が None の文は合成していない（ブラウザで読む候補）
+        self._audio: queue.Queue[tuple[int, str, np.ndarray | None, int, Language | None] | None] = queue.Queue(maxsize=2)
         self._abort = threading.Event()
         self._gen = 0
         self._speaking = ""
@@ -158,11 +170,15 @@ class TtsPlayer:
         """
         self._on_played = fn
 
-    def speak(self, text: str) -> None:
+    def set_remote(self, remote: RemoteSpeaker | None) -> None:
+        """lang 付きの文を読む先。渡さなければ lang 付きの文も合成して鳴らす（届け先ありの talk mode）"""
+        self._remote = remote
+
+    def speak(self, text: str, lang: Language | None = None) -> None:
         gen = self._gen
         for sentence in split_sentences(text):
             self._add_pending(1)
-            self._texts.put((gen, sentence))
+            self._texts.put((gen, sentence, lang))
 
     def is_busy(self) -> bool:
         """話している文か、合成・再生を待っている文があるか"""
@@ -196,9 +212,12 @@ class TtsPlayer:
 
     def _synth_loop(self) -> None:
         while (item := self._texts.get()) is not None:
-            gen, text = item
+            gen, text, lang = item
             if self._stale(gen):
                 self._add_pending(-1)
+                continue
+            if lang is not None and self._remote is not None:
+                self._audio.put((gen, text, None, 0, lang))  # 読む先は鳴らす直前に決める（タブの状態はそのときのもの）
                 continue
             try:
                 pcm, sr = self._backend.synthesize(text)
@@ -210,24 +229,24 @@ class TtsPlayer:
             if self._stale(gen):
                 self._add_pending(-1)
             else:
-                self._audio.put((gen, text, pcm, sr))
+                self._audio.put((gen, text, pcm, sr, lang))
         self._audio.put(None)
 
     def _play_loop(self) -> None:
         while (item := self._audio.get()) is not None:
-            gen, text, pcm, sr = item
+            gen, text, pcm, sr, lang = item
             if self._stale(gen):
                 self._add_pending(-1)
                 continue
             self._speaking = text
+            should_stop = lambda: self._stale(gen)
             try:
-                if (notify := self._on_played) is not None:
-                    start = time.time()
-                    try:
-                        notify(text, start, start + len(pcm) / sr)
-                    except Exception as e:  # 通知の失敗で再生を止めない
-                        logger.warning("talk: 再生の通知に失敗: %s", e)
-                self._play(pcm, sr, lambda: self._stale(gen))
+                if pcm is None:
+                    if lang is not None and self._speak_remote(text, lang, should_stop):
+                        continue
+                    pcm, sr = self._backend.synthesize(text)  # 読めるタブが無い。VOICEVOX で読む
+                self._notify(text, len(pcm) / sr)
+                self._play(pcm, sr, should_stop)
             except Exception as e:
                 logger.warning("talk: 再生に失敗: %s", e)
                 self._on_error(str(e))
@@ -235,6 +254,22 @@ class TtsPlayer:
                 if self._speaking == text:
                     self._speaking = ""
                 self._add_pending(-1)
+
+    def _speak_remote(self, text: str, lang: Language, should_stop: Callable[[], bool]) -> bool:
+        remote = self._remote
+        if remote is None or not remote.can_speak(lang):
+            return False
+        self._notify(text, estimate_speech_sec(text))  # 区間はタブの開始・終了から取らず、見積もりで足りる
+        return remote.speak(text, lang, should_stop)
+
+    def _notify(self, text: str, duration: float) -> None:
+        if (notify := self._on_played) is None:
+            return
+        start = time.time()
+        try:
+            notify(text, start, start + duration)
+        except Exception as e:  # 通知の失敗で再生を止めない
+            logger.warning("talk: 再生の通知に失敗: %s", e)
 
 
 def make_backend(config: dict, voice: TalkVoice | None = None) -> TtsBackend:

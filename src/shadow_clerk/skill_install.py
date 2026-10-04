@@ -17,8 +17,9 @@ logger = logging.getLogger("shadow-clerk")
 
 SKILL_NAME = "clerk-meeting-helper"
 TALK_SKILL_NAME = "clerk-talk"
+PRACTICE_SKILL_NAME = "clerk-practice"
 # 同梱して一緒に配る skill。先頭が主（戻り値とダッシュボードの版表示の基準）
-BUNDLED_SKILLS = (SKILL_NAME, TALK_SKILL_NAME)
+BUNDLED_SKILLS = (SKILL_NAME, TALK_SKILL_NAME, PRACTICE_SKILL_NAME)
 
 # 配布先。~/.agents/skills はベンダー中立の共有場所で Codex 固有ではないため、
 # ターゲット名は codex ではなく agents とする。他のエージェントが同じ場所を

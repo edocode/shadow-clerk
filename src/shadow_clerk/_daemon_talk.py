@@ -17,9 +17,11 @@ from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_talk_engine import TalkContext, TalkEngine, TalkStartError, make_engine
 from shadow_clerk._daemon_talk_route import TalkRoute, make_route
 from shadow_clerk._daemon_talk_prompt import filler_phrase, requested_language, resolve_talk_language
+from shadow_clerk._daemon_talk_speech import BrowserSpeech
 from shadow_clerk._daemon_tts import TtsBackend, TtsError, TtsPlayer, make_backend, make_player
 from shadow_clerk._daemon_tts_pipewire import PwCatSink
-from shadow_clerk.domain import EchoFilter, Language, SpokenSpan, Speaker, TalkPersona, TalkVoice, TranscriptLine
+from shadow_clerk.domain import (EchoFilter, Language, SpeechTab, SpokenSpan, Speaker, TalkPersona, TalkVoice,
+                                 TranscriptLine)
 from shadow_clerk.domain.ai_assistant import AiAssistantConfig
 from shadow_clerk.i18n import t
 
@@ -77,7 +79,8 @@ class TalkDriver:
                  engine_factory: Callable[[str], TalkEngine] = make_engine,
                  route_factory: Callable[[], TalkRoute] = make_route,
                  sink_factory: Callable[[], Any] = PwCatSink,
-                 clock: Callable[[], str] = now_timestamp) -> None:
+                 clock: Callable[[], str] = now_timestamp,
+                 speech: BrowserSpeech | None = None) -> None:
         self._write_line = write_line
         self._config_loader = config_loader
         self._backend_factory = backend_factory
@@ -86,6 +89,7 @@ class TalkDriver:
         self._route_factory = route_factory
         self._sink_factory = sink_factory
         self._clock = clock
+        self._speech = speech or BrowserSpeech()
         self._lock = threading.Lock()
         self._active = False
         self._engine: Any = None
@@ -136,6 +140,7 @@ class TalkDriver:
                 player = TtsPlayer(backend, sink.play, self._report_error)
             else:
                 player = self._player_factory(backend, config, self._report_error)
+                player.set_remote(self._speech)  # 練習言語の文はダッシュボードのブラウザで読む（届け先ありでは使わない）
             echo = EchoFilter(tail_sec=_float_setting(config, "talk_echo_tail_sec", 0.3, 0.0, 30.0))
             player.set_on_played(lambda text, s, e: echo.record(SpokenSpan(s, e, text)))
             name = "headless" if config.get("talk_engine") == "headless" else "console"
@@ -227,7 +232,7 @@ class TalkDriver:
                 self._arm_filler_locked()
         engine.on_self_line(line.text)
 
-    def api_say(self, text: str) -> str | None:
+    def api_say(self, text: str, lang: Language | None = None) -> str | None:
         """/api/say。制止の直後（console engine）なら話さずに止めた文を返す。話したら None"""
         with self._lock:
             if self._active:
@@ -235,7 +240,7 @@ class TalkDriver:
                 if cut is not None:
                     return cut
                 self._said += 1
-        self.say(text)
+        self.say(text, lang)
         return None
 
     def _engine_say(self, text: str) -> None:
@@ -287,19 +292,34 @@ class TalkDriver:
 
     # --- 出力 ---
 
-    def say(self, text: str) -> None:
-        """[Claude] 行を書いて読み上げる。talk mode でなければ一時的な再生器を使う"""
+    def say(self, text: str, lang: Language | None = None) -> None:
+        """[Claude] 行を書いて読み上げる。talk mode でなければ一時的な再生器を使う
+
+        lang が読み上げの言語（VOICEVOX）と違えば、その文はダッシュボードのブラウザで読む。届け先ありの talk mode
+        （ブラウザの音は会議アプリに届かない）と talk mode の外（一時的な再生器）では lang を見ない
+        """
         text = one_line(text)
         if not text:
             return
         self._write_line(TranscriptLine(self._clock(), Speaker.CLAUDE, text))
         with self._lock:
             player = self._player
+            browser = lang if lang is not None and lang != self._lang and self._route is None else None
         if player is not None:
-            player.speak(text)
+            player.speak(text, browser)
             return
         config = self._config_loader()
         self._speak_once(self._backend_factory(config, None), config, text)
+
+    def set_broadcaster(self, fn: Callable[[str, str], None]) -> None:
+        """SSE の送り口。ダッシュボード（FileWatcher）が立ち上がってから渡される"""
+        self._speech.set_broadcaster(fn)
+
+    def speech_ready(self, tab: SpeechTab) -> None:
+        self._speech.ready(tab)
+
+    def speech_done(self, utterance_id: str) -> bool:
+        return self._speech.done(utterance_id)
 
     def preview(self, voice: TalkVoice, text: str) -> None:
         """その声で1回だけ読み上げる（声の設定の試聴）。transcript には書かない。届かなければ TtsError"""

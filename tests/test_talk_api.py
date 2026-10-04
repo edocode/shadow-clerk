@@ -16,7 +16,7 @@ os.makedirs(os.environ["SHADOW_CLERK_DATA_DIR"], exist_ok=True)
 from shadow_clerk._daemon_dashboard_ops_talk import _DashboardHandlerTalkOps as Ops  # noqa: E402
 from shadow_clerk._daemon_talk import TalkStartError  # noqa: E402
 from shadow_clerk._daemon_tts import TtsError  # noqa: E402
-from shadow_clerk.domain import TalkVoice  # noqa: E402
+from shadow_clerk.domain import Language, SpeechTab, TalkVoice  # noqa: E402
 
 results: list[bool] = []
 
@@ -49,11 +49,18 @@ class _Talk:
     def stop(self) -> None:
         self.calls.append(("stop",))
 
-    def api_say(self, text: str) -> str | None:
+    def api_say(self, text: str, lang: Language | None = None) -> str | None:
         if text == "遮られた":
             return "途中の文。"
-        self.calls.append(("say", text))
+        self.calls.append(("say", text) if lang is None else ("say", text, lang))
         return None
+
+    def speech_ready(self, tab: SpeechTab) -> None:
+        self.calls.append(("ready", tab))
+
+    def speech_done(self, utterance_id: str) -> bool:
+        self.calls.append(("done", utterance_id))
+        return True
 
     def end_after_speech(self) -> bool:
         self.calls.append(("end",))
@@ -192,6 +199,40 @@ def test_route() -> None:
         check(f"{label}届ける先は拒否", h.sent.get("status") == "error" and h.talk.calls == [], repr(h.sent))
 
 
+def test_say_lang() -> None:
+    h = _FakeHandler({"text": "They are there.", "lang": "en"})
+    h._say()
+    check("lang を Language で渡す", h.talk.calls == [("say", "They are there.", Language.EN)]
+          and h.sent["status"] == "ok", repr(h.talk.calls))
+    for lang in ("xx", "", 1, [], "en; start_meeting"):
+        h = _FakeHandler({"text": "x", "lang": lang})
+        h._say()
+        check(f"既知でない lang {lang!r} は拒否", h.sent.get("status") == "error" and h.talk.calls == [], repr(h.sent))
+
+
+def test_speech_ready_done() -> None:
+    h = _FakeHandler({"tab": "t1abc", "langs": ["en", "ja", "sw"]})
+    h._talk_speech_ready()
+    check("名乗ったタブを渡す（知らない言語は捨てる）",
+          h.talk.calls == [("ready", SpeechTab("t1abc", frozenset({Language.EN, Language.JA})))]
+          and h.sent == {"status": "ok"}, repr(h.talk.calls))
+    for body, label in [({"tab": "", "langs": []}, "空の tab"), ({"tab": "a b", "langs": []}, "空白入りの tab"),
+                        ({"tab": "t1", "langs": "en"}, "list でない langs")]:
+        h = _FakeHandler(body)
+        h._talk_speech_ready()
+        check(f"{label}は拒否", h.sent.get("status") == "error" and h.talk.calls == [], repr(h.sent))
+    h = _FakeHandler({"id": "s1"})
+    h._talk_speech_done()
+    check("done を渡す", h.talk.calls == [("done", "s1")] and h.sent == {"status": "ok", "known": True}, repr(h.sent))
+    for body in ({}, {"id": 3}, {"id": "x" * 65}):
+        h = _FakeHandler(body)
+        h._talk_speech_done()
+        check(f"不正な id {body!r} は拒否", h.sent.get("status") == "error" and h.talk.calls == [], repr(h.sent))
+    h = _FakeHandler({"tab": "t1", "langs": ["en"]}, client="10.0.0.9")
+    h._talk_speech_ready()
+    check("名乗りも外部からは拒否", h.sent.get("status") == "error" and h.talk.calls == [])
+
+
 if __name__ == "__main__":
     test_voices()
     test_preview()
@@ -201,4 +242,6 @@ if __name__ == "__main__":
     test_say_and_remote()
     test_talk_end()
     test_route()
+    test_say_lang()
+    test_speech_ready_done()
     sys.exit(0 if all(results) else 1)

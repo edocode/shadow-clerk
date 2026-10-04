@@ -41,6 +41,7 @@ class _Handler(Ops):
         self.recorder = type("_Rec", (), {
             "_output_dir": DATA,
             "output_path": os.path.join(DATA, active),
+            "output_switch_offset": {},
             "stop_event": threading.Event(),
         })()
 
@@ -134,6 +135,36 @@ def test_history_count_zero() -> None:
     h.path = "/api/meeting-history?meeting=Sprint_MTG&count=0"
     h._serve_meeting_history()
     check("count=0 なら空", h.sent.get("meetings") == [], repr(h.sent))
+
+
+def test_history_tail() -> None:
+    body = "".join(f"[2026-10-01 09:{i:02d}:00] [自分] 行{i}\n" for i in range(20)) + "--- 会議終了 ---\n"
+    _touch("transcript-202610010900@英語練習.txt", body)
+    h = _Handler(active="transcript-202610040900@英語練習.txt")
+    h.path = "/api/meeting-history?meeting=英語練習&count=3&tail=3"
+    h._serve_meeting_history()
+    got = h.sent.get("meetings", [])
+    check("tail で transcript の末尾を足す", len(got) == 1 and got[0].get("tail") == [
+        "[2026-10-01 09:18:00] [自分] 行18", "[2026-10-01 09:19:00] [自分] 行19", "--- 会議終了 ---"], repr(got))
+    for query, expect, label in [("tail=0", None, "tail=0 なら足さない"), ("", None, "既定は足さない"),
+                                 ("tail=abc", None, "数でなければ足さない"), ("tail=99", 21, "50 行まで（ファイルが短ければ全部）")]:
+        h.path = "/api/meeting-history?meeting=英語練習&count=3" + (f"&{query}" if query else "")
+        h._serve_meeting_history()
+        row = h.sent["meetings"][0]
+        check(label, (row.get("tail") is None) if expect is None else len(row["tail"]) == expect, repr(row.get("tail"))[:80])
+
+
+def test_query_reads_raw_utf8() -> None:
+    """curl は日本語の会議名を符号化せずに送り、http.server はそれを latin-1 として読む"""
+    _touch("transcript-202610020900@英語練習.txt")
+    h = _Handler(active="transcript-202610040900@英語練習.txt")
+    h.path = "/api/meeting-history?meeting=英語練習&count=5".encode("utf-8").decode("latin-1")
+    h._serve_meeting_history()
+    check("生の UTF-8 の会議名でも当たる", [m["meeting"] for m in h.sent.get("meetings", [])] == ["英語練習", "英語練習"],
+          repr(h.sent))
+    h.path = "/api/meeting-history?meeting=%E8%8B%B1%E8%AA%9E%E7%B7%B4%E7%BF%92&count=5"
+    h._serve_meeting_history()
+    check("percent-encoding も従来どおり", len(h.sent.get("meetings", [])) == 2, repr(h.sent))
 
 
 def test_norm() -> None:
@@ -244,6 +275,120 @@ def test_watch_rejects_unknown_kind() -> None:
     check("未知の kind は 400", h.status == 400, repr(h.status))
 
 
+def _append(name: str, body: str) -> None:
+    with open(os.path.join(DATA, name), "a", encoding="utf-8") as f:
+        f.write(body)
+
+
+def test_watch_follows_output_path() -> None:
+    """日付が変わる・会議が始まる/終わると書き込み先が変わる。file 指定なしの監視は付いていく"""
+    import time
+    old, new = "transcript-20261003.txt", "transcript-20261004.txt"
+    _touch(old, "[2026-10-03 23:59:58] [自分] 前の日\n")
+    h = _Stream("interval=1", old)
+    th = threading.Thread(target=h._serve_watch, daemon=True)
+    th.start()
+    time.sleep(0.3)
+    _touch(new, "[2026-10-04 00:00:01] [自分] 次の日\n")
+    h.recorder.output_path = os.path.join(DATA, new)
+    time.sleep(1.2)
+    _append(new, "[2026-10-04 00:00:05] [自分] 続き\n")
+    time.sleep(1.2)
+    h.recorder.stop_event.set()
+    th.join(timeout=3)
+    out = h.out.getvalue().decode()
+    notice = f"<notice>書き込み先が {new} に変わりました</notice>"
+    check("書き込み先が変わったら notice を流す", notice in out, repr(out))
+    check("新しいファイルを先頭から流す", f'<transcript file="{new}">' in out and "次の日" in out
+          and out.index(notice) < out.index("次の日"), repr(out))
+    check("移ったあとの追記も流す", "続き" in out, repr(out))
+    check("前のファイルの既存行は流さない", "前の日" not in out, repr(out))
+
+
+def _switch(h: _Stream, name: str) -> None:
+    """recorder が書き込み先を変えるのを真似る。移った時点の大きさを覚える"""
+    p = os.path.join(DATA, name)
+    h.recorder.output_switch_offset[p] = os.path.getsize(p) if os.path.exists(p) else 0
+    h.recorder.output_path = p
+
+
+def test_watch_meeting_end_back_to_existing_day_file() -> None:
+    """会議が終わって既存の日付ファイルへ戻っても、その日の既存行は流し直さない"""
+    import time
+    day, mtg = "transcript-20261007.txt", "transcript-202610071000@練習.txt"
+    _touch(day, "".join(f"[2026-10-07 09:{i:02d}:00] [自分] 古い行 {i}\n" for i in range(5)))
+    _touch(mtg, "--- 会議開始 ---\n")
+    h = _Stream("interval=1", mtg)
+    th = threading.Thread(target=h._serve_watch, daemon=True)
+    th.start()
+    time.sleep(0.3)
+    _append(mtg, "[2026-10-07 10:05:00] [Claude] まとめ\n--- 会議終了 ---\n")
+    _switch(h, day)
+    _append(day, "[2026-10-07 10:06:00] [自分] 切り替え直後\n")
+    time.sleep(1.2)
+    _append(day, "[2026-10-07 10:07:00] [自分] その後\n")
+    time.sleep(1.2)
+    h.recorder.stop_event.set()
+    th.join(timeout=3)
+    out = h.out.getvalue().decode()
+    check("戻った先の既存行は流さない", "古い行" not in out, repr(out))
+    check("同じ間隔で書かれた会議終了の印を流す", "--- 会議終了 ---" in out and "まとめ" in out, repr(out))
+    check("切り替え後の追記は流す", "切り替え直後" in out and "その後" in out, repr(out))
+
+
+def test_watch_drains_old_file_before_notice() -> None:
+    """切り替えと同じ間隔で前のファイルに書かれた行は、notice より前に前のファイル名で流す"""
+    import time
+    old, new = "transcript-202610081000@練習.txt", "transcript-20261008.txt"
+    _touch(old, "")
+    h = _Stream("interval=1", old)
+    th = threading.Thread(target=h._serve_watch, daemon=True)
+    th.start()
+    time.sleep(0.3)
+    _append(old, "[2026-10-08 10:05:00] [自分] 最後の発言\n")
+    _switch(h, new)
+    time.sleep(1.2)
+    h.recorder.stop_event.set()
+    th.join(timeout=3)
+    out = h.out.getvalue().decode()
+    notice = f"<notice>書き込み先が {new} に変わりました</notice>"
+    check("前のファイルの残りを流す", f'<transcript file="{old}">' in out and "最後の発言" in out, repr(out))
+    check("残りは notice より前", notice in out and "最後の発言" in out and out.index("最後の発言") < out.index(notice), repr(out))
+
+
+def test_recorder_records_size_at_switch() -> None:
+    """Recorder は書き込み先を変えた時点のファイルの大きさを覚える（無ければ 0）"""
+    from shadow_clerk._daemon_recorder import Recorder
+    r = Recorder.__new__(Recorder)
+    r.output_switch_offset = {}
+    existing = _touch("transcript-20261009.txt", "abc\n")
+    r.output_path = existing
+    missing = os.path.join(DATA, "transcript-20261010.txt")
+    r.output_path = missing
+    check("移った時点の大きさを覚える", r.output_switch_offset == {existing: 4, missing: 0}
+          and r.output_path == missing, repr(r.output_switch_offset))
+
+
+def test_watch_with_file_stays() -> None:
+    import time
+    a, b = "transcript-20261005.txt", "transcript-20261006.txt"
+    _touch(a, "")
+    _touch(b, "")
+    h = _Stream(f"interval=1&file={a}", a)
+    th = threading.Thread(target=h._serve_watch, daemon=True)
+    th.start()
+    time.sleep(0.3)
+    h.recorder.output_path = os.path.join(DATA, b)
+    _append(b, "[2026-10-06 10:00:00] [自分] 別のファイル\n")
+    _append(a, "[2026-10-05 10:00:00] [自分] 指定のファイル\n")
+    time.sleep(1.2)
+    h.recorder.stop_event.set()
+    th.join(timeout=3)
+    out = h.out.getvalue().decode()
+    check("file 指定なら書き込み先が変わっても移らない", "<notice>" not in out and "指定のファイル" in out
+          and "別のファイル" not in out, repr(out))
+
+
 def main() -> int:
     test_session_uses_session_file_not_mtime()
     test_session_returns_generated_paths()
@@ -251,12 +396,19 @@ def main() -> int:
     test_config_resolve_matches_rule()
     test_history_normalised_match()
     test_history_count_zero()
+    test_history_tail()
+    test_query_reads_raw_utf8()
     test_norm()
     test_watch_wraps_transcript()
     test_wrap_with_other_tag()
     test_watch_advice_streams_whole_file_on_change()
     test_watch_advice_waits_for_file()
     test_watch_rejects_unknown_kind()
+    test_watch_follows_output_path()
+    test_watch_meeting_end_back_to_existing_day_file()
+    test_watch_drains_old_file_before_notice()
+    test_recorder_records_size_at_switch()
+    test_watch_with_file_stays()
     print(f"\n{sum(results)}/{len(results)} passed")
     return 0 if all(results) else 1
 

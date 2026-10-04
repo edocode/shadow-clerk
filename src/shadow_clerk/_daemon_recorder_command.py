@@ -475,6 +475,28 @@ class _RecorderCommandMixin:
                 "asr_model_id": self.transcriber._loaded_model_id or self.transcriber.model_size,
             }))
 
+    def start_meeting(self, meeting_name: str, analyze: bool = True) -> None:
+        """会議を始める（meeting_name は sanitize_meeting_name 済み、空なら名前なし）。
+
+        analyze=False なら auto_analyze が有効でも AI アシスタントを起動しない。語学の練習（clerk-practice）は
+        talk の Claude が自分で Advice / Analysis を書くので、アシスタントを立てると記入が二重になる
+        """
+        now = datetime.datetime.now()
+        name_suffix = f"@{meeting_name}" if meeting_name else ""
+        filename = now.strftime(f"transcript-%Y%m%d%H%M{name_suffix}.txt")
+        with self.transcript_lock:
+            self.output_path = os.path.join(self._output_dir, filename)
+            with open(self.output_path, "a", encoding="utf-8") as f:
+                f.write(meeting_start_marker(now))
+        self.current_session = MeetingSession.start(self.output_path, now)
+        with open(SESSION_FILE, "w", encoding="utf-8") as f:
+            f.write(self.output_path)
+        logger.info("会議開始: %s", self.output_path)
+        print(t("rec.meeting_start", path=self.output_path))
+        self._save_attendees_for_session(self.output_path)
+        if analyze:
+            self._maybe_start_analysis(self.output_path)
+
     def _execute_command(self, cmd: str) -> None:
         """コマンド文字列をパースして実行"""
         cmd = cmd.strip()
@@ -504,20 +526,7 @@ class _RecorderCommandMixin:
                 meeting_name = gcal.get_ongoing_event_name() if gcal else ""
                 if meeting_name:
                     logger.info("gcal 進行中イベントを会議名に割り当て: %s", meeting_name)
-            now = datetime.datetime.now()
-            name_suffix = f"@{meeting_name}" if meeting_name else ""
-            filename = now.strftime(f"transcript-%Y%m%d%H%M{name_suffix}.txt")
-            with self.transcript_lock:
-                self.output_path = os.path.join(self._output_dir, filename)
-                with open(self.output_path, "a", encoding="utf-8") as f:
-                    f.write(meeting_start_marker(now))
-            self.current_session = MeetingSession.start(self.output_path, now)
-            with open(SESSION_FILE, "w", encoding="utf-8") as f:
-                f.write(self.output_path)
-            logger.info("会議開始: %s", self.output_path)
-            print(t("rec.meeting_start", path=self.output_path))
-            self._save_attendees_for_session(self.output_path)
-            self._maybe_start_analysis(self.output_path)
+            self.start_meeting(meeting_name)
 
         elif cmd == "end_meeting":
             marker = MEETING_END_MARKER

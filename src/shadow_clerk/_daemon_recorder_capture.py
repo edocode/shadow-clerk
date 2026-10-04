@@ -148,6 +148,7 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         self.transcribe_queue: queue.Queue = queue.Queue()
         self.interim_queue: queue.Queue = queue.Queue(maxsize=2)
         self.transcript_lock = threading.Lock()  # トランスクリプトファイル読み書きの排他制御
+        self.output_switch_offset: dict[str, int] = {}  # 書き込み先 → 移った時点の大きさ（/api/watch 用）
 
         self.backend_name, self.backend = detect_backend(args.backend)
 

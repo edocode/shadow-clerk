@@ -17,7 +17,7 @@ from urllib.parse import urlparse, parse_qs
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_constants import SESSION_FILE
 from shadow_clerk._daemon_dashboard_base import is_localhost_client, read_local_json_body
-from shadow_clerk._transcript_name import TranscriptName
+from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name
 from shadow_clerk.domain import Language
 from shadow_clerk.domain.meeting_config import MeetingConfig
 
@@ -28,6 +28,13 @@ logger = logging.getLogger("shadow-clerk")
 WATCH_INTERVAL_DEFAULT = 25
 WATCH_IDLE_DEFAULT = 600
 WATCH_INTERVAL_RANGE = (1, 300)
+
+_MAX_MEETING_NAME_CHARS = 100
+_MUTE_SOURCES = ("mic", "monitor")
+_MAX_GENERATED_CHARS = 20000
+_GENERATED_KINDS = ("advice", "analysis")
+_GENERATED_MODES = ("replace", "append")
+_HISTORY_TAIL_MAX = 50
 
 
 def _norm(name: str) -> str:
@@ -56,11 +63,44 @@ def _fmt_time(ts: float) -> str:
     return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _query_int(q: dict[str, list[str]], key: str, default: int, lo: int, hi: int) -> int:
+    try:
+        return max(lo, min(hi, int((q.get(key) or [str(default)])[0])))
+    except ValueError:
+        return default
+
+
+def _tail_lines(path: str, n: int) -> list[str]:
+    """transcript の末尾 n 行。前回の練習のまとめ（「今日の練習のまとめ: …」）を skill が読むため"""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read().splitlines()[-n:]
+    except OSError:
+        return []
+
+
+def _lacks_final_newline(path: str) -> bool:
+    """ファイルが改行で終わっていないか。無い・空なら False"""
+    try:
+        with open(path, "rb") as f:
+            f.seek(-1, os.SEEK_END)
+            return f.read(1) != b"\n"
+    except OSError:
+        return False
+
+
 class _DashboardHandlerSkillOps:
     """会議アシスタントスキルが叩くエンドポイント（ミックスイン）"""
 
     def _skill_query(self) -> dict[str, list[str]]:
-        return parse_qs(urlparse(self.path).query)
+        # curl は URL の非 ASCII（日本語の会議名）を符号化せずに送り、http.server はそれを latin-1 として読む。
+        # UTF-8 に読み直さないと meeting=英語練習 が化けて、どの会議にも当たらない
+        path = self.path
+        try:
+            path = path.encode("latin-1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+        return parse_qs(urlparse(path).query)
 
     def _skill_guard(self) -> bool:
         """localhost 限定。通らなければ応答済みにして False を返す"""
@@ -125,7 +165,10 @@ class _DashboardHandlerSkillOps:
     # --- 定例の過去回 ---
 
     def _serve_meeting_history(self) -> None:
-        """GET /api/meeting-history?meeting=<名前>&count=N — 同じ会議の過去回。
+        """GET /api/meeting-history?meeting=<名前>&count=N[&tail=M] — 同じ会議の過去回。
+
+        tail（0〜50、既定 0）を付けると、各回に transcript の末尾 M 行を "tail" で足す。curl しか使えない
+        clerk-practice が前回のまとめを読むため。
 
         照合は会議名の正規化一致。設定の `meetings[].pattern` は「この種類の会議を
         どう扱うか」を決めるもので会議の同一性ではない（実際 Sprint_MTG と
@@ -135,10 +178,8 @@ class _DashboardHandlerSkillOps:
             return
         q = self._skill_query()
         meeting = (q.get("meeting") or [""])[0]
-        try:
-            count = max(0, min(20, int((q.get("count") or ["3"])[0])))
-        except ValueError:
-            count = 3
+        count = _query_int(q, "count", 3, 0, 20)
+        tail = _query_int(q, "tail", 0, 0, _HISTORY_TAIL_MAX)
         if not meeting or count == 0:
             self._send_json({"status": "ok", "meetings": []})
             return
@@ -163,14 +204,17 @@ class _DashboardHandlerSkillOps:
             def _p(fname: str) -> str:
                 full = os.path.join(out_dir, fname)
                 return full if os.path.isfile(full) else ""
-            out.append({
+            row: dict[str, object] = {
                 "datetime": tn.label,
                 "meeting": tn.meeting_name,
                 "transcript": _p(tn.filename),
                 "summary": _p(tn.summary_filename),
                 "advice": _p(tn.advice_filename),
                 "analysis": _p(tn.analysis_filename),
-            })
+            }
+            if tail:
+                row["tail"] = _tail_lines(str(row["transcript"]), tail)
+            out.append(row)
             if len(out) >= count:
                 break
         self._send_json({"status": "ok", "meetings": out})
@@ -192,6 +236,88 @@ class _DashboardHandlerSkillOps:
             return
         self.recorder._execute_command("unset_language" if lang == "auto" else f"set_language {lang}")
         self._send_json({"status": "ok", "language": lang})
+
+    def _meeting(self) -> None:
+        """POST /api/meeting {action: start|end, name?, analyze?} — 会議を始める・終える（clerk-practice 用）
+
+        /api/command は任意のコマンドを通すので skill には使わせない。開始は会議中なら、終了は会議中でなければ
+        何もしない（会議の外で end_meeting を通すと、日付のファイルに終了の印が書かれる）
+        """
+        data = read_local_json_body(self, "meeting")
+        if data is None:
+            return
+        action, in_meeting = data.get("action"), os.path.exists(SESSION_FILE)
+        if action == "start":
+            raw, analyze = data.get("name"), data.get("analyze", True)
+            name = sanitize_meeting_name(raw) if isinstance(raw, str) and len(raw) <= _MAX_MEETING_NAME_CHARS else ""
+            if not name or not isinstance(analyze, bool):
+                self._send_json({"status": "error",
+                                 "message": "name must be a meeting name up to 100 characters and analyze a boolean"})
+                return
+            if not in_meeting:
+                self.recorder.start_meeting(name, analyze=analyze)
+        elif action == "end":
+            if in_meeting:
+                self.recorder._execute_command("end_meeting")
+        else:
+            self._send_json({"status": "error", "message": "action must be start or end"})
+            return
+        path = self.recorder.output_path
+        tn = TranscriptName.parse(os.path.basename(path))
+        self._send_json({"status": "ok", "meeting": (tn.meeting_name or "") if tn else "",
+                         "transcript": path, "in_meeting": os.path.exists(SESSION_FILE)})
+
+    def _set_mute(self) -> None:
+        """POST /api/mute {source: mic|monitor, muted} — ダッシュボードのミュートボタンと同じ状態を切り替える
+
+        previous（切り替え前）を返すので、skill は終わるときに元に戻せる
+        """
+        data = read_local_json_body(self, "mute")
+        if data is None:
+            return
+        source, muted = data.get("source"), data.get("muted")
+        if source not in _MUTE_SOURCES or not isinstance(muted, bool):
+            self._send_json({"status": "error", "message": "source must be mic or monitor and muted a boolean"})
+            return
+        previous = bool(getattr(self.recorder, f"mute_{source}"))
+        self.recorder._execute_command(f"mute_{source}" if muted else f"unmute_{source}")
+        self._send_json({"status": "ok", "source": source, "muted": muted, "previous": previous})
+
+    def _write_generated(self) -> None:
+        """POST /api/generated {kind: advice|analysis, mode: replace|append, text} — いまの書き込み先の生成物を書く
+
+        clerk-practice（talk の console）は curl しか使えないので、Advice / Analysis をここから書く。パスは受け取らない。
+        会議の外ではその日のファイルの advice / analysis に書く。ダッシュボードの表示は FileWatcher が更新する
+        """
+        data = read_local_json_body(self, "generated")
+        if data is None:
+            return
+        kind, mode, text = data.get("kind"), data.get("mode"), data.get("text")
+        if (kind not in _GENERATED_KINDS or mode not in _GENERATED_MODES
+                or not isinstance(text, str) or len(text) > _MAX_GENERATED_CHARS):
+            self._send_json({"status": "error", "message": "kind must be advice or analysis, mode replace or append, "
+                                                           "and text a string up to 20000 characters"})
+            return
+        transcript = self.recorder.output_path
+        tn = TranscriptName.parse(os.path.basename(transcript))
+        if tn is None:
+            self._send_json({"status": "error", "message": "the current output is not a transcript file"})
+            return
+        # FileWatcher と同じく transcript の隣に書く（明示の --output でも表示が追従する）
+        path = os.path.join(os.path.dirname(transcript),
+                            tn.advice_filename if kind == "advice" else tn.analysis_filename)
+        try:
+            if mode == "append":
+                sep = "\n" if _lacks_final_newline(path) else ""
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(sep + text)
+            else:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(text)
+        except OSError as e:
+            self._send_json({"status": "error", "message": str(e)})
+            return
+        self._send_json({"status": "ok", "kind": kind, "mode": mode, "file": path})
 
     def _serve_skill_status(self) -> None:
         """GET /api/skill-status — 記録済みの配布先ごとに状態を返す"""
@@ -222,7 +348,13 @@ class _DashboardHandlerSkillOps:
         self._send_json({"status": "ok", "result": result})
 
     def _serve_watch(self) -> None:
-        """GET /api/watch?interval=25&idle=600[&kind=advice] — 新規行をまとめて流し続ける。
+        """GET /api/watch?interval=25&idle=600[&kind=advice][&file=…] — 新規行をまとめて流し続ける。
+
+        file を指定しなければ、いまの書き込み先（recorder.output_path）を毎回見る。日付の切り替えや会議の開始・終了で
+        変わったら、前のファイルの残り（会議終了の印など）を流しきってから <notice> を流し、新しいファイルは
+        recorder が移った時点の大きさ（output_switch_offset）から流す。先頭からにすると、会議が終わって戻る
+        既存の日付ファイルを丸ごと流し直してしまう（つないだ時点のファイルを見続けると、0 時をまたいだところで
+        発言が届かなくなる）。file 指定と kind=advice は指定のファイルを見続ける。
 
         kind=advice なら、transcript に対応する advice ファイルを見張り、書き換わるたびに中身を丸ごと流す
         （advice は上書きされるので差分ではなく全体）。Claude と会議の skill が、会議アシスタントの論点を
@@ -251,6 +383,7 @@ class _DashboardHandlerSkillOps:
         path = (os.path.join(self.recorder._output_dir, name)
                 if name and os.path.basename(name) == name
                 else self.recorder.output_path)
+        follow = not name
         kind = (q.get("kind") or ["transcript"])[0]
         if kind not in ("transcript", "advice"):
             self.send_error(400)
@@ -274,6 +407,26 @@ class _DashboardHandlerSkillOps:
             except OSError:
                 return 0
 
+        def _emit_new_lines() -> bool:
+            """path の offset 以降を最後の改行まで流す。流したら True"""
+            nonlocal offset
+            chunk = b""
+            if _size() > offset:
+                try:
+                    with open(path, "rb") as f:
+                        f.seek(offset)
+                        chunk = f.read()
+                except OSError:
+                    chunk = b""
+            nl = chunk.rfind(b"\n")
+            if nl < 0:
+                return False
+            offset += nl + 1
+            self.wfile.write(wrap_transcript(os.path.basename(path),
+                                             chunk[:nl + 1].decode("utf-8", errors="replace")))
+            self.wfile.flush()
+            return True
+
         offset, quiet = _size(), 0
         logger.info("監視ストリーム開始: %s (interval=%ds)", os.path.basename(path), interval)
         try:
@@ -281,23 +434,15 @@ class _DashboardHandlerSkillOps:
                 self.recorder.stop_event.wait(timeout=interval)
                 if self.recorder.stop_event.is_set():
                     break
-                cur = _size()
-                if cur < offset:
-                    offset = 0        # 書き直された。先頭から拾い直す
-                chunk = b""
-                if cur > offset:
-                    try:
-                        with open(path, "rb") as f:
-                            f.seek(offset)
-                            chunk = f.read()
-                    except OSError:
-                        chunk = b""
-                nl = chunk.rfind(b"\n")
-                if nl >= 0:
-                    text = chunk[:nl + 1].decode("utf-8", errors="replace")
-                    offset += nl + 1
-                    self.wfile.write(wrap_transcript(os.path.basename(path), text))
+                if follow and (target := self.recorder.output_path) != path:
+                    _emit_new_lines()   # 前のファイルの残り（会議終了の印など）を先に流しきる
+                    path, offset, quiet = target, self.recorder.output_switch_offset.get(target, 0), 0
+                    self.wfile.write(f"<notice>書き込み先が {os.path.basename(path)} に変わりました</notice>\n".encode())
                     self.wfile.flush()
+                    logger.info("監視ストリーム: 書き込み先が変わった: %s", os.path.basename(path))
+                if _size() < offset:
+                    offset = 0        # 書き直された。先頭から拾い直す
+                if _emit_new_lines():
                     quiet = 0
                 else:
                     quiet += interval
