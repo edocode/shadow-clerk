@@ -91,7 +91,11 @@ FORBID_ANALYZE_FILE = os.path.join(DATA_DIR, "forbid-ai-analyze.txt")
 # 文脈で判断が要る対」を貯める。どちらも transcript には適用しない
 MISHEARD_FILE = os.path.join(DATA_DIR, "misheard.tsv")
 CONSOLE_TICK_SEC = 0.1            # grid の差分を配信する間隔(秒)
-CONSOLE_READY_QUIET_SEC = 0.5     # grid が非空でこの秒数変化しなければ TUI 起動完了とみなす
+# grid が非空でこの秒数変化しなければ TUI 起動完了とみなす。Claude Code は起動直後に
+# 警告を数行出してから 0.6〜0.8 秒黙り、そのあと入力欄を描く。0.5 秒ではこの間を
+# ready と誤判定するので、間を越える 1.0 秒にする(誤判定は打ち直しでも救うが、
+# 普段の経路で打ち直しに頼らないため)
+CONSOLE_READY_QUIET_SEC = 1.0
 CONSOLE_READY_TIMEOUT_SEC = 15.0  # ready 判定の上限(秒)。超えたら諦めて送る
 # 初期プロンプトの本文と Enter の間に置く待ち。TUI (Ink 等) は 1 回の read で
 # 届いた末尾の CR を「送信」ではなく貼り付けの一部として吸収してしまうため、
@@ -104,6 +108,11 @@ CONSOLE_SUBMIT_DELAY_SEC = 0.4
 # 変わるまで、間隔を空けて Enter を送り直す
 CONSOLE_SUBMIT_RETRY_SEC = 2.0
 CONSOLE_SUBMIT_MAX_RETRIES = 5
+# ready を誤判定して入力欄が出る前に本文を打つと、本文は捨てられる。本文が画面に
+# 出るのをこの秒数待ち、出なければ打ち直す
+CONSOLE_TYPE_VERIFY_SEC = 1.5
+CONSOLE_TYPE_MAX_RETRIES = 3
+CONSOLE_TYPE_SCAN_ROWS = 20       # 折り返した本文を探すためカーソルより上を見る行数
 
 # SSE クライアントごとのキューの上限。tick スレッドが 100ms ごとに console
 # イベントを積むため、追いつけないクライアント（タブが背景に回った、
