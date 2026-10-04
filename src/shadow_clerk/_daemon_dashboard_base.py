@@ -236,6 +236,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._meeting()
         elif path == "/api/mute":
             self._set_mute()
+        elif path == "/api/generated":
+            self._write_generated()
         elif path == "/api/say":
             self._say()
         elif path == "/api/talk-preview":

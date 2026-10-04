@@ -136,6 +136,36 @@ def test_history_count_zero() -> None:
     check("count=0 なら空", h.sent.get("meetings") == [], repr(h.sent))
 
 
+def test_history_tail() -> None:
+    body = "".join(f"[2026-10-01 09:{i:02d}:00] [自分] 行{i}\n" for i in range(20)) + "--- 会議終了 ---\n"
+    _touch("transcript-202610010900@英語練習.txt", body)
+    h = _Handler(active="transcript-202610040900@英語練習.txt")
+    h.path = "/api/meeting-history?meeting=英語練習&count=3&tail=3"
+    h._serve_meeting_history()
+    got = h.sent.get("meetings", [])
+    check("tail で transcript の末尾を足す", len(got) == 1 and got[0].get("tail") == [
+        "[2026-10-01 09:18:00] [自分] 行18", "[2026-10-01 09:19:00] [自分] 行19", "--- 会議終了 ---"], repr(got))
+    for query, expect, label in [("tail=0", None, "tail=0 なら足さない"), ("", None, "既定は足さない"),
+                                 ("tail=abc", None, "数でなければ足さない"), ("tail=99", 21, "50 行まで（ファイルが短ければ全部）")]:
+        h.path = "/api/meeting-history?meeting=英語練習&count=3" + (f"&{query}" if query else "")
+        h._serve_meeting_history()
+        row = h.sent["meetings"][0]
+        check(label, (row.get("tail") is None) if expect is None else len(row["tail"]) == expect, repr(row.get("tail"))[:80])
+
+
+def test_query_reads_raw_utf8() -> None:
+    """curl は日本語の会議名を符号化せずに送り、http.server はそれを latin-1 として読む"""
+    _touch("transcript-202610020900@英語練習.txt")
+    h = _Handler(active="transcript-202610040900@英語練習.txt")
+    h.path = "/api/meeting-history?meeting=英語練習&count=5".encode("utf-8").decode("latin-1")
+    h._serve_meeting_history()
+    check("生の UTF-8 の会議名でも当たる", [m["meeting"] for m in h.sent.get("meetings", [])] == ["英語練習", "英語練習"],
+          repr(h.sent))
+    h.path = "/api/meeting-history?meeting=%E8%8B%B1%E8%AA%9E%E7%B7%B4%E7%BF%92&count=5"
+    h._serve_meeting_history()
+    check("percent-encoding も従来どおり", len(h.sent.get("meetings", [])) == 2, repr(h.sent))
+
+
 def test_norm() -> None:
     check("正規化: 大文字小文字と区切りを無視",
           _norm("1_on_1_alice_(offline)") == _norm("1 on 1 Alice(Offline)"),
@@ -301,6 +331,8 @@ def main() -> int:
     test_config_resolve_matches_rule()
     test_history_normalised_match()
     test_history_count_zero()
+    test_history_tail()
+    test_query_reads_raw_utf8()
     test_norm()
     test_watch_wraps_transcript()
     test_wrap_with_other_tag()

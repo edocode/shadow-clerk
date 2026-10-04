@@ -151,10 +151,68 @@ def test_mute() -> None:
     check("ミュートも外部からは拒否", h.sent.get("status") == "error" and h.recorder.commands == [], repr(h.sent))
 
 
+def _read(name: str) -> str:
+    with open(os.path.join(DATA, name), encoding="utf-8") as f:
+        return f.read()
+
+
+def _write(body: dict, active: str) -> _Handler:
+    h = _Handler(body, rec=_Rec(active))
+    h._write_generated()
+    return h
+
+
+def test_generated_replace_and_append() -> None:
+    active = "transcript-202610041000@英語練習.txt"
+    h = _write({"kind": "advice", "mode": "replace", "text": "# いまの直し\n- 1つ目\n"}, active)
+    path = os.path.join(DATA, "advice-202610041000@英語練習.md")
+    check("advice を書いてパスを返す", _read("advice-202610041000@英語練習.md") == "# いまの直し\n- 1つ目\n"
+          and h.sent == {"status": "ok", "kind": "advice", "mode": "replace", "file": path}, repr(h.sent))
+    _write({"kind": "advice", "mode": "replace", "text": "# いまの直し\n- 2つ目\n"}, active)
+    check("replace は上書き", _read("advice-202610041000@英語練習.md") == "# いまの直し\n- 2つ目\n")
+    _write({"kind": "analysis", "mode": "append", "text": "## 10:00\nA"}, active)
+    check("無いファイルへの append は作る", _read("analysis-202610041000@英語練習.md") == "## 10:00\nA")
+    _write({"kind": "analysis", "mode": "append", "text": "## 10:05\nB\n"}, active)
+    check("append は末尾に改行を補ってから足す",
+          _read("analysis-202610041000@英語練習.md") == "## 10:00\nA\n## 10:05\nB\n",
+          repr(_read("analysis-202610041000@英語練習.md")))
+    _write({"kind": "analysis", "mode": "append", "text": "## 10:10\nC\n"}, active)
+    check("改行で終わっていれば補わない", _read("analysis-202610041000@英語練習.md").endswith("B\n## 10:10\nC\n"))
+
+
+def test_generated_outside_meeting() -> None:
+    """会議の外では、いまの書き込み先（日付のファイル）の advice / analysis に書く"""
+    h = _write({"kind": "advice", "mode": "replace", "text": "- 会議の外\n"}, DAILY)
+    check("日付のファイルの advice に書く", h.sent.get("status") == "ok"
+          and _read("advice-20261004.md") == "- 会議の外\n", repr(h.sent))
+
+
+def test_generated_rejects() -> None:
+    active = "transcript-202610041100@検証.txt"
+    for body, label in [({"kind": "summary", "mode": "replace", "text": "x"}, "知らない kind"),
+                        ({"kind": "advice", "mode": "prepend", "text": "x"}, "知らない mode"),
+                        ({"kind": "advice", "text": "x"}, "mode なし"),
+                        ({"kind": "advice", "mode": "replace", "text": 1}, "文字列でない text"),
+                        ({"kind": "advice", "mode": "replace", "text": "x" * 20001}, "20001 字の text")]:
+        h = _write(body, active)
+        check(f"{label}は拒否", h.sent.get("status") == "error"
+              and not os.path.exists(os.path.join(DATA, "advice-202610041100@検証.md")), repr(h.sent)[:120])
+    h = _write({"kind": "advice", "mode": "replace", "text": "x" * 20000}, active)
+    check("20000 字は通す", h.sent.get("status") == "ok", repr(h.sent)[:120])
+    h = _write({"kind": "advice", "mode": "replace", "text": "x"}, "custom-output.txt")
+    check("書き込み先が transcript でなければ拒否", h.sent.get("status") == "error", repr(h.sent))
+    h = _Handler({"kind": "advice", "mode": "replace", "text": "x"}, client="10.0.0.9")
+    h._write_generated()
+    check("生成物も外部からは拒否", h.sent.get("status") == "error", repr(h.sent))
+
+
 if __name__ == "__main__":
     test_meeting_start()
     test_meeting_start_rejects()
     test_meeting_end()
     test_mute()
+    test_generated_replace_and_append()
+    test_generated_outside_meeting()
+    test_generated_rejects()
     _no_meeting()
     sys.exit(0 if all(results) else 1)

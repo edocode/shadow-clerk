@@ -31,6 +31,10 @@ WATCH_INTERVAL_RANGE = (1, 300)
 
 _MAX_MEETING_NAME_CHARS = 100
 _MUTE_SOURCES = ("mic", "monitor")
+_MAX_GENERATED_CHARS = 20000
+_GENERATED_KINDS = ("advice", "analysis")
+_GENERATED_MODES = ("replace", "append")
+_HISTORY_TAIL_MAX = 50
 
 
 def _norm(name: str) -> str:
@@ -59,11 +63,44 @@ def _fmt_time(ts: float) -> str:
     return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _query_int(q: dict[str, list[str]], key: str, default: int, lo: int, hi: int) -> int:
+    try:
+        return max(lo, min(hi, int((q.get(key) or [str(default)])[0])))
+    except ValueError:
+        return default
+
+
+def _tail_lines(path: str, n: int) -> list[str]:
+    """transcript の末尾 n 行。前回の練習のまとめ（「今日の練習のまとめ: …」）を skill が読むため"""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read().splitlines()[-n:]
+    except OSError:
+        return []
+
+
+def _lacks_final_newline(path: str) -> bool:
+    """ファイルが改行で終わっていないか。無い・空なら False"""
+    try:
+        with open(path, "rb") as f:
+            f.seek(-1, os.SEEK_END)
+            return f.read(1) != b"\n"
+    except OSError:
+        return False
+
+
 class _DashboardHandlerSkillOps:
     """会議アシスタントスキルが叩くエンドポイント（ミックスイン）"""
 
     def _skill_query(self) -> dict[str, list[str]]:
-        return parse_qs(urlparse(self.path).query)
+        # curl は URL の非 ASCII（日本語の会議名）を符号化せずに送り、http.server はそれを latin-1 として読む。
+        # UTF-8 に読み直さないと meeting=英語練習 が化けて、どの会議にも当たらない
+        path = self.path
+        try:
+            path = path.encode("latin-1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+        return parse_qs(urlparse(path).query)
 
     def _skill_guard(self) -> bool:
         """localhost 限定。通らなければ応答済みにして False を返す"""
@@ -128,7 +165,10 @@ class _DashboardHandlerSkillOps:
     # --- 定例の過去回 ---
 
     def _serve_meeting_history(self) -> None:
-        """GET /api/meeting-history?meeting=<名前>&count=N — 同じ会議の過去回。
+        """GET /api/meeting-history?meeting=<名前>&count=N[&tail=M] — 同じ会議の過去回。
+
+        tail（0〜50、既定 0）を付けると、各回に transcript の末尾 M 行を "tail" で足す。curl しか使えない
+        clerk-practice が前回のまとめを読むため。
 
         照合は会議名の正規化一致。設定の `meetings[].pattern` は「この種類の会議を
         どう扱うか」を決めるもので会議の同一性ではない（実際 Sprint_MTG と
@@ -138,10 +178,8 @@ class _DashboardHandlerSkillOps:
             return
         q = self._skill_query()
         meeting = (q.get("meeting") or [""])[0]
-        try:
-            count = max(0, min(20, int((q.get("count") or ["3"])[0])))
-        except ValueError:
-            count = 3
+        count = _query_int(q, "count", 3, 0, 20)
+        tail = _query_int(q, "tail", 0, 0, _HISTORY_TAIL_MAX)
         if not meeting or count == 0:
             self._send_json({"status": "ok", "meetings": []})
             return
@@ -166,14 +204,17 @@ class _DashboardHandlerSkillOps:
             def _p(fname: str) -> str:
                 full = os.path.join(out_dir, fname)
                 return full if os.path.isfile(full) else ""
-            out.append({
+            row: dict[str, object] = {
                 "datetime": tn.label,
                 "meeting": tn.meeting_name,
                 "transcript": _p(tn.filename),
                 "summary": _p(tn.summary_filename),
                 "advice": _p(tn.advice_filename),
                 "analysis": _p(tn.analysis_filename),
-            })
+            }
+            if tail:
+                row["tail"] = _tail_lines(str(row["transcript"]), tail)
+            out.append(row)
             if len(out) >= count:
                 break
         self._send_json({"status": "ok", "meetings": out})
@@ -241,6 +282,42 @@ class _DashboardHandlerSkillOps:
         previous = bool(getattr(self.recorder, f"mute_{source}"))
         self.recorder._execute_command(f"mute_{source}" if muted else f"unmute_{source}")
         self._send_json({"status": "ok", "source": source, "muted": muted, "previous": previous})
+
+    def _write_generated(self) -> None:
+        """POST /api/generated {kind: advice|analysis, mode: replace|append, text} — いまの書き込み先の生成物を書く
+
+        clerk-practice（talk の console）は curl しか使えないので、Advice / Analysis をここから書く。パスは受け取らない。
+        会議の外ではその日のファイルの advice / analysis に書く。ダッシュボードの表示は FileWatcher が更新する
+        """
+        data = read_local_json_body(self, "generated")
+        if data is None:
+            return
+        kind, mode, text = data.get("kind"), data.get("mode"), data.get("text")
+        if (kind not in _GENERATED_KINDS or mode not in _GENERATED_MODES
+                or not isinstance(text, str) or len(text) > _MAX_GENERATED_CHARS):
+            self._send_json({"status": "error", "message": "kind must be advice or analysis, mode replace or append, "
+                                                           "and text a string up to 20000 characters"})
+            return
+        transcript = self.recorder.output_path
+        tn = TranscriptName.parse(os.path.basename(transcript))
+        if tn is None:
+            self._send_json({"status": "error", "message": "the current output is not a transcript file"})
+            return
+        # FileWatcher と同じく transcript の隣に書く（明示の --output でも表示が追従する）
+        path = os.path.join(os.path.dirname(transcript),
+                            tn.advice_filename if kind == "advice" else tn.analysis_filename)
+        try:
+            if mode == "append":
+                sep = "\n" if _lacks_final_newline(path) else ""
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(sep + text)
+            else:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(text)
+        except OSError as e:
+            self._send_json({"status": "error", "message": str(e)})
+            return
+        self._send_json({"status": "ok", "kind": kind, "mode": mode, "file": path})
 
     def _serve_skill_status(self) -> None:
         """GET /api/skill-status — 記録済みの配布先ごとに状態を返す"""
