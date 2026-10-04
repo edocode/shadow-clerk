@@ -77,6 +77,7 @@ class _Engine:
         self.ctx = None
         self.lines: list[str] = []
         self.cuts: list[str] = []
+        self.held: list[tuple[str, list[str]]] = []
         self.pending_cut: str | None = None
         self.stopped = False
 
@@ -94,6 +95,9 @@ class _Engine:
     def on_interrupt(self, cut: str) -> None:
         self.cuts.append(cut)
         self.pending_cut = cut
+
+    def on_held(self, text: str, heard: list[str]) -> None:
+        self.held.append((text, heard))
 
     def consume_interrupt(self) -> str | None:
         cut, self.pending_cut = self.pending_cut, None
@@ -342,6 +346,37 @@ def test_wait_for_floor_with_route() -> None:
     check("talk mode を終えたら routed でない", not d.routed)
 
 
+def test_held_when_others_spoke() -> None:
+    route, sink = _Route(), _Sink()
+    d, written, made = _driver(route_factory=lambda: route, sink_factory=lambda: sink, talk_floor_wait_sec=5)
+    d.start("x", None, None, "Chromium")
+    try:
+        other = TranscriptLine("2026-10-03 10:00:01", Speaker.OTHER, "その件はもう決まりました")
+        d.on_interim("monitor")
+        result: dict = {}
+        t = threading.Thread(target=lambda: result.update(d.api_say("来週にしましょう。")))
+        t.start()
+        time.sleep(0.2)
+        d.on_other_line(other)
+        d.clear_interim("monitor")
+        t.join(2)
+        check("待つ間に発言が届いたら話さずに返す", result == {"status": "held", "heard": [
+            "[2026-10-03 10:00:01] [相手] その件はもう決まりました"]} and written == [], repr((result, written)))
+        check("もう一度呼べば話す", d.api_say("了解です。") == {"status": "ok"}
+              and [tl.text for tl in written] == ["了解です。"], repr(written))
+        d.on_interim("monitor")
+        threading.Timer(0.2, lambda: (d.on_other_line(other), d.clear_interim("monitor"))).start()
+        made["engine"].ctx.say("古い話題です。")
+        check("engine の発話が待たされたら engine に伝える", made["engine"].held == [
+            ("古い話題です。", ["[2026-10-03 10:00:01] [相手] その件はもう決まりました"])], repr(made["engine"].held))
+        d.on_interim("monitor")
+        threading.Timer(0.2, lambda: d.clear_interim("monitor")).start()
+        check("待っても発言が届かなければ話す", d.api_say("どうぞ。") == {"status": "ok"}
+              and written[-1].text == "どうぞ。")
+    finally:
+        d.stop()
+
+
 def test_floor_wait_limit_and_stop() -> None:
     route, sink = _Route(), _Sink()
     d, written, _m = _driver(route_factory=lambda: route, sink_factory=lambda: sink, talk_floor_wait_sec=0.3)
@@ -510,11 +545,11 @@ def test_self_lines_and_stop_words() -> None:
 
 def test_api_say() -> None:
     d, written, made = _driver()
-    check("talk mode 外でも話せる", d.api_say("テスト") is None and written[-1].text == "テスト")
+    check("talk mode 外でも話せる", d.api_say("テスト") == {"status": "ok"} and written[-1].text == "テスト")
     d.start("x", None)
     made["engine"].pending_cut = "途中の文。"
-    check("制止の直後は話さずに止めた文を返す", d.api_say("続き") == "途中の文。" and written[-1].text == "テスト")
-    check("2回目からは話す", d.api_say("どうぞ") is None and written[-1].text == "どうぞ")
+    check("制止の直後は話さずに止めた文を返す", d.api_say("続き") == {"status": "interrupted", "cut": "途中の文。"} and written[-1].text == "テスト")
+    check("2回目からは話す", d.api_say("どうぞ") == {"status": "ok"} and written[-1].text == "どうぞ")
 
 
 def test_filler() -> None:
@@ -631,5 +666,6 @@ if __name__ == "__main__":
     test_no_route_keeps_suppressing_monitor()
     test_wait_for_floor_with_route()
     test_floor_wait_limit_and_stop()
+    test_held_when_others_spoke()
     test_end_after_speech()
     sys.exit(0 if all(results) else 1)

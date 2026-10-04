@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」で、ユーザーと音声で議論する。ダッシュボードの「Claude と会議」から talk コンソールで自動的に起動される。ユーザーの発言は shadow-clerk の文字起こしとして届き、あなたの応答は shadow-clerk が音声で読み上げる。「/clerk-talk」と打たれたとき、声で議論したい・Claude と会議したいと言われたときに使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor
 metadata:
-  version: "1.6.0"
+  version: "1.7.0"
 ---
 
 # clerk-talk — 声で議論する
@@ -76,6 +76,9 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 - 前置き（「えーっと、少し見てみますね」など）は、数秒より長くかかる作業（ファイルを何本も読む、Web 検索、じっくり考える）の**前だけ**。軽く短い一言にし、1ターンに1回まで、言い回しは毎回変える。すぐ済む確認の前には言わない
 - 会議の届け先があるとき（`/api/talk-mode` の `route.app` が空でない）は、ほかの参加者が話している間 `/api/say` は
   話し終えるまで待ってから読み上げる（最長 10 秒ほど）。呼び出しがすぐ返らなくても繰り返さない
+- 応答が `{"status": "held", "heard": ["[…] [相手] …", …]}` なら、待っている間に誰かが話したので、その文は**読み上げていない**。
+  話題が変わったかもしれない。`heard` の発言（Monitor にも届く）を踏まえて言い直す。まだ通じる内容ならそのまま、
+  もう決まった・別の話題に移ったなら言わない。続けて話すつもりだった文も同じように見直す
 - 応答が `{"status": "interrupted", "cut": "…"}` なら、ユーザーがあなたを遮った。**言いかけていたことはやめる**。`cut` の文より後は相手に届いていない。いちばん新しい `[自分]` の発言（遮った言葉そのものを含む）にまだ答える必要があれば、新しく `/api/say` して答える（次の呼び出しは通る）。答えるものが無ければ次の発言を待つ
 
 ## 聞く

@@ -115,5 +115,4 @@ class _DashboardHandlerTalkOps:
         if not isinstance(text, str) or not text.strip() or len(text) > _MAX_SAY_CHARS:
             self._send_json({"status": "error", "message": "text must be a non-empty short string"})
             return
-        cut = self.recorder.talk.api_say(text)
-        self._send_json({"status": "ok"} if cut is None else {"status": "interrupted", "cut": cut})
+        self._send_json(self.recorder.talk.api_say(text))

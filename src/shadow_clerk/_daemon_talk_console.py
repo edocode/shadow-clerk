@@ -82,6 +82,9 @@ class ConsoleEngine:
     def on_self_line(self, text: str) -> None:
         pass  # skill が /api/watch で読む
 
+    def on_held(self, text: str, heard: list[str]) -> None:
+        pass  # /api/say の応答で skill に返す
+
     def on_interrupt(self, cut: str) -> None:
         with self._lock:
             self._cut = cut

@@ -538,7 +538,9 @@ Claude が話している間は、monitor の中間文字起こし（途中表�
 
 会議アプリを選んでいる間は、Claude はほかの人の発言にかぶせないよう待ちます。monitor の中間文字起こしに文字が
 出ている間は誰かが話しているとみなし、新しい発言はその人が話し終えるまで（最長 `talk_floor_wait_sec`）待ってから
-読み上げます。確定した transcript の行を待つより早く分かります。このため `interim_transcription` が無効でも
+読み上げます。確定した transcript の行を待つより早く分かります。待つ間に誰かの発言が文字起こしされたら、話題が
+変わったかもしれないので読み上げません。`/api/say` は `{"status": "held", "heard": [発言の行…]}` を返し、Claude が
+言い直すかを考え直します（headless engine では、そのターンの残りを捨て、注記つきで発言を claude に送ります）。このため `interim_transcription` が無効でも
 中間文字起こしを動かします（そのときダッシュボードには出しません）。`GET /api/speaking` がそのフラグを返します
 （`{"speaking": true, "sources": ["monitor"]}`）。talk の skill も、自分から論点を切り出す前にこれを見ます。
 

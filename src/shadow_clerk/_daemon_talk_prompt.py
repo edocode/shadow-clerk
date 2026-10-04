@@ -28,6 +28,11 @@ _FILLERS = {Language.JA: ("うーん。", "えーっと。", "そうですね。
 INTERRUPT_NOTE = ("[The user interrupted you. You were cut off while saying: \"{cut}\". "
                   "Nothing after that was heard.]")
 
+# 相手が話し終えるのを待つ間に発言が届き、話さなかったときに claude に伝える
+HELD_NOTE = ("[Others spoke before you could say: \"{text}\". It was not spoken, and the rest of that reply was "
+             "dropped. What they said:\n{heard}\nReply to the conversation as it is now; repeat your point only "
+             "if it still fits.]")
+
 
 def filler_phrase(lang: Language, previous: str = "") -> str:
     """つなぎを1つ選ぶ。直前と同じものは選ばない"""

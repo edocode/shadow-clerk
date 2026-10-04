@@ -174,6 +174,8 @@ class _RecorderTranscribeMixin:
         self._append_transcript_line(tl)
         if file_speaker == Speaker.SELF:
             self.talk.on_self_line(tl)
+        else:
+            self.talk.on_other_line(tl)
         display_line = f"[{timestamp}] [{display_speaker}] {text}"
         print(f"  {display_line}")
         self._clear_interim(source)

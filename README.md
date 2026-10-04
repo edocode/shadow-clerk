@@ -541,7 +541,10 @@ Interim (live) monitor text is not shown while Claude is speaking.
 
 With a meeting app chosen, Claude also waits for the floor: while the interim (live) transcription of the monitor
 has text, someone else is talking, so a new reply waits until they finish (at most `talk_floor_wait_sec`) before it is
-spoken. This is much earlier than waiting for the finished transcript line. Interim transcription runs for this even
+spoken. This is much earlier than waiting for the finished transcript line. If anyone's line is transcribed while it
+waits, the reply is not spoken, because the topic may have moved on: `/api/say` answers
+`{"status": "held", "heard": [...lines...]}` and Claude rethinks it (the headless engine drops the rest of that turn and
+gets the lines with a note). Interim transcription runs for this even
 when `interim_transcription` is off (it is then not shown on the dashboard). `GET /api/speaking` returns the flag
 (`{"speaking": true, "sources": ["monitor"]}`); the talk skill also uses it before raising a point on its own.
 

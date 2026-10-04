@@ -49,11 +49,11 @@ class _Talk:
     def stop(self) -> None:
         self.calls.append(("stop",))
 
-    def api_say(self, text: str) -> str | None:
+    def api_say(self, text: str) -> dict:
         if text == "遮られた":
-            return "途中の文。"
+            return {"status": "interrupted", "cut": "途中の文。"}
         self.calls.append(("say", text))
-        return None
+        return {"status": "ok"}
 
     def end_after_speech(self) -> bool:
         self.calls.append(("end",))

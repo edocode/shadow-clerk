@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 from shadow_clerk._daemon_talk_claude import ClaudeTalkProcess, build_claude_argv
 from shadow_clerk._daemon_talk_engine import TalkContext, TalkStartError
-from shadow_clerk._daemon_talk_prompt import INTERRUPT_NOTE, KICKOFF_MESSAGE, build_system_prompt
+from shadow_clerk._daemon_talk_prompt import HELD_NOTE, INTERRUPT_NOTE, KICKOFF_MESSAGE, build_system_prompt
 from shadow_clerk.i18n import t
 
 logger = logging.getLogger("shadow-clerk")
@@ -56,6 +56,18 @@ class HeadlessEngine:
                 self._note = INTERRUPT_NOTE.format(cut=cut)
             if self._busy:
                 self._interrupted = True
+
+    def on_held(self, text: str, heard: list[str]) -> None:
+        """話さなかった文と、その間の発言を伝える。生成中のターンの残りは古い話題への返事なので捨てる"""
+        note = HELD_NOTE.format(text=text, heard="\n".join(heard))
+        with self._lock:
+            if self._proc is None:
+                return
+            if self._busy:
+                self._interrupted = True
+                self._pending.append(note)
+            else:
+                self._send_locked(note)
 
     def on_self_line(self, text: str) -> None:
         with self._lock:

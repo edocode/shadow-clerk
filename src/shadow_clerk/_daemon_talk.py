@@ -11,6 +11,7 @@ import os
 import re
 import threading
 import time
+from collections import deque
 from typing import Any, Callable
 
 from shadow_clerk._daemon_config import load_config
@@ -45,6 +46,10 @@ def stop_pattern(words: object) -> re.Pattern[str] | None:
     return re.compile("|".join(alts), re.IGNORECASE) if alts else None
 
 
+def _line_texts(lines: list[TranscriptLine]) -> list[str]:
+    return [tl.format().rstrip("\n") for tl in lines]
+
+
 def _float_setting(config: dict, key: str, default: float, lo: float, hi: float) -> float:
     try:
         value = float(config.get(key, default))
@@ -71,6 +76,7 @@ FILLER_COOLDOWN_SEC = 30.0
 # 中間文字起こしがこの秒数更新されなければ話し終えたとみなす（確定行が捨てられて消されなかったときの保険）
 SPEAKING_STALE_SEC = 4.0
 _FLOOR_POLL_SEC = 0.1
+_HEARD_LINES_MAX = 20  # 待つ間に届いた発言として返す最大行数
 
 class TalkDriver:
     def __init__(self, write_line: Callable[[TranscriptLine], None], *,
@@ -112,6 +118,8 @@ class TalkDriver:
         self._filler_last = ""
         self._floor_wait_sec = 0.0
         self._heard: dict[str, float] = {}  # source → 中間文字起こしに文字が出た最後の時刻（monotonic）
+        self._lines_seen = 0  # talk mode 中に届いた [自分]・[相手] 行の数
+        self._recent_lines: deque[TranscriptLine] = deque(maxlen=_HEARD_LINES_MAX)
 
     def start(self, topic: str, persona: str | None, workdir: str | None = None,
               route: str | None = None) -> None:
@@ -234,10 +242,21 @@ class TalkDriver:
             self._active and source == "monitor" and self._route is not None
             and self._echo.overlaps(seg_start, seg_end))
 
+    def on_other_line(self, line: TranscriptLine) -> None:
+        """[相手] 行が書かれた。発言を待たせている間に届いたかを数えるだけ"""
+        with self._lock:
+            if self._active:
+                self._note_line_locked(line)
+
+    def _note_line_locked(self, line: TranscriptLine) -> None:
+        self._lines_seen += 1
+        self._recent_lines.append(line)
+
     def on_self_line(self, line: TranscriptLine) -> None:
         with self._lock:
             if not self._active:
                 return
+            self._note_line_locked(line)
             engine = self._engine
             if self._stop_re is not None and self._stop_re.search(line.text):
                 busy = self._player.is_busy()
@@ -250,23 +269,27 @@ class TalkDriver:
                 self._arm_filler_locked()
         engine.on_self_line(line.text)
 
-    def api_say(self, text: str) -> str | None:
-        """/api/say。制止の直後（console engine）なら話さずに止めた文を返す。話したら None"""
+    def api_say(self, text: str) -> dict:
+        """/api/say の応答。制止の直後（console engine）なら話さずに止めた文を、
+        相手が話し終えるのを待つ間に発言が届いたら話さずにその発言を返す"""
         with self._lock:
             if self._active:
                 cut = self._engine.consume_interrupt()
                 if cut is not None:
-                    return cut
+                    return {"status": "interrupted", "cut": cut}
                 self._said += 1
-        self.say(text)
-        return None
+        heard = self.say(text)
+        return {"status": "held", "heard": _line_texts(heard)} if heard else {"status": "ok"}
 
     def _engine_say(self, text: str) -> None:
         with self._lock:
             if not self._active:
                 return
             self._said += 1
-        self.say(text)
+            engine = self._engine
+        heard = self.say(text)
+        if heard:
+            engine.on_held(text, _line_texts(heard))
 
     def end_after_speech(self, timeout: float = 30.0) -> bool:
         """読み上げ中の文を言い終えてから talk mode を終える。待たずに返る。talk mode 外なら False
@@ -310,26 +333,41 @@ class TalkDriver:
 
     # --- 出力 ---
 
-    def say(self, text: str) -> None:
-        """[Claude] 行を書いて読み上げる。talk mode でなければ一時的な再生器を使う"""
+    def say(self, text: str) -> list[TranscriptLine]:
+        """[Claude] 行を書いて読み上げる。talk mode でなければ一時的な再生器を使う
+
+        届け先ありで相手が話し終えるのを待つ間に発言が届いたら、話題が変わったかもしれないので話さずにその発言を返す
+        """
         text = one_line(text)
-        if not text or (self.routed and not self._wait_for_floor()):
-            return
+        if not text:
+            return []
+        if self.routed:
+            heard = self._wait_for_floor()
+            if heard is None or heard:
+                return heard or []
         self._write_line(TranscriptLine(self._clock(), Speaker.CLAUDE, text))
         with self._lock:
             player = self._player
         if player is not None:
             player.speak(text)
-            return
+            return []
         config = self._config_loader()
         self._speak_once(self._backend_factory(config, None), config, text)
+        return []
 
-    def _wait_for_floor(self) -> bool:
-        """会議のほかの参加者が話し終えるまで待つ（最長 talk_floor_wait_sec）。待つ間に talk mode が終われば False"""
+    def _wait_for_floor(self) -> list[TranscriptLine] | None:
+        """会議のほかの参加者が話し終えるまで待つ（最長 talk_floor_wait_sec）。待つ間に届いた発言を返す。
+        待つ間に talk mode が終われば None"""
+        with self._lock:
+            seen = self._lines_seen
         deadline = time.monotonic() + self._floor_wait_sec
         while self._active and self.speaking() and time.monotonic() < deadline:
             time.sleep(_FLOOR_POLL_SEC)
-        return self._active
+        with self._lock:
+            if not self._active:
+                return None
+            n = self._lines_seen - seen
+            return list(self._recent_lines)[-n:] if n else []
 
     def preview(self, voice: TalkVoice, text: str) -> None:
         """その声で1回だけ読み上げる（声の設定の試聴）。transcript には書かない。届かなければ TtsError"""
