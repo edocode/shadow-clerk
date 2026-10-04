@@ -55,5 +55,16 @@ function initSpeech(src){
   speechReady();
   setInterval(speechReady,30000);
 }
+/* --- AI分析 の 🔊 の例文: クリックで、いま聞き取っている言語の発音で読む（auto なら言語を指定しない） --- */
+function sayLang(){const s=document.getElementById('langSel');const v=s?s.value:'';return v&&v!=='auto'?v:'';}
+function decorateSay(root){
+  if(!root||!speechOk())return;
+  root.querySelectorAll('p,li,blockquote').forEach(el=>{
+    const text=String(el.textContent||'').trim();
+    if(!text.startsWith('🔊'))return;
+    el.classList.add('say');el.title=I18N['dash.say_title']||'';
+    el.onclick=e=>{e.stopPropagation();speakText(text.replace(/^🔊\s*/u,''),sayLang());};
+  });
+}
 initSpeech(es);
 """
