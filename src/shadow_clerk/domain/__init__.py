@@ -14,6 +14,7 @@ from shadow_clerk.domain.talk_voice import TalkVoice
 from shadow_clerk.domain.console_role import ConsoleRole
 from shadow_clerk.domain.talk_route import RouteTarget
 from shadow_clerk.domain.talk_echo import EchoFilter, SpokenSpan
+from shadow_clerk.domain.talk_speech import SpeechTab, estimate_speech_sec
 
 __all__ = [
     "Speaker",
@@ -32,4 +33,6 @@ __all__ = [
     "RouteTarget",
     "EchoFilter",
     "SpokenSpan",
+    "SpeechTab",
+    "estimate_speech_sec",
 ]
