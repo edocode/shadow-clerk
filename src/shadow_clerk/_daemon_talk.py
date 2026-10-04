@@ -141,8 +141,7 @@ class TalkDriver:
             else:
                 player = self._player_factory(backend, config, self._report_error)
                 player.set_remote(self._speech)  # 練習言語の文はダッシュボードのブラウザで読む（届け先ありでは使わない）
-            echo = EchoFilter(tail_sec=_float_setting(config, "talk_echo_tail_sec", 1.0, 0.0, 30.0),
-                              similarity=_float_setting(config, "talk_echo_similarity", 0.6, 0.0, 1.0))
+            echo = EchoFilter(tail_sec=_float_setting(config, "talk_echo_tail_sec", 0.3, 0.0, 30.0))
             player.set_on_played(lambda text, s, e: echo.record(SpokenSpan(s, e, text)))
             name = "headless" if config.get("talk_engine") == "headless" else "console"
             try:
@@ -206,10 +205,10 @@ class TalkDriver:
         return self._active and source == "monitor" and self._route is None
 
     def is_echo(self, source: str, seg_start: float, seg_end: float, text: str) -> bool:
-        """届け先ありの talk mode で、monitor の1行が Claude 自身の読み上げの文字起こしか"""
+        """届け先ありの talk mode で、monitor の区間が Claude の読み上げ中（終了後 tail まで）か。text は使わない（時間だけで判定）"""
         if not (self._active and source == "monitor" and self._route is not None):
             return False
-        return self._echo.is_echo(seg_start, seg_end, text)
+        return self._echo.overlaps(seg_start, seg_end)
 
     def hides_interim(self, source: str, seg_start: float, seg_end: float) -> bool:
         """中間文字起こしを出さないか。Claude の声が混ざる monitor の区間（確定行は is_echo で別に判定する）"""

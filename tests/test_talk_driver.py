@@ -302,14 +302,16 @@ def test_route_connect_failure() -> None:
 def test_echo_with_route() -> None:
     route, sink = _Route(), _Sink()
     d, _w, made = _driver(route_factory=lambda: route, sink_factory=lambda: sink,
-                          talk_echo_tail_sec=3.0, talk_echo_similarity=0.6)
+                          talk_echo_tail_sec=3.0)
     d.start("x", None, None, "Chromium")
     try:
         check("届け先ありなら monitor を文字起こし前に捨てない", not d.is_suppressed("monitor"))
         now = time.time()
         d._player._on_played("それはいい考えですね。", now - 2, now - 1)  # 経路ありは本物の TtsPlayer
-        check("読み上げと重なり似ていれば Claude の声", d.is_echo("monitor", now - 2, now, "それはいい考えですね"))
-        check("文が違えば相手の発言", not d.is_echo("monitor", now - 2, now, "来週の金曜でどうでしょう"))
+        check("読み上げと重なれば Claude の声", d.is_echo("monitor", now - 2, now, "それはいい考えですね"))
+        check("重なれば文が違っても捨てる", d.is_echo("monitor", now - 2, now, "来週の金曜でどうでしょう"))
+        check("短い行も重なれば捨てる", d.is_echo("monitor", now - 2, now, "了解です"))
+        check("読み上げと重ならなければ残す", not d.is_echo("monitor", now + 10, now + 12, "それはいい考えですね"))
         check("mic の行は判定しない", not d.is_echo("mic", now - 2, now, "それはいい考えですね"))
         check("読み上げ中は monitor の中間文字起こしを出さない", d.hides_interim("monitor", now - 2, now))
         check("読み上げと重ならなければ中間文字起こしを出す", not d.hides_interim("monitor", now + 5, now + 6))

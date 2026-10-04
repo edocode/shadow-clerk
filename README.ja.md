@@ -531,9 +531,9 @@ shadow-clerk は名前付きの PipeWire ストリームから読み上げ、`pw
 `talk_output_devices` は使われません。
 
 会議アプリを選んでいる間は、相手の発言も `[相手]` として文字起こしされるので、Claude は相手の話も追えます。
-Claude の声は手元のヘッドセットにも鳴るため monitor にも入りますが、読み上げと時間が重なり、読み上げた文と
-似ている行は捨てます。非常に短い行（空白・句読点を除いて6文字未満）は常に相手の発言として残します。
-Claude の読み上げにかぶせて話した部分は、相手の言葉ごと捨てられることがあります。
+Claude の声は手元のヘッドセットにも鳴るため monitor にも入りますが、読み上げと時間が重なる行
+（読み上げ終了後 `talk_echo_tail_sec` までに始まる行を含む）は、内容に関わらず捨てます。短い返事や相槌は文の
+内容では Claude の声と見分けられないためです。Claude の読み上げにかぶせて話した部分は、相手の言葉ごと捨てられます。
 会議アプリを選んでいないときは、従来どおり talk mode 中の monitor は止めたままです。
 Claude が話している間は、monitor の中間文字起こし（途中表示）は出しません。
 
@@ -579,8 +579,7 @@ Claude は自分の判断で聞き取りをやめません。会話が終わり�
 | `talk_output_devices` | `[]` | 再生先のデバイス名（空ならデフォルト出力）。届ける先を選んだときは使われず、pw-cat がデフォルト出力に鳴らす |
 | `talk_engine` | `console` | `console`（AI コンソール + clerk-talk スキル）または `headless`（`claude -p`） |
 | `talk_route_app` | `""` | 最後に選んだ「Claude の声を届ける先」のアプリ（開始モーダルの初期値） |
-| `talk_echo_tail_sec` | `1.0` | Claude が話し終えてからこの秒数までに始まった、一致する monitor の行を Claude 自身の声とみなす。それより後に始まった返事は、Claude の言葉を繰り返していても残す |
-| `talk_echo_similarity` | `0.6` | monitor の行が Claude の読み上げとこの割合（0〜1）以上一致したら捨てる |
+| `talk_echo_tail_sec` | `0.3` | Claude が話し終えてからこの秒数までに始まった monitor の行を Claude 自身の声とみなす（出力と録音の遅れ分）。それより後に始まった行は残す。Claude の直後に無音を挟まず相手が話し始めると、VAD が1区間にまとめるためその区間は捨てられる |
 | `talk_workdir` | `""` | 会話役の作業ディレクトリ（空なら `ai_assistant_workdir`、それも空ならホーム）。開始モーダルで毎回上書きできる |
 | `talk_model` | `""` | 会話役のモデル（空なら claude の既定）。両エンジンに効き、開始ダイアログで選べる |
 | `talk_allowed_tools` | `WebSearch,WebFetch,Read,Grep,Glob` | 会話中に使えるツール（`""` でなし）（headless のみ） |
