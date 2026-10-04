@@ -225,7 +225,7 @@ def test_practice_skill() -> None:
     """語学の練習の skill が同梱・配布され、talk と同じ許可だけで動くこと"""
     practice = skill_install.PRACTICE_SKILL_NAME
     check("clerk-practice を同梱する", practice in skill_install.BUNDLED_SKILLS, repr(skill_install.BUNDLED_SKILLS))
-    check("clerk-practice の版が 1.0.0", skill_install.read_skill_version(skill_install.bundled_skill_dir(practice)) == "1.0.0")
+    check("clerk-practice の版が 1.1.0", skill_install.read_skill_version(skill_install.bundled_skill_dir(practice)) == "1.1.0")
     with tempfile.TemporaryDirectory() as tmp:
         skill_install.install(tmp)
         check("clerk-practice も配られた", (pathlib.Path(tmp) / practice / "SKILL.md").is_file())
@@ -236,10 +236,15 @@ def test_practice_skill() -> None:
     _check_curl_forms(practice)
     for needle in ('/api/meeting"', '"analyze":false', '/api/language"', '/api/mute"', '`previous`',
                    '/api/meeting-history?meeting=', "tail=15", '/api/generated"', '"kind":"advice","mode":"replace"',
-                   '"kind":"analysis","mode":"append"', '"lang":"en"', "🔊 ", "今日の練習のまとめ: ", '/api/talk-end"'):
+                   '"kind":"analysis","mode":"append"', '"lang":"en"', "🔊 ", "今日の練習のまとめ: ", '/api/talk-end"',
+                   '"display":"ライト（右）"'):
         check(f"clerk-practice が {needle} を使う", needle in body)
     check("clerk-talk が clerk-practice に切り替える", "/clerk-practice" in talk_body)
     check("clerk-talk が /api/say の lang を知っている", '"lang":"en"' in talk_body)
+    check("clerk-talk が /api/say の display を知っている", "`display`" in talk_body)
+    check("clerk-practice が display を説明している", "`display`" in body)
+    check("聞き取る言語の切り替えは練習が始まってから（提案までは母語のまま）",
+          0 <= body.index("## 3. 練習する") < body.index('/api/language"') and "では、始めましょう" in body)
 
 
 def test_talk_skill_reads_glossary_and_misheard() -> None:
@@ -247,8 +252,8 @@ def test_talk_skill_reads_glossary_and_misheard() -> None:
     text = (skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME) / "SKILL.md").read_text(encoding="utf-8")
     for needle in ('/api/glossary"', '/api/misheard"', "POST"):
         check(f"talk skill が {needle} を使う", needle in text)
-    check("talk skill の版が 1.7.0", skill_install.read_skill_version(
-        skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME)) == "1.7.0")
+    check("talk skill の版が 1.7.1", skill_install.read_skill_version(
+        skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME)) == "1.7.1")
     quirks = skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME) / "../clerk-meeting-helper/references/transcript-quirks.md"
     check("参照している崩れ方の説明が同梱されている", "../clerk-meeting-helper/references/transcript-quirks.md" in text
           and quirks.resolve().is_file(), str(quirks))

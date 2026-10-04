@@ -49,10 +49,12 @@ class _Talk:
     def stop(self) -> None:
         self.calls.append(("stop",))
 
-    def api_say(self, text: str, lang: Language | None = None) -> dict:
+    def api_say(self, text: str, lang: Language | None = None, display: str | None = None) -> dict:
         if text == "遮られた":
             return {"status": "interrupted", "cut": "途中の文。"}
         self.calls.append(("say", text) if lang is None else ("say", text, lang))
+        if display is not None:
+            self.calls[-1] += (display,)
         return {"status": "ok"}
 
     def speech_ready(self, tab: SpeechTab) -> None:
@@ -225,6 +227,17 @@ def test_say_lang() -> None:
         check(f"既知でない lang {lang!r} は拒否", h.sent.get("status") == "error" and h.talk.calls == [], repr(h.sent))
 
 
+def test_say_display() -> None:
+    h = _FakeHandler({"text": "right", "lang": "en", "display": "ライト（右）"})
+    h._say()
+    check("display を渡す", h.talk.calls == [("say", "right", Language.EN, "ライト（右）")]
+          and h.sent["status"] == "ok", repr(h.talk.calls))
+    for display in ("", "  ", 1, [], "x" * 5000):
+        h = _FakeHandler({"text": "right", "display": display})
+        h._say()
+        check(f"不正な display {display!r:.10} は拒否", h.sent.get("status") == "error" and h.talk.calls == [], repr(h.sent))
+
+
 def test_speech_ready_done() -> None:
     h = _FakeHandler({"tab": "t1abc", "langs": ["en", "ja", "sw"]})
     h._talk_speech_ready()
@@ -259,5 +272,6 @@ if __name__ == "__main__":
     test_talk_end()
     test_route()
     test_say_lang()
+    test_say_display()
     test_speech_ready_done()
     sys.exit(0 if all(results) else 1)

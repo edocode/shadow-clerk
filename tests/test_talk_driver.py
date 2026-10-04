@@ -555,6 +555,19 @@ def test_api_say() -> None:
     check("2回目からは話す", d.api_say("どうぞ") == {"status": "ok"} and written[-1].text == "どうぞ")
 
 
+def test_api_say_display() -> None:
+    d, written, made = _driver()
+    d.api_say("right", None, "ライト（右）")
+    check("talk mode 外: transcript は display、読むのは text",
+          written[-1].text == "ライト（右）" and made["player"].spoken[-1:] == ["right"], repr(made["player"].spoken))
+    d.start("x", None)
+    d.api_say("light", None, "ライト（光）")
+    check("talk mode 中: transcript は display、読むのは text",
+          written[-1].text == "ライト（光）" and made["player"].spoken[-1:] == ["light"], repr(made["player"].spoken))
+    made["engine"].pending_cut = "途中の文。"
+    check("制止の cut は読む文のまま", d.api_say("x", None, "表示") == {"status": "interrupted", "cut": "途中の文。"})
+
+
 def test_filler() -> None:
     from shadow_clerk._daemon_talk_prompt import _FILLERS
     d, written, made = _driver(talk_filler_sec=0.05)
@@ -653,6 +666,7 @@ if __name__ == "__main__":
     test_engine_say_and_end()
     test_self_lines_and_stop_words()
     test_api_say()
+    test_api_say_display()
     test_filler()
     test_filler_once_per_wait_and_cooldown()
     test_workdir()

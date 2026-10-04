@@ -274,7 +274,7 @@ class TalkDriver:
                 self._arm_filler_locked()
         engine.on_self_line(line.text)
 
-    def api_say(self, text: str, lang: Language | None = None) -> dict:
+    def api_say(self, text: str, lang: Language | None = None, display: str | None = None) -> dict:
         """/api/say の応答。制止の直後（console engine）なら話さずに止めた文を、
         相手が話し終えるのを待つ間に発言が届いたら話さずにその発言を返す"""
         with self._lock:
@@ -283,7 +283,7 @@ class TalkDriver:
                 if cut is not None:
                     return {"status": "interrupted", "cut": cut}
                 self._said += 1
-        heard = self.say(text, lang)
+        heard = self.say(text, lang, display)
         return {"status": "held", "heard": _line_texts(heard)} if heard else {"status": "ok"}
 
     def _engine_say(self, text: str) -> None:
@@ -338,8 +338,10 @@ class TalkDriver:
 
     # --- 出力 ---
 
-    def say(self, text: str, lang: Language | None = None) -> list[TranscriptLine]:
+    def say(self, text: str, lang: Language | None = None, display: str | None = None) -> list[TranscriptLine]:
         """[Claude] 行を書いて読み上げる。talk mode でなければ一時的な再生器を使う
+
+        display があれば transcript の行にはそれを書く（読むのは text。答えの綴りを見せない語学の練習用）
 
         lang が読み上げの言語（VOICEVOX）と違えば、その文はダッシュボードのブラウザで読む。届け先ありの talk mode
         （ブラウザの音は会議アプリに届かない）と talk mode の外（一時的な再生器）では lang を見ない
@@ -352,7 +354,7 @@ class TalkDriver:
             heard = self._wait_for_floor()
             if heard is None or heard:
                 return heard or []
-        self._write_line(TranscriptLine(self._clock(), Speaker.CLAUDE, text))
+        self._write_line(TranscriptLine(self._clock(), Speaker.CLAUDE, one_line(display or "") or text))
         with self._lock:
             player = self._player
             browser = lang if lang is not None and lang != self._lang and self._route is None else None
