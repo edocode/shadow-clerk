@@ -433,6 +433,42 @@ def test_send_after_ready() -> None:
     sess.stop()
 
 
+# 起動直後に少し出力し、しばらく黙ったまま入力を捨ててから入力欄を出す子。
+# Claude Code は警告を数行出したあと 1 秒近く黙り、それから入力欄を描く。
+# 黙っている間に届いた入力は TUI の入力欄が無いので消える
+_LATE_INPUT_CHILD = """
+import sys, termios, time
+fd = sys.stdin.fileno()
+attrs = termios.tcgetattr(fd)
+attrs[0] |= termios.ICRNL
+quiet = attrs[:]
+quiet[3] &= ~termios.ECHO
+termios.tcsetattr(fd, termios.TCSANOW, quiet)
+print("booting", flush=True)
+time.sleep(2.0)
+termios.tcflush(fd, termios.TCIFLUSH)
+termios.tcsetattr(fd, termios.TCSANOW, attrs)
+sys.stdout.write("ready> ")
+sys.stdout.flush()
+print("GOT:" + sys.stdin.readline().strip(), flush=True)
+time.sleep(30)
+"""
+
+
+def test_send_after_ready_retypes_dropped_text() -> None:
+    """静かな間を ready と誤判定して本文が捨てられても、打ち直して届くこと"""
+    import sys as _sys
+    sess = ConsoleSession()
+    sess.set_broadcaster(lambda ev, data: None)
+    sess.start([_sys.executable, "-c", _LATE_INPUT_CHILD], os.getcwd())
+    sess.send_after_ready("hello\r")
+    ok = wait_for(lambda: "GOT:hello" in grid_text(sess), 15.0)
+    check("黙っている間に捨てられた本文を打ち直して送信する", ok,
+          " | ".join(r.strip() for r in sess.screen.display if r.strip()))
+    check("本文を二重に打たない", "GOT:hellohello" not in grid_text(sess))
+    sess.stop()
+
+
 def test_emit_diff_does_not_fake_readiness() -> None:
     """_emit_diff 自身の副作用 (render_rows が screen.buffer[0] を実体化する)
     が ready 判定を誤って進めないことを確認する。
@@ -734,6 +770,7 @@ def main() -> int:
     test_snapshot_and_broadcast()
     test_cursor_up_overwrite()
     test_send_after_ready()
+    test_send_after_ready_retypes_dropped_text()
     test_emit_diff_does_not_fake_readiness()
     test_stop_start_no_duplicate_tick_thread()
     test_beyond_virtual_rows()

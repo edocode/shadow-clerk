@@ -19,6 +19,7 @@ from shadow_clerk._daemon_constants import (
     CONSOLE_BELOW_CURSOR_ROWS,
     CONSOLE_READY_QUIET_SEC, CONSOLE_READY_TIMEOUT_SEC, CONSOLE_SUBMIT_DELAY_SEC, CONSOLE_TICK_SEC,
     CONSOLE_SUBMIT_MAX_RETRIES, CONSOLE_SUBMIT_RETRY_SEC,
+    CONSOLE_TYPE_MAX_RETRIES, CONSOLE_TYPE_SCAN_ROWS, CONSOLE_TYPE_VERIFY_SEC,
     CONSOLE_COLS_FILE, CONSOLE_PTY_ROWS, DEFAULT_COLS, VIRTUAL_ROWS,
 )
 from shadow_clerk._transcript_name import TranscriptName
@@ -349,7 +350,7 @@ class ConsoleSession:
         一部として吸収する——文字は入るが Enter が効かない。
         """
         body = text[:-1] if text.endswith("\r") else text
-        self.write(body)
+        self._type_with_retry(body)
         if body is not text:
             time.sleep(CONSOLE_SUBMIT_DELAY_SEC)
             self._submit_with_retry()
@@ -358,6 +359,42 @@ class ConsoleSession:
         """行 y の生テキスト(スタイル無視)。呼び出し側でロック済み"""
         line = self.screen.buffer[y]
         return "".join(line[x].data for x in range(self.screen.columns))
+
+    def _type_with_retry(self, body: str) -> None:
+        """本文を打ち、画面に出なければ打ち直す。
+
+        ready 判定は「出力が止まった」ことしか見ないので、起動途中の静かな間
+        (Claude Code は警告を出してから入力欄を描くまで 1 秒近く黙る) を ready と
+        取り違えうる。そのとき打った本文は入力欄が無いので捨てられ、続く Enter は
+        空の入力欄に空振りする。本文の一部でも見えていれば入っている(折り返しや
+        貼り付けの畳み込みで全文は見えないことがある)ので打ち直さない——二重に入る
+        """
+        if not body.strip():
+            self.write(body)
+            return
+        for attempt in range(CONSOLE_TYPE_MAX_RETRIES + 1):
+            if attempt:
+                logger.warning("初期プロンプトが画面に現れないため打ち直します (%d/%d): %s",
+                               attempt, CONSOLE_TYPE_MAX_RETRIES, body)
+            self.write(body)
+            deadline = time.monotonic() + CONSOLE_TYPE_VERIFY_SEC
+            while time.monotonic() < deadline:
+                if self._body_visible(body):
+                    return
+                time.sleep(CONSOLE_TICK_SEC)
+        logger.warning("初期プロンプトを %d 回打ち直しても画面に現れませんでした: %s",
+                       CONSOLE_TYPE_MAX_RETRIES, body)
+
+    def _body_visible(self, body: str) -> bool:
+        """本文の先頭か末尾の断片、または貼り付けの畳み込み表示がカーソル付近にあるか"""
+        text = body.strip()
+        probes = {text[:8], text[-8:], "[Pasted text"} - {""}
+        with self._lock:
+            y = self.screen.cursor.y
+            rows = [self._row_text(r) for r in range(
+                max(0, y - CONSOLE_TYPE_SCAN_ROWS),
+                min(self.screen.lines, y + CONSOLE_BELOW_CURSOR_ROWS + 1))]
+        return any(p in row for p in probes for row in rows)
 
     def _submit_with_retry(self) -> None:
         """Enter を送り、カーソル行の見た目が変わるまで送り直す。
