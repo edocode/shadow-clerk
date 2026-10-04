@@ -232,6 +232,10 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._end_talk()
         elif path == "/api/language":
             self._set_language()
+        elif path == "/api/meeting":
+            self._meeting()
+        elif path == "/api/mute":
+            self._set_mute()
         elif path == "/api/say":
             self._say()
         elif path == "/api/talk-preview":

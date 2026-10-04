@@ -17,7 +17,7 @@ from urllib.parse import urlparse, parse_qs
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_constants import SESSION_FILE
 from shadow_clerk._daemon_dashboard_base import is_localhost_client, read_local_json_body
-from shadow_clerk._transcript_name import TranscriptName
+from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name
 from shadow_clerk.domain import Language
 from shadow_clerk.domain.meeting_config import MeetingConfig
 
@@ -28,6 +28,9 @@ logger = logging.getLogger("shadow-clerk")
 WATCH_INTERVAL_DEFAULT = 25
 WATCH_IDLE_DEFAULT = 600
 WATCH_INTERVAL_RANGE = (1, 300)
+
+_MAX_MEETING_NAME_CHARS = 100
+_MUTE_SOURCES = ("mic", "monitor")
 
 
 def _norm(name: str) -> str:
@@ -192,6 +195,52 @@ class _DashboardHandlerSkillOps:
             return
         self.recorder._execute_command("unset_language" if lang == "auto" else f"set_language {lang}")
         self._send_json({"status": "ok", "language": lang})
+
+    def _meeting(self) -> None:
+        """POST /api/meeting {action: start|end, name?, analyze?} — 会議を始める・終える（clerk-practice 用）
+
+        /api/command は任意のコマンドを通すので skill には使わせない。開始は会議中なら、終了は会議中でなければ
+        何もしない（会議の外で end_meeting を通すと、日付のファイルに終了の印が書かれる）
+        """
+        data = read_local_json_body(self, "meeting")
+        if data is None:
+            return
+        action, in_meeting = data.get("action"), os.path.exists(SESSION_FILE)
+        if action == "start":
+            raw, analyze = data.get("name"), data.get("analyze", True)
+            name = sanitize_meeting_name(raw) if isinstance(raw, str) and len(raw) <= _MAX_MEETING_NAME_CHARS else ""
+            if not name or not isinstance(analyze, bool):
+                self._send_json({"status": "error",
+                                 "message": "name must be a meeting name up to 100 characters and analyze a boolean"})
+                return
+            if not in_meeting:
+                self.recorder.start_meeting(name, analyze=analyze)
+        elif action == "end":
+            if in_meeting:
+                self.recorder._execute_command("end_meeting")
+        else:
+            self._send_json({"status": "error", "message": "action must be start or end"})
+            return
+        path = self.recorder.output_path
+        tn = TranscriptName.parse(os.path.basename(path))
+        self._send_json({"status": "ok", "meeting": (tn.meeting_name or "") if tn else "",
+                         "transcript": path, "in_meeting": os.path.exists(SESSION_FILE)})
+
+    def _set_mute(self) -> None:
+        """POST /api/mute {source: mic|monitor, muted} — ダッシュボードのミュートボタンと同じ状態を切り替える
+
+        previous（切り替え前）を返すので、skill は終わるときに元に戻せる
+        """
+        data = read_local_json_body(self, "mute")
+        if data is None:
+            return
+        source, muted = data.get("source"), data.get("muted")
+        if source not in _MUTE_SOURCES or not isinstance(muted, bool):
+            self._send_json({"status": "error", "message": "source must be mic or monitor and muted a boolean"})
+            return
+        previous = bool(getattr(self.recorder, f"mute_{source}"))
+        self.recorder._execute_command(f"mute_{source}" if muted else f"unmute_{source}")
+        self._send_json({"status": "ok", "source": source, "muted": muted, "previous": previous})
 
     def _serve_skill_status(self) -> None:
         """GET /api/skill-status — 記録済みの配布先ごとに状態を返す"""
