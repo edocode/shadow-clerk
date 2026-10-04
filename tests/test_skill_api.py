@@ -244,6 +244,56 @@ def test_watch_rejects_unknown_kind() -> None:
     check("未知の kind は 400", h.status == 400, repr(h.status))
 
 
+def _append(name: str, body: str) -> None:
+    with open(os.path.join(DATA, name), "a", encoding="utf-8") as f:
+        f.write(body)
+
+
+def test_watch_follows_output_path() -> None:
+    """日付が変わる・会議が始まる/終わると書き込み先が変わる。file 指定なしの監視は付いていく"""
+    import time
+    old, new = "transcript-20261003.txt", "transcript-20261004.txt"
+    _touch(old, "[2026-10-03 23:59:58] [自分] 前の日\n")
+    h = _Stream("interval=1", old)
+    th = threading.Thread(target=h._serve_watch, daemon=True)
+    th.start()
+    time.sleep(0.3)
+    _touch(new, "[2026-10-04 00:00:01] [自分] 次の日\n")
+    h.recorder.output_path = os.path.join(DATA, new)
+    time.sleep(1.2)
+    _append(new, "[2026-10-04 00:00:05] [自分] 続き\n")
+    time.sleep(1.2)
+    h.recorder.stop_event.set()
+    th.join(timeout=3)
+    out = h.out.getvalue().decode()
+    notice = f"<notice>書き込み先が {new} に変わりました</notice>"
+    check("書き込み先が変わったら notice を流す", notice in out, repr(out))
+    check("新しいファイルを先頭から流す", f'<transcript file="{new}">' in out and "次の日" in out
+          and out.index(notice) < out.index("次の日"), repr(out))
+    check("移ったあとの追記も流す", "続き" in out, repr(out))
+    check("前のファイルの既存行は流さない", "前の日" not in out, repr(out))
+
+
+def test_watch_with_file_stays() -> None:
+    import time
+    a, b = "transcript-20261005.txt", "transcript-20261006.txt"
+    _touch(a, "")
+    _touch(b, "")
+    h = _Stream(f"interval=1&file={a}", a)
+    th = threading.Thread(target=h._serve_watch, daemon=True)
+    th.start()
+    time.sleep(0.3)
+    h.recorder.output_path = os.path.join(DATA, b)
+    _append(b, "[2026-10-06 10:00:00] [自分] 別のファイル\n")
+    _append(a, "[2026-10-05 10:00:00] [自分] 指定のファイル\n")
+    time.sleep(1.2)
+    h.recorder.stop_event.set()
+    th.join(timeout=3)
+    out = h.out.getvalue().decode()
+    check("file 指定なら書き込み先が変わっても移らない", "<notice>" not in out and "指定のファイル" in out
+          and "別のファイル" not in out, repr(out))
+
+
 def main() -> int:
     test_session_uses_session_file_not_mtime()
     test_session_returns_generated_paths()
@@ -257,6 +307,8 @@ def main() -> int:
     test_watch_advice_streams_whole_file_on_change()
     test_watch_advice_waits_for_file()
     test_watch_rejects_unknown_kind()
+    test_watch_follows_output_path()
+    test_watch_with_file_stays()
     print(f"\n{sum(results)}/{len(results)} passed")
     return 0 if all(results) else 1
 

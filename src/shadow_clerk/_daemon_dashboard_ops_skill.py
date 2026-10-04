@@ -222,7 +222,11 @@ class _DashboardHandlerSkillOps:
         self._send_json({"status": "ok", "result": result})
 
     def _serve_watch(self) -> None:
-        """GET /api/watch?interval=25&idle=600[&kind=advice] — 新規行をまとめて流し続ける。
+        """GET /api/watch?interval=25&idle=600[&kind=advice][&file=…] — 新規行をまとめて流し続ける。
+
+        file を指定しなければ、いまの書き込み先（recorder.output_path）を毎回見る。日付の切り替えや会議の開始・終了で
+        変わったら <notice> を流し、新しいファイルを先頭から流す（つないだ時点のファイルを見続けると、0 時を
+        またいだところで発言が届かなくなる）。file 指定と kind=advice は指定のファイルを見続ける。
 
         kind=advice なら、transcript に対応する advice ファイルを見張り、書き換わるたびに中身を丸ごと流す
         （advice は上書きされるので差分ではなく全体）。Claude と会議の skill が、会議アシスタントの論点を
@@ -251,6 +255,7 @@ class _DashboardHandlerSkillOps:
         path = (os.path.join(self.recorder._output_dir, name)
                 if name and os.path.basename(name) == name
                 else self.recorder.output_path)
+        follow = not name
         kind = (q.get("kind") or ["transcript"])[0]
         if kind not in ("transcript", "advice"):
             self.send_error(400)
@@ -281,6 +286,11 @@ class _DashboardHandlerSkillOps:
                 self.recorder.stop_event.wait(timeout=interval)
                 if self.recorder.stop_event.is_set():
                     break
+                if follow and self.recorder.output_path != path:
+                    path, offset, quiet = self.recorder.output_path, 0, 0
+                    self.wfile.write(f"<notice>書き込み先が {os.path.basename(path)} に変わりました</notice>\n".encode())
+                    self.wfile.flush()
+                    logger.info("監視ストリーム: 書き込み先が変わった: %s", os.path.basename(path))
                 cur = _size()
                 if cur < offset:
                     offset = 0        # 書き直された。先頭から拾い直す
