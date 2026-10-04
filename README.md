@@ -72,6 +72,7 @@ Other notes:
 | Transcription (default) | faster-whisper (included) | 3 | 4 | `default_model`, `default_language` |
 | Transcription (Kotoba-Whisper) | Same (auto-downloaded on first use) | 5 | 3 | `japanese_asr_model: kotoba-whisper` |
 | Transcription (ReazonSpeech) | `uv sync --extra reazonspeech` | 5 | 4 | `japanese_asr_model: reazonspeech-k2` |
+| Transcription (Moonshine Voice) | `uv sync --extra moonshine` | 4 | 5 | `asr_engine: moonshine` |
 | Interim transcription | Same | 2 | 5 | `interim_transcription: true`, `interim_model` |
 | Translation (LibreTranslate) | LibreTranslate server | 2 | 4 | `translation_provider: libretranslate` |
 | Translation (OpenAI compatible API) | OpenAI compatible API | 3-5 | 2-5 | `translation_provider: api`, `api_endpoint`, `api_model` |
@@ -112,8 +113,9 @@ Install from PyPI:
 | + ReazonSpeech | `uv tool install "shadow-clerk[reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 | + Spell check | `uv tool install "shadow-clerk[spell-check]"` |
 | + Both (ReazonSpeech + Spell check) | `uv tool install "shadow-clerk[spell-check,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| + Moonshine Voice | `uv tool install "shadow-clerk[moonshine]"` |
 | + Google Calendar | `uv tool install "shadow-clerk[gcal]"` |
-| All | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| All | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech,moonshine]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 
 > **Note:** `uv tool install` maintains a single environment per tool. When reinstalling with different extras, use `--force` — without it, `uv tool install` reports "already installed" and does not add the extra. Only the extras specified in the command are included; previously installed extras are removed.
 
@@ -134,8 +136,9 @@ cd shadow-clerk
 | + ReazonSpeech | `uv sync --extra reazonspeech` |
 | + Spell check | `uv sync --extra spell-check` |
 | + Both (ReazonSpeech + Spell check) | `uv sync --extra spell-check --extra reazonspeech` |
+| + Moonshine Voice | `uv sync --extra moonshine` |
 | + Google Calendar | `uv sync --extra gcal` |
-| All | `uv sync --extra spell-check --extra gcal --extra reazonspeech` |
+| All | `uv sync --extra spell-check --extra gcal --extra reazonspeech --extra moonshine` |
 
 **Each `uv sync` defines the whole environment, and extras do not accumulate.**
 `uv sync --extra gcal` after `uv sync --extra reazonspeech` removes ReazonSpeech
@@ -696,11 +699,16 @@ initial_prompt: null          # Whisper initial_prompt (vocabulary hints for rec
 whisper_beam_size: 5          # Whisper beam size (1=fast, 5=accurate)
 whisper_compute_type: int8    # Compute precision (int8/float16/float32)
 whisper_device: cpu           # Device (cpu/cuda)
+whisper_vad_filter: true      # Silero VAD: drop non-speech inside each segment
+whisper_vad_threshold: 0.35   # Silero VAD speech threshold (0.2 / 0.35 / 0.5)
 interim_transcription: false  # Interim transcription (real-time display while speaking)
 interim_model: base           # Model for interim transcription
 japanese_asr_model: default   # Japanese ASR model (default/kotoba-whisper/reazonspeech-k2)
 kotoba_whisper_model: kotoba-tech/kotoba-whisper-v2.0-faster  # Kotoba-Whisper model
 interim_japanese_asr_model: default  # Japanese ASR for interim transcription
+asr_engine: whisper           # ASR engine for all languages (whisper/moonshine)
+interim_asr_engine: whisper   # ASR engine for interim transcription
+reazonspeech_model: ja        # ReazonSpeech k2: ja / ja-en (Japanese-English bilingual)
 reazonspeech_precision: fp32  # ReazonSpeech k2: fp32 / int8 / int8-fp32 (fp16 is invalid)
 
 # --- Audio devices ---
@@ -866,6 +874,22 @@ Use a lighter model with `--model tiny`:
 clerk-daemon --model tiny
 ```
 
+### ASR engine (Moonshine Voice)
+
+`asr_engine: moonshine` (and `interim_asr_engine` for interim transcription) switches
+recognition to [Moonshine Voice](https://github.com/moonshine-ai/moonshine) for every
+language it supports (ar, de, en, es, ja, ko, tl, uk, vi, zh). It needs the `moonshine`
+extra, and the model for the current language is downloaded on first use. Languages it
+does not support, and `default_language: auto`, fall back to Whisper. For `ja`, a
+`japanese_asr_model` other than `default` still takes precedence.
+
+On CPU it is several times faster than Whisper small with comparable or better Japanese
+accuracy. `initial_prompt` is passed as Moonshine's context (term biasing); the Whisper
+settings (`default_model`, `whisper_beam_size`, `whisper_compute_type`) are not used.
+
+> **License:** only the English models are MIT. Models for other languages, including
+> Japanese, are under the non-commercial [Moonshine Community License](https://www.moonshine.ai/license).
+
 ### Japanese ASR models
 
 The `japanese_asr_model` setting selects the ASR backend used when `language=ja`. When the language changes to something other than `ja`, it automatically reverts to standard Whisper.
@@ -880,14 +904,47 @@ The `japanese_asr_model` setting selects the ASR backend used when `language=ja`
 
 **ReazonSpeech k2** uses sherpa-onnx for inference. When selected, Whisper-specific settings (`default_model`, `whisper_beam_size`, `whisper_compute_type`, `initial_prompt`) are not used.
 
+`reazonspeech_model: ja-en` switches to the Japanese-English bilingual Zipformer. Japanese
+accuracy matches `ja`, and English speech is transcribed instead of collapsing into
+`はい`; it is also slightly faster. The upstream repository has been made private, so it is
+downloaded from the mirror kept by the sherpa-onnx author (`csukuangfj/reazonspeech-k2-v2-ja-en`).
+`reazonspeech_precision: int8` is about twice as fast as `fp32` with near-identical output.
+
 **Selection guide:**
 
 | Use case | Settings |
 |---|---|
-| Japanese-focused, accuracy priority | `japanese_asr_model: kotoba-whisper`, `whisper_beam_size: 5` |
-| Japanese-focused, fast & accurate | `japanese_asr_model: reazonspeech-k2` |
-| Japanese-focused, speed priority (CPU) | `japanese_asr_model: default`, `default_model: small`, `whisper_beam_size: 3` |
-| Multilingual | `japanese_asr_model: kotoba-whisper`, `default_model: small` (Kotoba for ja, small for others) |
+| **Japanese meetings on CPU (recommended)** | `japanese_asr_model: reazonspeech-k2`, `reazonspeech_model: ja-en`, `reazonspeech_precision: int8` |
+| Japanese-focused, accuracy priority (GPU) | `japanese_asr_model: kotoba-whisper`, `whisper_beam_size: 5` |
+| Japanese-focused, speed priority (CPU, no extras) | `japanese_asr_model: default`, `default_model: small`, `whisper_beam_size: 3` |
+| Non-Japanese languages, fewer hallucinations | `asr_engine: moonshine` (English models are MIT; others non-commercial) |
+| Multilingual | `japanese_asr_model: reazonspeech-k2`, `reazonspeech_model: ja-en`, `default_model: small` |
+
+Measured on CPU (int8) with real conversational clips split by the daemon's own VAD:
+ReazonSpeech k2 `ja-en` was the fastest (~0.2 s per utterance) with Japanese accuracy equal
+to `ja`, and it also transcribes English, which `ja` collapses into `はい`. Whisper small was
+about 20× slower and Kotoba-Whisper about twice as slow again, without being more accurate. Moonshine's
+Japanese model is close in Japanese but loops on English speech.
+
+**Whisper: Silero VAD (`whisper_vad_filter`, on by default)**
+
+Segments are cut by webrtcvad, which also lets keyboard noise and breathing through.
+Without a second VAD, Whisper answers such noise-only segments with its own
+`initial_prompt` — the wake word — and only the `no_speech_prob` filter stands between
+that and a false voice command. `whisper_vad_filter` runs faster-whisper's built-in Silero
+VAD inside each segment: noise-only segments produce nothing and cost almost no CPU, and
+normal-volume speech transcribes the same. It applies to Whisper and Kotoba-Whisper, not
+to ReazonSpeech or Moonshine.
+
+The trade-off is very quiet speech. With the speech at 1/10–1/20 volume plus noise, the
+wake word survived 9/12 times without VAD, 4/12 with threshold 0.35 and 3/12 with the
+upstream default 0.5 — hence the default of `whisper_vad_threshold: 0.35`. If voice
+commands are missed on a quiet microphone, turn `whisper_vad_filter` off.
+
+`condition_on_previous_text: false`, often recommended alongside it, is deliberately not
+used: it only matters across 30-second windows inside one call, and every segment here is
+transcribed on its own, so it changed nothing on short segments and caused a repetition
+loop on a long mixed-language one.
 
 **Interim transcription:**
 

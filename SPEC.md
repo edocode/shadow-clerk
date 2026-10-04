@@ -21,7 +21,7 @@ Python スクリプト。常駐してリアルタイムに文字起こしを行�
   - 翻訳ファイル: `transcript-YYYYMMDD[HHMM][@name]-<lang>.txt`
   - 形式: `[YYYY-MM-DD HH:MM:SS] [自分/相手] テキスト`
 - **glossary.txt**: TSV 形式の用語集。`reading` 列を使って音声認識の誤認識を機械置換（長さ降順で適用）、LLM 翻訳・要約のヒントとしても使用。ファイル変更時は自動再読み込み
-- **音声認識モデル**: 日本語時は `japanese_asr_model` で `default` / `kotoba-whisper` / `reazonspeech-k2` から切替可能。中間認識（`interim_transcription: true` 時）用にも別系統（`interim_model`, `interim_japanese_asr_model`）
+- **音声認識モデル**: 日本語時は `japanese_asr_model` で `default` / `kotoba-whisper` / `reazonspeech-k2` から切替可能。中間認識（`interim_transcription: true` 時）用にも別系統（`interim_model`, `interim_japanese_asr_model`）。`asr_engine: moonshine`（中間は `interim_asr_engine`）で Moonshine Voice 対応言語を Moonshine に切替（言語指定必須、未対応・auto は Whisper、ja は `japanese_asr_model` が優先）
 - **コマンドインターフェース**: `.clerk_command` ファイル経由で以下を受付
   - `set_language <lang>` / `unset_language` — 言語切り替え
   - `set_model <size>` — Whisper モデル切り替え（ランタイム再ロード）
@@ -663,14 +663,19 @@ spell_check_model: <HF model>     # スペル訂正モデル (transformers)
 whisper_beam_size: 5              # Whisper beam size (1=高速, 5=高精度)
 whisper_compute_type: int8        # 計算精度 (int8/float16/float32)
 whisper_device: cpu               # デバイス (cpu/cuda)
+whisper_vad_filter: true          # Silero VAD で区間内の非音声を落とす (Whisper/Kotoba のみ)
+whisper_vad_threshold: 0.35       # Silero のしきい値 (0.5 だと小声の頭が削れる)
 japanese_asr_model: default       # ja 時の ASR (default/kotoba-whisper/reazonspeech-k2)
 kotoba_whisper_model: <HF model>  # kotoba-whisper 時に使うモデル
+reazonspeech_model: ja            # reazonspeech-k2 時のモデル (ja / ja-en=日英、転載元から取得)
+asr_engine: whisper               # 全言語共通エンジン (whisper/moonshine)
 initial_prompt: null              # Whisper の initial_prompt
 
 # --- 中間文字起こし (確定前プレビュー) ---
 interim_transcription: false      # 有効/無効
 interim_model: base               # 中間認識用 Whisper モデル
 interim_japanese_asr_model: default  # 中間認識の ja 別モデル
+interim_asr_engine: whisper       # 中間認識のエンジン (whisper/moonshine)
 
 # --- 議事録 (summary) ---
 summary_source: null              # null=auto (translation があれば優先) / transcript / translate
@@ -735,6 +740,7 @@ talk_stop_words: [待って, ストップ, 止めて, やめて, stop, wait, hol
 ### オプション (`uv sync --extra <name>`)
 - `spell-check`: `transformers`, `torch`, `sentencepiece` — LibreTranslate 前段のスペル訂正用
 - `reazonspeech`: `sherpa-onnx`, `reazonspeech-k2-asr` — 日本語 ASR 代替モデル
+- `moonshine`: `moonshine-voice` — 多言語 ASR エンジン（英語以外のモデルは非商用ライセンス）
 - `gcal`: `google-auth-oauthlib`, `google-api-python-client` — Google Calendar 連携
 - `speaker-diarization`(未完): `speechbrain`, `torchaudio` — 話者分離(実験的、動作しない場合あり)
 

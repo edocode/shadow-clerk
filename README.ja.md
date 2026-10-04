@@ -72,6 +72,7 @@ uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "re
 | 文字起こし (標準) | faster-whisper（パッケージに含む） | 3 | 4 | `default_model`, `default_language` |
 | 文字起こし (Kotoba-Whisper) | 同上（初回に自動DL） | 5 | 3 | `japanese_asr_model: kotoba-whisper` |
 | 文字起こし (ReazonSpeech) | `uv sync --extra reazonspeech` | 5 | 4 | `japanese_asr_model: reazonspeech-k2` |
+| 文字起こし (Moonshine Voice) | `uv sync --extra moonshine` | 4 | 5 | `asr_engine: moonshine` |
 | 中間文字起こし | 同上 | 2 | 5 | `interim_transcription: true`, `interim_model` |
 | 翻訳 (LibreTranslate) | LibreTranslate サーバー | 2 | 4 | `translation_provider: libretranslate` |
 | 翻訳 (OpenAI 互換 API) | OpenAI 互換 API | 3-5 | 2-5 | `translation_provider: api`, `api_endpoint`, `api_model` |
@@ -112,8 +113,9 @@ PyPI からインストール:
 | + ReazonSpeech | `uv tool install "shadow-clerk[reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 | + スペルチェック | `uv tool install "shadow-clerk[spell-check]"` |
 | + 両方 (ReazonSpeech + スペルチェック) | `uv tool install "shadow-clerk[spell-check,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| + Moonshine Voice | `uv tool install "shadow-clerk[moonshine]"` |
 | + Google Calendar | `uv tool install "shadow-clerk[gcal]"` |
-| すべて | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| すべて | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech,moonshine]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 
 > **注意:** `uv tool install` はツールごとに1つの環境を管理します。異なる extras で再インストールする場合は `--force` を付けてください。`--force` なしでは「already installed」と表示され、extra が追加されません。指定した extras のみが含まれ、以前の extras は削除されます。
 
@@ -134,8 +136,9 @@ cd shadow-clerk
 | + ReazonSpeech | `uv sync --extra reazonspeech` |
 | + スペルチェック | `uv sync --extra spell-check` |
 | + 両方 (ReazonSpeech + スペルチェック) | `uv sync --extra spell-check --extra reazonspeech` |
+| + Moonshine Voice | `uv sync --extra moonshine` |
 | + Google Calendar | `uv sync --extra gcal` |
-| すべて | `uv sync --extra spell-check --extra gcal --extra reazonspeech` |
+| すべて | `uv sync --extra spell-check --extra gcal --extra reazonspeech --extra moonshine` |
 
 **`uv sync` は毎回「環境のあるべき姿のすべて」を決める。extra は累積しない。**
 `uv sync --extra reazonspeech` のあとに `uv sync --extra gcal` を打つと
@@ -690,11 +693,16 @@ initial_prompt: null          # Whisper の initial_prompt (音声認識のヒ�
 whisper_beam_size: 5          # Whisper beam size (1=高速, 5=高精度)
 whisper_compute_type: int8    # 計算精度 (int8/float16/float32)
 whisper_device: cpu           # デバイス (cpu/cuda)
+whisper_vad_filter: true      # Silero VAD で区間内の非音声を落とす
+whisper_vad_threshold: 0.35   # Silero VAD のしきい値 (0.2 / 0.35 / 0.5)
 interim_transcription: false  # 中間文字起こし（発話中にリアルタイム表示）
 interim_model: base           # 中間文字起こし用モデル
 japanese_asr_model: default   # 日本語 ASR モデル (default/kotoba-whisper/reazonspeech-k2)
 kotoba_whisper_model: kotoba-tech/kotoba-whisper-v2.0-faster  # Kotoba-Whisper モデル
 interim_japanese_asr_model: default  # 中間文字起こし用の日本語 ASR モデル
+asr_engine: whisper           # 全言語共通の ASR エンジン (whisper/moonshine)
+interim_asr_engine: whisper   # 中間文字起こし用の ASR エンジン
+reazonspeech_model: ja        # ReazonSpeech k2: ja / ja-en (日英バイリンガル)
 reazonspeech_precision: fp32  # ReazonSpeech k2: fp32 / int8 / int8-fp32 (fp16 は無効)
 
 # --- 音声デバイス ---
@@ -860,6 +868,22 @@ systemctl --user restart pipewire-pulse
 clerk-daemon --model tiny
 ```
 
+### ASR エンジン (Moonshine Voice)
+
+`asr_engine: moonshine`（中間文字起こしは `interim_asr_engine`）で、
+[Moonshine Voice](https://github.com/moonshine-ai/moonshine) が対応する言語
+（ar, de, en, es, ja, ko, tl, uk, vi, zh）の認識を Moonshine に切り替える。`moonshine`
+extra が必要で、現在の言語のモデルは初回に自動ダウンロードされる。未対応の言語と
+`default_language: auto` は Whisper に戻る。`ja` では `japanese_asr_model` が `default`
+以外ならそちらが優先される。
+
+CPU では Whisper small の数倍速く、日本語の精度は同等以上。`initial_prompt` は
+Moonshine の context（用語バイアス）として渡す。Whisper 用の設定（`default_model`,
+`whisper_beam_size`, `whisper_compute_type`）は使われない。
+
+> **ライセンス:** MIT なのは英語モデルだけ。日本語を含む他言語のモデルは非商用の
+> [Moonshine Community License](https://www.moonshine.ai/license)。
+
 ### 日本語 ASR モデル
 
 `japanese_asr_model` で `language=ja` 時に使用する ASR バックエンドを選択できる。言語が `ja` 以外に変わると自動的に標準 Whisper に戻る。
@@ -874,14 +898,44 @@ clerk-daemon --model tiny
 
 **ReazonSpeech k2** は sherpa-onnx で推論する。選択時、Whisper 固有の設定（`default_model`, `whisper_beam_size`, `whisper_compute_type`, `initial_prompt`）は使用されない。
 
+`reazonspeech_model: ja-en` で日英バイリンガルの Zipformer に切り替わる。日本語の精度は `ja`
+と同等で、`ja` では「はい」に潰れる英語の発話も文字になり、速度も少し速い。本家のリポジトリは
+非公開になったため、sherpa-onnx 作者による転載（`csukuangfj/reazonspeech-k2-v2-ja-en`）から取得する。
+`reazonspeech_precision: int8` は `fp32` の約2倍速く、結果はほぼ変わらない。
+
 **選び方ガイド:**
 
 | ユースケース | 設定 |
 |---|---|
-| 日本語メイン・精度重視 | `japanese_asr_model: kotoba-whisper`, `whisper_beam_size: 5` |
-| 日本語メイン・高速＆高精度 | `japanese_asr_model: reazonspeech-k2` |
-| 日本語メイン・速度重視 (CPU) | `japanese_asr_model: default`, `default_model: small`, `whisper_beam_size: 3` |
-| 多言語 | `japanese_asr_model: kotoba-whisper`, `default_model: small`（ja 時は Kotoba、他は small） |
+| **日本語の会議・CPU（おすすめ）** | `japanese_asr_model: reazonspeech-k2`, `reazonspeech_model: ja-en`, `reazonspeech_precision: int8` |
+| 日本語メイン・精度重視 (GPU) | `japanese_asr_model: kotoba-whisper`, `whisper_beam_size: 5` |
+| 日本語メイン・速度重視 (CPU、extra なし) | `japanese_asr_model: default`, `default_model: small`, `whisper_beam_size: 3` |
+| 日本語以外・幻聴を減らしたい | `asr_engine: moonshine`（英語モデルは MIT、他は非商用） |
+| 多言語 | `japanese_asr_model: reazonspeech-k2`, `reazonspeech_model: ja-en`, `default_model: small` |
+
+CPU（int8）で、実際の会話音声をデーモン自身の VAD で区切って測った結果:
+ReazonSpeech k2 `ja-en` が最速（1発話あたり約0.2秒）で、日本語の精度は `ja` と同等。
+加えて `ja` では「はい」に潰れる英語も文字になる。Whisper small は約20倍、Kotoba-Whisper は
+さらにその約2倍遅く、精度も上回らなかった。Moonshine の日本語モデルは日本語では近いが、英語を聞くと
+同じ語句を繰り返す。
+
+**Whisper: Silero VAD（`whisper_vad_filter`、既定で有効）**
+
+区間の切り出しは webrtcvad で、キーボードの音や息づかいも通してしまう。2段目の VAD が
+無いと、Whisper はノイズだけの区間に対して自分の `initial_prompt`——つまりウェイクワード——を
+出力し、誤った音声コマンドを止めているのは `no_speech_prob` のフィルタだけになる。
+`whisper_vad_filter` は faster-whisper 内蔵の Silero VAD を区間の中で走らせる。ノイズだけの
+区間は何も出さず CPU もほぼ使わない。普通の音量の発話は結果が変わらない。Whisper と
+Kotoba-Whisper に効き、ReazonSpeech と Moonshine には関係しない。
+
+代わりに、ごく小さい声に弱い。音量 1/10〜1/20 にノイズを足した発話では、ウェイクワードが
+残ったのは VAD なしで 9/12、しきい値 0.35 で 4/12、本家の既定値 0.5 で 3/12。これが
+`whisper_vad_threshold: 0.35` を既定にしている理由。小さいマイクで音声コマンドを取りこぼす
+なら `whisper_vad_filter` を無効にする。
+
+一緒に勧められることの多い `condition_on_previous_text: false` はあえて使っていない。効くのは
+1回の呼び出しの中で 30 秒窓をまたぐときだけで、ここでは区間ごとに独立して認識しているため、
+短い区間では何も変わらず、長い日英混在の区間では逆に繰り返しの暴走を起こした。
 
 **中間文字起こし:**
 
