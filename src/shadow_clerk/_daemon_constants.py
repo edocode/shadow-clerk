@@ -152,6 +152,8 @@ DEFAULT_CONFIG = {
     "whisper_beam_size": 5,        # beam_size (1=高速, 5=高精度)
     "whisper_compute_type": "int8", # int8/float16/float32
     "whisper_device": "cpu",       # cpu/cuda
+    "whisper_vad_filter": True,    # Silero VAD で区間内の非音声を落とす
+    "whisper_vad_threshold": 0.35, # 0.5 (既定) だと小声の発話の頭が削れる
     "interim_transcription": False,
     "interim_translation": True,  # interim_transcription の出力を翻訳して dashboard に流す
     "interim_translation_provider": None,  # null=auto / "api" / "libretranslate" / "claude"
@@ -170,6 +172,10 @@ DEFAULT_CONFIG = {
     "japanese_asr_model": "default",
     "kotoba_whisper_model": "kotoba-tech/kotoba-whisper-v2.0-faster",
     "interim_japanese_asr_model": "default",
+    # whisper / moonshine。japanese_asr_model が default 以外なら ja はそちらが優先
+    "asr_engine": "whisper",
+    "interim_asr_engine": "whisper",
+    "reazonspeech_model": "ja",  # ja / ja-en (日英バイリンガル)
     "reazonspeech_precision": "fp32",  # fp32 / int8 / int8-fp32 (fp16 は無効)
     # Google Calendar 連携
     "gcal_integration": False,

@@ -55,14 +55,51 @@ class GlossaryReplacer:
 
 
 # --- 文字起こし ---
+# 本家 reazon-research/reazonspeech-k2-v2-ja-en は非公開になり、reazonspeech ライブラリの
+# load_model(language="ja-en") は 401 で落ちる。sherpa-onnx 作者による転載から読む
+K2_JA_EN_REPO = "csukuangfj/reazonspeech-k2-v2-ja-en"
+
+
+def _load_k2_ja_en(device: str, precision: str) -> Any:
+    """reazonspeech.k2.asr.load_model と同じ構成で日英モデルを読む（transcribe はライブラリのものが使える）"""
+    import huggingface_hub as hf
+    import sherpa_onnx
+    from huggingface_hub.utils import LocalEntryNotFoundError
+    enc, dec = {"fp32": ("", ""), "int8": (".int8", ".int8"), "int8-fp32": (".int8", "")}[precision]
+
+    def fetch(name: str) -> str:
+        try:
+            return hf.hf_hub_download(K2_JA_EN_REPO, name, local_files_only=True)
+        except LocalEntryNotFoundError:
+            return hf.hf_hub_download(K2_JA_EN_REPO, name)
+
+    return sherpa_onnx.OfflineRecognizer.from_transducer(
+        tokens=fetch("tokens.txt"),
+        encoder=fetch(f"encoder-epoch-35-avg-1{enc}.onnx"),
+        decoder=fetch(f"decoder-epoch-35-avg-1{dec}.onnx"),
+        joiner=fetch(f"joiner-epoch-35-avg-1{enc}.onnx"),
+        num_threads=1, sample_rate=SAMPLE_RATE, feature_dim=80,
+        decoding_method="greedy_search", provider=device,
+    )
+
+
+def _moonshine_languages() -> list[str]:
+    try:
+        from moonshine_voice import supported_languages
+    except ImportError:
+        return []
+    return supported_languages()
+
+
 class Transcriber:
-    """faster-whisper / ReazonSpeech K2 による文字起こし"""
+    """faster-whisper / ReazonSpeech K2 / Moonshine による文字起こし"""
 
     def __init__(self, model_size: str = "small", language: str | None = None,
                  initial_prompt: str | None = None,
                  beam_size: int = 5, compute_type: str = "int8",
                  device: str = "cpu",
                  ja_asr_config_key: str = "japanese_asr_model",
+                 engine_config_key: str = "asr_engine",
                  label: str = "main") -> None:
         self.model_size = model_size
         self.language = language
@@ -72,8 +109,9 @@ class Transcriber:
         self.device = device
         self.model: Any = None
         self._loaded_model_id: str | None = None
-        self._backend: str = "whisper"  # "whisper" or "reazonspeech-k2"
+        self._backend: str = "whisper"  # "whisper" / "reazonspeech-k2" / "moonshine"
         self._ja_asr_config_key = ja_asr_config_key
+        self._engine_config_key = engine_config_key
         self._label = label
         # transcribe 中のモデル差し替え（reload_model / ensure_model_for_language は
         # 別スレッドから呼ばれる）で model が None になる競合を防ぐ
@@ -88,7 +126,13 @@ class Transcriber:
                 return ("whisper", config.get("kotoba_whisper_model",
                         "kotoba-tech/kotoba-whisper-v2.0-faster"))
             elif ja_asr == "reazonspeech-k2":
-                return ("reazonspeech-k2", "reazonspeech-k2")
+                return ("reazonspeech-k2", f"reazonspeech-k2-{config.get('reazonspeech_model') or 'ja'}")
+        # Moonshine は言語指定が要る。自動検出・未対応言語・未インストールは Whisper
+        if config.get(self._engine_config_key) == "moonshine" and self.language:
+            if self.language in _moonshine_languages():
+                return ("moonshine", f"moonshine-{self.language}")
+            logger.warning("[%s] Moonshine は言語 %s に使えません (未対応か未インストール) — "
+                           "Whisper を使います。", self._label, self.language)
         return ("whisper", self.model_size)
 
     def load_model(self) -> None:
@@ -135,8 +179,22 @@ class Transcriber:
             precision = load_config().get("reazonspeech_precision") or "fp32"
             logger.info("[%s] ReazonSpeech K2 モデル読み込み中: %s (device=%s, precision=%s) ...",
                          self._label, model_id, self.device, precision)
-            self.model = k2_load_model(device=self.device, precision=precision)
+            if model_id.endswith("-ja-en"):
+                self.model = _load_k2_ja_en(self.device, precision)
+            else:
+                self.model = k2_load_model(device=self.device, precision=precision)
             self._backend = "reazonspeech-k2"
+        elif backend == "moonshine":
+            from moonshine_voice import Transcriber as MoonshineTranscriber, MoonshineError, get_model_for_language
+            logger.info("[%s] Moonshine モデル読み込み中: %s ...", self._label, model_id)
+            path, arch = get_model_for_language(self.language)
+            self.model = MoonshineTranscriber(model_path=path, model_arch=arch)
+            # initial_prompt 相当。バイアスはストリーミング系のモデルでしか効かない
+            try:
+                self.model.set_context(self.initial_prompt)
+            except MoonshineError as e:
+                logger.info("[%s] Moonshine の context 設定をスキップ: %s", self._label, e)
+            self._backend = "moonshine"
         else:
             from faster_whisper import WhisperModel
             logger.info("[%s] Whisper モデル読み込み中: %s (device=%s, compute_type=%s) ...",
@@ -183,18 +241,24 @@ class Transcriber:
             assert self.model is not None
             if self._backend == "reazonspeech-k2":
                 return self._transcribe_k2(audio)
+            if self._backend == "moonshine":
+                return self._transcribe_moonshine(audio)
             return self._transcribe_whisper(audio)
 
     def _transcribe_whisper(self, audio: np.ndarray) -> str:
         """Whisper バックエンドによる文字起こし"""
         # faster-whisper は float32 の numpy 配列を受け付ける
         audio_f32 = audio.astype(np.float32) / 32768.0
-
+        # 区間切りは自前の webrtcvad。Silero はその区間内の非音声を落とす——無いと
+        # ノイズだけの区間で initial_prompt（ウェイクワード）をそのまま幻聴する
+        config = load_config()
+        vad = bool(config.get("whisper_vad_filter", True))
         segments, info = self.model.transcribe(
             audio_f32,
             language=self.language,
             beam_size=self.beam_size,
-            vad_filter=False,  # 自前のVADを使用
+            vad_filter=vad,
+            vad_parameters={"threshold": float(config.get("whisper_vad_threshold") or 0.35)} if vad else None,
             initial_prompt=self.initial_prompt,
         )
 
@@ -221,4 +285,12 @@ class Transcriber:
         audio_f32 = audio.astype(np.float32) / 32768.0
         k2_audio = audio_from_numpy(audio_f32, SAMPLE_RATE)
         ret = k2_transcribe(self.model, k2_audio)
-        return ret.text.strip() if ret.text else ""
+        text = ret.text.strip() if ret.text else ""
+        # 日英モデルは英語を全部大文字で出す
+        return text.lower() if (self._loaded_model_id or "").endswith("-ja-en") else text
+
+    def _transcribe_moonshine(self, audio: np.ndarray) -> str:
+        """Moonshine バックエンドによる文字起こし。自前で発話を区切った行が複数返る"""
+        audio_f32 = audio.astype(np.float32) / 32768.0
+        ret = self.model.transcribe_without_streaming(audio_f32.tolist(), SAMPLE_RATE)
+        return " ".join(text for line in ret.lines if (text := line.text.strip()))

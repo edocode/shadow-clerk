@@ -242,6 +242,7 @@ class _RecorderTranscribeMixin:
         interim_transcriber = None
         interim_model_name = None
         interim_ja_asr = None
+        interim_engine = None
         current_seq: dict[str, int] = {}  # source ごとの最新 seq
 
         while not self.stop_event.is_set():
@@ -256,7 +257,9 @@ class _RecorderTranscribeMixin:
             # 有効化されたらモデルを遅延ロード（モデル変更時は再ロード）
             model_name = config.get("interim_model", "tiny")
             ja_asr = config.get("interim_japanese_asr_model", "default")
-            if interim_transcriber is None or interim_model_name != model_name or interim_ja_asr != ja_asr:
+            engine = config.get("interim_asr_engine", "whisper")
+            if (interim_transcriber is None or interim_model_name != model_name
+                    or interim_ja_asr != ja_asr or interim_engine != engine):
                 logger.info("中間文字起こし: %s モデル読み込み中...", model_name)
                 interim_transcriber = Transcriber(
                     model_size=model_name,
@@ -266,11 +269,13 @@ class _RecorderTranscribeMixin:
                     compute_type=config.get("whisper_compute_type", "int8"),
                     device=config.get("whisper_device", "cpu"),
                     ja_asr_config_key="interim_japanese_asr_model",
+                    engine_config_key="interim_asr_engine",
                     label="interim",
                 )
                 interim_transcriber.load_model()
                 interim_model_name = model_name
                 interim_ja_asr = ja_asr
+                interim_engine = engine
                 logger.info("中間文字起こし: %s モデル読み込み完了", model_name)
             # 言語同期
             if interim_transcriber.language != self.transcriber.language:

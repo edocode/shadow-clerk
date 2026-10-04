@@ -71,6 +71,11 @@ spell-check = [
 reazonspeech = [
     "sherpa-onnx>=1.12.28",
 ]
+# Moonshine Voice (asr_engine: moonshine). Non-English models are under the
+# non-commercial Moonshine Community License.
+moonshine = [
+    "moonshine-voice>=0.1.5",
+]
 gcal = [
     "google-auth-oauthlib>=1.0.0",
     "google-api-python-client>=2.0.0",

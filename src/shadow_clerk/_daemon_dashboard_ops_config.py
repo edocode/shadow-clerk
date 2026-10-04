@@ -112,12 +112,13 @@ class _DashboardHandlerConfigOps:
         for key in list(DEFAULT_CONFIG.keys()):
             if key in data:
                 config[key] = data[key]
-        # whisper_beam_size は数値に変換
-        if "whisper_beam_size" in config:
-            try:
-                config["whisper_beam_size"] = int(config["whisper_beam_size"])
-            except (TypeError, ValueError):
-                config["whisper_beam_size"] = DEFAULT_CONFIG["whisper_beam_size"]
+        # 設定モーダルの select は文字列で届く。数値に戻す
+        for key, conv in (("whisper_beam_size", int), ("whisper_vad_threshold", float)):
+            if key in config:
+                try:
+                    config[key] = conv(config[key])
+                except (TypeError, ValueError):
+                    config[key] = DEFAULT_CONFIG[key]
         from shadow_clerk import CONFIG_FILE
         # FileWatcher が毎秒 config を読むため、truncate 中の部分 YAML を
         # 読ませないよう一時ファイル → os.replace でアトミックに書く
