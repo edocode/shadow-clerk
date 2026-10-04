@@ -175,7 +175,9 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 curl -s -X POST "http://localhost:8765/api/language" -H 'Content-Type: application/json' -d '{"language":"ja"}'
 ```
 
-- スピーカーのミュートを、覚えておいた `previous` に戻す（`previous` が true ならミュートのままにする）
+- スピーカーのミュートを、覚えておいた `previous` に戻す。`previous` が `false`（練習前はミュートしていなかった）
+  ときだけ、次のように `"muted":false` を送る。`previous` が `true`（練習前からミュートしていた）なら何も送らず、
+  ミュートのままにする
 
 ```
 curl -s -X POST "http://localhost:8765/api/mute" -H 'Content-Type: application/json' -d '{"source":"monitor","muted":false}'
