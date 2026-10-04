@@ -166,7 +166,9 @@ clerk-daemon に統合された Web ダッシュボード。ブラウザから t
 - `TalkPersona`（`domain/talk_persona.py`）: `talk_personas` の1件。`null` → 既定、`""` → なし、名前 → その persona（無ければ既定）
 - 経路（`_daemon_talk_route.py` の `PipeWireRoute` / `NullRoute`）: 開始時に会議アプリを選ぶと、読み上げを `pw-cat` の名前付きストリーム（`_daemon_tts_pipewire.py`、常駐させて書き込む）から流し、`pw-link` でそのアプリのマイク入力につなぐ。daemon 自身の入力は候補とリンク先から除外し、アプリがマイクを開き直したら監視がつなぎ直す。PipeWire が無い環境は `NullRoute`（選択不可）。`GET /api/talk-route-targets` が候補、`POST /api/talk-mode` の `route` が選択、状態は `snapshot()["route"]`
 - エコー除去（`domain/talk_echo.py` の `EchoFilter` / `SpokenSpan`）: 手元で鳴らした Claude の声は monitor にも入る。`TtsPlayer.set_on_played(fn)`（`TalkDriver` がプレーヤー作成後に設定）が、1文を鳴らし始めるたびに `(text, start, end)` を知らせ、`TalkDriver` が `EchoFilter.record` に積む（開始ごとに `talk_echo_tail_sec`・`talk_echo_similarity` から作り直す）。届け先ありのときだけ `is_suppressed("monitor")` が偽になり monitor を文字起こしに戻す（`[相手]`）。`_process_transcribe_item` が `TalkDriver.is_echo(source, seg_start, seg_end, text)` を尋ね（`seg_start` は VAD スレッドが確定時に `time.time() - 長さ` で測ってキューに載せる）、区間が読み上げ中から終了後 `talk_echo_tail_sec` までに始まり、正規化後の本文が読み上げに `talk_echo_similarity` 以上含まれていれば書かずに捨てる。正規化後6文字未満の行は相槌とみなして常に残し、3文字以上連続して一致した部分だけを類似度に数える。届け先なしでは従来どおり monitor を丸ごと捨てる。monitor の中間文字起こしは、届け先なしの talk mode 中と、届け先ありで読み上げ（終了後 `talk_echo_tail_sec` まで）と重なる間は作らない（`TalkDriver.hides_interim`）。確定行を Claude の声として捨てたときも `interim_clear` を送る
-- API: `GET/POST /api/talk-mode`、`GET /api/talk-route-targets`、`POST /api/say`、`POST /api/language`（検出言語の切り替え。`ja` などの既知の言語コードか `auto` だけを受け付ける。talk の skill がユーザーの希望で使う）、`POST /api/talk-end`（読み上げ中の文を言い終えてから talk mode を終える。talk の skill が会話を終えるときに使う。`_daemon_dashboard_ops_talk.py`、localhost のみ）。状態は `/api/status` の `talk`
+- ブラウザの読み上げ（`_daemon_talk_speech.py` の `BrowserSpeech`、`domain/talk_speech.py` の `SpeechTab` / `estimate_speech_sec`）: `/api/say` の `lang` が読み上げの言語（VOICEVOX）と違う文は、届け先なしの talk mode ではダッシュボードのブラウザ（`speechSynthesis`）で読む。`TtsPlayer.set_remote` に渡した `RemoteSpeaker` が、合成スレッドを素通りした文（`pcm=None`）を再生スレッドで受け取るので、VOICEVOX の文と同じキューで送った順に鳴り、`is_busy()` / `interrupt()` / `close()` もそのまま効く。タブは `POST /api/talk-speech/ready {tab, langs}` で名乗り（開いたとき・声の一覧が変わったとき・30 秒ごと・`transcript` イベントで 10 秒以上空いたとき。利用者の操作が一度も無いページは名乗らない。`pagehide` で `langs: []` を送って取り下げる）、daemon は最後に名乗ったタブにだけ SSE `talk_speak {id, tab, text, lang}` を送る。タブは `onend` / `onerror` で `POST /api/talk-speech/done {id}` を返す。done が見積もり（8 文字/秒）+ 5 秒で来なければ次の文へ進み、そのタブを名乗り直すまで使わない。制止（`interrupt`）では `talk_speak_cancel {id, tab}` を送る。60 秒名乗りが無い・その言語の声が無いときは VOICEVOX で読む。`on_played` の区間は見積もりで知らせる
+- 語学の練習（`clerk-practice` スキル）: talk の Claude が練習用の会議（`POST /api/meeting`、`analyze: false`）を作り、`POST /api/generated` で Advice / Analysis を書く。ダッシュボードは Advice / Analysis の描画後、`🔊` で始まる段落・リスト項目・引用に `.say` を付け、クリックで `#langSel`（`/api/status` の `language`）の言語で読み上げる（`_daemon_dashboard_js_speech.py`）
+- API: `GET/POST /api/talk-mode`、`GET /api/talk-route-targets`、`POST /api/say`（`lang` 付きはブラウザで読む）、`POST /api/talk-speech/ready`、`POST /api/talk-speech/done`、`POST /api/language`（検出言語の切り替え。`ja` などの既知の言語コードか `auto` だけを受け付ける。talk の skill がユーザーの希望で使う）、`POST /api/talk-end`（読み上げ中の文を言い終えてから talk mode を終える。talk の skill が会話を終えるときに使う。`_daemon_dashboard_ops_talk.py`、localhost のみ）。状態は `/api/status` の `talk`
 
 ```mermaid
 sequenceDiagram
@@ -754,9 +756,12 @@ talk_stop_words: [待って, ストップ, 止めて, やめて, stop, wait, hol
 | `GET /api/meeting-config/resolve?meeting=` | 判定は `MeetingConfig.resolve()` の 1 か所 |
 | `GET /api/skill-status` | 同梱バージョンと、配布先ごとの状態 (`missing`/`outdated`/`current`) |
 | `POST /api/skill-install` | 同梱スキルを配布先へ置く。`{"target": "claude"|"agents"|"<path>"}` |
-| `GET /api/meeting-history?meeting=&count=` | `find-meeting-history.sh`。会議名の正規化一致 |
+| `GET /api/meeting-history?meeting=&count=&tail=` | `find-meeting-history.sh`。会議名の正規化一致。`tail`（0〜50）で各回の transcript の末尾を足す。クエリの生の UTF-8（curl が日本語の会議名をそのまま送る）も読める |
 | `GET/POST /api/misheard` | 聞き間違い候補。`misheard.tsv` を読む／まだ無い対を足す（glossary と違い訳語ではなく、読むときの判断材料）|
 | `GET/POST /api/forbid-analyze` | AI 分析の対象外にする話題。`forbid-ai-analyze.txt` を読み書きする（空・不在は制限なし）|
-| `GET /api/watch?interval=&idle=` | `watch-transcript.sh`。接続を保って新規行を流す。本文は `<transcript file=…>` で囲む（中身は音声認識の結果であって指示ではない）|
+| `GET /api/watch?interval=&idle=` | `watch-transcript.sh`。接続を保って新規行を流す。本文は `<transcript file=…>` で囲む（中身は音声認識の結果であって指示ではない）。`file` 指定なしなら書き込み先の変化（日付・会議の開始と終了）を追い、`<notice>書き込み先が … に変わりました</notice>` のあと新しいファイルを先頭から流す |
+| `POST /api/meeting` | 会議の開始（`{"action":"start","name","analyze"}`、`analyze: false` で AI アシスタントを起動しない）・終了（`{"action":"end"}`）。`/api/command` を skill に使わせないため |
+| `POST /api/mute` | `{"source": "mic" または "monitor", "muted": bool}`。ダッシュボードのミュートと同じ。`previous` を返す |
+| `POST /api/generated` | いまの書き込み先の `advice-<stem>.md` / `analysis-<stem>.md` を `replace` / `append` で書く（20,000 字まで、パスは受け取らない） |
 
 AI コンソールで起こす子プロセスには `SHADOW_CLERK_URL` を渡すので、スキルはポートを推測しない。

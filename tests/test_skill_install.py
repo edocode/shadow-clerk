@@ -193,24 +193,53 @@ _TALK_CURL_PREFIXES = ('curl -s "http://localhost:', 'curl -s -X POST "http://lo
                        'curl -sN "http://localhost:')
 
 
-def test_talk_skill_pre_approves_its_curl_calls() -> None:
+def _skill_parts(skill: str) -> tuple[dict, str]:
+    import yaml
+    text = (skill_install.bundled_skill_dir(skill) / "SKILL.md").read_text(encoding="utf-8")
+    front, _, body = text[3:].partition("\n---")
+    return yaml.safe_load(front), body
+
+
+def _check_curl_forms(skill: str) -> None:
     """初回の talk で Bash の許可確認に止まらないよう、skill が自分の curl だけを事前に許可する。
 
     Bash の規則はコマンド文字列の前方一致なので、本文のコマンドも同じ形でなければ効かない
     """
     import re
-    import yaml
-    text = (skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME) / "SKILL.md").read_text(encoding="utf-8")
-    front, _, body = text[3:].partition("\n---")
-    allowed = str(yaml.safe_load(front).get("allowed-tools") or "")
-    rules = re.findall(r"Bash\([^)]*\)|\w+", allowed)
+    front, body = _skill_parts(skill)
+    rules = re.findall(r"Bash\([^)]*\)|\w+", str(front.get("allowed-tools") or ""))
     for prefix in _TALK_CURL_PREFIXES:
-        check(f"allowed-tools に Bash({prefix}*)", f"Bash({prefix}*)" in rules, repr(rules))
-    check("allowed-tools に Monitor", "Monitor" in rules, repr(rules))
+        check(f"{skill}: allowed-tools に Bash({prefix}*)", f"Bash({prefix}*)" in rules, repr(rules))
+    check(f"{skill}: allowed-tools に Monitor", "Monitor" in rules, repr(rules))
     calls = [body[m.start():].split("\n", 1)[0] for m in re.finditer(r"curl\s", body)]
-    check("本文に curl の呼び出しがある", len(calls) >= 3, repr(calls))
+    check(f"{skill}: 本文に curl の呼び出しがある", len(calls) >= 3, repr(calls))
     for call in calls:
-        check(f"許可した形で呼ぶ: {call[:40]}", call.startswith(_TALK_CURL_PREFIXES), call)
+        check(f"{skill}: 許可した形で呼ぶ: {call[:40]}", call.startswith(_TALK_CURL_PREFIXES), call)
+
+
+def test_talk_skill_pre_approves_its_curl_calls() -> None:
+    _check_curl_forms(skill_install.TALK_SKILL_NAME)
+
+
+def test_practice_skill() -> None:
+    """語学の練習の skill が同梱・配布され、talk と同じ許可だけで動くこと"""
+    practice = skill_install.PRACTICE_SKILL_NAME
+    check("clerk-practice を同梱する", practice in skill_install.BUNDLED_SKILLS, repr(skill_install.BUNDLED_SKILLS))
+    check("clerk-practice の版が 1.0.0", skill_install.read_skill_version(skill_install.bundled_skill_dir(practice)) == "1.0.0")
+    with tempfile.TemporaryDirectory() as tmp:
+        skill_install.install(tmp)
+        check("clerk-practice も配られた", (pathlib.Path(tmp) / practice / "SKILL.md").is_file())
+    front, body = _skill_parts(practice)
+    talk_front, talk_body = _skill_parts(skill_install.TALK_SKILL_NAME)
+    check("allowed-tools は clerk-talk と同じ", front.get("allowed-tools") == talk_front.get("allowed-tools"),
+          repr(front.get("allowed-tools")))
+    _check_curl_forms(practice)
+    for needle in ('/api/meeting"', '"analyze":false', '/api/language"', '/api/mute"', '`previous`',
+                   '/api/meeting-history?meeting=', "tail=15", '/api/generated"', '"kind":"advice","mode":"replace"',
+                   '"kind":"analysis","mode":"append"', '"lang":"en"', "🔊 ", "今日の練習のまとめ: ", '/api/talk-end"'):
+        check(f"clerk-practice が {needle} を使う", needle in body)
+    check("clerk-talk が clerk-practice に切り替える", "/clerk-practice" in talk_body)
+    check("clerk-talk が /api/say の lang を知っている", '"lang":"en"' in talk_body)
 
 
 def test_talk_skill_reads_glossary_and_misheard() -> None:
@@ -218,8 +247,8 @@ def test_talk_skill_reads_glossary_and_misheard() -> None:
     text = (skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME) / "SKILL.md").read_text(encoding="utf-8")
     for needle in ('/api/glossary"', '/api/misheard"', "POST"):
         check(f"talk skill が {needle} を使う", needle in text)
-    check("talk skill の版が 1.5.0", skill_install.read_skill_version(
-        skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME)) == "1.5.0")
+    check("talk skill の版が 1.6.0", skill_install.read_skill_version(
+        skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME)) == "1.6.0")
     quirks = skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME) / "../clerk-meeting-helper/references/transcript-quirks.md"
     check("参照している崩れ方の説明が同梱されている", "../clerk-meeting-helper/references/transcript-quirks.md" in text
           and quirks.resolve().is_file(), str(quirks))
@@ -255,6 +284,7 @@ def main() -> int:
     test_talk_skill_pre_approves_its_curl_calls()
     test_talk_skill_reads_glossary_and_misheard()
     test_talk_skill_watches_advice()
+    test_practice_skill()
     shutil.rmtree(_DATA, ignore_errors=True)
     print(f"\n{sum(results)}/{len(results)} passed")
     return 0 if all(results) else 1
