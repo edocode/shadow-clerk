@@ -28,11 +28,14 @@ function speechReady(){
 function _speechVoice(lang){
   return speechSynthesis.getVoices().find(v=>String(v.lang||'').toLowerCase().split(/[-_]/)[0]===lang)||null;
 }
+/* Chrome は参照の切れた utterance を読み終える前に GC し、onend が来なくなる。読み終えるまでここに持っておく */
+const _speechLive=new Set();
 /* lang の声が無ければ既定の声で読む */
 function speakText(text,lang,onDone){
   const u=new SpeechSynthesisUtterance(text);
   if(lang){u.lang=lang;const v=_speechVoice(lang);if(v)u.voice=v;}
-  if(onDone){u.onend=onDone;u.onerror=onDone;}
+  u.onend=u.onerror=()=>{_speechLive.delete(u);if(onDone)onDone();};
+  _speechLive.add(u);
   speechSynthesis.speak(u);
 }
 function onTalkSpeak(d){

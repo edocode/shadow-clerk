@@ -104,6 +104,20 @@ console.log(JSON.stringify(out));
     check("自分宛ての cancel で止める", out["cancelMine"] == 1, repr(out))
 
 
+def test_utterance_kept_until_end() -> None:
+    """Chrome は参照の切れた SpeechSynthesisUtterance を GC し、onend が来なくなる。読み終えるまで持っておく"""
+    out = run(stubs(), r"""
+const out={};
+fire('talk_speak',{id:'s1',tab:SPEECH_TAB,text:'Yes.',lang:'en'});
+const u=spoken[0];out.held=_speechLive.has(u);u.onend();out.afterEnd=_speechLive.has(u);
+speakText('Click.','en');const c=spoken[1];out.heldNoDone=_speechLive.has(c);
+c.onerror({error:'interrupted'});out.afterError=_speechLive.has(c);
+console.log(JSON.stringify(out));
+""")
+    check("読み終えるまで utterance を持っておく", out["held"] and out["heldNoDone"], repr(out))
+    check("読み終えたら・失敗したら手放す", not out["afterEnd"] and not out["afterError"], repr(out))
+
+
 def test_no_speech_synthesis() -> None:
     out = run(stubs(speech=False), "console.log(JSON.stringify({posted:posted.length,handlers:Object.keys(esHandlers)}));")
     check("speechSynthesis が無ければ名乗らず、イベントも聞かない", out == {"posted": 0, "handlers": []}, repr(out))
@@ -113,5 +127,6 @@ if __name__ == "__main__":
     test_ready()
     test_ready_waits_for_voices_and_activation()
     test_speak_only_own_tab()
+    test_utterance_kept_until_end()
     test_no_speech_synthesis()
     sys.exit(0 if all(results) else 1)
