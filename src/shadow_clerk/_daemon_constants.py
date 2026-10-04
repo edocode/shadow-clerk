@@ -201,8 +201,7 @@ DEFAULT_CONFIG = {
     "talk_default_persona": "",
     "talk_engine": "console",        # console = AI Console の talk 枠 + clerk-talk skill / headless = claude -p
     "talk_route_app": "",            # 最後に選んだ「Claude の声を届ける先」のアプリ名（開始モーダルの初期値）
-    "talk_echo_tail_sec": 1.0,       # 読み上げ終了後この秒数までに始まった monitor の行を Claude の声とみなす
-    "talk_echo_similarity": 0.6,     # 読み上げた文との一致度がこれ以上なら Claude の声（0〜1）
+    "talk_echo_tail_sec": 0.3,       # 読み上げ終了後この秒数までに始まった monitor の行を Claude の声とみなす（再生・録音の遅れ分）
     "talk_workdir": "",              # 会話役の作業ディレクトリ。空なら ai_assistant_workdir → ホーム
     "talk_filler_sec": 8,           # [自分] 行のあと応答がこの秒数来なければ「えーっと」などを挟む。0 で無効
     # 読み上げ中・生成中にこれを含む発言があれば止める。部分一致なので「まとめて」に当たる

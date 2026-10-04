@@ -20,25 +20,29 @@ talk skill の変更（`[相手]` の扱いは clerk-talk 1.3.0 で記述済み�
 
 ## Approach
 
-shadow-clerk は、いつ・何を読み上げたかを知っている。monitor の1行が、読み上げの時間帯に重なり、かつ読み上げた文と
-似ていれば、Claude の声の文字起こしとみなして捨てる。
+shadow-clerk は、いつ・何を読み上げたかを知っている。monitor の1行が、読み上げの時間帯（各文の終了後 `tail_sec` を含む）に重なれば、
+Claude の声の文字起こしとみなして、本文に関わらず捨てる（時間だけで判定する）。
 
-トレードオフ: Claude の読み上げ中に相手がかぶせて話すと、混ざった音声の文字起こしが Claude の文と似ていると判定され、
-相手の言葉ごと捨てられることがある。かぶせて話す場面は少なく、かぶせるなら制止の言葉のことが多い（制止は `[自分]`
-で届く）ので許容する。
+トレードオフ: Claude の読み上げ中に相手がかぶせて話すと、相手の言葉ごと捨てられる。かぶせて話す場面は少なく、かぶせるなら
+制止の言葉のことが多い（制止は `[自分]` で届く）ので許容する。
+
+理由: 当初は読み上げた文との類似も見ていたが、短い発言や相槌（「了解です」「うん」「フム」）や、かな漢字の揺れ
+（「もうひとつ」と「もう一つ」）で Claude の声が `[相手]` として漏れた。文の類似では防ぎきれないので、読み上げ中は
+monitor を無視する方針にした。
+
+判定に使うのは VAD が測った区間の開始時刻。VAD は無音で区間を分けるので、反響の区間は読み上げ中に始まって捨てられ、
+monitor が静かになった後に始まる区間は新しい発言として残る。tail は出力と録音の遅れだけを吸収すればよく、
+旧既定の 1 秒は Claude が話し終えた直後の返事まで捨てていた。
+既知の限界: Claude の直後に無音を挟まず相手が話し始めると、VAD が両方を1区間にまとめ、その区間は捨てられる。
 
 ## Components
 
 ### Domain: `domain/talk_echo.py`
 
 - `SpokenSpan(start: float, end: float, text: str)`（frozen dataclass）— 実際に鳴った1文の区間（epoch 秒）と文
-- `EchoFilter(tail_sec: float = 1.0, similarity: float = 0.6, keep_sec: float = 60.0)`
+- `EchoFilter(tail_sec: float = 0.3, keep_sec: float = 60.0)`
   - `record(span: SpokenSpan) -> None` — 履歴に足す。`keep_sec` より古いものは捨てる
-  - `is_echo(seg_start: float, seg_end: float, text: str) -> bool`
-    1. 時間: 区間 `[seg_start, seg_end]` が、どれかの `[span.start, span.end + tail_sec]` と重なる
-    2. 文: 重なった span の文をつなげたものと `text` を、空白・句読点・記号を除いて比べ、3文字以上連続して一致した部分の割合が `similarity` 以上。正規化して6文字未満の行は常に相手の発言として残す。
-       一致度は `difflib.SequenceMatcher` で、短いほう（`text`）が長いほうにどれだけ含まれるかを見る
-       （`matching blocks の合計 / len(text の正規化後)`）。`text` が正規化後に空なら False
+  - `overlaps(seg_start: float, seg_end: float) -> bool` — 区間 `[seg_start, seg_end]` が、どれかの `[span.start, span.end + tail_sec]` と重なれば真。本文は見ない
   - スレッドから使うので内部はロックで守る
 - 純粋な値・ロジックなので、時刻は呼び出し側が渡す（テストで時刻を固定できる）
 
@@ -51,11 +55,11 @@ shadow-clerk は、いつ・何を読み上げたかを知っている。monitor
 
 ### TalkDriver
 
-- `EchoFilter` を1つ持つ（設定 `talk_echo_tail_sec`・`talk_echo_similarity` から作る。開始ごとに作り直す）
+- `EchoFilter` を1つ持つ（設定 `talk_echo_tail_sec` から作る。開始ごとに作り直す）
 - プレーヤー作成後に `player.set_on_played(lambda text, s, e: echo.record(SpokenSpan(s, e, text)))` を呼ぶ
 - `is_suppressed(source)`: talk mode 中の monitor は、**届け先が無いときだけ**真（届け先ありなら偽）
 - `is_echo(source: str, seg_start: float, seg_end: float, text: str) -> bool` — monitor かつ talk mode 中かつ
-  届け先ありのときだけ `EchoFilter.is_echo` を返す。それ以外は False
+  届け先ありのときだけ `EchoFilter.overlaps` を返す（`text` は使わない）。それ以外は False
 
 ### 文字起こし側（`_daemon_recorder_transcribe.py`）
 
@@ -79,8 +83,7 @@ shadow-clerk は、いつ・何を読み上げたかを知っている。monitor
 
 | キー | 既定値 | 説明 |
 |---|---|---|
-| `talk_echo_tail_sec` | `1.0` | 読み上げ終了後この秒数までに始まった行を Claude の声とみなす（再生・録音の遅れの吸収） |
-| `talk_echo_similarity` | `0.6` | 読み上げた文との一致度がこれ以上なら Claude の声とみなす（0〜1） |
+| `talk_echo_tail_sec` | `0.3` | 読み上げ終了後この秒数までに始まった行を Claude の声とみなす（出力と録音の遅れの吸収。バッファ 0.2〜0.3 秒） |
 
 ## Error Handling
 
@@ -94,9 +97,9 @@ shadow-clerk は、いつ・何を読み上げたかを知っている。monitor
 
 | ファイル | 対象 |
 |---|---|
-| `tests/test_talk_echo.py` | `EchoFilter`: 時間が重なり文も似ている → 捨てる / 時間は重なるが文が違う → 残す / 時間が外れていれば似ていても残す / 誤認識を少し含んでも似ていると判定 / 正規化後に空 → 残す / 古い履歴は消える |
+| `tests/test_talk_echo.py` | `EchoFilter`: 時間が重なる短い行 → 捨てる / 終了後 tail 内 → 捨てる / tail を過ぎたら残す / 文が違っても重なれば捨てる / 履歴なし → 残す / 古い履歴は消える |
 | `tests/test_tts.py` | `TtsPlayer` が鳴らし始める文ごとに、再生より前に `on_played` を呼ぶ（end は start + 音声の長さ） |
-| `tests/test_talk_driver.py` | 届け先ありで `is_suppressed("monitor")` が偽、`is_echo` が履歴に従う / 届け先なしでは従来どおり |
+| `tests/test_talk_driver.py` | 届け先ありで `is_suppressed("monitor")` が偽、`is_echo` が時間の重なりだけに従う（文が違っても捨てる） / 届け先なしでは従来どおり |
 | `tests/test_talk_recorder_hook.py` | 届け先ありの talk mode で、monitor の Claude の声の行は書かれず、相手の行は `[相手]` で書かれる |
 
 手動: 会議アプリで相手に話してもらう（または別の端末から音声を流す）。`[相手]` が transcript に入り、
