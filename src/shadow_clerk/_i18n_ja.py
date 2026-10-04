@@ -383,6 +383,13 @@ STRINGS_JA: dict[str, str] = {
     "cfg.preset_name": "プリセット名",
     "cfg.preset_name_ph": "例: 会議モード",
     "cfg.preset_delete": "このプリセットを削除",
+    "talk.preset_select": "プリセットを選択...",
+    "talk.preset_load": "ロード",
+    "talk.preset_save_as": "名前を付けて保存",
+    "talk.preset_save_title": "プリセットとして保存",
+    "talk.preset_name": "プリセット名",
+    "talk.preset_name_ph": "例: コードレビュー会議",
+    "talk.preset_delete": "このプリセットを削除",
 
     # --- llm.* : LLM プロンプト ---
     "llm.translate_system": (

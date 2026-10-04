@@ -175,6 +175,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_forbid_analyze()
         elif path == "/api/config-presets":
             self._serve_config_presets()
+        elif path == "/api/talk-presets":
+            self._serve_talk_presets()
         elif path == "/api/talk-mode":
             self._serve_talk_mode()
         elif path == "/api/talk-voices":
@@ -234,6 +236,10 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._save_config_preset()
         elif path == "/api/config-presets/delete":
             self._delete_config_preset()
+        elif path == "/api/talk-presets":
+            self._save_talk_preset()
+        elif path == "/api/talk-presets/delete":
+            self._delete_talk_preset()
         elif path == "/api/talk-mode":
             self._set_talk_mode()
         elif path == "/api/talk-end":

@@ -57,11 +57,75 @@ async function saveTalkCfg(key,val){
     cfg[key]=val;
     await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});}catch(e){}
 }
+let _talkPresets=[];
+async function loadTalkPresets(){
+  try{
+    const d=await(await fetch('/api/talk-presets')).json();
+    _talkPresets=d.presets||[];
+  }catch(e){_talkPresets=[];}
+  const sel=document.getElementById('talkPresetSel');if(!sel)return;
+  sel.innerHTML='<option value="">'+esc(I18N['talk.preset_select'])+'</option>';
+  _talkPresets.forEach(p=>{const o=document.createElement('option');o.value=p.name;o.textContent=p.name;sel.appendChild(o);});
+}
+function loadTalkPreset(){
+  const sel=document.getElementById('talkPresetSel');
+  if(!sel||!sel.value)return;
+  const preset=_talkPresets.find(p=>p.name===sel.value);
+  if(!preset||!preset.fields)return;
+  const f=preset.fields;
+  if(f.topic!==undefined)document.getElementById('talkTopic').value=f.topic||'';
+  if(f.workdir!==undefined)document.getElementById('talkWorkdir').value=f.workdir||'';
+  if(f.model!==undefined){const ms=document.getElementById('talkModel');if(ms)ms.value=f.model||'';}
+  if(f.persona!==undefined){const ps=document.getElementById('talkPersonaSel');if(ps)ps.value=f.persona||'';}
+  if(f.route!==undefined){const rs=document.getElementById('talkRoute');if(rs&&!rs.disabled)rs.value=f.route||'';}
+}
+function openSaveTalkPreset(){
+  const sel=document.getElementById('talkPresetSel');
+  const inp=document.getElementById('talkPresetNameInput');
+  if(inp)inp.value=sel?sel.value:'';
+  const delBtn=document.getElementById('talkPresetDeleteBtn');
+  if(delBtn)delBtn.style.display=(sel&&sel.value)?'':'none';
+  document.getElementById('talkPresetModal').classList.add('open');
+  if(inp)inp.focus();
+}
+function closeSaveTalkPreset(){document.getElementById('talkPresetModal').classList.remove('open');}
+async function doSaveTalkPreset(){
+  const name=(document.getElementById('talkPresetNameInput')?.value||'').trim();
+  if(!name)return;
+  const rs=document.getElementById('talkRoute'),ms=document.getElementById('talkModel'),ps=document.getElementById('talkPersonaSel');
+  const fields={
+    topic:document.getElementById('talkTopic').value.trim(),
+    workdir:document.getElementById('talkWorkdir').value.trim(),
+    model:ms?ms.value:'',
+    persona:ps?ps.value:'',
+    route:(rs&&!rs.disabled)?rs.value:'',
+  };
+  try{
+    await fetch('/api/talk-presets',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name,fields})});
+    closeSaveTalkPreset();
+    await loadTalkPresets();
+    const sel=document.getElementById('talkPresetSel');if(sel)sel.value=name;
+  }catch(e){}
+}
+async function deleteTalkPreset(){
+  const name=(document.getElementById('talkPresetNameInput')?.value||'').trim();
+  if(!name)return;
+  try{
+    await fetch('/api/talk-presets/delete',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name})});
+    closeSaveTalkPreset();
+    await loadTalkPresets();
+  }catch(e){}
+}
 async function togTalk(){
   if(talkActive){await talkPost({on:false});return;}
   await fillPersonaSel();
   await fillRouteSel();
   await fillModelSel();
+  await loadTalkPresets();
   document.getElementById('talkTopic').value='';
   document.getElementById('talkErr').textContent='';
   document.getElementById('talkModal').classList.add('open');
