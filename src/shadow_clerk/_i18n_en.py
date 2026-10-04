@@ -377,6 +377,13 @@ STRINGS_EN: dict[str, str] = {
     "cfg.path_missing_dir": "Directory not found: {path}",
     "cfg.path_missing_file": "File not found: {path}",
     "cfg.ai_assistant_workdir_warn": "The assistant runs shell scripts from the skill. Allow them in that directory's .claude/settings.json, or it will stop at a permission prompt mid-meeting.",
+    "cfg.preset_select": "Select a preset...",
+    "cfg.preset_load": "Load",
+    "cfg.preset_save_as": "Save as preset",
+    "cfg.preset_save_title": "Save as preset",
+    "cfg.preset_name": "Preset name",
+    "cfg.preset_name_ph": "e.g. Meeting mode",
+    "cfg.preset_delete": "Delete this preset",
 
     # --- llm.* ---
     "llm.translate_system": (

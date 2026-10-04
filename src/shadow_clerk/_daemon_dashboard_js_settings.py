@@ -217,6 +217,7 @@ async function openCfg(){
   if(ijaEl)ijaEl.onchange=updateCfgDisabled;
   renderCfgSkillRows();
   updateCfgDisabled();
+  loadCfgPresets();
   document.getElementById('cfgModal').classList.add('open');
   if(cfgData.api_endpoint){fetchApiModels();}
   loadAudioDevices(cfgData);
@@ -274,5 +275,82 @@ function updateCfgDisabled(){
   const iIsK2=ija&&ija.value==='reazonspeech-k2';
   const im=document.getElementById('cfg_interim_model');
   if(im){im.disabled=iIsK2;im.style.opacity=iIsK2?'0.5':'1';}
+}
+/* --- 設定プリセット --- */
+let _cfgPresets=[];
+async function loadCfgPresets(){
+  try{
+    const d=await(await fetch('/api/config-presets')).json();
+    _cfgPresets=d.presets||[];
+  }catch(e){_cfgPresets=[];}
+  const sel=document.getElementById('cfgPresetSel');if(!sel)return;
+  sel.innerHTML='<option value="">'+esc(I18N['cfg.preset_select'])+'</option>';
+  _cfgPresets.forEach(p=>{const o=document.createElement('option');o.value=p.name;o.textContent=p.name;sel.appendChild(o);});
+}
+function loadCfgPreset(){
+  const sel=document.getElementById('cfgPresetSel');
+  if(!sel||!sel.value)return;
+  const preset=_cfgPresets.find(p=>p.name===sel.value);
+  if(!preset||!preset.config)return;
+  const pc=preset.config;
+  CFG_FIELDS.forEach(f=>{
+    if(!f.key||f.type==='forbid')return;
+    if(!(f.key in pc))return;
+    const el=document.getElementById('cfg_'+f.key);if(!el)return;
+    const v=pc[f.key];
+    if(f.type==='bool'){el.value=v?'true':'false';}
+    else if(f.type==='api_model'){const s=el.querySelector('select');if(s)s.value=(v===null||v===undefined)?'':String(v);}
+    else if(el.tagName==='SELECT'){if(v!==null&&v!==undefined)el.value=String(v);}
+    else if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){el.value=(v===null||v===undefined)?'':String(v);}
+  });
+  updateCfgDisabled();
+}
+function openSavePreset(){
+  const sel=document.getElementById('cfgPresetSel');
+  const inp=document.getElementById('cfgPresetNameInput');
+  if(inp)inp.value=sel?sel.value:'';
+  const delBtn=document.getElementById('cfgPresetDeleteBtn');
+  if(delBtn)delBtn.style.display=(sel&&sel.value)?'':'none';
+  document.getElementById('cfgPresetModal').classList.add('open');
+  if(inp)inp.focus();
+}
+function closeSavePreset(){document.getElementById('cfgPresetModal').classList.remove('open');}
+function _collectCfgFormValues(){
+  const d={};
+  CFG_FIELDS.forEach(f=>{
+    if(!f.key||f.type==='forbid')return;
+    const el=document.getElementById('cfg_'+f.key);if(!el)return;
+    if(f.type==='bool'){d[f.key]=el.value==='true';}
+    else if(f.type==='json'){try{d[f.key]=JSON.parse(el.value);}catch(e){}}
+    else if(f.type==='device_select'){if(!el.disabled)d[f.key]=el.value||null;}
+    else if(f.type==='select'&&f.num){const n=parseInt(el.value,10);d[f.key]=isNaN(n)?null:n;}
+    else if(f.type==='api_model'){const s=el.querySelector('select');if(s)d[f.key]=s.value||null;}
+    else if(f.type==='select'){d[f.key]=el.value===''?null:el.value;}
+    else{const v=el.value.trim();d[f.key]=(v===''||v==='null')?null:v;}
+  });
+  return d;
+}
+async function doSavePreset(){
+  const name=(document.getElementById('cfgPresetNameInput')?.value||'').trim();
+  if(!name)return;
+  try{
+    await fetch('/api/config-presets',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name,config:_collectCfgFormValues()})});
+    closeSavePreset();
+    await loadCfgPresets();
+    const sel=document.getElementById('cfgPresetSel');if(sel)sel.value=name;
+  }catch(e){}
+}
+async function deleteCfgPreset(){
+  const name=(document.getElementById('cfgPresetNameInput')?.value||'').trim();
+  if(!name)return;
+  try{
+    await fetch('/api/config-presets/delete',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name})});
+    closeSavePreset();
+    await loadCfgPresets();
+  }catch(e){}
 }
 """

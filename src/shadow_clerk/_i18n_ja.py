@@ -376,6 +376,13 @@ STRINGS_JA: dict[str, str] = {
     "cfg.path_missing_dir": "ディレクトリが見つかりません: {path}",
     "cfg.path_missing_file": "ファイルが見つかりません: {path}",
     "cfg.ai_assistant_workdir_warn": "アシスタントはスキルのシェルスクリプトを実行します。そのディレクトリの .claude/settings.json で許可しておかないと、会議中に承認プロンプトで止まります。",
+    "cfg.preset_select": "プリセットを選択...",
+    "cfg.preset_load": "ロード",
+    "cfg.preset_save_as": "名前を付けて保存",
+    "cfg.preset_save_title": "プリセットとして保存",
+    "cfg.preset_name": "プリセット名",
+    "cfg.preset_name_ph": "例: 会議モード",
+    "cfg.preset_delete": "このプリセットを削除",
 
     # --- llm.* : LLM プロンプト ---
     "llm.translate_system": (
