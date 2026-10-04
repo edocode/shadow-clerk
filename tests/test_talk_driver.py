@@ -319,6 +319,56 @@ def test_echo_with_route() -> None:
     check("talk mode を終えたら判定しない", not d.is_echo("monitor", time.time() - 2, time.time(), "それはいい考えですね"))
 
 
+def test_wait_for_floor_with_route() -> None:
+    route, sink = _Route(), _Sink()
+    d, written, _m = _driver(route_factory=lambda: route, sink_factory=lambda: sink, talk_floor_wait_sec=5)
+    d.start("x", None, None, "Chromium")
+    try:
+        check("届け先ありなら routed", d.routed)
+        check("中間文字起こしが無ければ誰も話していない", d.speaking() == [])
+        d.on_interim("monitor")
+        check("中間文字起こしに文字が出たら話している", d.speaking() == ["monitor"])
+        t = threading.Thread(target=d.say, args=("いいと思います。",))
+        t.start()
+        time.sleep(0.3)
+        check("相手が話している間は話さない", written == [] and t.is_alive(), repr(written))
+        d.clear_interim("monitor")
+        t.join(2)
+        check("相手が話し終えたら話す", [tl.text for tl in written] == ["いいと思います。"], repr(written))
+        d._heard["monitor"] = time.monotonic() - 10
+        check("中間文字起こしが古ければ話し終えたとみなす", d.speaking() == [])
+    finally:
+        d.stop()
+    check("talk mode を終えたら routed でない", not d.routed)
+
+
+def test_floor_wait_limit_and_stop() -> None:
+    route, sink = _Route(), _Sink()
+    d, written, _m = _driver(route_factory=lambda: route, sink_factory=lambda: sink, talk_floor_wait_sec=0.3)
+    d.start("x", None, None, "Chromium")
+    try:
+        d._heard["monitor"] = time.monotonic() + 60  # 話し続けている
+        started = time.monotonic()
+        d.say("話します。")
+        check("待つのは talk_floor_wait_sec まで", 0.25 < time.monotonic() - started < 2
+              and len(written) == 1, repr(written))
+        d._floor_wait_sec = 5
+        t = threading.Thread(target=d.say, args=("待っている間に終わる。",))
+        t.start()
+        time.sleep(0.2)
+        d.stop()
+        t.join(2)
+        check("待つ間に talk mode が終われば話さない", len(written) == 1 and not t.is_alive(), repr(written))
+    finally:
+        d.stop()
+    d2, written2, _m2 = _driver()
+    d2.start("x", None)
+    d2.on_interim("monitor")
+    d2.say("届け先なし。")
+    check("届け先なしなら待たない", [tl.text for tl in written2] == ["届け先なし。"], repr(written2))
+    d2.stop()
+
+
 def test_no_route_keeps_suppressing_monitor() -> None:
     d, _w, made = _driver()
     d.start("x", None)
@@ -579,5 +629,7 @@ if __name__ == "__main__":
     test_route_targets()
     test_echo_with_route()
     test_no_route_keeps_suppressing_monitor()
+    test_wait_for_floor_with_route()
+    test_floor_wait_limit_and_stop()
     test_end_after_speech()
     sys.exit(0 if all(results) else 1)

@@ -68,6 +68,9 @@ def resolve_talk_workdir(config: dict, requested: str | None) -> str:
 
 # つなぎどうしの最短間隔（秒）。返事待ちのたびに挟むと、うるさく同じ言葉が続いて聞こえる
 FILLER_COOLDOWN_SEC = 30.0
+# 中間文字起こしがこの秒数更新されなければ話し終えたとみなす（確定行が捨てられて消されなかったときの保険）
+SPEAKING_STALE_SEC = 4.0
+_FLOOR_POLL_SEC = 0.1
 
 class TalkDriver:
     def __init__(self, write_line: Callable[[TranscriptLine], None], *,
@@ -107,6 +110,8 @@ class TalkDriver:
         self._filler_said = -1  # 最後につなぎを挟んだときの _said。1回の返事待ちに1回まで
         self._filler_at = float("-inf")  # 最後につなぎを挟んだ時刻（monotonic）
         self._filler_last = ""
+        self._floor_wait_sec = 0.0
+        self._heard: dict[str, float] = {}  # source → 中間文字起こしに文字が出た最後の時刻（monotonic）
 
     def start(self, topic: str, persona: str | None, workdir: str | None = None,
               route: str | None = None) -> None:
@@ -158,6 +163,7 @@ class TalkDriver:
             self._language, self._workdir = lang.value, resolved
             self._credit, self._error = backend.credit(), ""
             self._filler_sec = float(config.get("talk_filler_sec") or 0)
+            self._floor_wait_sec = _float_setting(config, "talk_floor_wait_sec", 10.0, 0.0, 60.0)
             self._stop_re = stop_pattern(config.get("talk_stop_words"))
             self._active = True  # つなぎは [自分] 行のあとだけ。口火の前に挟むと最初の質問より先に話してしまう
             logger.info("talk: 開始 (engine=%s, topic=%r, persona=%s, language=%s)",
@@ -194,6 +200,23 @@ class TalkDriver:
     @property
     def active(self) -> bool:
         return self._active
+
+    @property
+    def routed(self) -> bool:
+        """届け先ありの talk mode か。会議のほかの参加者に声が届く"""
+        return self._active and self._route is not None
+
+    def on_interim(self, source: str) -> None:
+        """中間文字起こしに文字が出た。確定行の処理（clear_interim）か SPEAKING_STALE_SEC の無更新で消える"""
+        self._heard[source] = time.monotonic()
+
+    def clear_interim(self, source: str) -> None:
+        self._heard.pop(source, None)
+
+    def speaking(self) -> list[str]:
+        """中間文字起こしに文字が出ている source。transcript の確定行を待つより早く「話している」と分かる"""
+        now = time.monotonic()
+        return sorted(s for s, at in list(self._heard.items()) if now - at < SPEAKING_STALE_SEC)
 
     def is_suppressed(self, source: str) -> bool:
         """この source の文字起こしを捨てるか。届け先が無い talk mode の monitor（Claude の声しか来ない）"""
@@ -279,7 +302,7 @@ class TalkDriver:
     def _filler(self, said: int) -> None:
         with self._lock:
             if (not self._active or self._said != said or self._filler_said == said
-                    or time.monotonic() - self._filler_at < FILLER_COOLDOWN_SEC):
+                    or time.monotonic() - self._filler_at < FILLER_COOLDOWN_SEC or self.speaking()):
                 return
             player, phrase = self._player, filler_phrase(self._lang, self._filler_last)
             self._filler_said, self._filler_at, self._filler_last = said, time.monotonic(), phrase
@@ -290,7 +313,7 @@ class TalkDriver:
     def say(self, text: str) -> None:
         """[Claude] 行を書いて読み上げる。talk mode でなければ一時的な再生器を使う"""
         text = one_line(text)
-        if not text:
+        if not text or (self.routed and not self._wait_for_floor()):
             return
         self._write_line(TranscriptLine(self._clock(), Speaker.CLAUDE, text))
         with self._lock:
@@ -300,6 +323,13 @@ class TalkDriver:
             return
         config = self._config_loader()
         self._speak_once(self._backend_factory(config, None), config, text)
+
+    def _wait_for_floor(self) -> bool:
+        """会議のほかの参加者が話し終えるまで待つ（最長 talk_floor_wait_sec）。待つ間に talk mode が終われば False"""
+        deadline = time.monotonic() + self._floor_wait_sec
+        while self._active and self.speaking() and time.monotonic() < deadline:
+            time.sleep(_FLOOR_POLL_SEC)
+        return self._active
 
     def preview(self, voice: TalkVoice, text: str) -> None:
         """その声で1回だけ読み上げる（声の設定の試聴）。transcript には書かない。届かなければ TtsError"""

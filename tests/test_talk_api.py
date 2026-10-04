@@ -62,6 +62,9 @@ class _Talk:
     def route_targets(self) -> dict:
         return {"available": True, "targets": [{"app": "Chromium", "label": "Chromium — WebRTC"}]}
 
+    def speaking(self) -> list[str]:
+        return ["monitor"] if self.reachable else []
+
     def snapshot(self) -> dict:
         return {"active": bool(self.calls)}
 
@@ -192,12 +195,25 @@ def test_route() -> None:
         check(f"{label}届ける先は拒否", h.sent.get("status") == "error" and h.talk.calls == [], repr(h.sent))
 
 
+def test_speaking() -> None:
+    h = _FakeHandler()
+    h._serve_speaking()
+    check("話していれば speaking が真", h.sent == {"speaking": True, "sources": ["monitor"]}, repr(h.sent))
+    h = _FakeHandler(reachable=False)
+    h._serve_speaking()
+    check("誰も話していなければ偽", h.sent == {"speaking": False, "sources": []}, repr(h.sent))
+    h = _FakeHandler(client="10.0.0.9")
+    h._serve_speaking()
+    check("外部からは拒否", h.sent.get("status") == "error")
+
+
 if __name__ == "__main__":
     test_voices()
     test_preview()
     test_start_stop()
     test_start_error()
     test_validation()
+    test_speaking()
     test_say_and_remote()
     test_talk_end()
     test_route()

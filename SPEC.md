@@ -166,7 +166,8 @@ clerk-daemon に統合された Web ダッシュボード。ブラウザから t
 - `TalkPersona`（`domain/talk_persona.py`）: `talk_personas` の1件。`null` → 既定、`""` → なし、名前 → その persona（無ければ既定）
 - 経路（`_daemon_talk_route.py` の `PipeWireRoute` / `NullRoute`）: 開始時に会議アプリを選ぶと、読み上げを `pw-cat` の名前付きストリーム（`_daemon_tts_pipewire.py`、常駐させて書き込む）から流し、`pw-link` でそのアプリのマイク入力につなぐ。daemon 自身の入力は候補とリンク先から除外し、アプリがマイクを開き直したら監視がつなぎ直す。PipeWire が無い環境は `NullRoute`（選択不可）。`GET /api/talk-route-targets` が候補、`POST /api/talk-mode` の `route` が選択、状態は `snapshot()["route"]`
 - エコー除去（`domain/talk_echo.py` の `EchoFilter` / `SpokenSpan`）: 手元で鳴らした Claude の声は monitor にも入る。`TtsPlayer.set_on_played(fn)`（`TalkDriver` がプレーヤー作成後に設定）が、1文を鳴らし始めるたびに `(text, start, end)` を知らせ、`TalkDriver` が `EchoFilter.record` に積む（開始ごとに `talk_echo_tail_sec` から作り直す）。届け先ありのときだけ `is_suppressed("monitor")` が偽になり monitor を文字起こしに戻す（`[相手]`）。`_process_transcribe_item` が `TalkDriver.is_echo(source, seg_start, seg_end, text)` を尋ね（`seg_start` は VAD スレッドが確定時に `time.time() - 長さ` で測ってキューに載せる）、区間が読み上げ中から終了後 `talk_echo_tail_sec` までに重なれば、本文に関わらず書かずに捨てる（短い返事や相槌は文の類似では見分けられず漏れたため、時間だけで判定する。読み上げ中に相手がかぶせた発言も失われるが許容する。判定は VAD が測った区間の開始時刻で行い、`talk_echo_tail_sec`（既定 0.3 秒）は出力と録音の遅れ分だけ。Claude の直後に無音を挟まず相手が話し始めると VAD が1区間にまとめるため、その区間は捨てられる）。届け先なしでは従来どおり monitor を丸ごと捨てる。monitor の中間文字起こしは、届け先なしの talk mode 中と、届け先ありで読み上げ（終了後 `talk_echo_tail_sec` まで）と重なる間は作らない（`TalkDriver.hides_interim`）。確定行を Claude の声として捨てたときも `interim_clear` を送る
-- API: `GET/POST /api/talk-mode`、`GET /api/talk-route-targets`、`POST /api/say`、`POST /api/language`（検出言語の切り替え。`ja` などの既知の言語コードか `auto` だけを受け付ける。talk の skill がユーザーの希望で使う）、`POST /api/talk-end`（読み上げ中の文を言い終えてから talk mode を終える。talk の skill が会話を終えるときに使う。`_daemon_dashboard_ops_talk.py`、localhost のみ）。状態は `/api/status` の `talk`
+- 発話中の判定（`TalkDriver.on_interim` / `clear_interim` / `speaking`）: 中間文字起こしに文字が出るたびに `on_interim(source)` で時刻を記録し、その source の確定行を処理し終えたら（書いたか捨てたかに関わらず）`clear_interim` で消す。確定行がノイズとして捨てられて消されない場合に備え、`SPEAKING_STALE_SEC`（4 秒）更新が無ければ話し終えたとみなす。Claude の声と重なる区間は `hides_interim` で中間文字起こしを作らないので、Claude 自身の声では立たない。届け先ありの talk mode 中（`TalkDriver.routed`）は `interim_transcription` が無効でも中間文字起こしを動かす（表示・翻訳はしない）。`say()` は届け先ありなら、`speaking()` が空になるまで最長 `talk_floor_wait_sec` 待ってから `[Claude]` 行を書いて読み上げる（待つ間に talk mode が終われば話さない）。つなぎの一言も誰かが話している間は挟まない。`GET /api/speaking` が `{"speaking": bool, "sources": [...]}` を返す（localhost のみ）
+- API: `GET/POST /api/talk-mode`、`GET /api/talk-route-targets`、`GET /api/speaking`、`POST /api/say`、`POST /api/language`（検出言語の切り替え。`ja` などの既知の言語コードか `auto` だけを受け付ける。talk の skill がユーザーの希望で使う）、`POST /api/talk-end`（読み上げ中の文を言い終えてから talk mode を終える。talk の skill が会話を終えるときに使う。`_daemon_dashboard_ops_talk.py`、localhost のみ）。状態は `/api/status` の `talk`
 
 ```mermaid
 sequenceDiagram
@@ -714,6 +715,7 @@ talk_language: ""
 talk_personas: {}
 talk_default_persona: ""
 talk_filler_sec: 8
+talk_floor_wait_sec: 10   # 届け先ありで相手が話している間、発言を最長この秒数待たせる。0 で待たない
 talk_stop_words: [待って, ストップ, 止めて, やめて, stop, wait, hold on]
 ```
 
