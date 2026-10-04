@@ -645,7 +645,7 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
                 last_interim_time = 0.0
                 # final segment 確定時に config を再読み込み（ランタイム切替対応）
                 interim_enabled = load_config().get("interim_transcription", False)
-            elif interim_enabled and label == "monitor" and segmenter.in_speech:
+            elif (interim_enabled or self.talk.routed) and label == "monitor" and segmenter.in_speech:
                 now = time.time()
                 if now - last_interim_time >= 1.5:
                     interim_audio = segmenter.get_interim_segment()

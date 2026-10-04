@@ -108,6 +108,21 @@ def test_interrupt() -> None:
     check("話していないときの制止も受ける", HeadlessEngine.wants_idle_interrupt is True)
 
 
+def test_held() -> None:
+    e, ctx, made, said, _e = _engine()
+    e.start(ctx)
+    proc = made["proc"]
+    e.on_held("古い話です。", ["[2026-10-03 10:00:01] [相手] もう決まりました"])
+    proc.on_text("続きです。")
+    check("待たされたターンの残りは捨てる", said == [], repr(said))
+    proc.on_turn_end(True)
+    check("話さなかった文と相手の発言を送る", "古い話です。" in proc.sent[-1] and "もう決まりました" in proc.sent[-1],
+          repr(proc.sent))
+    proc.on_turn_end(True)
+    e.on_held("また古い話。", ["[2026-10-03 10:00:02] [自分] 次の話題へ"])
+    check("待機中ならすぐ送る", "次の話題へ" in proc.sent[-1], repr(proc.sent))
+
+
 def test_exit() -> None:
     e, ctx, made, _s, ended = _engine()
     e.start(ctx)
@@ -127,5 +142,6 @@ if __name__ == "__main__":
     test_start()
     test_turns()
     test_interrupt()
+    test_held()
     test_exit()
     sys.exit(0 if all(results) else 1)

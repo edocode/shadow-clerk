@@ -25,6 +25,7 @@ class _Talk:
     def __init__(self, active: bool, route: bool = False) -> None:
         self.active, self.route = active, route
         self.self_lines: list[TranscriptLine] = []
+        self.other_lines: list[TranscriptLine] = []
         self.echo_calls: list[tuple] = []
 
     def is_suppressed(self, source: str) -> bool:
@@ -36,6 +37,9 @@ class _Talk:
 
     def on_self_line(self, line: TranscriptLine) -> None:
         self.self_lines.append(line)
+
+    def on_other_line(self, line: TranscriptLine) -> None:
+        self.other_lines.append(line)
 
 
 class _Rec(_RecorderTranscribeMixin):
@@ -87,6 +91,7 @@ def test_echo_dropped_other_side_kept() -> None:
     rec = _Rec(talk, said="相手の発言です")
     _run(rec, "monitor")
     check("相手の発言は [相手] で書く", _lines(rec) == ["[2026-10-02 10:00:00] [相手] 相手の発言です"], repr(_lines(rec)))
+    check("[相手] 行を通知する", [tl.speaker for tl in talk.other_lines] == [Speaker.OTHER], repr(talk.other_lines))
     check("区間は録音側が測った開始時刻と音声の長さから渡す", talk.echo_calls[-1][1:3] == (1000.25, 1001.25), repr(talk.echo_calls[-1]))
 
 
@@ -95,7 +100,7 @@ def test_inactive() -> None:
     rec = _Rec(talk)
     _run(rec, "monitor")
     check("talk mode でなければ monitor も書く", _lines(rec) == ["[2026-10-02 10:00:00] [相手] これはテストです"])
-    check("[相手] 行は通知しない", talk.self_lines == [])
+    check("[相手] 行は [自分] 行として通知しない", talk.self_lines == [])
 
 
 def test_append_line() -> None:

@@ -540,6 +540,15 @@ replies and fillers can't be told apart from Claude's voice by text. If someone 
 that overlap are dropped too. Without a meeting app chosen, the monitor stays muted during talk mode as before.
 Interim (live) monitor text is not shown while Claude is speaking.
 
+With a meeting app chosen, Claude also waits for the floor: while the interim (live) transcription of the monitor
+has text, someone else is talking, so a new reply waits until they finish (at most `talk_floor_wait_sec`) before it is
+spoken. This is much earlier than waiting for the finished transcript line. If anyone's line is transcribed while it
+waits, the reply is not spoken, because the topic may have moved on: `/api/say` answers
+`{"status": "held", "heard": [...lines...]}` and Claude rethinks it (the headless engine drops the rest of that turn and
+gets the lines with a note). Interim transcription runs for this even
+when `interim_transcription` is off (it is then not shown on the dashboard). `GET /api/speaking` returns the flag
+(`{"speaking": true, "sources": ["monitor"]}`); the talk skill also uses it before raising a point on its own.
+
 You can also make Claude speak any text:
 
 ```bash
@@ -592,6 +601,7 @@ sends `<notice>…</notice>` and continues with the new file, so Claude keeps he
 | `talk_personas` | `{}` | Name → personality / how to respond. Edit from the start dialog |
 | `talk_default_persona` | `""` | Persona selected by default |
 | `talk_filler_sec` | `8` | If Claude has said nothing for this many seconds after you spoke, say a short "hmm" (not written to the transcript). At most once while waiting for a reply, and at least 30 s apart. `0` disables it. Also in Settings |
+| `talk_floor_wait_sec` | `10` | With a meeting app chosen, how long a reply waits for the others to stop talking (interim text present) before it is spoken anyway. `0` disables waiting |
 | `talk_stop_words` | `["待って", "ストップ", "止めて", "やめて", "stop", "wait", "hold on"]` | Saying one of these stops Claude mid-sentence. Substring match, so avoid short kana that appear inside other words; ASCII words match whole words |
 
 Claude speaks each part of a reply as soon as it is written, in short sentences, so you can cut in

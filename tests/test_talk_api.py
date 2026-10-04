@@ -49,11 +49,11 @@ class _Talk:
     def stop(self) -> None:
         self.calls.append(("stop",))
 
-    def api_say(self, text: str, lang: Language | None = None) -> str | None:
+    def api_say(self, text: str, lang: Language | None = None) -> dict:
         if text == "遮られた":
-            return "途中の文。"
+            return {"status": "interrupted", "cut": "途中の文。"}
         self.calls.append(("say", text) if lang is None else ("say", text, lang))
-        return None
+        return {"status": "ok"}
 
     def speech_ready(self, tab: SpeechTab) -> None:
         self.calls.append(("ready", tab))
@@ -68,6 +68,9 @@ class _Talk:
 
     def route_targets(self) -> dict:
         return {"available": True, "targets": [{"app": "Chromium", "label": "Chromium — WebRTC"}]}
+
+    def speaking(self) -> list[str]:
+        return ["monitor"] if self.reachable else []
 
     def snapshot(self) -> dict:
         return {"active": bool(self.calls)}
@@ -199,6 +202,18 @@ def test_route() -> None:
         check(f"{label}届ける先は拒否", h.sent.get("status") == "error" and h.talk.calls == [], repr(h.sent))
 
 
+def test_speaking() -> None:
+    h = _FakeHandler()
+    h._serve_speaking()
+    check("話していれば speaking が真", h.sent == {"speaking": True, "sources": ["monitor"]}, repr(h.sent))
+    h = _FakeHandler(reachable=False)
+    h._serve_speaking()
+    check("誰も話していなければ偽", h.sent == {"speaking": False, "sources": []}, repr(h.sent))
+    h = _FakeHandler(client="10.0.0.9")
+    h._serve_speaking()
+    check("外部からは拒否", h.sent.get("status") == "error")
+
+
 def test_say_lang() -> None:
     h = _FakeHandler({"text": "They are there.", "lang": "en"})
     h._say()
@@ -239,6 +254,7 @@ if __name__ == "__main__":
     test_start_stop()
     test_start_error()
     test_validation()
+    test_speaking()
     test_say_and_remote()
     test_talk_end()
     test_route()

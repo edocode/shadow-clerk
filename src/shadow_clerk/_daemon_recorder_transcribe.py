@@ -174,6 +174,8 @@ class _RecorderTranscribeMixin:
         self._append_transcript_line(tl)
         if file_speaker == Speaker.SELF:
             self.talk.on_self_line(tl)
+        else:
+            self.talk.on_other_line(tl)
         display_line = f"[{timestamp}] [{display_speaker}] {text}"
         print(f"  {display_line}")
         self._clear_interim(source)
@@ -204,6 +206,7 @@ class _RecorderTranscribeMixin:
                 # ここでスレッドが死ぬと以降の文字起こしが無言で全停止するため、
                 # セグメント単位でエラーを記録して継続する
                 logger.exception("文字起こし処理でエラー、セグメントをスキップして継続します")
+            self.talk.clear_interim(source)
 
         # キュー残りを処理（VAD スレッドの flush がまだ put していない可能性があるため猶予付き）
         while True:
@@ -234,7 +237,7 @@ class _RecorderTranscribeMixin:
                 logger.exception("終了時の文字起こし処理でエラー、スキップします")
 
     def _interim_transcribe_thread(self) -> None:
-        """中間文字起こしスレッド（interim_transcription 有効時のみモデルをロード）"""
+        """中間文字起こしスレッド（interim_transcription 有効時か届け先ありの talk mode 中だけモデルをロード）"""
         display_labels = {"mic": t("speaker.mic"), "monitor": t("speaker.monitor")}
         interim_transcriber = None
         interim_model_name = None
@@ -243,7 +246,9 @@ class _RecorderTranscribeMixin:
 
         while not self.stop_event.is_set():
             config = load_config()
-            if not config.get("interim_transcription", False):
+            show = config.get("interim_transcription", False)
+            # 届け先ありの talk mode では、相手が話しているかを知るため表示が無効でも動かす
+            if not (show or self.talk.routed):
                 # 無効中はモデルをロードせず待機
                 self.stop_event.wait(timeout=2.0)
                 continue
@@ -284,7 +289,9 @@ class _RecorderTranscribeMixin:
 
             try:
                 text = interim_transcriber.transcribe(audio_segment)
-                if text.strip() and hasattr(self, "_file_watcher"):
+                if text.strip():
+                    self.talk.on_interim(source)
+                if text.strip() and show and hasattr(self, "_file_watcher"):
                     speaker = display_labels.get(source, source)
                     self._file_watcher._broadcast("interim_transcript", json.dumps(
                         {"source": source, "speaker": speaker, "text": text.strip(),

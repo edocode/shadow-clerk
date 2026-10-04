@@ -46,6 +46,12 @@ class _DashboardHandlerTalkOps:
         if not self._reject_remote():
             self._send_json(self.recorder.talk.route_targets())
 
+    def _serve_speaking(self) -> None:
+        """GET /api/speaking — 中間文字起こしに文字が出ている（誰かが話している）か"""
+        if not self._reject_remote():
+            sources = self.recorder.talk.speaking()
+            self._send_json({"speaking": bool(sources), "sources": sources})
+
     def _talk_preview(self) -> None:
         """POST /api/talk-preview {text?, voice?} — 保存前の声で試し読みする。transcript には書かない"""
         data = read_local_json_body(self, "talk")
@@ -117,8 +123,7 @@ class _DashboardHandlerTalkOps:
         if lang is not None and (not isinstance(lang, str) or lang not in {v.value for v in Language}):
             self._send_json({"status": "error", "message": "lang must be a known language code"})
             return
-        cut = self.recorder.talk.api_say(text, Language(lang) if lang is not None else None)
-        self._send_json({"status": "ok"} if cut is None else {"status": "interrupted", "cut": cut})
+        self._send_json(self.recorder.talk.api_say(text, Language(lang) if lang is not None else None))
 
     def _talk_speech_ready(self) -> None:
         """POST /api/talk-speech/ready {tab, langs} — 練習言語の文を読めるダッシュボードのタブが名乗る（30 秒ごと）"""
