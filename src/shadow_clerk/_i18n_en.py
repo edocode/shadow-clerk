@@ -276,6 +276,8 @@ STRINGS_EN: dict[str, str] = {
     "cfg.section.summary": "Summary",
     "cfg.section.api": "LLM / API",
     "cfg.section.gcal": "Google Calendar Integration",
+    "cfg.section.talk": "Talk with Claude",
+    "cfg.talk_filler_sec": "Seconds before a filler (0 = off; applies from the next talk)",
     "cfg.section.ai_console": "AI Console",
 
     # --- cfg.* ---

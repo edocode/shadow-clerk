@@ -62,6 +62,8 @@ const CFG_FIELDS=[
   {key:'ai_assistant_init_prompt',label:I18N['cfg.ai_assistant_init_prompt'],type:'text',ph:I18N['cfg.ai_assistant_init_prompt_ph']},
   {key:'ai_assistant_workdir',label:I18N['cfg.ai_assistant_workdir'],type:'text',ph:PATH_HINTS.ai_assistant_workdir,
     warn:{when:'',msgKey:'cfg.ai_assistant_workdir_warn'}},
+  {type:'section',label:I18N['cfg.section.talk']},
+  {key:'talk_filler_sec',label:I18N['cfg.talk_filler_sec'],type:'select',num:true,opts:['0','5','8','10','15','20']},
   {type:'section',label:I18N['cfg.section.gcal']},
   {type:'doc',urlKey:'cfg.gcal_setup_url',textKey:'cfg.gcal_setup_link'},
   {key:'gcal_integration',label:I18N['cfg.gcal_integration'],type:'bool'},
