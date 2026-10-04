@@ -29,6 +29,10 @@ from shadow_clerk.domain.meeting_config import MeetingConfig
 
 logger = logging.getLogger("shadow-clerk")
 
+
+class _PromptCancelled(Exception):
+    """初期プロンプトの送り先の子が終わった、または起動し直された"""
+
 # 親から継承すると、子の Claude Code が「親セッションの子」と誤認して
 # transcript 保存を止めてしまう変数。前置き一致で落とす——将来この接頭辞で
 # 変数が増えても自動で対象に入る。ANTHROPIC_* は API キー等で子に必要なので残す。
@@ -99,6 +103,9 @@ class ConsoleSession:
         # 吸収される(実機で確認済み: 直列化=待たせるだけでは防げず、
         # 後から来た方を捨てる必要があった)。先着が処理中なら後着は捨てる
         self._prompt_lock = threading.Lock()
+        # PTY を開くたびに進める。送信スレッドは自分の世代を _prompt_gen に持ち、変わったら
+        # 手を引く。さもないと前の子への送信が _prompt_lock を握ったまま新しい子に打ち込む
+        self._generation, self._prompt_gen = 0, -1
         self.max_row = 0
         self._broadcast: Callable[[str, str], None] | None = None
         # 子に渡すダッシュボードの URL。ポートは CLI 引数で変えられるので、
@@ -158,6 +165,7 @@ class ConsoleSession:
             # おらず、0 に戻すと再利用/巻き戻りの余地を無駄に作るだけ
             self._has_output = False
             self.max_row = 0
+            self._generation += 1
             self._reset_screen()
             self._reader = threading.Thread(
                 target=self._read_loop, name="console-reader", daemon=True)
@@ -294,20 +302,44 @@ class ConsoleSession:
     def send_after_ready(self, text: str) -> None:
         """TUI の起動を待ってから text を送る。呼び出しはブロックしない"""
         threading.Thread(
-            target=self._send_after_ready_blocking, args=(text,),
+            target=self._send_after_ready_blocking, args=(text, self._generation),
             name="console-init-prompt", daemon=True).start()
 
-    def _send_after_ready_blocking(self, text: str) -> None:
-        # 先着が処理中(ロック取得中)なら後着は捨てる。待たせて直列化するだけでは
-        # 先着の "\r" が子側でまだ効いていないうちに後着の本文が続けて入力欄に
-        # 入ってしまい、結局 Enter が送信として認識されない
-        if not self._prompt_lock.acquire(blocking=False):
+    def _send_after_ready_blocking(self, text: str, gen: int) -> None:
+        # 同じ子への先着が処理中なら後着は捨てる。待たせて直列化するだけでは先着の "\r" が
+        # 効く前に後着の本文が入力欄に続けて入り、結局 Enter が送信として認識されない。
+        # 先着が前の子へのものなら、世代の変化に気づいて次の tick で抜けるので待つ
+        if not self._prompt_lock.acquire(blocking=False) and (
+                self._prompt_gen == gen or not self._prompt_lock.acquire(timeout=CONSOLE_TICK_SEC * 20)):
             logger.info("初期プロンプトの送信が重複したため、後着をスキップします: %s", text)
             return
+        self._prompt_gen = gen
         try:
             self._send_after_ready_locked(text)
+        except _PromptCancelled as e:
+            logger.warning("初期プロンプトの送信を中止しました (%s): %s", e, text)
         finally:
             self._prompt_lock.release()
+
+    def _check_prompt_target(self) -> None:
+        """送信スレッドの送り先が終わっていたり起動し直されていたら _PromptCancelled"""
+        if self._generation != self._prompt_gen:
+            raise _PromptCancelled("AI Console が起動し直されました")
+        if not self.is_running():
+            raise _PromptCancelled("子プロセスが終了しました")
+
+    def _prompt_sleep(self, sec: float) -> None:
+        """送り先が死んだら途中で _PromptCancelled を投げる sleep"""
+        deadline = time.monotonic() + sec
+        while (left := deadline - time.monotonic()) > 0:
+            self._check_prompt_target()
+            time.sleep(min(CONSOLE_TICK_SEC, left))
+
+    def _prompt_write(self, data: str) -> None:
+        """送信スレッドからの書き込み。世代の確認と書き込みの間に起こし直されないようロック内で"""
+        with self._lock:
+            self._check_prompt_target()
+            self.write(data)
 
     def _send_after_ready_locked(self, text: str) -> None:
         # 固定 sleep では TUI の起動時間のばらつきを吸収できない。
@@ -317,9 +349,6 @@ class ConsoleSession:
         quiet_since: float | None = None
         last_seq = -1
         while time.monotonic() < deadline:
-            if not self.is_running():
-                logger.warning("init_prompt を送る前に子プロセスが終了しました")
-                return
             with self._lock:
                 # max_row (cursor.y の最大値) は「非空」の代理には使えない。
                 # プロンプトが1行に収まると cursor は row0 に留まったまま
@@ -337,7 +366,7 @@ class ConsoleSession:
             elif quiet_since is not None and \
                     time.monotonic() - quiet_since >= CONSOLE_READY_QUIET_SEC:
                 break
-            time.sleep(CONSOLE_TICK_SEC)
+            self._prompt_sleep(CONSOLE_TICK_SEC)
         else:
             logger.warning("AI Console の ready 判定がタイムアウトしました。そのまま送信します")
         self._write_with_submit(text)
@@ -352,7 +381,7 @@ class ConsoleSession:
         body = text[:-1] if text.endswith("\r") else text
         self._type_with_retry(body)
         if body is not text:
-            time.sleep(CONSOLE_SUBMIT_DELAY_SEC)
+            self._prompt_sleep(CONSOLE_SUBMIT_DELAY_SEC)
             self._submit_with_retry()
 
     def _row_text(self, y: int) -> str:
@@ -370,18 +399,18 @@ class ConsoleSession:
         貼り付けの畳み込みで全文は見えないことがある)ので打ち直さない——二重に入る
         """
         if not body.strip():
-            self.write(body)
+            self._prompt_write(body)
             return
         for attempt in range(CONSOLE_TYPE_MAX_RETRIES + 1):
             if attempt:
                 logger.warning("初期プロンプトが画面に現れないため打ち直します (%d/%d): %s",
                                attempt, CONSOLE_TYPE_MAX_RETRIES, body)
-            self.write(body)
+            self._prompt_write(body)
             deadline = time.monotonic() + CONSOLE_TYPE_VERIFY_SEC
             while time.monotonic() < deadline:
                 if self._body_visible(body):
                     return
-                time.sleep(CONSOLE_TICK_SEC)
+                self._prompt_sleep(CONSOLE_TICK_SEC)
         logger.warning("初期プロンプトを %d 回打ち直しても画面に現れませんでした: %s",
                        CONSOLE_TYPE_MAX_RETRIES, body)
 
@@ -390,11 +419,14 @@ class ConsoleSession:
         text = body.strip()
         probes = {text[:8], text[-8:], "[Pasted text"} - {""}
         with self._lock:
-            y = self.screen.cursor.y
-            rows = [self._row_text(r) for r in range(
-                max(0, y - CONSOLE_TYPE_SCAN_ROWS),
-                min(self.screen.lines, y + CONSOLE_BELOW_CURSOR_ROWS + 1))]
+            rows = self._rows_near_cursor().values()
         return any(p in row for p in probes for row in rows)
+
+    def _rows_near_cursor(self) -> dict[int, str]:
+        """カーソルの少し上から少し下までの行の生テキスト。呼び出し側でロック済み"""
+        y = self.screen.cursor.y
+        return {r: self._row_text(r) for r in range(
+            max(0, y - CONSOLE_TYPE_SCAN_ROWS), min(self.screen.lines, y + CONSOLE_BELOW_CURSOR_ROWS + 1))}
 
     def _submit_with_retry(self) -> None:
         """Enter を送り、カーソル行の見た目が変わるまで送り直す。
@@ -411,15 +443,16 @@ class ConsoleSession:
             row = self.screen.cursor.y
             before = self._row_text(row)
         for _ in range(CONSOLE_SUBMIT_MAX_RETRIES):
-            self.write("\r")
-            time.sleep(CONSOLE_SUBMIT_RETRY_SEC)
+            self._prompt_write("\r")
+            self._prompt_sleep(CONSOLE_SUBMIT_RETRY_SEC)
             with self._lock:
                 after = self._row_text(row)
             if after != before:
                 return
-        logger.warning(
-            "Enter が %d 回送っても反映されませんでした。入力欄に居座っている可能性があります",
-            CONSOLE_SUBMIT_MAX_RETRIES)
+        with self._lock:  # 原因を後から追えるよう、そのときの画面を残す
+            screen = "\n".join(f"{r:4d}|{t.rstrip()}" for r, t in self._rows_near_cursor().items())
+        logger.warning("Enter が %d 回送っても反映されませんでした。入力欄に居座っている可能性があります "
+                       "(判定した行=%d)\n%s", CONSOLE_SUBMIT_MAX_RETRIES, row, screen)
 
     def _tick_loop(self) -> None:
         while not self._tick_stop.is_set():
