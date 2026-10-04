@@ -488,6 +488,32 @@ def test_filler() -> None:
     check("話していればつなぎは入れない", made["player"].spoken == ["答えです。"], repr(made["player"].spoken))
 
 
+def test_filler_once_per_wait_and_cooldown() -> None:
+    import shadow_clerk._daemon_talk as talk_mod
+    saved = talk_mod.FILLER_COOLDOWN_SEC
+    talk_mod.FILLER_COOLDOWN_SEC = 0.6
+    try:
+        d, _w, made = _driver(talk_filler_sec=0.05)
+        d.start("x", None)
+        d.on_self_line(_self("ええと"))
+        time.sleep(0.1)
+        d.on_self_line(_self("つまりですね"))
+        time.sleep(0.2)
+        check("1回の返事待ちでつなぎは1回だけ", len(made["player"].spoken) == 1, repr(made["player"].spoken))
+        d.api_say("はい。")
+        d.on_self_line(_self("次の質問です"))
+        time.sleep(0.2)
+        check("前のつなぎから間が空いていなければ入れない", len(made["player"].spoken) == 2, repr(made["player"].spoken))
+        time.sleep(0.5)
+        d.api_say("どうぞ。")
+        d.on_self_line(_self("もう一つ"))
+        time.sleep(0.2)
+        spoken = made["player"].spoken
+        check("間が空けばまた入れる", len(spoken) == 4 and spoken[-1] != spoken[0], repr(spoken))
+    finally:
+        talk_mod.FILLER_COOLDOWN_SEC = saved
+
+
 def test_workdir() -> None:
     import os
     import tempfile
@@ -541,6 +567,7 @@ if __name__ == "__main__":
     test_self_lines_and_stop_words()
     test_api_say()
     test_filler()
+    test_filler_once_per_wait_and_cooldown()
     test_workdir()
     test_engine_name_is_normalized()
     test_preview_and_voices()

@@ -276,6 +276,8 @@ STRINGS_JA: dict[str, str] = {
     "cfg.section.summary": "要約",
     "cfg.section.api": "LLM / API",
     "cfg.section.gcal": "Google Calendar 連携",
+    "cfg.section.talk": "Claude と会議",
+    "cfg.talk_filler_sec": "相槌までの秒数（0 で無効。次の会話から反映）",
     "cfg.section.ai_console": "AI コンソール",
 
     # --- cfg.* : 設定モーダルフィールド ---
@@ -564,6 +566,11 @@ STRINGS_JA: dict[str, str] = {
     "dash.talk_topic_ph": "空なら Claude が最初に尋ねます",
     "dash.talk_persona": "persona",
     "dash.talk_persona_none": "(なし)",
+    "dash.talk_model": "モデル",
+    "dash.talk_model_default": "既定（claude の既定）",
+    "dash.talk_model_opus": "opus",
+    "dash.talk_model_sonnet": "sonnet",
+    "dash.talk_model_haiku": "haiku",
     "dash.talk_route": "Claude の声を届ける先",
     "dash.talk_route_none": "(なし — 自分にだけ聞こえる)",
     "dash.talk_route_reload": "再読み込み",

@@ -46,14 +46,20 @@ class ConsoleEngine:
     def start(self, ctx: TalkContext) -> None:
         if not self._skill_check():
             raise TalkStartError(t("talk.skill_missing", skill=TALK_SKILL_NAME))
-        ai = AiAssistantConfig.from_config(ctx.config)
+        argv = AiAssistantConfig.from_config(ctx.config).argv()
+        model = str(ctx.config.get("talk_model") or "")
+        if model and not any(a == "--model" or a.startswith("--model=") for a in argv):
+            argv += ["--model", model]
+        else:
+            model = ""
         console = self._console_factory()
-        if console.is_running() and console.workdir != ctx.workdir:
-            # 別のリポジトリで動いている Claude を使い回すと、Read や編集の基準がずれる
-            logger.info("talk: 作業ディレクトリが違うため talk コンソールを起動し直します (%s -> %s)",
-                        console.workdir, ctx.workdir)
+        if console.is_running() and (console.workdir != ctx.workdir or console.model != model):
+            # 別のリポジトリで動いている Claude を使い回すと、Read や編集の基準がずれる。モデルも起動時に決まる
+            logger.info("talk: 作業ディレクトリかモデルが違うため talk コンソールを起動し直します (%s/%s -> %s/%s)",
+                        console.workdir, console.model, ctx.workdir, model)
             console.stop()
-        ok, _started = console.start_if_stopped(ai.argv(), ctx.workdir)
+        ok, _started = console.start_if_stopped(argv, ctx.workdir)
+        console.model = model
         if not ok:
             raise TalkStartError(t("talk.console_start_failed"))
         console.send_after_ready(f"/{TALK_SKILL_NAME}\r")

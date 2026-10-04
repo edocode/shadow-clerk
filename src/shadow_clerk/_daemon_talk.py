@@ -68,6 +68,9 @@ def resolve_talk_workdir(config: dict, requested: str | None) -> str:
     return AiAssistantConfig.from_config(config).resolve_workdir(str(config.get("talk_workdir") or ""))
 
 
+# つなぎどうしの最短間隔（秒）。返事待ちのたびに挟むと、うるさく同じ言葉が続いて聞こえる
+FILLER_COOLDOWN_SEC = 30.0
+
 class TalkDriver:
     def __init__(self, write_line: Callable[[TranscriptLine], None], *,
                  config_loader: Callable[[], dict] = load_config,
@@ -105,6 +108,9 @@ class TalkDriver:
         self._filler_sec = 0.0
         self._stop_re: re.Pattern[str] | None = None
         self._said = 0  # 話した回数。つなぎのタイマーが「その後に話したか」を見る
+        self._filler_said = -1  # 最後につなぎを挟んだときの _said。1回の返事待ちに1回まで
+        self._filler_at = float("-inf")  # 最後につなぎを挟んだ時刻（monotonic）
+        self._filler_last = ""
 
     def start(self, topic: str, persona: str | None, workdir: str | None = None,
               route: str | None = None) -> None:
@@ -278,9 +284,11 @@ class TalkDriver:
 
     def _filler(self, said: int) -> None:
         with self._lock:
-            if not self._active or self._said != said:
+            if (not self._active or self._said != said or self._filler_said == said
+                    or time.monotonic() - self._filler_at < FILLER_COOLDOWN_SEC):
                 return
-            player, phrase = self._player, filler_phrase(self._lang)
+            player, phrase = self._player, filler_phrase(self._lang, self._filler_last)
+            self._filler_said, self._filler_at, self._filler_last = said, time.monotonic(), phrase
         player.speak(phrase)
 
     # --- 出力 ---

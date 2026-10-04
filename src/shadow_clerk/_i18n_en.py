@@ -277,6 +277,8 @@ STRINGS_EN: dict[str, str] = {
     "cfg.section.summary": "Summary",
     "cfg.section.api": "LLM / API",
     "cfg.section.gcal": "Google Calendar Integration",
+    "cfg.section.talk": "Talk with Claude",
+    "cfg.talk_filler_sec": "Seconds before a filler (0 = off; applies from the next talk)",
     "cfg.section.ai_console": "AI Console",
 
     # --- cfg.* ---
@@ -547,6 +549,11 @@ STRINGS_EN: dict[str, str] = {
     "dash.talk_topic_ph": "Leave empty and Claude will ask",
     "dash.talk_persona": "Persona",
     "dash.talk_persona_none": "(none)",
+    "dash.talk_model": "Model",
+    "dash.talk_model_default": "Default (claude's default)",
+    "dash.talk_model_opus": "opus",
+    "dash.talk_model_sonnet": "sonnet",
+    "dash.talk_model_haiku": "haiku",
     "dash.talk_route": "Send Claude's voice to",
     "dash.talk_route_none": "(none — only you hear it)",
     "dash.talk_route_reload": "Reload",

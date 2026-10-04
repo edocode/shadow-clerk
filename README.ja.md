@@ -582,12 +582,12 @@ Claude は自分の判断で聞き取りをやめません。会話が終わり�
 | `talk_echo_tail_sec` | `1.0` | Claude が話し終えてからこの秒数までに始まった、一致する monitor の行を Claude 自身の声とみなす。それより後に始まった返事は、Claude の言葉を繰り返していても残す |
 | `talk_echo_similarity` | `0.6` | monitor の行が Claude の読み上げとこの割合（0〜1）以上一致したら捨てる |
 | `talk_workdir` | `""` | 会話役の作業ディレクトリ（空なら `ai_assistant_workdir`、それも空ならホーム）。開始モーダルで毎回上書きできる |
-| `talk_model` | `""` | 会話役のモデル（空なら claude の既定）（headless のみ） |
+| `talk_model` | `""` | 会話役のモデル（空なら claude の既定）。両エンジンに効き、開始ダイアログで選べる |
 | `talk_allowed_tools` | `WebSearch,WebFetch,Read,Grep,Glob` | 会話中に使えるツール（`""` でなし）（headless のみ） |
 | `talk_language` | `""` | 会話の言語（空なら `translate_language`）。TTS が非対応ならその既定言語（VOICEVOX は日本語のみ） |
 | `talk_personas` | `{}` | 名前 → 性格・応答の仕方。開始モーダルから編集する |
 | `talk_default_persona` | `""` | 最初から選ばれている persona |
-| `talk_filler_sec` | `8` | 発言のあと Claude がこの秒数なにも話さなければ「えーっと」などと挟む（transcript には書かない）。`0` で無効 |
+| `talk_filler_sec` | `8` | 発言のあと Claude がこの秒数なにも話さなければ「えーっと」などと挟む（transcript には書かない）。1回の返事待ちに1回まで、前の相槌から30秒は空ける。`0` で無効。設定画面でも変えられる |
 | `talk_stop_words` | `["待って", "ストップ", "止めて", "やめて", "stop", "wait", "hold on"]` | これを含む発言で、話している途中でも止める。部分一致なので、ほかの語に含まれる短いかなは入れない。英数字の語は単語単位で照合 |
 
 Claude は応答を書いた端から、短い文に区切って話します。文の切れ目で割って入れます。

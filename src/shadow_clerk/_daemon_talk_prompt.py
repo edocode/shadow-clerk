@@ -19,16 +19,20 @@ KICKOFF_MESSAGE = ("Start the session. Ask your first question about the topic, 
 
 # 応答が遅いときに daemon が挟むつなぎの一言。transcript には書かず claude にも送らない。
 # 「ちょっと考えます」のような宣言より、短い間投詞のほうがうるさくない
-_FILLERS = {Language.JA: ("うーん。", "えーっと。", "そうですね。"),
-            Language.EN: ("Hmm.", "Let me see.", "Well.")}
+# どの発言のあとでも通じる、意味を持たない言葉だけにする（「はい」は同意に聞こえるので入れない）
+_FILLERS = {Language.JA: ("うーん。", "えーっと。", "そうですね。", "なるほど。", "ふむ。", "ええと。",
+                         "うんうん。", "そうですねえ。", "ふむふむ。", "あー。"),
+            Language.EN: ("Hmm.", "Let me see.", "Well.", "I see.", "Right.", "Okay.", "Mm-hm.")}
 
 # 制止で読み上げを止めたときに、ユーザー発言の前に付けて claude に伝える
 INTERRUPT_NOTE = ("[The user interrupted you. You were cut off while saying: \"{cut}\". "
                   "Nothing after that was heard.]")
 
 
-def filler_phrase(lang: Language) -> str:
-    return random.choice(_FILLERS.get(lang, _FILLERS[Language.JA]))
+def filler_phrase(lang: Language, previous: str = "") -> str:
+    """つなぎを1つ選ぶ。直前と同じものは選ばない"""
+    phrases = _FILLERS.get(lang, _FILLERS[Language.JA])
+    return random.choice([p for p in phrases if p != previous] or phrases)
 
 
 def requested_language(config: dict) -> str:

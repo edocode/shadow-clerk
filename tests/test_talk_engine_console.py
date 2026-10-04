@@ -23,6 +23,7 @@ class _Console:
         self.ok = ok
         self.running = False
         self.workdir = ""
+        self.model = ""
         self.started: list[tuple[list[str], str]] = []
         self.sent: list[str] = []
         self.stopped = False
@@ -45,8 +46,9 @@ class _Console:
         self.running = False
 
 
-def _ctx(ended: list[str], workdir: str = "/tmp/talk-work") -> TalkContext:
-    return TalkContext("x", None, Language.JA, workdir, {"ai_assistant_command": "claude", "ai_assistant_args": ""},
+def _ctx(ended: list[str], workdir: str = "/tmp/talk-work", **cfg: str) -> TalkContext:
+    return TalkContext("x", None, Language.JA, workdir,
+                       {"ai_assistant_command": "claude", "ai_assistant_args": "", **cfg},
                        lambda _t: None, ended.append)
 
 
@@ -68,6 +70,30 @@ def test_start() -> None:
     con.running, con.workdir = True, "/tmp/talk-work"
     ConsoleEngine(console_factory=lambda: con, skill_check=lambda: True, poll_sec=0.05).start(_ctx([]))
     check("同じ作業ディレクトリならそのまま使う", not con.stopped and con.started == [] and con.sent == ["/clerk-talk\r"])
+
+
+def test_model() -> None:
+    def engine(con: _Console) -> ConsoleEngine:
+        return ConsoleEngine(console_factory=lambda: con, skill_check=lambda: True, poll_sec=0.05)
+    con = _Console()
+    engine(con).start(_ctx([], talk_model="opus"))
+    check("talk_model を --model で渡す", con.started[0][0] == ["claude", "--model", "opus"], repr(con.started))
+    check("起動したモデルを覚える", con.model == "opus")
+    con = _Console()
+    engine(con).start(_ctx([], ai_assistant_args="--model haiku", talk_model="opus"))
+    check("args に --model があればそちらを優先", con.started[0][0] == ["claude", "--model", "haiku"], repr(con.started))
+    con = _Console()
+    con.running, con.workdir, con.model = True, "/tmp/talk-work", "sonnet"
+    engine(con).start(_ctx([], talk_model="opus"))
+    check("別のモデルで動いていれば起動し直す", con.stopped and con.started[0][0] == ["claude", "--model", "opus"],
+          repr(con.started))
+    con = _Console()
+    con.running, con.workdir, con.model = True, "/tmp/talk-work", "opus"
+    engine(con).start(_ctx([], talk_model="opus"))
+    check("同じモデルならそのまま使う", not con.stopped and con.started == [])
+    con = _Console()
+    engine(con).start(_ctx([]))
+    check("talk_model が空なら --model を付けない", con.started[0][0] == ["claude"], repr(con.started))
 
 
 def test_start_failures() -> None:
@@ -115,6 +141,7 @@ def test_interrupt() -> None:
 
 if __name__ == "__main__":
     test_start()
+    test_model()
     test_start_failures()
     test_console_exit()
     test_interrupt()

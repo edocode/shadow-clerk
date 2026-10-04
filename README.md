@@ -587,12 +587,12 @@ sends `<notice>…</notice>` and continues with the new file, so Claude keeps he
 | `talk_echo_tail_sec` | `1.0` | A matching monitor line that starts within this many seconds after Claude stops speaking is treated as Claude's own voice. Replies that start later are kept even if they repeat Claude's words |
 | `talk_echo_similarity` | `0.6` | How closely (0–1) a monitor line must match Claude's speech to be dropped |
 | `talk_workdir` | `""` | Working directory for the talk session (empty = `ai_assistant_workdir`, then home). The start dialog can override it per session |
-| `talk_model` | `""` | Model for the talk session (empty = claude default) (headless only) |
+| `talk_model` | `""` | Model for the talk session (empty = claude default); applies to both engines, picked in the start dialog |
 | `talk_allowed_tools` | `WebSearch,WebFetch,Read,Grep,Glob` | Tools Claude may use while talking (`""` = none) (headless only) |
 | `talk_language` | `""` | Conversation language (empty = `translate_language`). Falls back to the TTS default when unsupported (VOICEVOX: Japanese only) |
 | `talk_personas` | `{}` | Name → personality / how to respond. Edit from the start dialog |
 | `talk_default_persona` | `""` | Persona selected by default |
-| `talk_filler_sec` | `8` | If Claude has said nothing for this many seconds after you spoke, say a short "hmm" (not written to the transcript). `0` disables it |
+| `talk_filler_sec` | `8` | If Claude has said nothing for this many seconds after you spoke, say a short "hmm" (not written to the transcript). At most once while waiting for a reply, and at least 30 s apart. `0` disables it. Also in Settings |
 | `talk_stop_words` | `["待って", "ストップ", "止めて", "やめて", "stop", "wait", "hold on"]` | Saying one of these stops Claude mid-sentence. Substring match, so avoid short kana that appear inside other words; ASCII words match whole words |
 
 Claude speaks each part of a reply as soon as it is written, in short sentences, so you can cut in
