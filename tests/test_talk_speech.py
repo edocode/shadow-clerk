@@ -5,12 +5,21 @@
 """
 from __future__ import annotations
 import json
+import os
 import sys
 import threading
 import time
 
+import numpy as np
+
+from shadow_clerk._daemon_talk import TalkDriver
 from shadow_clerk._daemon_talk_speech import BrowserSpeech
-from shadow_clerk.domain import Language, SpeechTab, estimate_speech_sec
+from shadow_clerk._daemon_tts import TtsPlayer
+from shadow_clerk.domain import Language, SpeechTab, Speaker, TranscriptLine, estimate_speech_sec
+
+# talk mode の偽物（engine・経路・pw-cat）は TalkDriver の検証と同じものを使う
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from test_talk_driver import _CONFIG, _Engine, _Route, _Sink  # noqa: E402
 
 results: list[bool] = []
 
@@ -123,10 +132,139 @@ def test_two_tabs_last_one_wins() -> None:
     check("止めたら速やかに返る", not th.is_alive())
 
 
+# --- TalkDriver: /api/say の lang で読む先を分ける ---
+
+class _TextBackend:
+    """合成した文を覚える VOICEVOX の代役。PCM の値が文の番号"""
+    LANGUAGES = (Language.JA,)
+    DEFAULT_LANGUAGE = Language.JA
+
+    def __init__(self) -> None:
+        self.texts: list[str] = []
+
+    def check(self) -> None:
+        pass
+
+    def credit(self) -> str:
+        return "VOICEVOX:test"
+
+    def voices(self) -> list[dict]:
+        return []
+
+    def synthesize(self, text: str) -> tuple[np.ndarray, int]:
+        self.texts.append(text)
+        return np.array([len(self.texts) - 1], dtype=np.float32), 24000
+
+
+class _RecSink(_Sink):
+    """届け先ありの talk mode の pw-cat。鳴らした文を events に残す"""
+
+    def __init__(self, events: list[str], backend: _TextBackend) -> None:
+        super().__init__()
+        self.events, self.backend = events, backend
+
+    def play(self, pcm, sr, should_stop) -> None:
+        self.events.append("vv:" + self.backend.texts[int(pcm[0])])
+
+
+def _talk(ack: float | None = 0.05, route: bool = False):
+    backend, events, made = _TextBackend(), [], {}
+    speech = BrowserSpeech()
+    bus = _Bus(speech, ack, events)
+
+    def play(pcm, sr, should_stop) -> None:
+        events.append("vv:" + backend.texts[int(pcm[0])])
+
+    def player_factory(b, cfg, on_error):
+        made["player"] = TtsPlayer(b, play, on_error)
+        return made["player"]
+
+    def engine_factory(name):
+        made["engine"] = _Engine(name)
+        return made["engine"]
+
+    sink = _RecSink(events, backend)
+    d = TalkDriver(lambda _l: None, config_loader=lambda: dict(_CONFIG), backend_factory=lambda cfg, v=None: backend,
+                   player_factory=player_factory, engine_factory=engine_factory,
+                   route_factory=lambda: _Route(ok=route), sink_factory=lambda: sink, speech=speech)
+    d.set_broadcaster(bus)
+    return d, events, made, bus
+
+
+def _wait(cond, timeout: float = 3.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if cond():
+            return True
+        time.sleep(0.02)
+    return cond()
+
+
+def test_driver_routes_by_lang() -> None:
+    d, events, made, bus = _talk()
+    d.speech_ready(_tab("tabA", "en"))
+    d.start("x", None)
+    d.say("説明です。")
+    d.api_say("They are there.", Language.EN)
+    d.say("次です。")
+    d.say("日本語です。", Language.JA)
+    _wait(lambda: len(events) == 4 and not made["player"].is_busy())
+    check("lang 付きの文だけブラウザへ、送った順に鳴る",
+          events == ["vv:説明です。", "browser:They are there.", "vv:次です。", "vv:日本語です。"], repr(events))
+    check("待っていない文の done は False", not d.speech_done("s1"))
+    d.stop()
+
+
+def test_driver_falls_back_without_tab() -> None:
+    d, events, made, bus = _talk()
+    d.start("x", None)
+    d.say("Hello.", Language.EN)
+    _wait(lambda: events)
+    check("名乗ったタブが無ければ VOICEVOX で読む", events == ["vv:Hello."] and bus.sent == [], repr(events))
+    d.stop()
+    d2, events2, _m, bus2 = _talk()
+    d2.speech_ready(_tab("tabA", "en"))
+    d2.say("Hello.", Language.EN)
+    _wait(lambda: events2)
+    check("talk mode の外では lang を見ない", events2 == ["vv:Hello."] and bus2.sent == [], repr(events2))
+
+
+def test_driver_route_ignores_lang() -> None:
+    d, events, made, bus = _talk(route=True)
+    d.speech_ready(_tab("tabA", "en"))
+    d.start("x", None, None, "Chromium")
+    d.say("Hello.", Language.EN)
+    _wait(lambda: events)
+    check("届け先ありでは lang を無視して VOICEVOX", events == ["vv:Hello."] and bus.sent == [], repr(events))
+    d.stop()
+
+
+def test_driver_stop_word_cancels_browser_sentence() -> None:
+    d, events, made, bus = _talk(ack=None)
+    d.speech_ready(_tab("tabA", "en"))
+    d.start("x", None)
+    d.say("This is a long sentence.", Language.EN)
+    _wait(lambda: bus.of("talk_speak"))
+    time.sleep(0.1)
+    check("ブラウザが読んでいる間は busy", made["player"].is_busy())
+    d.on_self_line(TranscriptLine("2026-10-04 10:00:00", Speaker.SELF, "待って"))
+    _wait(lambda: bus.of("talk_speak_cancel"))
+    sent = bus.of("talk_speak")[0]
+    check("制止でタブに cancel を送る", bus.of("talk_speak_cancel") == [{"id": sent["id"], "tab": "tabA"}],
+          repr(bus.sent))
+    check("止めた文を engine に渡す", made["engine"].cuts == ["This is a long sentence."], repr(made["engine"].cuts))
+    check("止めたら busy でない", _wait(lambda: not made["player"].is_busy(), 1.0))
+    d.stop()
+
+
 if __name__ == "__main__":
     test_speech_tab_parse()
     test_speak_waits_for_done()
     test_timeout_moves_on_and_forgets_tab()
     test_ready_expires_and_withdraws()
     test_two_tabs_last_one_wins()
+    test_driver_routes_by_lang()
+    test_driver_falls_back_without_tab()
+    test_driver_route_ignores_lang()
+    test_driver_stop_word_cancels_browser_sentence()
     sys.exit(0 if all(results) else 1)

@@ -240,6 +240,10 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._write_generated()
         elif path == "/api/say":
             self._say()
+        elif path == "/api/talk-speech/ready":
+            self._talk_speech_ready()
+        elif path == "/api/talk-speech/done":
+            self._talk_speech_done()
         elif path == "/api/talk-preview":
             self._talk_preview()
         elif path == "/api/misheard":

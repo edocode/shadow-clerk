@@ -6,7 +6,7 @@ import logging
 from shadow_clerk._daemon_dashboard_base import is_localhost_client, read_local_json_body
 from shadow_clerk._daemon_talk import TalkStartError
 from shadow_clerk._daemon_tts import TtsError
-from shadow_clerk.domain import TalkVoice
+from shadow_clerk.domain import Language, SpeechTab, TalkVoice
 from shadow_clerk.i18n import t
 
 logger = logging.getLogger("shadow-clerk")
@@ -15,6 +15,7 @@ _MAX_TOPIC_CHARS = 500
 _MAX_SAY_CHARS = 2000
 _MAX_WORKDIR_CHARS = 1000
 _MAX_ROUTE_CHARS = 200
+_MAX_SPEECH_ID_CHARS = 64
 
 
 class _DashboardHandlerTalkOps:
@@ -101,13 +102,44 @@ class _DashboardHandlerTalkOps:
         self._send_json({"status": "ok", "ending": self.recorder.talk.end_after_speech()})
 
     def _say(self) -> None:
-        """POST /api/say {text} — [Claude] 行を書いて読み上げる（talk mode でなくても使える）"""
+        """POST /api/say {text, lang?} — [Claude] 行を書いて読み上げる（talk mode でなくても使える）
+
+        lang（例: "en"）が読み上げの言語と違えば、その文はダッシュボードのブラウザの声で読む（語学の練習用）。
+        文の言語は話す本人（skill）が知っているので、daemon は推測しない
+        """
         data = read_local_json_body(self, "talk")
         if data is None:
             return
-        text = data.get("text")
+        text, lang = data.get("text"), data.get("lang")
         if not isinstance(text, str) or not text.strip() or len(text) > _MAX_SAY_CHARS:
             self._send_json({"status": "error", "message": "text must be a non-empty short string"})
             return
-        cut = self.recorder.talk.api_say(text)
+        if lang is not None and (not isinstance(lang, str) or lang not in {v.value for v in Language}):
+            self._send_json({"status": "error", "message": "lang must be a known language code"})
+            return
+        cut = self.recorder.talk.api_say(text, Language(lang) if lang is not None else None)
         self._send_json({"status": "ok"} if cut is None else {"status": "interrupted", "cut": cut})
+
+    def _talk_speech_ready(self) -> None:
+        """POST /api/talk-speech/ready {tab, langs} — 練習言語の文を読めるダッシュボードのタブが名乗る（30 秒ごと）"""
+        data = read_local_json_body(self, "talk")
+        if data is None:
+            return
+        try:
+            tab = SpeechTab.parse(data)
+        except ValueError as e:
+            self._send_json({"status": "error", "message": str(e)})
+            return
+        self.recorder.talk.speech_ready(tab)
+        self._send_json({"status": "ok"})
+
+    def _talk_speech_done(self) -> None:
+        """POST /api/talk-speech/done {id} — タブが talk_speak の文を読み終えた（onend / onerror）"""
+        data = read_local_json_body(self, "talk")
+        if data is None:
+            return
+        uid = data.get("id")
+        if not isinstance(uid, str) or not uid or len(uid) > _MAX_SPEECH_ID_CHARS:
+            self._send_json({"status": "error", "message": "id must be a short string"})
+            return
+        self._send_json({"status": "ok", "known": self.recorder.talk.speech_done(uid)})
