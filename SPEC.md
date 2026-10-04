@@ -709,7 +709,7 @@ talk_workdir: ""
 talk_route_app: ""
 talk_echo_tail_sec: 1.0
 talk_echo_similarity: 0.6
-talk_model: ""
+talk_model: ""   # 開始モーダルで選ぶ。headless は --model、console は起動 argv に --model を足し、違うモデルで動いていれば起動し直す
 talk_allowed_tools: WebSearch,WebFetch,Read,Grep,Glob
 talk_language: ""
 talk_personas: {}
