@@ -351,8 +351,10 @@ class _DashboardHandlerSkillOps:
         """GET /api/watch?interval=25&idle=600[&kind=advice][&file=…] — 新規行をまとめて流し続ける。
 
         file を指定しなければ、いまの書き込み先（recorder.output_path）を毎回見る。日付の切り替えや会議の開始・終了で
-        変わったら <notice> を流し、新しいファイルを先頭から流す（つないだ時点のファイルを見続けると、0 時を
-        またいだところで発言が届かなくなる）。file 指定と kind=advice は指定のファイルを見続ける。
+        変わったら、前のファイルの残り（会議終了の印など）を流しきってから <notice> を流し、新しいファイルは
+        recorder が移った時点の大きさ（output_switch_offset）から流す。先頭からにすると、会議が終わって戻る
+        既存の日付ファイルを丸ごと流し直してしまう（つないだ時点のファイルを見続けると、0 時をまたいだところで
+        発言が届かなくなる）。file 指定と kind=advice は指定のファイルを見続ける。
 
         kind=advice なら、transcript に対応する advice ファイルを見張り、書き換わるたびに中身を丸ごと流す
         （advice は上書きされるので差分ではなく全体）。Claude と会議の skill が、会議アシスタントの論点を
@@ -405,6 +407,26 @@ class _DashboardHandlerSkillOps:
             except OSError:
                 return 0
 
+        def _emit_new_lines() -> bool:
+            """path の offset 以降を最後の改行まで流す。流したら True"""
+            nonlocal offset
+            chunk = b""
+            if _size() > offset:
+                try:
+                    with open(path, "rb") as f:
+                        f.seek(offset)
+                        chunk = f.read()
+                except OSError:
+                    chunk = b""
+            nl = chunk.rfind(b"\n")
+            if nl < 0:
+                return False
+            offset += nl + 1
+            self.wfile.write(wrap_transcript(os.path.basename(path),
+                                             chunk[:nl + 1].decode("utf-8", errors="replace")))
+            self.wfile.flush()
+            return True
+
         offset, quiet = _size(), 0
         logger.info("監視ストリーム開始: %s (interval=%ds)", os.path.basename(path), interval)
         try:
@@ -412,28 +434,15 @@ class _DashboardHandlerSkillOps:
                 self.recorder.stop_event.wait(timeout=interval)
                 if self.recorder.stop_event.is_set():
                     break
-                if follow and self.recorder.output_path != path:
-                    path, offset, quiet = self.recorder.output_path, 0, 0
+                if follow and (target := self.recorder.output_path) != path:
+                    _emit_new_lines()   # 前のファイルの残り（会議終了の印など）を先に流しきる
+                    path, offset, quiet = target, self.recorder.output_switch_offset.get(target, 0), 0
                     self.wfile.write(f"<notice>書き込み先が {os.path.basename(path)} に変わりました</notice>\n".encode())
                     self.wfile.flush()
                     logger.info("監視ストリーム: 書き込み先が変わった: %s", os.path.basename(path))
-                cur = _size()
-                if cur < offset:
+                if _size() < offset:
                     offset = 0        # 書き直された。先頭から拾い直す
-                chunk = b""
-                if cur > offset:
-                    try:
-                        with open(path, "rb") as f:
-                            f.seek(offset)
-                            chunk = f.read()
-                    except OSError:
-                        chunk = b""
-                nl = chunk.rfind(b"\n")
-                if nl >= 0:
-                    text = chunk[:nl + 1].decode("utf-8", errors="replace")
-                    offset += nl + 1
-                    self.wfile.write(wrap_transcript(os.path.basename(path), text))
-                    self.wfile.flush()
+                if _emit_new_lines():
                     quiet = 0
                 else:
                     quiet += interval

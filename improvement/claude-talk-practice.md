@@ -43,9 +43,15 @@ Non-goals: 発音の自動採点（判定は音声認識に通るかどうかで
 
 #### `/api/watch` が書き込み先の変化を追う
 
-- `file` を指定しない監視（いまの書き込み先を流すもの）は、毎回 `recorder.output_path` を見る。変わっていたら
-  `<notice>書き込み先が <ファイル名> に変わりました</notice>` を流し、新しいファイルを先頭から流す
-  （日付の切り替え・会議の開始と終了の両方）
+- `file` を指定しない監視（いまの書き込み先を流すもの）は、毎回 `recorder.output_path` を見る（1 回の確認で 1 度だけ読む）。
+  変わっていたら（日付の切り替え・会議の開始と終了の両方）:
+  1. 前のファイルの残り（前回の確認から書かれた行。会議の最後の発言や `--- 会議終了 ---` の印）を、前のファイル名で
+     流しきる
+  2. `<notice>書き込み先が <ファイル名> に変わりました</notice>` を流す
+  3. 新しいファイルは先頭からではなく、recorder が書き込み先を変えた時点の大きさから流す。recorder は
+     `output_path` を変えるたびにそのファイルの大きさを `output_switch_offset` に覚える（無いファイルは 0）。
+     会議が終わって戻る日付ファイルはすでにあるので、先頭から流すとその日の発言を丸ごと流し直してしまう。
+     切り替えたあと次の確認までに書かれた行は流れる
 - `file` を指定した監視と `kind=advice` は、これまでどおり指定のファイルを見続ける
 
 #### `POST /api/meeting` — 会議の開始・終了（localhost のみ）
@@ -145,7 +151,7 @@ install-skill` で一緒に入る。
 | `/api/generated` を会議の外で呼んだ | いまの書き込み先（日付のファイル）の advice / analysis に書く |
 | 過去回が無い | 初回として3つの形を紹介する |
 | ブラウザに読み上げ機能・その言語の声が無い | `.say` を付けない / 既定の声で読む |
-| watch 中に書き込み先が変わった | notice を流して新しいファイルに移る |
+| watch 中に書き込み先が変わった | 前のファイルの残りを流しきり、notice を流して、新しいファイルに切り替え時点の大きさから移る |
 | ブラウザの読み上げが終わらない・タブが閉じた | タイムアウトで次の文に進み、そのタブが ready を送り直すまで VOICEVOX で読む。ready が 60 秒途絶えたときも VOICEVOX に戻す |
 | 届け先ありの talk mode で `lang` 付きの `/api/say` | `lang` を無視して VOICEVOX で読む |
 | `lang` が既知の言語コードでない | 拒否する |
@@ -155,7 +161,7 @@ install-skill` で一緒に入る。
 
 | ファイル | 対象 |
 |---|---|
-| `tests/test_skill_api.py` | watch が書き込み先の変化で notice を流して新しいファイルに移る、`file` 指定時は移らない、meeting-history の `tail` |
+| `tests/test_skill_api.py` | watch が書き込み先の変化で前のファイルの残りを流しきり、notice を流して新しいファイルに移る（既存の日付ファイルに戻っても既存行は流さない）、recorder が切り替え時点の大きさを覚える、`file` 指定時は移らない、meeting-history の `tail` |
 | `tests/test_meeting_api.py`（新規） | `/api/meeting` の start（analyze false で AI を起動しない、名前の検証、会議中は何もしない）と end、`/api/generated` の replace / append / 種類と字数の検証、localhost 以外の拒否 |
 | `tests/test_say_js.py`（新規、node） | `🔊` で始まる項目に `.say` が付き、クリックで `speechSynthesis.speak` が言語つきで呼ばれる。`speechSynthesis` が無ければ付かない |
 | `tests/test_meeting_api.py` | `/api/mute` の切り替えと `previous`、source と muted の検証 |

@@ -41,6 +41,7 @@ class _Handler(Ops):
         self.recorder = type("_Rec", (), {
             "_output_dir": DATA,
             "output_path": os.path.join(DATA, active),
+            "output_switch_offset": {},
             "stop_event": threading.Event(),
         })()
 
@@ -304,6 +305,70 @@ def test_watch_follows_output_path() -> None:
     check("前のファイルの既存行は流さない", "前の日" not in out, repr(out))
 
 
+def _switch(h: _Stream, name: str) -> None:
+    """recorder が書き込み先を変えるのを真似る。移った時点の大きさを覚える"""
+    p = os.path.join(DATA, name)
+    h.recorder.output_switch_offset[p] = os.path.getsize(p) if os.path.exists(p) else 0
+    h.recorder.output_path = p
+
+
+def test_watch_meeting_end_back_to_existing_day_file() -> None:
+    """会議が終わって既存の日付ファイルへ戻っても、その日の既存行は流し直さない"""
+    import time
+    day, mtg = "transcript-20261007.txt", "transcript-202610071000@練習.txt"
+    _touch(day, "".join(f"[2026-10-07 09:{i:02d}:00] [自分] 古い行 {i}\n" for i in range(5)))
+    _touch(mtg, "--- 会議開始 ---\n")
+    h = _Stream("interval=1", mtg)
+    th = threading.Thread(target=h._serve_watch, daemon=True)
+    th.start()
+    time.sleep(0.3)
+    _append(mtg, "[2026-10-07 10:05:00] [Claude] まとめ\n--- 会議終了 ---\n")
+    _switch(h, day)
+    _append(day, "[2026-10-07 10:06:00] [自分] 切り替え直後\n")
+    time.sleep(1.2)
+    _append(day, "[2026-10-07 10:07:00] [自分] その後\n")
+    time.sleep(1.2)
+    h.recorder.stop_event.set()
+    th.join(timeout=3)
+    out = h.out.getvalue().decode()
+    check("戻った先の既存行は流さない", "古い行" not in out, repr(out))
+    check("同じ間隔で書かれた会議終了の印を流す", "--- 会議終了 ---" in out and "まとめ" in out, repr(out))
+    check("切り替え後の追記は流す", "切り替え直後" in out and "その後" in out, repr(out))
+
+
+def test_watch_drains_old_file_before_notice() -> None:
+    """切り替えと同じ間隔で前のファイルに書かれた行は、notice より前に前のファイル名で流す"""
+    import time
+    old, new = "transcript-202610081000@練習.txt", "transcript-20261008.txt"
+    _touch(old, "")
+    h = _Stream("interval=1", old)
+    th = threading.Thread(target=h._serve_watch, daemon=True)
+    th.start()
+    time.sleep(0.3)
+    _append(old, "[2026-10-08 10:05:00] [自分] 最後の発言\n")
+    _switch(h, new)
+    time.sleep(1.2)
+    h.recorder.stop_event.set()
+    th.join(timeout=3)
+    out = h.out.getvalue().decode()
+    notice = f"<notice>書き込み先が {new} に変わりました</notice>"
+    check("前のファイルの残りを流す", f'<transcript file="{old}">' in out and "最後の発言" in out, repr(out))
+    check("残りは notice より前", notice in out and "最後の発言" in out and out.index("最後の発言") < out.index(notice), repr(out))
+
+
+def test_recorder_records_size_at_switch() -> None:
+    """Recorder は書き込み先を変えた時点のファイルの大きさを覚える（無ければ 0）"""
+    from shadow_clerk._daemon_recorder import Recorder
+    r = Recorder.__new__(Recorder)
+    r.output_switch_offset = {}
+    existing = _touch("transcript-20261009.txt", "abc\n")
+    r.output_path = existing
+    missing = os.path.join(DATA, "transcript-20261010.txt")
+    r.output_path = missing
+    check("移った時点の大きさを覚える", r.output_switch_offset == {existing: 4, missing: 0}
+          and r.output_path == missing, repr(r.output_switch_offset))
+
+
 def test_watch_with_file_stays() -> None:
     import time
     a, b = "transcript-20261005.txt", "transcript-20261006.txt"
@@ -340,6 +405,9 @@ def main() -> int:
     test_watch_advice_waits_for_file()
     test_watch_rejects_unknown_kind()
     test_watch_follows_output_path()
+    test_watch_meeting_end_back_to_existing_day_file()
+    test_watch_drains_old_file_before_notice()
+    test_recorder_records_size_at_switch()
     test_watch_with_file_stays()
     print(f"\n{sum(results)}/{len(results)} passed")
     return 0 if all(results) else 1
