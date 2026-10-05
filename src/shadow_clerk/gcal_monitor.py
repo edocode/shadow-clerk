@@ -194,7 +194,7 @@ class GCalMonitor:
         except OSError:
             return False
 
-    def _wait_for_silence(self, total_sec: int = 10, min_trailing_sec: int = 8) -> bool:
+    def _wait_for_silence(self, total_sec: int = 20, min_trailing_sec: int = 15) -> bool:
         """total_sec 秒間 1 秒おきに音声を確認し、末尾の連続無音が min_trailing_sec 秒以上なら True を返す。
         デーモン停止要求があれば即 True を返す（切り替えを進める）。
         """
