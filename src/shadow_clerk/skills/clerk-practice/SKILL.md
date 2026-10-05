@@ -142,10 +142,14 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 ```
 
 - 同じ組の次の単語も同様に送る（例: `{"text":"light","lang":"en","display":"ライト（光）"}`）
-- ユーザーが言った後、判定してから初めて、綴りと 🔊 の例文を `/api/generated` で Analysis に書く（綴りはそこで見せる）。
-  **試した単語は、通ったものも含めて全部書く。** transcript にはカタカナしか残らないので、綴りが残るのはここだけ。
-  単語ごとに 綴り・意味・どう聞こえたか（認識結果）・結果 と、通らなかった単語には口の形・舌の位置のアドバイスも書く
-  （形は「4. 書く」の発音の例）。1組（right と light など）を判定し終えるたびに追記する
+- **transcript には、説明の文も含めて、練習する言語の綴りを一切出さない。** `/api/say` の母語の説明（コツ・判定・まとめ）の中でも、
+  練習する言語の単語はカタカナで書く（arrival ではなくアライバル）。綴りが見えてよいのは AI分析 タブだけ
+- **言ってもらう単語・文は、声に出す前に、先に Analysis へ書く。** 綴り・意味・`🔊[<lang>] ` の行を `/api/generated`（`append`）で
+  載せてから、`display` 付きで声に出す。ユーザーは綴りを見たいときに AI分析 タブの Analysis で見る。
+  1組ずつでなく、これから練習する数語・数文をまとめて先に書いてよい
+- ユーザーが言った後、判定してから、Analysis の語・文に結果（○△×）を追記し、**どう聞こえたか（認識結果）と
+  口の形・舌の位置のコツは Advice に書く**（Advice は書き直す）。**試した単語は、通ったものも含めて全部 Analysis に残す。**
+  transcript にはカタカナしか残らないので、綴りが残るのは Analysis だけ。1組（right と light など）を判定し終えるたびに書く
 
 ### 作文
 
@@ -157,6 +161,14 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 
 ダッシュボードの AI分析 タブの Advice と Analysis に出る。どちらも Markdown（見出し・箇条書き・表・引用が効く）。
 
+- **Advice と Analysis の使い分け。**
+  - **Analysis は教材と記録**（練習する単語・文の一覧、出題・言えた文・結果）。綴り・意味・`🔊[<lang>] ` の行を置く棚で、
+    声に出す**前に**先に載せる。消さずに時刻見出しで追記する
+  - **Advice は指摘と直し**（どう聞こえたか、自然な言い方、口の形・舌の位置のコツ、今日の重点、次回の課題）。
+    いま直すことだけの短いメモにして、毎回まとめ直して上書きする。古い直しは上書きで消えるので、
+    **直した内容は同じものを Analysis にも時刻つきで追記して、履歴に残す**
+  - **どちらか一方だけにしない。** 出題の前に Analysis へ語・文を載せ、1組を判定し終えるたびに、Analysis に結果を追記して
+    Advice を書き直す。終える前にも Advice を最後に書き直し、次回の課題を入れる
 - **頼まれなくても書く。** ユーザーはあとで AI分析 タブを読み返して復習する。声で伝えた直しや綴りは transcript には
   残らないので、書かなければ消えてしまう
 - **書くのは話の切れ目**（発音は1組を判定し終えたとき、会話は2〜3往復ごと、作文はお題ごと）。
@@ -168,7 +180,7 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
   表の中の 🔊 はクリックできないので、表の外に置く
 - `text` は 20,000 字まで。JSON の文字列なので、改行は `\n`、`"` は `\"` と書く
 
-### Advice — いまの直し（毎回まとめ直して上書き）
+### Advice — いまの指摘と直し（毎回まとめ直して上書き）
 
 ```
 curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"advice","mode":"replace","text":"# いまの直し\n\n## 今日の重点\n- 過去のことは過去形で言う\n\n## 直近の直し\n| 言ったこと | 自然な言い方 | ポイント |\n|---|---|---|\n| I go to there yesterday. | I went there yesterday. | 過去は went。there に to は付けない |\n\n## お手本\n- 🔊[en] I went there yesterday.\n\n## 発音のコツ\n- R は舌先をどこにも付けずに奥へ丸める\n"}'
@@ -176,11 +188,13 @@ curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: applicat
 
 - 見出しは「いまの直し」
 - **今日の重点** — 1つだけ
+- **どう聞こえたか** — 直近の発音で、認識結果が違った語と聞こえ方（言ったこと → 聞こえ方）。新しい順に最大5件
 - **直近の直し** — 言ったこと / 自然な言い方 / ポイント の表。新しい順に最大5件。古いものは消す
 - **お手本** — 直した言い方を `🔊[<lang>] ` で始まる箇条書きで
 - **発音のコツ** — いま課題になっている音だけ
+- **次回の課題** — 終える前に最後に書き直すとき、次回やることを1〜2行で
 
-### Analysis — 練習の記録と例文（時刻見出しで追記）
+### Analysis — 練習する語・文と記録（時刻見出しで追記）
 
 ```
 curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n## 10:15 作文\n\n| お題 | 言えた文 | 結果 |\n|---|---|---|\n| 昨日は雨だったので家にいました | I stayed home because it rained yesterday. | ○ |\n\n次に言ってみる例文:\n\n- 🔊[en] It was raining, so I stayed home.\n"}'
@@ -190,10 +204,21 @@ curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: applicat
 - 出題・言えた文・結果（○ / △ / ×）の表
 - 次に言ってみる例文を `🔊[<lang>] ` で始まる箇条書きで
 
-発音は、試した単語を全部、表とアドバイスで書く。
+発音は、声に出す前に、これから練習する語・文を先に載せる（結果の列は空にしておく）。
 
 ```
-curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n## 10:20 発音 R と L\n\n| 単語 | 意味 | 聞こえ方 | 結果 |\n|---|---|---|---|\n| right | 右 | light | × |\n| right | 右 | right | ○ |\n| light | 光 | light | ○ |\n\nアドバイス:\n- right の R は舌先をどこにも付けず、唇を少しすぼめてから言う\n\n- 🔊[en] right\n- 🔊[en] light\n- 🔊[en] Turn right at the light.\n"}'
+curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n## 10:20 発音 R と L\n\n| 単語 | 意味 | 結果 |\n|---|---|---|\n| right | 右 |  |\n| light | 光 |  |\n\n- 🔊[en] right\n- 🔊[en] light\n- 🔊[en] Turn right at the light.\n"}'
+```
+
+判定したら、結果を追記し（試した語は全部）、聞こえ方とコツは Advice に書く。**Advice に書いた直し（聞こえ方・コツ）は、
+Analysis の結果にも「直し」として添えて残す**（Advice は次の書き直しで消えるので、履歴になるのは Analysis だけ）。
+
+```
+curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n### 10:22 結果と直し\n\n| 単語 | 結果 | 聞こえ方 | 直し |\n|---|---|---|---|\n| right | 1回目 ×、2回目 ○ | light | 舌先を付けない。唇を少しすぼめる |\n| light | ○ |  |  |\n"}'
+```
+
+```
+curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"advice","mode":"replace","text":"# いまの直し\n\n## 今日の重点\n- right の R は舌先をどこにも付けない\n\n## どう聞こえたか\n| 言ったこと | 聞こえ方 | ポイント |\n|---|---|---|\n| right | light | 舌先を上の歯ぐきに付けない。唇を少しすぼめる |\n\n## 発音のコツ\n- R は舌先をどこにも付けずに奥へ丸める\n\n## 次回の課題\n- right と light の言い分け\n"}'
 ```
 
 会話は、やりとりを会話の形で書き、直したい文に自然な言い方を添える。
