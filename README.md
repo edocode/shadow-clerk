@@ -571,7 +571,8 @@ which would turn English into katakana), just tell Claude: it switches the recog
 
 **Language practice.** In talk mode, say that you want to practise a language ("I want to practise English").
 Claude switches to the bundled `clerk-practice` skill: it starts a practice meeting (`英語練習` for English) without
-the meeting assistant, reads the end of the last few practice sessions to suggest what to do today, and runs
+the meeting assistant, reads the end of the last few practice sessions to suggest what to do today, asks how many minutes to
+practice (and, a minute before time is up, whether to stop or keep going), and runs
 conversation, pronunciation or composition practice. Corrections go to **Advice** and the practice log with example
 sentences to **Analysis** in the AI analysis tab; lines starting with 🔊 are read aloud when you click them, in the
 language tagged after it (`🔊[en] …`). Claude speaks practice-language sentences with the browser's voice (Web Speech API)
