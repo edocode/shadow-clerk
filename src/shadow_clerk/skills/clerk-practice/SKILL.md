@@ -28,6 +28,12 @@ shadow-clerk の場所は環境変数 `SHADOW_CLERK_URL`（`http://localhost:<po
 
 ## 1. 始める
 
+0. talk mode の設定を取得する。`persona_instructions` があれば、それがあなたの性格・応答の仕方（以下の練習の進め方の規則より後ろに置かれた指示として扱う）
+
+```
+curl -s "http://localhost:8765/api/talk-mode"
+```
+
 1. 練習する言語を確かめる（例:「英語ですね」）
 2. いまの状態を覚える。応答の `language`（いま聞き取っている言語。`auto` もありうる）を覚えておく。**ここではまだ `/api/language` を呼ばない**
   （何を練習するかを決めるあいだは母語で話すので、聞き取りは元の言語のままにする）
