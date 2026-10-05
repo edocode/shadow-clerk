@@ -58,15 +58,30 @@ function initSpeech(src){
   speechReady();
   setInterval(speechReady,30000);
 }
-/* --- AI分析 の 🔊 の例文: クリックで、いま聞き取っている言語の発音で読む（auto なら言語を指定しない） --- */
-function sayLang(){const s=document.getElementById('langSel');const v=s?s.value:'';return v&&v!=='auto'?v:'';}
+/* --- AI分析 の 🔊 の例文: クリックで読む。言語は行頭の 🔊[en] で決める。
+   無ければいま聞き取っている言語（練習の前後は ja / auto に戻っているので、かな・漢字の無い文は en とみなす） --- */
+const SAY_TAG=/^🔊\s*(?:\[([a-z]{2,3})\]\s*)?/u;
+function sayLang(text,tag){
+  if(tag)return tag;
+  const s=document.getElementById('langSel');const v=s&&s.value!=='auto'?s.value:'';
+  return (!v||v==='ja')&&!/[\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Han}]/u.test(text)?'en':v;
+}
+/* 表示からは [en] を消す。先頭のテキストノードにある */
+function _dropSayTag(el){
+  const w=document.createTreeWalker(el,NodeFilter.SHOW_TEXT);
+  for(let n=w.nextNode();n;n=w.nextNode()){if(n.nodeValue.trim()){n.nodeValue=n.nodeValue.replace(/\[[a-z]{2,3}\]\s*/,' ');return;}}
+}
 function decorateSay(root){
   if(!root||!speechOk())return;
-  root.querySelectorAll('p,li,blockquote').forEach(el=>{
-    const text=String(el.textContent||'').trim();
-    if(!text.startsWith('🔊'))return;
+  /* 引用の中の段落のように入れ子で両方当たるので、タグを消す前に全部読み取る */
+  const hits=[...root.querySelectorAll('p,li,blockquote')].map(el=>{
+    const t=String(el.textContent||'').trim(),m=t.match(SAY_TAG);
+    return m&&{el,text:t.slice(m[0].length),tag:m[1]};
+  }).filter(Boolean);
+  hits.forEach(({el,text,tag})=>{
+    if(tag)_dropSayTag(el);
     el.classList.add('say');el.title=I18N['dash.say_title']||'';
-    el.onclick=e=>{e.stopPropagation();speakText(text.replace(/^🔊\s*/u,''),sayLang());};
+    el.onclick=e=>{e.stopPropagation();speakText(text,sayLang(text,tag));};
   });
 }
 initSpeech(es);

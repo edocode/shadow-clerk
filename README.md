@@ -573,8 +573,8 @@ which would turn English into katakana), just tell Claude: it switches the recog
 Claude switches to the bundled `clerk-practice` skill: it starts a practice meeting (`英語練習` for English) without
 the meeting assistant, reads the end of the last few practice sessions to suggest what to do today, and runs
 conversation, pronunciation or composition practice. Corrections go to **Advice** and the practice log with example
-sentences to **Analysis** in the AI analysis tab; lines starting with 🔊 are read aloud in the current recognition
-language when you click them. Claude speaks practice-language sentences with the browser's voice (Web Speech API)
+sentences to **Analysis** in the AI analysis tab; lines starting with 🔊 are read aloud when you click them, in the
+language tagged after it (`🔊[en] …`). Claude speaks practice-language sentences with the browser's voice (Web Speech API)
 instead of VOICEVOX, so keep the dashboard open and click it once (browsers only allow speech after a user action);
 without such a tab those sentences fall back to VOICEVOX. The speaker (monitor) is muted while practising, and
 Claude ends with a "今日の練習のまとめ: …" line that the next session builds on.

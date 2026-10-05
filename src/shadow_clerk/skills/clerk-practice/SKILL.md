@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、会話・発音・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -162,42 +162,44 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 - **書くのは話の切れ目**（発音は1組を判定し終えたとき、会話は2〜3往復ごと、作文はお題ごと）。
   書かずに次の組・次のお題へ進まない。書くときは、ユーザーの返事を待つ間（次のお題を出した直後など）に書けば会話が止まらない
 - 直しを伝えたら Advice も書き直す
-- **お手本・例文の行は `🔊 ` で始める。** ダッシュボードでその行（段落・箇条書き・引用）をクリックすると、
-  いま聞き取っている言語の発音で読み上げられる。表の中の 🔊 はクリックできないので、表の外に置く
+- **お手本・例文の行は `🔊[<lang>] ` で始める**（例: `🔊[en] I went there yesterday.`）。ダッシュボードでその行
+  （段落・箇条書き・引用）をクリックすると、`<lang>` の発音で読み上げられる（`[<lang>]` は画面には出ない）。
+  `[<lang>]` を省くと、そのとき聞き取っている言語で読まれるので、練習の後に開くと日本語の声になる。必ず付ける。
+  表の中の 🔊 はクリックできないので、表の外に置く
 - `text` は 20,000 字まで。JSON の文字列なので、改行は `\n`、`"` は `\"` と書く
 
 ### Advice — いまの直し（毎回まとめ直して上書き）
 
 ```
-curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"advice","mode":"replace","text":"# いまの直し\n\n## 今日の重点\n- 過去のことは過去形で言う\n\n## 直近の直し\n| 言ったこと | 自然な言い方 | ポイント |\n|---|---|---|\n| I go to there yesterday. | I went there yesterday. | 過去は went。there に to は付けない |\n\n## お手本\n- 🔊 I went there yesterday.\n\n## 発音のコツ\n- R は舌先をどこにも付けずに奥へ丸める\n"}'
+curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"advice","mode":"replace","text":"# いまの直し\n\n## 今日の重点\n- 過去のことは過去形で言う\n\n## 直近の直し\n| 言ったこと | 自然な言い方 | ポイント |\n|---|---|---|\n| I go to there yesterday. | I went there yesterday. | 過去は went。there に to は付けない |\n\n## お手本\n- 🔊[en] I went there yesterday.\n\n## 発音のコツ\n- R は舌先をどこにも付けずに奥へ丸める\n"}'
 ```
 
 - 見出しは「いまの直し」
 - **今日の重点** — 1つだけ
 - **直近の直し** — 言ったこと / 自然な言い方 / ポイント の表。新しい順に最大5件。古いものは消す
-- **お手本** — 直した言い方を `🔊 ` で始まる箇条書きで
+- **お手本** — 直した言い方を `🔊[<lang>] ` で始まる箇条書きで
 - **発音のコツ** — いま課題になっている音だけ
 
 ### Analysis — 練習の記録と例文（時刻見出しで追記）
 
 ```
-curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n## 10:15 作文\n\n| お題 | 言えた文 | 結果 |\n|---|---|---|\n| 昨日は雨だったので家にいました | I stayed home because it rained yesterday. | ○ |\n\n次に言ってみる例文:\n\n- 🔊 It was raining, so I stayed home.\n"}'
+curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n## 10:15 作文\n\n| お題 | 言えた文 | 結果 |\n|---|---|---|\n| 昨日は雨だったので家にいました | I stayed home because it rained yesterday. | ○ |\n\n次に言ってみる例文:\n\n- 🔊[en] It was raining, so I stayed home.\n"}'
 ```
 
 - 時刻と練習の形の見出し（`## HH:MM 作文` など）の下に積む。消さない・まとめ直さない
 - 出題・言えた文・結果（○ / △ / ×）の表
-- 次に言ってみる例文を `🔊 ` で始まる箇条書きで
+- 次に言ってみる例文を `🔊[<lang>] ` で始まる箇条書きで
 
 発音は、試した単語を全部、表とアドバイスで書く。
 
 ```
-curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n## 10:20 発音 R と L\n\n| 単語 | 意味 | 聞こえ方 | 結果 |\n|---|---|---|---|\n| right | 右 | light | × |\n| right | 右 | right | ○ |\n| light | 光 | light | ○ |\n\nアドバイス:\n- right の R は舌先をどこにも付けず、唇を少しすぼめてから言う\n\n- 🔊 right\n- 🔊 light\n- 🔊 Turn right at the light.\n"}'
+curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n## 10:20 発音 R と L\n\n| 単語 | 意味 | 聞こえ方 | 結果 |\n|---|---|---|---|\n| right | 右 | light | × |\n| right | 右 | right | ○ |\n| light | 光 | light | ○ |\n\nアドバイス:\n- right の R は舌先をどこにも付けず、唇を少しすぼめてから言う\n\n- 🔊[en] right\n- 🔊[en] light\n- 🔊[en] Turn right at the light.\n"}'
 ```
 
 会話は、やりとりを会話の形で書き、直したい文に自然な言い方を添える。
 
 ```
-curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n## 10:30 会話 週末の話\n\n- **Claude**: What did you do last weekend?\n- **自分**: I go to there yesterday.\n  - 自然な言い方: I went there yesterday.（過去は went。there に to は付けない）\n- **Claude**: Oh, you went there yesterday? What did you do?\n- **自分**: I watched a movie.\n\n- 🔊 I went there yesterday.\n"}'
+curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n## 10:30 会話 週末の話\n\n- **Claude**: What did you do last weekend?\n- **自分**: I go to there yesterday.\n  - 自然な言い方: I went there yesterday.（過去は went。there に to は付けない）\n- **Claude**: Oh, you went there yesterday? What did you do?\n- **自分**: I watched a movie.\n\n- 🔊[en] I went there yesterday.\n"}'
 ```
 
 ## 5. 終える
