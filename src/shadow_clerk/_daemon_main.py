@@ -233,9 +233,10 @@ def main() -> None:
     # **ロギング設定より後に呼ぶこと。** 前に置くと移行した事実がどこにも
     # 残らず、設定が動いた理由を後から追えない
     from shadow_clerk.domain.meeting_config import migrate_legacy
-    from shadow_clerk.skill_install import migrate_init_prompt
+    from shadow_clerk.skill_install import auto_update_skills, migrate_init_prompt
     migrate_legacy()
     migrate_init_prompt()
+    auto_update_skills()
 
     # PID ファイルを書き込む（clerk-util recorder-status で使用）
     _write_pid_file()
