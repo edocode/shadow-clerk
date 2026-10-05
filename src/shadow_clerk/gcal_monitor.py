@@ -179,20 +179,11 @@ class GCalMonitor:
         logger.info("Google Calendar モニター停止")
 
     def _has_recent_speech(self, silence_seconds: float = 3.0) -> bool:
-        """直近 silence_seconds 秒以内に音声が検出されていれば True。
-        recorder.last_in_speech_time（VAD 由来）を優先し、なければ transcript mtime で判定する。
-        """
+        """直近 silence_seconds 秒以内に VAD が音声を検出していれば True。"""
         if self._recorder is None:
             return False
-        now = time.time()
-        last = getattr(self._recorder, "last_in_speech_time", None)
-        if last is not None and last > 0:
-            return now - last < silence_seconds
-        try:
-            mtime = os.path.getmtime(self._recorder.output_path)
-            return now - mtime < silence_seconds
-        except OSError:
-            return False
+        last = getattr(self._recorder, "last_in_speech_time", 0.0)
+        return last > 0 and time.time() - last < silence_seconds
 
     def _wait_for_silence(self, total_sec: int = 20, min_trailing_sec: int = 15) -> bool:
         """total_sec 秒間 1 秒おきに音声を確認し、末尾の連続無音が min_trailing_sec 秒以上なら True を返す。
