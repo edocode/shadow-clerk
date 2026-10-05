@@ -9,7 +9,7 @@ import urllib.parse
 import urllib.request
 import yaml
 from shadow_clerk.i18n import t
-from shadow_clerk._daemon_constants import GLOSSARY_FILE, CONFIG_PRESETS_FILE, DEFAULT_CONFIG
+from shadow_clerk._daemon_constants import GLOSSARY_FILE, CONFIG_PRESETS_FILE, TALK_PRESETS_FILE, DEFAULT_CONFIG
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name
 
@@ -128,15 +128,20 @@ class _DashboardHandlerConfigOps:
         logger.info("ダッシュボードから設定変更")
         self._send_json({"config": config, "warnings": _path_warnings(config)})
 
-    def _serve_config_presets(self) -> None:
-        presets: list = []
+    def _read_presets(self, path: str) -> list:
         try:
-            with open(CONFIG_PRESETS_FILE, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-                presets = data.get("presets", [])
+            with open(path, "r", encoding="utf-8") as f:
+                return (yaml.safe_load(f) or {}).get("presets", [])
         except OSError:
-            pass
-        self._send_json({"presets": presets})
+            return []
+
+    def _write_presets(self, path: str, presets: list) -> None:
+        self._atomic_write_lines(
+            path,
+            [yaml.dump({"presets": presets}, default_flow_style=False, allow_unicode=True)])
+
+    def _serve_config_presets(self) -> None:
+        self._send_json({"presets": self._read_presets(CONFIG_PRESETS_FILE)})
 
     def _save_config_preset(self) -> None:
         try:
@@ -150,19 +155,10 @@ class _DashboardHandlerConfigOps:
         if not name or not isinstance(config, dict):
             self.send_error(400)
             return
-        existing: list = []
-        try:
-            with open(CONFIG_PRESETS_FILE, "r", encoding="utf-8") as f:
-                d = yaml.safe_load(f) or {}
-                existing = d.get("presets", [])
-        except OSError:
-            pass
-        existing = [p for p in existing if p.get("name") != name]
+        existing = [p for p in self._read_presets(CONFIG_PRESETS_FILE) if p.get("name") != name]
         existing.append({"name": name, "config": config})
-        self._atomic_write_lines(
-            CONFIG_PRESETS_FILE,
-            [yaml.dump({"presets": existing}, default_flow_style=False, allow_unicode=True)])
-        logger.info("プリセット保存: %s", name)
+        self._write_presets(CONFIG_PRESETS_FILE, existing)
+        logger.info("設定プリセット保存: %s", name)
         self._send_json({"status": "ok"})
 
     def _delete_config_preset(self) -> None:
@@ -176,18 +172,46 @@ class _DashboardHandlerConfigOps:
         if not name:
             self.send_error(400)
             return
-        existing: list = []
+        existing = [p for p in self._read_presets(CONFIG_PRESETS_FILE) if p.get("name") != name]
+        self._write_presets(CONFIG_PRESETS_FILE, existing)
+        logger.info("設定プリセット削除: %s", name)
+        self._send_json({"status": "ok"})
+
+    def _serve_talk_presets(self) -> None:
+        self._send_json({"presets": self._read_presets(TALK_PRESETS_FILE)})
+
+    def _save_talk_preset(self) -> None:
         try:
-            with open(CONFIG_PRESETS_FILE, "r", encoding="utf-8") as f:
-                d = yaml.safe_load(f) or {}
-                existing = d.get("presets", [])
-        except OSError:
-            pass
-        existing = [p for p in existing if p.get("name") != name]
-        self._atomic_write_lines(
-            CONFIG_PRESETS_FILE,
-            [yaml.dump({"presets": existing}, default_flow_style=False, allow_unicode=True)])
-        logger.info("プリセット削除: %s", name)
+            length = int(self.headers.get("Content-Length", 0))
+            data = json.loads(self.rfile.read(length))
+            name = str(data.get("name", "")).strip()
+            fields = data.get("fields", {})
+        except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
+            self.send_error(400)
+            return
+        if not name or not isinstance(fields, dict):
+            self.send_error(400)
+            return
+        existing = [p for p in self._read_presets(TALK_PRESETS_FILE) if p.get("name") != name]
+        existing.append({"name": name, "fields": fields})
+        self._write_presets(TALK_PRESETS_FILE, existing)
+        logger.info("Talkプリセット保存: %s", name)
+        self._send_json({"status": "ok"})
+
+    def _delete_talk_preset(self) -> None:
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            data = json.loads(self.rfile.read(length))
+            name = str(data.get("name", "")).strip()
+        except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
+            self.send_error(400)
+            return
+        if not name:
+            self.send_error(400)
+            return
+        existing = [p for p in self._read_presets(TALK_PRESETS_FILE) if p.get("name") != name]
+        self._write_presets(TALK_PRESETS_FILE, existing)
+        logger.info("Talkプリセット削除: %s", name)
         self._send_json({"status": "ok"})
 
     def _serve_glossary(self) -> None:
