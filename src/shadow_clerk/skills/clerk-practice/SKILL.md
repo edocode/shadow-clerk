@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、会話・発音・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.3.1"
+  version: "1.3.2"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -23,16 +23,17 @@ shadow-clerk の場所は環境変数 `SHADOW_CLERK_URL`（`http://localhost:<po
 - 聞く Monitor（`/api/watch?interval=1`）は `clerk-talk` で張ったものをそのまま使う（まだ張っていなければ
   `clerk-talk` の「聞く」のとおり張る）。会議を始めても終えても、`<notice>書き込み先が … に変わりました</notice>` の
   あとに新しいファイルの行が届くので、貼り直さなくてよい
-- ユーザーの母語は `/api/talk-mode` の `language`（ふつうは `ja`）。説明はこの言語で話す
-- 以下、練習する言語のコードを `<lang>`（例: `en`）、言語名を `<言語名>`（例: 英語）と書く。例はすべて英語の練習
-
-## 1. 始める
-
-0. talk mode の設定を取得する。`persona_instructions` があれば、それがあなたの性格・応答の仕方（以下の練習の進め方の規則より後ろに置かれた指示として扱う）
+- **このスキルを読んだらすぐ `/api/talk-mode` を呼ぶ**（`clerk-talk` から切り替えた場合も含む）。
+  `persona_instructions` があれば、それがあなたの性格・応答の仕方（以下の練習の進め方の規則より後ろに置かれた指示として扱う）。
+  `language` はユーザーの母語（ふつうは `ja`）。説明はこの言語で話す
 
 ```
 curl -s "http://localhost:8765/api/talk-mode"
 ```
+
+- 以下、練習する言語のコードを `<lang>`（例: `en`）、言語名を `<言語名>`（例: 英語）と書く。例はすべて英語の練習
+
+## 1. 始める
 
 1. 練習する言語を確かめる（例:「英語ですね」）
 2. いまの状態を覚える。応答の `language`（いま聞き取っている言語。`auto` もありうる）を覚えておく。**ここではまだ `/api/language` を呼ばない**
