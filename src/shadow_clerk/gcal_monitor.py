@@ -178,17 +178,29 @@ class GCalMonitor:
             self._thread.join(timeout=5)
         logger.info("Google Calendar モニター停止")
 
-    def _has_recent_speech(self, silence_seconds: int = 60) -> bool:
-        """直近 silence_seconds 秒以内に transcript ファイルへの書き込みがあれば True"""
+    def _has_recent_speech(self, silence_seconds: float = 3.0) -> bool:
+        """直近 silence_seconds 秒以内に VAD が音声を検出していれば True。"""
         if self._recorder is None:
             return False
-        try:
-            path = self._recorder.output_path
-            mtime = os.path.getmtime(path)
-            age = time.time() - mtime
-            return age < silence_seconds
-        except OSError:
-            return False
+        last = getattr(self._recorder, "last_in_speech_time", 0.0)
+        return last > 0 and time.time() - last < silence_seconds
+
+    def _wait_for_silence(self, total_sec: int = 20, min_trailing_sec: int = 15) -> bool:
+        """total_sec 秒間 1 秒おきに音声を確認し、末尾の連続無音が min_trailing_sec 秒以上なら True を返す。
+        デーモン停止要求があれば即 True を返す（切り替えを進める）。
+        """
+        samples: list[bool] = []  # True = 無音
+        for _ in range(total_sec):
+            if self._stop_event.wait(1.0):
+                return True
+            samples.append(not self._has_recent_speech())
+        trailing = 0
+        for s in reversed(samples):
+            if s:
+                trailing += 1
+            else:
+                break
+        return trailing >= min_trailing_sec
 
     def _send_command(self, cmd: str):
         if self._recorder is None:
@@ -289,6 +301,11 @@ class GCalMonitor:
             is_upcoming = now_utc <= trigger_start <= next_poll or trigger_start <= now_utc <= start_dt
             is_ongoing = start_dt <= now_utc < end_dt
             if (is_upcoming or is_ongoing) and self._processed.get(event_id) not in ("started", "ended"):
+                # 別の会議が started 状態のまま継続中なら、会話が途切れるまで待つ
+                if self._another_meeting_ongoing(events, event_id, now_utc, end_buffer_min):
+                    if not self._wait_for_silence():
+                        logger.info("会議開始延期（前の会議の会話が継続中）: %s (%s)", summary, event_id)
+                        continue
                 self._send_command(f"start_meeting {sanitized}")
                 self._processed[event_id] = "started"
                 logger.info("会議開始検出 (%s): %s (%s)", "進行中" if is_ongoing else "予定", summary, event_id)
@@ -305,7 +322,7 @@ class GCalMonitor:
                         self._processed[event_id] = "ended"
                         logger.info("会議終了 (後続会議が進行中のため end_meeting 送信なし): %s (%s)",
                                     summary, event_id)
-                    elif self._has_recent_speech(silence_seconds=60):
+                    elif not self._wait_for_silence():
                         logger.info("会議終了延期（会話継続中）: %s (%s)", summary, event_id)
                     else:
                         self._send_command("end_meeting")

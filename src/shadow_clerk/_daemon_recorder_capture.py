@@ -260,6 +260,10 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         # 会議セッション（進行中は MeetingSession、それ以外は None）
         self.current_session: MeetingSession | None = None
 
+        # VAD が in_speech=True を最後に検出した時刻 (time.time())。
+        # GCalMonitor が会話中かどうかを判断するために使う。
+        self.last_in_speech_time: float = 0.0
+
         # 翻訳ループ
         self._translate_stop_event = threading.Event()
         self._translate_thread: threading.Thread | None = None
@@ -645,17 +649,20 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
                     self._command_mode_release_time = 0.0  # 猶予タイマーもクリア
                 interim_seq += 1
                 last_interim_time = 0.0
+                self.last_in_speech_time = timestamp
                 # final segment 確定時に config を再読み込み（ランタイム切替対応）
                 interim_enabled = load_config().get("interim_transcription", False)
             elif label == "mic" and segmenter.in_speech:
                 # mic に中間文字起こしは無い。VAD が声を検出している間を「話している」として Claude に知らせる
                 now = time.time()
+                self.last_in_speech_time = now
                 if mic_voice_due(last_voice, now, self.mute_mic, command_mode_latch):
                     self.talk.on_voice("mic")
                     last_voice = now
-            elif (interim_enabled or self.talk.routed) and label == "monitor" and segmenter.in_speech:
+            elif label == "monitor" and segmenter.in_speech:
                 now = time.time()
-                if now - last_interim_time >= 1.5:
+                self.last_in_speech_time = now
+                if (interim_enabled or self.talk.routed) and now - last_interim_time >= 1.5:
                     interim_audio = segmenter.get_interim_segment()
                     if interim_audio is not None and not self.talk.hides_interim(
                             label, now - len(interim_audio) / SAMPLE_RATE, now):
