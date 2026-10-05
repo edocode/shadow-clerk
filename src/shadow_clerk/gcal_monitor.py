@@ -194,17 +194,22 @@ class GCalMonitor:
         except OSError:
             return False
 
-    def _wait_for_silence(self, total_sec: int = 10, min_silent_sec: int = 8) -> bool:
-        """total_sec 秒間 1 秒おきに音声を確認し、min_silent_sec 秒以上が無音なら True を返す。
+    def _wait_for_silence(self, total_sec: int = 10, min_trailing_sec: int = 8) -> bool:
+        """total_sec 秒間 1 秒おきに音声を確認し、末尾の連続無音が min_trailing_sec 秒以上なら True を返す。
         デーモン停止要求があれば即 True を返す（切り替えを進める）。
         """
-        silent_count = 0
+        samples: list[bool] = []  # True = 無音
         for _ in range(total_sec):
             if self._stop_event.wait(1.0):
                 return True
-            if not self._has_recent_speech():
-                silent_count += 1
-        return silent_count >= min_silent_sec
+            samples.append(not self._has_recent_speech())
+        trailing = 0
+        for s in reversed(samples):
+            if s:
+                trailing += 1
+            else:
+                break
+        return trailing >= min_trailing_sec
 
     def _send_command(self, cmd: str):
         if self._recorder is None:
