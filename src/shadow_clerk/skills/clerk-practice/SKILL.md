@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、会話・発音・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -111,6 +111,9 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 - **会話の途中では直さない。** 間違いがあっても、正しい言い方で言い直して見せる程度にする（例: ユーザーが
   「I go to there yesterday.」と言ったら「Oh, you went there yesterday? What did you do?」と返す）
 - 直しは Advice にためて、話の切れ目でまとめて伝える
+- **やりとりを Analysis に書く。** 2〜3往復ごとに、あなたの文とユーザーの文（届いた `[自分]` の行）を会話の形で、
+  直したほうがよい文には自然な言い方を添えて追記する（形は「4. 書く」の会話の例）。transcript には直しが残らないので、
+  あとで読み返せるのはここだけ
 
 ### `[画面]` 行が来たら
 
@@ -139,18 +142,26 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 ```
 
 - 同じ組の次の単語も同様に送る（例: `{"text":"light","lang":"en","display":"ライト（光）"}`）
-- ユーザーが言った後、判定してから初めて、綴りと 🔊 の例文を `/api/generated` で Analysis に書く（綴りはそこで見せる）
+- ユーザーが言った後、判定してから初めて、綴りと 🔊 の例文を `/api/generated` で Analysis に書く（綴りはそこで見せる）。
+  **試した単語は、通ったものも含めて全部書く。** transcript にはカタカナしか残らないので、綴りが残るのはここだけ。
+  単語ごとに 綴り・意味・どう聞こえたか（認識結果）・結果 と、通らなかった単語には口の形・舌の位置のアドバイスも書く
+  （形は「4. 書く」の発音の例）。1組（right と light など）を判定し終えるたびに追記する
 
 ### 作文
 
 - 母語でお題を出す（例:「昨日は雨だったので家にいました、と英語で言ってみてください」）
 - 言えたら、自然な言い方を `lang` 付きで返す。言えなかったところだけ母語で短く説明する
+- お題ごとに、お題・言えた文・自然な言い方・説明を Analysis に追記する
 
 ## 4. 書く — Advice と Analysis
 
 ダッシュボードの AI分析 タブの Advice と Analysis に出る。どちらも Markdown（見出し・箇条書き・表・引用が効く）。
 
-- **書くのは話の切れ目**（ひとつのお題が終わったとき、ユーザーの返事を待つ間）。直すたびには書かず、まとめて書く
+- **頼まれなくても書く。** ユーザーはあとで AI分析 タブを読み返して復習する。声で伝えた直しや綴りは transcript には
+  残らないので、書かなければ消えてしまう
+- **書くのは話の切れ目**（発音は1組を判定し終えたとき、会話は2〜3往復ごと、作文はお題ごと）。
+  書かずに次の組・次のお題へ進まない。書くときは、ユーザーの返事を待つ間（次のお題を出した直後など）に書けば会話が止まらない
+- 直しを伝えたら Advice も書き直す
 - **お手本・例文の行は `🔊 ` で始める。** ダッシュボードでその行（段落・箇条書き・引用）をクリックすると、
   いま聞き取っている言語の発音で読み上げられる。表の中の 🔊 はクリックできないので、表の外に置く
 - `text` は 20,000 字まで。JSON の文字列なので、改行は `\n`、`"` は `\"` と書く
@@ -176,6 +187,18 @@ curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: applicat
 - 時刻と練習の形の見出し（`## HH:MM 作文` など）の下に積む。消さない・まとめ直さない
 - 出題・言えた文・結果（○ / △ / ×）の表
 - 次に言ってみる例文を `🔊 ` で始まる箇条書きで
+
+発音は、試した単語を全部、表とアドバイスで書く。
+
+```
+curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n## 10:20 発音 R と L\n\n| 単語 | 意味 | 聞こえ方 | 結果 |\n|---|---|---|---|\n| right | 右 | light | × |\n| right | 右 | right | ○ |\n| light | 光 | light | ○ |\n\nアドバイス:\n- right の R は舌先をどこにも付けず、唇を少しすぼめてから言う\n\n- 🔊 right\n- 🔊 light\n- 🔊 Turn right at the light.\n"}'
+```
+
+会話は、やりとりを会話の形で書き、直したい文に自然な言い方を添える。
+
+```
+curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n## 10:30 会話 週末の話\n\n- **Claude**: What did you do last weekend?\n- **自分**: I go to there yesterday.\n  - 自然な言い方: I went there yesterday.（過去は went。there に to は付けない）\n- **Claude**: Oh, you went there yesterday? What did you do?\n- **自分**: I watched a movie.\n\n- 🔊 I went there yesterday.\n"}'
+```
 
 ## 5. 終える
 
