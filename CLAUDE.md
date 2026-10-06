@@ -117,6 +117,22 @@ glossary and `misheard.tsv` exist for exactly that.
 - No CI on push. The only workflow is `.github/workflows/build-binary.yml`,
   which builds the standalone binaries and runs on a `v*` tag or by hand
 
+## Bundled Skills (`src/shadow_clerk/skills/`)
+
+`clerk-meeting-helper`, `clerk-talk`, `clerk-practice` の3スキルを同梱し、
+`clerk-util install-skill` またはダッシュボードのモーダルでユーザーの
+`~/.claude/skills/` へ配布する（`skill_install.py` が一元管理）。
+
+### バージョン管理と更新通知
+
+- 各スキルの `SKILL.md` frontmatter に `metadata.version` を持つ（`"1.3.1"` など）
+- `skill_install.read_skill_version()` でバージョンを読み、`_state()` で
+  同梱版 vs インストール済みを比較する
+- インストール済みが古ければ `state: "outdated"` となり、ダッシュボードが
+  更新モーダルを表示してユーザーに配布を促す
+- **スキルを変更したら必ずバージョンをバンプする**。バンプしないとモーダルが
+  出ず、既存ユーザーに変更が届かない
+
 ## Documentation
 
 - `README.md` (English, primary) / `README.ja.md` (Japanese)
