@@ -513,8 +513,12 @@ Requirements:
 
 - [Claude Code](https://claude.com/claude-code) CLI (`claude_cli_path`)
 - A running [VOICEVOX](https://voicevox.hiroshiba.jp/) engine (default `http://localhost:50021`).
-  The engine runs as a separate process and is not bundled. Follow the terms of the voice you
-  use; the dashboard shows the required credit (`VOICEVOX:<name>`) while talk mode is on.
+  The engine runs as a separate process and is not bundled. To start it, either:
+  - Download and launch the **VOICEVOX app** from the official site (GUI + engine).
+  - Or download the **engine-only** package (no GUI) from the [GitHub releases](https://github.com/VOICEVOX/voicevox_engine/releases) and run `./run` (Linux) / `run.exe` (Windows).
+  - Or run via Docker: `docker run --rm -p 50021:50021 voicevox/voicevox_engine:cpu-ubuntu20.04-latest`
+
+  Follow the terms of the voice you use; the dashboard shows the required credit (`VOICEVOX:<name>`) while talk mode is on.
 - Headphones. While talk mode is on, the monitor channel is not transcribed, so Claude's own
   voice does not come back as `[Others]` lines.
 

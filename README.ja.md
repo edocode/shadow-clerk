@@ -512,7 +512,12 @@ talk mode では、議題について Claude と声で議論できます。Claud
 
 - [Claude Code](https://claude.com/claude-code) の CLI（`claude_cli_path`）
 - 起動済みの [VOICEVOX](https://voicevox.hiroshiba.jp/) エンジン（既定 `http://localhost:50021`）。
-  エンジンは別プロセスで動かし、shadow-clerk には同梱しません。使う音声の利用規約に従ってください。
+  エンジンは別プロセスで動かし、shadow-clerk には同梱しません。起動方法は次のいずれか：
+  - 公式サイトから **VOICEVOX アプリ**（GUI + エンジン一体）をダウンロードして起動する。
+  - **エンジン単体パッケージ**（GUI なし）を [GitHub リリース](https://github.com/VOICEVOX/voicevox_engine/releases) からダウンロードし、`./run`（Linux）または `run.exe`（Windows）を実行する。
+  - Docker で起動する: `docker run --rm -p 50021:50021 voicevox/voicevox_engine:cpu-ubuntu20.04-latest`
+
+  使う音声の利用規約に従ってください。
   talk mode 中は、必要なクレジット表記（`VOICEVOX:<キャラ名>`）をダッシュボードに出します。
 - ヘッドホン。talk mode 中は monitor 側を文字起こししないので、Claude 自身の声が `[相手]` 行として戻ってくることはありません。
 
