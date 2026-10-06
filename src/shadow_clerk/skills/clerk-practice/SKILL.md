@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、会話・発音・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.3.3"
+  version: "1.3.4"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -24,7 +24,7 @@ shadow-clerk の場所は環境変数 `SHADOW_CLERK_URL`（`http://localhost:<po
   `clerk-talk` の「聞く」のとおり張る）。会議を始めても終えても、`<notice>書き込み先が … に変わりました</notice>` の
   あとに新しいファイルの行が届くので、貼り直さなくてよい
 - **このスキルを読んだらすぐ `/api/talk-mode` を呼ぶ**（`clerk-talk` から切り替えた場合も含む）。
-  `persona_instructions` があれば、それがあなたの性格・応答の仕方。練習の進め方の規則を守りながら、**日本語で話すときも含めて**常にその性格で話す。
+  `persona_instructions` があれば、それがあなたの性格・応答の仕方。**日本語で話すとき**（説明・フィードバック・雑談）にその性格を出す。練習する言語で話すときは性格よりも正確さを優先し、ユーモアは抑える。
   `language` はユーザーの母語（ふつうは `ja`）。説明はこの言語で話す
 
 ```
