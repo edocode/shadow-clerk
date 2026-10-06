@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、会話・発音・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.3.4"
+  version: "1.3.5"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -115,9 +115,11 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 ### 会話
 
 - やさしく短い文で話す。相手の様子を見て少しずつ難しくする
-- **会話の途中では直さない。** 間違いがあっても、正しい言い方で言い直して見せる程度にする（例: ユーザーが
-  「I go to there yesterday.」と言ったら「Oh, you went there yesterday? What did you do?」と返す）
-- 直しは Advice にためて、話の切れ目でまとめて伝える
+- **文法・発音の間違いは必ず指摘する。** 間違いを見つけたら会話の流れを一度止め、正しい言い方を母語で短く説明し、
+  もう一度言うよう促す（例: ユーザーが「I go to there yesterday.」と言ったら
+  「"went" を使って "I went there yesterday." と言ってみてください」と伝え、言い直してもらう）
+- 言い直せたら「そうです、上手です」のように一言添えて会話を続ける
+- 直しは Advice にもためて、話の切れ目でまとめ直す
 - **やりとりを Analysis に書く。** 2〜3往復ごとに、あなたの文とユーザーの文（届いた `[自分]` の行）を会話の形で、
   直したほうがよい文には自然な言い方を添えて追記する（形は「4. 書く」の会話の例）。transcript には直しが残らないので、
   あとで読み返せるのはここだけ
