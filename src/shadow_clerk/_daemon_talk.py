@@ -80,6 +80,19 @@ SPEAKING_STALE_SEC = 4.0
 _FLOOR_POLL_SEC = 0.1
 MIC_VOICE_INTERVAL_SEC = 0.5  # mic の VAD が声を検出している間、on_voice を呼ぶ間隔
 
+# "Claude、〇〇して" のような Claude 宛ての依頼・質問を検出する
+# 先頭に Claude があり、依頼（て形）または疑問（?）で終わる
+_CLAUDE_REQUEST_RE = re.compile(
+    r'^[Cc]laude[、,。]?\s*.+(?:[てで](?:ください|ほしい|みて|くれ|くれない)?|[?？]|ませんか[?？]?)$'
+)
+# 進行形・です/ます形で終わる場合は依頼ではない（例: "Claudeにやらせてます"）
+_NON_REQUEST_SUFFIX_RE = re.compile(r'(?:います|ています|てます|ていた|いた|いる|ている)$')
+
+
+def _is_addressed_to_claude(text: str) -> bool:
+    """Claude 宛ての依頼・質問か。多人数会議で応答が必要かを判定する"""
+    return bool(_CLAUDE_REQUEST_RE.match(text)) and not bool(_NON_REQUEST_SUFFIX_RE.search(text))
+
 
 def mic_voice_due(last: float, now: float, muted: bool, command_mode: bool) -> bool:
     """mic の VAD が声を検出中に on_voice を呼ぶか。ミュート中と PTT / コマンドモード中は呼ばず、呼ぶのは間隔ごと"""
@@ -257,10 +270,17 @@ class TalkDriver:
             and self._echo.overlaps(seg_start, seg_end))
 
     def on_other_line(self, line: TranscriptLine) -> None:
-        """[相手] 行が書かれた。発言を待たせている間に届いたかを数えるだけ"""
+        """[相手] 行が書かれた。Claude 宛ての依頼・質問なら engine に渡して応答させる"""
         with self._lock:
-            if self._active:
-                self._note_line_locked(line)
+            if not self._active:
+                return
+            self._note_line_locked(line)
+            if not _is_addressed_to_claude(line.text):
+                return
+            engine = self._engine
+            self._arm_filler_locked()
+        logger.info("talk: [相手] が Claude に依頼: %r", line.text.strip())
+        engine.on_self_line(line.text)
 
     def _note_line_locked(self, line: TranscriptLine) -> None:
         self._lines_seen += 1
@@ -279,8 +299,11 @@ class TalkDriver:
                 if busy or engine.wants_idle_interrupt:
                     engine.on_interrupt(cut)
                 logger.info("talk: 制止 (busy=%s, cut=%r)", busy, cut)
-            else:
-                self._arm_filler_locked()
+                return
+            # routed（多人数会議）では Claude 宛ての発言だけ応答する
+            if self._route is not None and not _is_addressed_to_claude(line.text):
+                return
+            self._arm_filler_locked()
         engine.on_self_line(line.text)
 
     def api_say(self, text: str, lang: Language | None = None, display: str | None = None) -> dict:
