@@ -79,6 +79,9 @@ FILLER_COOLDOWN_SEC = 30.0
 SPEAKING_STALE_SEC = 4.0
 _FLOOR_POLL_SEC = 0.1
 MIC_VOICE_INTERVAL_SEC = 0.5  # mic の VAD が声を検出している間、on_voice を呼ぶ間隔
+# talk 終了後もこの秒数はモニターの文字起こしを捨てる。
+# stop() の後もキューに積まれた音声が ASR を通ってくるため
+STOP_MONITOR_GRACE_SEC = 5.0
 
 
 def mic_voice_due(last: float, now: float, muted: bool, command_mode: bool) -> bool:
@@ -130,6 +133,7 @@ class TalkDriver:
         self._heard: dict[str, float] = {}  # source → 中間文字起こしに文字が出た最後の時刻（monotonic）
         self._lines_seen = 0  # talk mode 中に届いた [自分]・[相手] 行の数
         self._recent_lines: deque[TranscriptLine] = deque(maxlen=_HEARD_LINES_MAX)
+        self._stopped_at: float = float("-inf")  # stop() を呼んだ時刻（monotonic）
 
     def start(self, topic: str, persona: str | None, workdir: str | None = None,
               route: str | None = None) -> None:
@@ -194,6 +198,7 @@ class TalkDriver:
             if not self._active or (player is not None and self._player is not player):
                 return
             self._active = False
+            self._stopped_at = time.monotonic()
             engine, player = self._engine, self._player
             route, sink = self._route, self._sink
             self._engine = self._player = self._route = self._sink = None
@@ -241,19 +246,26 @@ class TalkDriver:
         return sorted(s for s, at in list(self._heard.items()) if now - at < SPEAKING_STALE_SEC)
 
     def is_suppressed(self, source: str) -> bool:
-        """この source の文字起こしを捨てるか。届け先が無い talk mode の monitor（Claude の声しか来ない）"""
-        return self._active and source == "monitor" and self._route is None
+        """この source の文字起こしを捨てるか。届け先が無い talk mode の monitor（Claude の声しか来ない）。
+        stop() 後も STOP_MONITOR_GRACE_SEC 秒間は捨てる（キュー残りが ASR を通ってくるため）"""
+        if source != "monitor" or self._route is not None:
+            return False
+        return self._active or time.monotonic() - self._stopped_at < STOP_MONITOR_GRACE_SEC
 
     def is_echo(self, source: str, seg_start: float, seg_end: float, text: str) -> bool:
-        """届け先ありの talk mode で、monitor の区間が Claude の読み上げ中（終了後 tail まで）か。text は使わない（時間だけで判定）"""
-        if not (self._active and source == "monitor" and self._route is not None):
+        """届け先ありの talk mode で、monitor の区間が Claude の読み上げ中（終了後 tail まで）か。text は使わない（時間だけで判定）。
+        stop() 後も STOP_MONITOR_GRACE_SEC 秒間は判定を続ける"""
+        if source != "monitor" or self._route is None:
+            return False
+        if not self._active and time.monotonic() - self._stopped_at >= STOP_MONITOR_GRACE_SEC:
             return False
         return self._echo.overlaps(seg_start, seg_end)
 
     def hides_interim(self, source: str, seg_start: float, seg_end: float) -> bool:
         """中間文字起こしを出さないか。Claude の声が混ざる monitor の区間（確定行は is_echo で別に判定する）"""
         return self.is_suppressed(source) or (
-            self._active and source == "monitor" and self._route is not None
+            source == "monitor" and self._route is not None
+            and (self._active or time.monotonic() - self._stopped_at < STOP_MONITOR_GRACE_SEC)
             and self._echo.overlaps(seg_start, seg_end))
 
     def on_other_line(self, line: TranscriptLine) -> None:
