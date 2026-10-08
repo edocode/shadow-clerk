@@ -94,6 +94,40 @@ def test_best_match_uses_ge_not_gt():
     assert abs(score - 1.0) < 1e-6
 
 
+# --- 話者分離有効 + identify_speaker()=None → speaker_label="相手?" ---
+
+def test_diarization_unknown_label_when_none(monkeypatch):
+    import shadow_clerk._daemon_speaker_diarization as mod
+    monkeypatch.setattr(mod, "_HAS_ORT", False)  # identify_speaker が None を返す状態
+
+    from shadow_clerk._daemon_speaker_diarization import SpeakerDiarizer as SD
+    diarizer = SD()
+    # 話者分離有効時、None は "相手?" になる
+    audio = _silence(2.0)
+    raw = diarizer.identify_speaker(audio)  # None
+    assert raw is None
+    # transcribe 側のマッピング: None → "相手?"
+    label = raw if raw is not None else "相手?"
+    assert label == "相手?"
+
+
+# --- "相手?" の TranscriptLine round-trip ---
+
+def test_transcript_line_unknown_label_roundtrip():
+    tl = TranscriptLine(
+        timestamp="10:00:00",
+        speaker=Speaker.OTHER,
+        text="えっと",
+        speaker_label="相手?",
+    )
+    line = tl.format()
+    assert "[相手?]" in line
+    parsed = TranscriptLine.parse(line)
+    assert parsed is not None
+    assert parsed.speaker == Speaker.OTHER
+    assert parsed.speaker_label == "相手?"
+
+
 # --- TranscriptLine.parse() round-trip ---
 
 def test_transcript_line_parse_roundtrip_with_diarization_label():

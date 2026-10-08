@@ -173,7 +173,8 @@ class _RecorderTranscribeMixin:
 
         speaker_label: str | None = None
         if file_speaker == Speaker.OTHER and load_config().get("speaker_diarization", False):
-            speaker_label = self.diarizer.identify_speaker(segment)
+            label = self.diarizer.identify_speaker(segment)
+            speaker_label = label if label is not None else "相手?"
         tl = TranscriptLine(timestamp=timestamp, speaker=file_speaker, text=text,
                             speaker_label=speaker_label)
         self._append_transcript_line(tl)

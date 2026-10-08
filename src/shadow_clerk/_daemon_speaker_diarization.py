@@ -190,13 +190,14 @@ class SpeakerDiarizer:
             pool.append(emb)
             if len(pool) > _MAX_EMBEDDINGS_PER_SPEAKER:
                 self._session_speakers[label] = pool[-_MAX_EMBEDDINGS_PER_SPEAKER:]
-            logger.debug("話者分離: %s (類似度 %.3f)", label, score)
+            logger.info("話者分離: %s (類似度 %.3f, 閾値 %.2f)", label, score, thr)
             return label
 
         self._next_idx += 1
         new_label = _generate_label(self._next_idx)
         self._session_speakers[new_label] = [emb]
-        logger.debug("話者分離: 新規話者 %s", new_label)
+        best_str = f"最高類似度 {label}:{score:.3f}" if label else "既存話者なし"
+        logger.info("話者分離: 新規話者 %s (%s, 閾値 %.2f)", new_label, best_str, thr)
         return new_label
 
     def reset_session(self) -> None:
