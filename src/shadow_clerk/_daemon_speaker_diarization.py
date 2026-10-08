@@ -1,11 +1,12 @@
 """Shadow-clerk daemon: 話者分離 (Speaker Diarization)
 
 wespeaker ONNX (ResNet34, VoxCeleb) による話者埋め込み抽出・マッチング。
-onnxruntime がインストールされていない場合は無効化され、"相手" を返す。
+onnxruntime がインストールされていない場合は無効化され、None を返す。
 """
 from __future__ import annotations
 
 import logging
+import math
 import os
 import threading
 from typing import Any
@@ -18,6 +19,7 @@ from shadow_clerk._daemon_config import load_config
 logger = logging.getLogger("shadow-clerk")
 
 _WESPEAKER_REPO = "wespeaker/wespeaker-voxceleb-resnet34-LM"
+_ONNX_FILENAME = "voxceleb_resnet34_LM.onnx"
 _CACHE_DIR = os.path.join(DATA_DIR, "wespeaker_cache")
 _SIMILARITY_THRESHOLD_DEFAULT = 0.75
 _MIN_SEGMENT_SEC = 1.0
@@ -101,45 +103,41 @@ class SpeakerDiarizer:
     def __init__(self) -> None:
         self._session: Any | None = None
         self._model_lock = threading.Lock()
-        self._available = False
+        self._load_failed = False
         self._session_speakers: dict[str, list[np.ndarray]] = {}
         self._next_idx = 0
 
-    @property
-    def available(self) -> bool:
-        return self._available
-
     def _load_model(self) -> bool:
-        """モデルを遅延ロード。成功したら True。"""
+        """モデルを遅延ロード。成功したら True。失敗後はラッチして再試行しない。"""
         if self._session is not None:
             return True
+        if self._load_failed:
+            return False
         if not _HAS_ORT:
             logger.warning("話者分離: onnxruntime が見つかりません。"
                            "'uv sync --extra diarization' でインストールしてください")
+            self._load_failed = True
             return False
         with self._model_lock:
             if self._session is not None:
                 return True
+            if self._load_failed:
+                return False
             try:
                 import huggingface_hub as hf
-                model_dir = hf.snapshot_download(
-                    _WESPEAKER_REPO, cache_dir=_CACHE_DIR, local_files_only=False)
-                onnx_path = os.path.join(model_dir, "final.onnx")
-                if not os.path.exists(onnx_path):
-                    logger.error("話者分離: final.onnx が見つかりません: %s", onnx_path)
-                    return False
+                onnx_path = hf.hf_hub_download(
+                    _WESPEAKER_REPO, _ONNX_FILENAME, cache_dir=_CACHE_DIR)
                 opts = _ort.SessionOptions()
                 opts.inter_op_num_threads = 1
                 opts.intra_op_num_threads = 2
                 self._session = _ort.InferenceSession(
                     onnx_path, sess_options=opts,
                     providers=["CPUExecutionProvider"])
-                self._available = True
                 logger.info("話者分離モデル読み込み完了: %s", onnx_path)
                 return True
             except Exception as e:
                 logger.error("話者分離モデル読み込みエラー: %s — 話者分離を無効化します", e)
-                self._available = False
+                self._load_failed = True
                 return False
 
     def extract_embedding(self, audio: np.ndarray) -> np.ndarray | None:
@@ -166,7 +164,7 @@ class SpeakerDiarizer:
     def _best_match(self, emb: np.ndarray,
                     pool: dict[str, list[np.ndarray]]) -> tuple[str | None, float]:
         best_name: str | None = None
-        best_score = 0.0
+        best_score = -math.inf
         for name, embeddings in pool.items():
             for stored in embeddings:
                 score = _cosine_similarity(emb, stored)
@@ -174,16 +172,16 @@ class SpeakerDiarizer:
                     best_score, best_name = score, name
         return best_name, best_score
 
-    def identify_speaker(self, audio: np.ndarray) -> str:
-        """音声セグメントから話者ラベルを返す。分離不能・短すぎる場合は "相手"。"""
+    def identify_speaker(self, audio: np.ndarray) -> str | None:
+        """音声セグメントから話者ラベルを返す。分離不能・短すぎる場合は None。"""
         duration = len(audio) / _SAMPLE_RATE
         if duration < _MIN_SEGMENT_SEC:
             logger.debug("話者分離: %.2f秒 < %.1f秒、スキップ", duration, _MIN_SEGMENT_SEC)
-            return "相手"
+            return None
 
         emb = self.extract_embedding(audio)
         if emb is None:
-            return "相手"
+            return None
 
         thr = self._threshold()
         label, score = self._best_match(emb, self._session_speakers)
@@ -202,10 +200,6 @@ class SpeakerDiarizer:
         return new_label
 
     def reset_session(self) -> None:
-        """セッション話者状態をリセット。"""
+        """セッション話者状態をリセット。新しい会議の開始時に呼ぶ。"""
         self._session_speakers.clear()
         self._next_idx = 0
-
-    def get_session_speakers(self) -> list[str]:
-        """現在セッションの話者ラベル一覧。"""
-        return list(self._session_speakers.keys())

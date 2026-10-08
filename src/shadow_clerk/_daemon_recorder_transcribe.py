@@ -150,6 +150,7 @@ class _RecorderTranscribeMixin:
             if new_path != self.output_path:
                 logger.info("日付変更検出、出力先切り替え: %s", new_path)
                 self.output_path = new_path
+                self.diarizer.reset_session()
 
         text = self.word_replacer.apply(text, self.transcriber.language)
         if self.talk.is_echo(source, seg_start, seg_start + duration, text):
@@ -172,9 +173,7 @@ class _RecorderTranscribeMixin:
 
         speaker_label: str | None = None
         if file_speaker == Speaker.OTHER and load_config().get("speaker_diarization", False):
-            raw_label = self.diarizer.identify_speaker(segment)
-            if raw_label != "相手":
-                speaker_label = raw_label
+            speaker_label = self.diarizer.identify_speaker(segment)
         tl = TranscriptLine(timestamp=timestamp, speaker=file_speaker, text=text,
                             speaker_label=speaker_label)
         self._append_transcript_line(tl)
