@@ -32,50 +32,68 @@ try:
 except ImportError:
     _HAS_ORT = False
 
+try:
+    import kaldi_native_fbank as _knf
+    _HAS_KNF = True
+except ImportError:
+    _HAS_KNF = False
+
+
+def _make_knf_opts(num_mel_bins: int = 80) -> Any:
+    opts = _knf.FbankOptions()
+    opts.frame_opts.dither = 0.0
+    opts.frame_opts.window_type = "hamming"
+    opts.frame_opts.remove_dc_offset = False
+    opts.frame_opts.frame_shift_ms = 10.0
+    opts.frame_opts.frame_length_ms = 25.0
+    opts.mel_opts.num_bins = num_mel_bins
+    opts.mel_opts.low_freq = 20.0
+    opts.mel_opts.high_freq = -400.0
+    return opts
+
 
 def _extract_fbank(audio: np.ndarray, num_mel_bins: int = 80) -> np.ndarray:
-    """80次元 log-mel filterbank 特徴量を返す。入力は float32 [-1, 1]、16kHz。"""
+    """80次元 Kaldi 互換 log-mel filterbank。入力は int16 スケール float32、16kHz。
+
+    kaldi_native_fbank が利用可能な場合は wespeaker のトレーニングと同一の
+    前処理を使う。未インストール時は numpy フォールバック（精度が落ちる）。
+    """
+    if _HAS_KNF:
+        online_fbank = _knf.OnlineFbank(_make_knf_opts(num_mel_bins))
+        online_fbank.accept_waveform(_SAMPLE_RATE, audio.tolist())
+        online_fbank.input_finished()
+        frames = [online_fbank.get_frame(i) for i in range(online_fbank.num_frames_ready)]
+        return np.array(frames, dtype=np.float32)
+
+    # --- numpy フォールバック ---
     sr = _SAMPLE_RATE
-    frame_len = int(sr * 0.025)   # 400 サンプル
-    frame_hop = int(sr * 0.010)   # 160 サンプル
+    frame_len = int(sr * 0.025)
+    frame_hop = int(sr * 0.010)
     n_fft = 512
-
-    # プリエンファシス
     audio = np.concatenate([[audio[0]], audio[1:] - 0.97 * audio[:-1]])
-
-    # フレーム分割 + Hamming 窓
     num_frames = max(1, 1 + (len(audio) - frame_len) // frame_hop)
     idx = np.arange(frame_len)[None, :] + frame_hop * np.arange(num_frames)[:, None]
     idx = np.clip(idx, 0, len(audio) - 1)
     frames = audio[idx] * np.hamming(frame_len)
-
-    # パワースペクトル
-    power = np.abs(np.fft.rfft(frames, n=n_fft)) ** 2  # (T, n_fft//2+1)
-
-    # Mel フィルタバンク
+    power = np.abs(np.fft.rfft(frames, n=n_fft)) ** 2
     fmin, fmax = 20.0, sr / 2.0
     mel_min = 2595.0 * np.log10(1.0 + fmin / 700.0)
     mel_max = 2595.0 * np.log10(1.0 + fmax / 700.0)
     mel_pts = np.linspace(mel_min, mel_max, num_mel_bins + 2)
     hz_pts = 700.0 * (10.0 ** (mel_pts / 2595.0) - 1.0)
-    bins = np.floor((n_fft + 1) * hz_pts / sr).astype(int)
-    bins = np.clip(bins, 0, n_fft // 2)
-
+    bins = np.clip(np.floor((n_fft + 1) * hz_pts / sr).astype(int), 0, n_fft // 2)
     fbank = np.zeros((num_frames, num_mel_bins), dtype=np.float32)
     for m in range(1, num_mel_bins + 1):
         lo, mid, hi = bins[m - 1], bins[m], bins[m + 1]
         up = np.arange(lo, mid)
         dn = np.arange(mid, hi)
-        denom_up = max(mid - lo, 1)
-        denom_dn = max(hi - mid, 1)
         if len(up):
-            fbank[:, m - 1] += power[:, up] @ ((up - lo) / denom_up).astype(np.float32)
+            fbank[:, m - 1] += power[:, up] @ ((up - lo) / max(mid - lo, 1)).astype(np.float32)
         if len(dn):
-            fbank[:, m - 1] += power[:, dn] @ ((hi - dn) / denom_dn).astype(np.float32)
-
+            fbank[:, m - 1] += power[:, dn] @ ((hi - dn) / max(hi - mid, 1)).astype(np.float32)
     fbank = np.log(np.maximum(fbank, 1e-10))
     fbank -= fbank.mean(axis=0, keepdims=True)
-    return fbank  # (T, 80)
+    return fbank
 
 
 def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
@@ -146,8 +164,8 @@ class SpeakerDiarizer:
             return None
         assert self._session is not None
         try:
-            audio_f32 = audio.astype(np.float32) / 32768.0
-            feats = _extract_fbank(audio_f32)           # (T, 80)
+            audio_f32 = audio.astype(np.float32)  # int16 スケール維持（wespeaker と同じ前処理）
+            feats = _extract_fbank(audio_f32)      # (T, 80)
             feats = feats[np.newaxis, ...]              # (1, T, 80)
             input_name = self._session.get_inputs()[0].name
             outputs = self._session.run(None, {input_name: feats})

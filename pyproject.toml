@@ -51,6 +51,7 @@ dependencies = [
     "langdetect>=1.0.9",
     "pyte>=0.8.2",
     "markdown-it-py>=3.0",
+    "onnxruntime>=1.30.0",
 ]
 
 [project.urls]
@@ -84,6 +85,7 @@ gcal = [
 # huggingface_hub は faster-whisper の推移的依存として常に利用可能
 diarization = [
     "onnxruntime>=1.16.0",
+    "kaldi-native-fbank>=1.17.0",
 ]
 
 [project.scripts]
