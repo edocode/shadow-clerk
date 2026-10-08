@@ -18,21 +18,26 @@ class TranscriptLine:
     """transcript ファイルの1行を表すバリューオブジェクト。
 
     timestamp は "YYYY-MM-DD HH:MM:SS" 形式の文字列。
+    speaker_label は話者分離で付与される自由形式ラベル（例: "相手A"）。
+    設定されている場合、format() でこちらが優先される。
     """
 
     timestamp: str
     speaker: Speaker
     text: str
+    speaker_label: str | None = None
 
     def format(self) -> str:
         """ファイル書き込み用文字列（末尾改行あり）を返す。"""
-        return f"[{self.timestamp}] [{self.speaker.value}] {self.text}\n"
+        label = self.speaker_label if self.speaker_label else self.speaker.value
+        return f"[{self.timestamp}] [{label}] {self.text}\n"
 
     @classmethod
     def parse(cls, line: str) -> TranscriptLine | None:
         """ファイル1行から TranscriptLine を生成する。
 
         マッチしない行（マーカー行など）は None を返す。
+        未知の話者ラベル（話者分離ラベル等）は Speaker.OTHER + speaker_label で保持する。
         """
         m = _LINE_RE.match(line.rstrip("\n"))
         if not m:
@@ -40,10 +45,10 @@ class TranscriptLine:
         timestamp, speaker_str, text = m.group(1), m.group(2), m.group(3)
         try:
             speaker = Speaker(speaker_str)
+            return cls(timestamp=timestamp, speaker=speaker, text=text)
         except ValueError:
-            # 未知の話者ラベルは Speaker.SELF として扱う（後方互換）
-            speaker = Speaker.SELF
-        return cls(timestamp=timestamp, speaker=speaker, text=text)
+            return cls(timestamp=timestamp, speaker=Speaker.OTHER,
+                       text=text, speaker_label=speaker_str)
 
     @classmethod
     def from_source(cls, timestamp: str, source: str, text: str) -> TranscriptLine:
