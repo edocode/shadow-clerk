@@ -214,6 +214,9 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         self.use_mic = True
         self.word_replacer = GlossaryReplacer()
 
+        from shadow_clerk._daemon_speaker_diarization import SpeakerDiarizer
+        self.diarizer = SpeakerDiarizer()
+
         # Push-to-Talk コマンドモード
         self._command_mode = False
         self._command_mode_release_time: float = 0.0  # キーリリース時刻

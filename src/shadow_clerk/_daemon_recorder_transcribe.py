@@ -170,13 +170,20 @@ class _RecorderTranscribeMixin:
             logger.debug("応答フィルタ: %r (speaker=%s) をスキップ", text.strip(), file_speaker)
             return last_file_speaker
 
-        tl = TranscriptLine(timestamp=timestamp, speaker=file_speaker, text=text)
+        speaker_label: str | None = None
+        if file_speaker == Speaker.OTHER and load_config().get("speaker_diarization", False):
+            raw_label = self.diarizer.identify_speaker(segment)
+            if raw_label != "相手":
+                speaker_label = raw_label
+        tl = TranscriptLine(timestamp=timestamp, speaker=file_speaker, text=text,
+                            speaker_label=speaker_label)
         self._append_transcript_line(tl)
         if file_speaker == Speaker.SELF:
             self.talk.on_self_line(tl)
         else:
             self.talk.on_other_line(tl)
-        display_line = f"[{timestamp}] [{display_speaker}] {text}"
+        effective_speaker = speaker_label if speaker_label else display_speaker
+        display_line = f"[{timestamp}] [{effective_speaker}] {text}"
         print(f"  {display_line}")
         self._clear_interim(source)
         return file_speaker
