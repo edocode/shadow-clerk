@@ -172,11 +172,15 @@ class SpeakerDiarizer:
                     best_score, best_name = score, name
         return best_name, best_score
 
+    def _min_sec(self) -> float:
+        return float(load_config().get("diarization_min_sec", _MIN_SEGMENT_SEC))
+
     def identify_speaker(self, audio: np.ndarray) -> str | None:
         """音声セグメントから話者ラベルを返す。分離不能・短すぎる場合は None。"""
         duration = len(audio) / _SAMPLE_RATE
-        if duration < _MIN_SEGMENT_SEC:
-            logger.debug("話者分離: %.2f秒 < %.1f秒、スキップ", duration, _MIN_SEGMENT_SEC)
+        min_sec = self._min_sec()
+        if duration < min_sec:
+            logger.debug("話者分離: %.2f秒 < %.1f秒、スキップ", duration, min_sec)
             return None
 
         emb = self.extract_embedding(audio)
