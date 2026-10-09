@@ -127,6 +127,10 @@ class Transcriber:
                         "kotoba-tech/kotoba-whisper-v2.0-faster"))
             elif ja_asr == "reazonspeech-k2":
                 return ("reazonspeech-k2", f"reazonspeech-k2-{config.get('reazonspeech_model') or 'ja'}")
+        if self.language == "en":
+            en_asr = config.get("english_asr_model", "default")
+            if en_asr != "default":
+                return ("whisper", en_asr)
         # Moonshine は言語指定が要る。自動検出・未対応言語・未インストールは Whisper
         if config.get(self._engine_config_key) == "moonshine" and self.language:
             if self.language in _moonshine_languages():

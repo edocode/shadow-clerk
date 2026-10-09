@@ -26,6 +26,7 @@ const CFG_FIELDS=[
   {key:'whisper_vad_threshold',label:I18N['cfg.whisper_vad_threshold'],type:'select',opts:['0.2','0.35','0.5']},
   {key:'asr_engine',label:I18N['cfg.asr_engine'],type:'select',opts:['whisper','moonshine']},
   {key:'japanese_asr_model',label:I18N['cfg.japanese_asr_model'],type:'select',opts:['default','kotoba-whisper','reazonspeech-k2']},
+  {key:'english_asr_model',label:I18N['cfg.english_asr_model'],type:'text',ph:'default'},
   {key:'reazonspeech_model',label:I18N['cfg.reazonspeech_model'],type:'select',opts:['ja','ja-en']},
   {key:'voice_command_key',label:I18N['cfg.voice_command_key'],type:'select',opts:['menu','f23','ctrl_r','ctrl_l','alt_r','alt_l','shift_r','shift_l']},
   {key:'wake_word',label:I18N['cfg.wake_word'],type:'text',ph:I18N['cfg.wake_word_ph']},

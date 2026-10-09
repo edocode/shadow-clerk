@@ -328,6 +328,7 @@ STRINGS_JA: dict[str, str] = {
     "cfg.summary_length": "要約の長さ",
     "cfg.asr_engine": "ASRエンジン",
     "cfg.japanese_asr_model": "日本語ASRモデル",
+    "cfg.english_asr_model": "英語ASRモデル",
     "cfg.kotoba_whisper_model": "Kotoba-Whisper モデル",
     "cfg.interim_asr_engine": "中間 ASRエンジン",
     "cfg.reazonspeech_model": "ReazonSpeech モデル",

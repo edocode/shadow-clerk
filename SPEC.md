@@ -21,7 +21,7 @@ Python スクリプト。常駐してリアルタイムに文字起こしを行�
   - 翻訳ファイル: `transcript-YYYYMMDD[HHMM][@name]-<lang>.txt`
   - 形式: `[YYYY-MM-DD HH:MM:SS] [自分/相手] テキスト`
 - **glossary.txt**: TSV 形式の用語集。`reading` 列を使って音声認識の誤認識を機械置換（長さ降順で適用）、LLM 翻訳・要約のヒントとしても使用。ファイル変更時は自動再読み込み
-- **音声認識モデル**: 日本語時は `japanese_asr_model` で `default` / `kotoba-whisper` / `reazonspeech-k2` から切替可能。中間認識（`interim_transcription: true` 時）用にも別系統（`interim_model`, `interim_japanese_asr_model`）。`asr_engine: moonshine`（中間は `interim_asr_engine`）で Moonshine Voice 対応言語を Moonshine に切替（言語指定必須、未対応・auto は Whisper、ja は `japanese_asr_model` が優先）
+- **音声認識モデル**: 日本語時は `japanese_asr_model` で `default` / `kotoba-whisper` / `reazonspeech-k2` から切替可能。英語時は `english_asr_model` に faster-whisper のモデル名（例: `distil-whisper/large-v3-en`）を指定することで専用モデルに切替可能（`default` のままなら `default_model` と同じ）。中間認識（`interim_transcription: true` 時）用にも別系統（`interim_model`, `interim_japanese_asr_model`）。`asr_engine: moonshine`（中間は `interim_asr_engine`）で Moonshine Voice 対応言語を Moonshine に切替（言語指定必須、未対応・auto は Whisper、ja は `japanese_asr_model` が優先）
 - **コマンドインターフェース**: `.clerk_command` ファイル経由で以下を受付
   - `set_language <lang>` / `unset_language` — 言語切り替え
   - `set_model <size>` — Whisper モデル切り替え（ランタイム再ロード）
@@ -666,6 +666,7 @@ whisper_device: cpu               # デバイス (cpu/cuda)
 whisper_vad_filter: true          # Silero VAD で区間内の非音声を落とす (Whisper/Kotoba のみ)
 whisper_vad_threshold: 0.35       # Silero のしきい値 (0.5 だと小声の頭が削れる)
 japanese_asr_model: default       # ja 時の ASR (default/kotoba-whisper/reazonspeech-k2)
+english_asr_model: default        # en 時の ASR モデル名 (default=default_model と同じ。例: distil-whisper/large-v3-en)
 kotoba_whisper_model: <HF model>  # kotoba-whisper 時に使うモデル
 reazonspeech_model: ja            # reazonspeech-k2 時のモデル (ja / ja-en=日英、転載元から取得)
 asr_engine: whisper               # 全言語共通エンジン (whisper/moonshine)
