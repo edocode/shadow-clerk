@@ -610,6 +610,9 @@ sequenceDiagram
 | `transcript-YYYYMMDDHHMM.txt` | 会議セッション用 transcript |
 | `transcript-YYYYMMDDHHMM@<会議名>.txt` | 会議名付き transcript（Google Calendar 連携、rename 時） |
 | `transcript-*-<lang>.txt` | 翻訳結果ファイル（会議名含む対応: `transcript-YYYYMMDDHHMM@<会議名>-<lang>.txt`） |
+| `transcript-*.voices.jsonl` | 話者分離の埋め込み（ラベル+ベクトル。`speaker_enrollment: true` のとき transcript ごとに保存。名前付けで使う） |
+| `voiceprints.json` | 人ごとの声紋（名前付け後に追加。1人あたり `voiceprint_max_samples`、既定 200 件） |
+| `wespeaker_cache/` | 話者分離の wespeaker ResNet34 ONNX モデル（初回利用時にダウンロード） |
 | `summary-YYYYMMDD.md` | 議事録（日次 transcript に対応） |
 | `summary-YYYYMMDDHHMM[@<会議名>].md` | 会議セッション用議事録 |
 | `glossary.txt` | 用語集 (TSV: reading/note/各言語列) — 用語置換 + LLM ヒントの両用 |
@@ -627,6 +630,21 @@ sequenceDiagram
 | `analysis-<stem>.md` | AI アシスタントが書く確定した事実（追記） |
 
 生成物の命名は `TranscriptName` が一手に持つ（`summary_filename` / `advice_filename` / `analysis_filename`）。スキル側に規則を持たせると二重管理になり、会議のリネームで黙ってずれるため、`GET /api/generated?file=<transcript>` が transcript に対応する 3 つの絶対パスを返す。リネーム (`rename_plan`) と削除 (`_related_file_names`) も同じ命名を使うので追随する。
+
+### 話者分離と名前付け
+
+`speaker_diarization: true` のとき、相手側（monitor）の発話に `SpeakerDiarizer` が `[相手A]`、`[相手B]`… を付ける（`diarization_threshold` 既定 0.70、`diarization_min_sec` 既定 1.0 秒未満は `[相手?]`）。1つの transcript 内で同じラベルが別人を指さないよう、出力先が変わると会議内クラスタを捨て、そのファイルの最大番号の続きから振る。
+
+`speaker_enrollment: true` なら埋め込みを `transcript-*.voices.jsonl` に保存し、会議後にダッシュボードの 👥 から名前を付ける。声紋は生体情報なのでデータディレクトリの外に出さず、LLM にも渡さない。音声は保存しない。録音中のファイルには名前を付けられない。
+
+```mermaid
+flowchart LR
+    D[SpeakerDiarizer] -->|ラベル+埋め込み| V[(transcript-*.voices.jsonl)]
+    U[ダッシュボード 👥] -->|相手A→太郎| A[POST /api/speakers/assign]
+    V --> A
+    A -->|声紋を追加| P[(voiceprints.json)]
+    A -->|ラベルを書き換え| T[transcript / 翻訳 / voices]
+```
 
 ## 設定ファイル (config.yaml)
 
@@ -742,7 +760,7 @@ talk_stop_words: [待って, ストップ, 止めて, やめて, stop, wait, hol
 - `reazonspeech`: `sherpa-onnx`, `reazonspeech-k2-asr` — 日本語 ASR 代替モデル
 - `moonshine`: `moonshine-voice` — 多言語 ASR エンジン（英語以外のモデルは非商用ライセンス）
 - `gcal`: `google-auth-oauthlib`, `google-api-python-client` — Google Calendar 連携
-- `speaker-diarization`(未完): `speechbrain`, `torchaudio` — 話者分離(実験的、動作しない場合あり)
+- `diarization`: `onnxruntime`, `kaldi-native-fbank` — 話者分離 (wespeaker ONNX)
 
 ### Wayland 環境
 - `evdev` が必要(X11 では `pynput` でPTTキーを捕まえられるが Wayland では動かないため、`evdev` による代替実装を追加)

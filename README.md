@@ -86,6 +86,7 @@ Other notes:
 | [AI Console](#ai-console) (meeting assistant) | Claude Code or Codex CLI, skill from `clerk-util install-skill` | — | — | `auto_analyze`, `ai_assistant_command` |
 | [Talk with Claude](#talk-with-claude) | Claude Code CLI, a running VOICEVOX engine | — | — | `talk_*` |
 | Send Claude's voice into a meeting app | Linux with PipeWire (`pw-dump`, `pw-link`, `pw-cat`) | — | — | `talk_route_app` |
+| [Speaker diarization](#optional-speaker-diarization) (`[相手A]`, `[相手B]`… on the remote side, naming, voiceprints) | `diarization` extra | — | — | `speaker_diarization`, `speaker_enrollment` |
 | [Google Calendar](#optional-google-calendar-integration) (auto start/end, expected attendees) | `gcal` extra, OAuth credentials | — | — | `gcal_integration`, `gcal_credentials_file` |
 | [Browser screenshots](#browser-screenshots) in the transcript | Chrome extension in `extension/` | — | — | — |
 
@@ -115,7 +116,8 @@ Install from PyPI:
 | + Both (ReazonSpeech + Spell check) | `uv tool install "shadow-clerk[spell-check,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 | + Moonshine Voice | `uv tool install "shadow-clerk[moonshine]"` |
 | + Google Calendar | `uv tool install "shadow-clerk[gcal]"` |
-| All | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech,moonshine]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| + Speaker diarization | `uv tool install "shadow-clerk[diarization]"` |
+| All | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech,moonshine,diarization]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 
 > **Note:** `uv tool install` maintains a single environment per tool. When reinstalling with different extras, use `--force` — without it, `uv tool install` reports "already installed" and does not add the extra. Only the extras specified in the command are included; previously installed extras are removed.
 
@@ -138,7 +140,8 @@ cd shadow-clerk
 | + Both (ReazonSpeech + Spell check) | `uv sync --extra spell-check --extra reazonspeech` |
 | + Moonshine Voice | `uv sync --extra moonshine` |
 | + Google Calendar | `uv sync --extra gcal` |
-| All | `uv sync --extra spell-check --extra gcal --extra reazonspeech --extra moonshine` |
+| + Speaker diarization | `uv sync --extra diarization` |
+| All | `uv sync --extra spell-check --extra gcal --extra reazonspeech --extra moonshine --extra diarization` |
 
 **Each `uv sync` defines the whole environment, and extras do not accumulate.**
 `uv sync --extra gcal` after `uv sync --extra reazonspeech` removes ReazonSpeech
@@ -197,6 +200,45 @@ spell_check_model: mbyhphat/t5-japanese-typo-correction  # default
 ```
 
 The spell check model is auto-downloaded on first use. It corrects Japanese speech recognition typos before sending text to LibreTranslate.
+
+### Optional: Speaker diarization
+
+Tells the remote participants apart in the transcript. Requires the `diarization` extra (installs `onnxruntime` and `kaldi-native-fbank`):
+
+```bash
+uv tool install "shadow-clerk[diarization]"
+# or for development:
+uv sync --extra diarization
+```
+
+```yaml
+# config.yaml
+speaker_diarization: true   # default false
+diarization_threshold: 0.70 # cosine similarity (default 0.70)
+diarization_min_sec: 1.0    # shortest utterance to identify, in seconds (default 1.0)
+```
+
+The wespeaker ResNet34 ONNX model is downloaded on first use into `wespeaker_cache/` in the data directory.
+
+- Utterances from the remote (monitor) side get `[相手A]`, `[相手B]`… labels. `[相手?]` means the utterance was too short (under `diarization_min_sec`) or could not be identified. Your own microphone is not labelled.
+- `diarization_threshold`: lower values avoid splitting one person into several labels but merge different people more often. Real meetings often need about 0.50–0.65.
+- Labels are unique per transcript file: when the output file changes, the in-meeting clusters are discarded and numbering continues from the file's highest existing label.
+
+#### Naming speakers and voiceprints
+
+```yaml
+# config.yaml
+speaker_enrollment: true      # default false (requires speaker_diarization: true)
+voiceprint_max_samples: 200   # per person (default 200)
+```
+
+- With `speaker_enrollment: true`, the diarization embeddings are saved per transcript in `transcript-*.voices.jsonl`.
+- After the meeting, the 👥 button in the dashboard lets you name labels such as `相手A` (for example `太郎`). Several labels may get the same name. Expected attendees and already registered people are offered as candidates, and you can also type any name.
+- Naming rewrites the labels in the transcript and its translations. If `speaker_enrollment` is enabled, that voice is also stored as a voiceprint in `voiceprints.json` (up to `voiceprint_max_samples` per person).
+- A file that is still being recorded cannot be named.
+- Showing names during a meeting is not implemented yet (planned).
+
+**Privacy:** voiceprints are biometric data. They stay inside the data directory and are never passed to an LLM. Audio is not stored. You can delete a person's voiceprints from the dashboard; deleting `voiceprints.json` and the `*.voices.jsonl` files erases everything.
 
 ### Optional: Google Calendar integration
 

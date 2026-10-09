@@ -86,6 +86,7 @@ uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "re
 | [AI コンソール](#ai-コンソール)（会議アシスタント） | Claude Code または Codex の CLI、`clerk-util install-skill` で入れるスキル | — | — | `auto_analyze`, `ai_assistant_command` |
 | [Claude と会議](#claude-と会議) | Claude Code の CLI、起動済みの VOICEVOX エンジン | — | — | `talk_*` |
 | Claude の声を会議アプリに届ける | Linux + PipeWire（`pw-dump`・`pw-link`・`pw-cat`） | — | — | `talk_route_app` |
+| [話者分離](#オプション-話者分離)（相手側に `[相手A]`, `[相手B]`… を付与、名前付け、声紋） | `diarization` extra | — | — | `speaker_diarization`, `speaker_enrollment` |
 | [Google Calendar](#オプション-google-calendar-連携)（会議の自動開始・終了、参加予定者） | `gcal` extra、OAuth 認証情報 | — | — | `gcal_integration`, `gcal_credentials_file` |
 | [ブラウザのスクリーンショット](#ブラウザのスクリーンショット)を transcript に残す | `extension/` の Chrome 拡張 | — | — | — |
 
@@ -115,7 +116,8 @@ PyPI からインストール:
 | + 両方 (ReazonSpeech + スペルチェック) | `uv tool install "shadow-clerk[spell-check,reazonspeech]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 | + Moonshine Voice | `uv tool install "shadow-clerk[moonshine]"` |
 | + Google Calendar | `uv tool install "shadow-clerk[gcal]"` |
-| すべて | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech,moonshine]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| + 話者分離 | `uv tool install "shadow-clerk[diarization]"` |
+| すべて | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech,moonshine,diarization]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 
 > **注意:** `uv tool install` はツールごとに1つの環境を管理します。異なる extras で再インストールする場合は `--force` を付けてください。`--force` なしでは「already installed」と表示され、extra が追加されません。指定した extras のみが含まれ、以前の extras は削除されます。
 
@@ -138,7 +140,8 @@ cd shadow-clerk
 | + 両方 (ReazonSpeech + スペルチェック) | `uv sync --extra spell-check --extra reazonspeech` |
 | + Moonshine Voice | `uv sync --extra moonshine` |
 | + Google Calendar | `uv sync --extra gcal` |
-| すべて | `uv sync --extra spell-check --extra gcal --extra reazonspeech --extra moonshine` |
+| + 話者分離 | `uv sync --extra diarization` |
+| すべて | `uv sync --extra spell-check --extra gcal --extra reazonspeech --extra moonshine --extra diarization` |
 
 **`uv sync` は毎回「環境のあるべき姿のすべて」を決める。extra は累積しない。**
 `uv sync --extra reazonspeech` のあとに `uv sync --extra gcal` を打つと
@@ -196,6 +199,45 @@ spell_check_model: mbyhphat/t5-japanese-typo-correction  # デフォルト
 ```
 
 誤字訂正モデルは初回使用時に自動ダウンロードされる。音声認識の誤字を補正してから LibreTranslate に送信する。
+
+### オプション: 話者分離
+
+文字起こしの中で、相手側の参加者を区別する。`diarization` extra（`onnxruntime` と `kaldi-native-fbank` が入る）が必要:
+
+```bash
+uv tool install "shadow-clerk[diarization]"
+# 開発用:
+uv sync --extra diarization
+```
+
+```yaml
+# config.yaml
+speaker_diarization: true   # 既定 false
+diarization_threshold: 0.70 # コサイン類似度（既定 0.70）
+diarization_min_sec: 1.0    # 識別する発話の最短秒数（既定 1.0）
+```
+
+wespeaker ResNet34 の ONNX モデルは初回利用時にデータディレクトリの `wespeaker_cache/` へダウンロードされる。
+
+- 相手側（モニター）の発話に `[相手A]`、`[相手B]`… のラベルが付く。`[相手?]` は発話が短すぎる（`diarization_min_sec` 未満）か、識別できなかったことを表す。自分のマイクにはラベルを付けない。
+- `diarization_threshold`: 下げると同じ人が複数のラベルに分かれにくくなるが、別の人が同じラベルにまとまりやすくなる。実際の会議では 0.50〜0.65 程度が必要になることが多い。
+- ラベルは transcript ファイルごとに一意。出力先のファイルが変わると会議内のクラスタを捨て、そのファイルに既にある最大番号の続きから振る。
+
+#### 話者の名前付けと声紋
+
+```yaml
+# config.yaml
+speaker_enrollment: true      # 既定 false（speaker_diarization: true が前提）
+voiceprint_max_samples: 200   # 1人あたりの保存件数（既定 200）
+```
+
+- `speaker_enrollment: true` で、話者分離の埋め込みを transcript ごとの `transcript-*.voices.jsonl` に保存する。
+- 会議後、ダッシュボードの 👥 ボタンで `相手A` などに名前（例: `太郎`）を付けられる。複数のラベルに同じ名前を付けてもよい。参加予定者と登録済みの人が候補に出るが、自由入力もできる。
+- 名前を付けると transcript と翻訳のラベルが書き換わる。`speaker_enrollment` が有効なら、その声が `voiceprints.json` に声紋として保存される（1人あたり `voiceprint_max_samples` 件まで）。
+- 録音中のファイルには名前を付けられない。
+- 会議中に名前を表示する機能はまだない（今後の予定）。
+
+**プライバシー:** 声紋は生体情報。データディレクトリの外に出さず、LLM にも渡さない。音声は保存しない。ダッシュボードで人ごとに削除できる。`voiceprints.json` と `*.voices.jsonl` を消せば全消去できる。
 
 ### オプション: Google Calendar 連携
 
@@ -824,6 +866,9 @@ shadow-clerk/                          # リポジトリ
   .env                                 # API キー (SHADOW_CLERK_API_KEY)
   daemon.log / daemon.pid              # daemon のログと PID
   gcal_token.json                      # Google Calendar OAuth トークン（gcal-auth で生成）
+  wespeaker_cache/                     # 話者分離の ONNX モデル（初回利用時にダウンロード）
+  voiceprints.json                     # 声紋（speaker_enrollment、名前付け後）
+  transcript-YYYYMMDDHHMM@会議名.voices.jsonl  # 話者分離の埋め込み（speaker_enrollment）
 ```
 
 ## トラブルシューティング
