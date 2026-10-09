@@ -13,6 +13,7 @@ from shadow_clerk._daemon_speaker_diarization import (
     _cosine_similarity,
     _generate_label,
     label_index,
+    max_label_index,
 )
 from shadow_clerk.domain.transcript_line import TranscriptLine, Speaker
 
@@ -183,6 +184,17 @@ def test_bind_output_continues_numbering(tmp_path, monkeypatch):
     t.write_text("[2026-10-09 10:00:00] [相手C] あ\n"
                  "[2026-10-09 10:00:05] [太郎] い\n"
                  "[2026-10-09 10:00:09] [相手?] う\n", encoding="utf-8")
+    d = SpeakerDiarizer()
+    _fake(d, monkeypatch, _unit(1, 0))
+    d.bind_output(str(t))
+    assert d.identify_speaker(_silence(2.0))[0] == "相手D"
+
+
+def test_invalid_utf8_in_transcript_does_not_break_numbering(tmp_path, monkeypatch):
+    t = tmp_path / "transcript-20261009.txt"
+    t.write_bytes("[2026-10-09 10:00:00] [相手C] あ\n".encode("utf-8")
+                  + b"[2026-10-09 10:00:01] [\xff\xfe] bad\n")
+    assert max_label_index(str(t)) == 3
     d = SpeakerDiarizer()
     _fake(d, monkeypatch, _unit(1, 0))
     d.bind_output(str(t))

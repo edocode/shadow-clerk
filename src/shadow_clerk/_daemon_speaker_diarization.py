@@ -129,7 +129,7 @@ def label_index(label: str) -> int | None:
 def max_label_index(transcript_path: str) -> int:
     """transcript に既にある会議内ラベルの最大番号。ファイルが無ければ 0"""
     try:
-        with open(transcript_path, "r", encoding="utf-8") as f:
+        with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
     except OSError:
         return 0
