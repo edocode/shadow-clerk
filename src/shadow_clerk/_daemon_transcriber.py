@@ -218,7 +218,10 @@ class Transcriber:
 
     def ensure_model_for_language(self) -> None:
         with self._model_lock:
-            if self.model is None:
+            # model が None かつ _loaded_model_id も None の場合はロード未試行か前回失敗。
+            # どちらも次の transcribe 呼び出しで再試行されるので早期リターン。
+            # ただし _loaded_model_id が設定済みなら正常ロード済みなので切り替え判定する。
+            if self.model is None and self._loaded_model_id is None:
                 return
             backend, model_id = self._resolve_model_id()
             if self._loaded_model_id != model_id or self._backend != backend:
