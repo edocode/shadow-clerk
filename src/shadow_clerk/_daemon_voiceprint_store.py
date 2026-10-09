@@ -37,12 +37,20 @@ class VoiceprintStore:
                 data = json.load(f)
         except FileNotFoundError:
             return {}
-        except (OSError, json.JSONDecodeError) as e:
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError, ValueError) as e:
             raise VoiceprintStoreError(f"{self.path}: {e}") from e
         people = data.get("people") if isinstance(data, dict) else None
         if not isinstance(people, dict):
             raise VoiceprintStoreError(f"{self.path}: people がない")
-        return {name: list(p.get("samples") or []) for name, p in people.items() if isinstance(p, dict)}
+        result = {}
+        for name, p in people.items():
+            if not isinstance(p, dict):
+                raise VoiceprintStoreError(f"{self.path}: person entry for {name} is not a dict")
+            samples = p.get("samples")
+            if samples is not None and not isinstance(samples, list):
+                raise VoiceprintStoreError(f"{self.path}: samples for {name} is not a list")
+            result[name] = list(samples or [])
+        return result
 
     def _save(self, people: dict[str, list[dict]]) -> None:
         body = {"version": _VERSION, "people": {n: {"samples": s} for n, s in people.items()}}

@@ -61,7 +61,9 @@ def test_file_is_private(store) -> None:
     assert stat.S_IMODE(os.stat(store.path).st_mode) == 0o600
 
 
-@pytest.mark.parametrize("content", ["{broken", "[]", '{"version": 1}'])
+@pytest.mark.parametrize("content", ["{broken", "[]", '{"version": 1}',
+                                       '{"version": 1, "people": {"太郎": "x"}}',
+                                       '{"version": 1, "people": {"太郎": {"samples": "abc"}}}'])
 def test_broken_file_is_never_overwritten(store, content) -> None:
     with open(store.path, "w", encoding="utf-8") as f:
         f.write(content)
@@ -73,3 +75,18 @@ def test_broken_file_is_never_overwritten(store, content) -> None:
         store.people()
     with open(store.path, encoding="utf-8") as f:
         assert f.read() == content
+
+
+def test_broken_file_invalid_utf8_is_never_overwritten(store) -> None:
+    """Test that invalid UTF-8 bytes are handled safely"""
+    content_bytes = b'\xff\xfe{"people": {}}'
+    with open(store.path, "wb") as f:
+        f.write(content_bytes)
+    with pytest.raises(VoiceprintStoreError):
+        store.add({PersonName("太郎"): [_sample(1)]})
+    with pytest.raises(VoiceprintStoreError):
+        store.delete("太郎")
+    with pytest.raises(VoiceprintStoreError):
+        store.people()
+    with open(store.path, "rb") as f:
+        assert f.read() == content_bytes
