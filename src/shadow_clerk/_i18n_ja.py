@@ -630,4 +630,12 @@ STRINGS_JA: dict[str, str] = {
     "err.transcript_not_found": "エラー: transcript ファイルが見つかりません: {path}",
     "err.transcript_empty": "エラー: transcript が空です。",
     "err.summary_failed": "エラー: 要約の生成に失敗しました（LLM 呼び出し失敗または応答不足）。",
+    "dash.speakers_title": "話者に名前を付ける",
+    "dash.speakers_none": "このファイルには話者分離のラベル（相手A など）がありません",
+    "dash.speakers_enrollment_off": "声紋の登録は無効です（speaker_enrollment）。名前の書き換えだけ行います",
+    "dash.speakers_count": "発話 {count} 件",
+    "dash.speakers_samples": "声紋 {count} 件",
+    "dash.voiceprints_title": "登録済みの声紋",
+    "dash.voiceprints_empty": "まだありません",
+    "dash.voiceprint_delete_confirm": "{name} の声紋をすべて削除しますか？",
 }

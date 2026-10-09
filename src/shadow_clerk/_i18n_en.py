@@ -613,4 +613,12 @@ STRINGS_EN: dict[str, str] = {
     "err.transcript_not_found": "Error: Transcript file not found: {path}",
     "err.transcript_empty": "Error: Transcript is empty.",
     "err.summary_failed": "Error: Summary generation failed (LLM call failed or insufficient response).",
+    "dash.speakers_title": "Name speakers",
+    "dash.speakers_none": "This file has no diarization labels (such as 相手A)",
+    "dash.speakers_enrollment_off": "Voiceprint enrollment is off (speaker_enrollment). Only the labels will be renamed.",
+    "dash.speakers_count": "{count} lines",
+    "dash.speakers_samples": "{count} voice samples",
+    "dash.voiceprints_title": "Registered voiceprints",
+    "dash.voiceprints_empty": "None yet",
+    "dash.voiceprint_delete_confirm": "Delete all voiceprints of {name}?",
 }
