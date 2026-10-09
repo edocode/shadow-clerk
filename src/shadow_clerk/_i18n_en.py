@@ -329,6 +329,7 @@ STRINGS_EN: dict[str, str] = {
     "cfg.summary_length": "Summary Length",
     "cfg.asr_engine": "ASR Engine",
     "cfg.japanese_asr_model": "Japanese ASR Model",
+    "cfg.english_asr_model": "English ASR Model",
     "cfg.kotoba_whisper_model": "Kotoba-Whisper Model",
     "cfg.interim_asr_engine": "Interim ASR Engine",
     "cfg.reazonspeech_model": "ReazonSpeech Model",

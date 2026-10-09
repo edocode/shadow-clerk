@@ -706,6 +706,7 @@ interim_model: base           # 中間文字起こし用モデル
 japanese_asr_model: default   # 日本語 ASR モデル (default/kotoba-whisper/reazonspeech-k2)
 kotoba_whisper_model: kotoba-tech/kotoba-whisper-v2.0-faster  # Kotoba-Whisper モデル
 interim_japanese_asr_model: default  # 中間文字起こし用の日本語 ASR モデル
+english_asr_model: default    # 英語 ASR (default/moonshine/medium.en などの faster-whisper モデル名)
 asr_engine: whisper           # 全言語共通の ASR エンジン (whisper/moonshine)
 interim_asr_engine: whisper   # 中間文字起こし用の ASR エンジン
 reazonspeech_model: ja        # ReazonSpeech k2: ja / ja-en (日英バイリンガル)

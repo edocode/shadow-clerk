@@ -171,6 +171,7 @@ DEFAULT_CONFIG = {
     "translation_hiragana_step": True,
     "japanese_asr_model": "default",
     "kotoba_whisper_model": "kotoba-tech/kotoba-whisper-v2.0-faster",
+    "english_asr_model": "default",
     "interim_japanese_asr_model": "default",
     # whisper / moonshine。japanese_asr_model が default 以外なら ja はそちらが優先
     "asr_engine": "whisper",

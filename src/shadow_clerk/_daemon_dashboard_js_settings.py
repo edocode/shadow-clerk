@@ -26,6 +26,7 @@ const CFG_FIELDS=[
   {key:'whisper_vad_threshold',label:I18N['cfg.whisper_vad_threshold'],type:'select',opts:['0.2','0.35','0.5']},
   {key:'asr_engine',label:I18N['cfg.asr_engine'],type:'select',opts:['whisper','moonshine']},
   {key:'japanese_asr_model',label:I18N['cfg.japanese_asr_model'],type:'select',opts:['default','kotoba-whisper','reazonspeech-k2']},
+  {key:'english_asr_model',label:I18N['cfg.english_asr_model'],type:'select',opts:['default','moonshine','small.en','medium.en','large-v3-turbo','distil-large-v3']},
   {key:'reazonspeech_model',label:I18N['cfg.reazonspeech_model'],type:'select',opts:['ja','ja-en']},
   {key:'voice_command_key',label:I18N['cfg.voice_command_key'],type:'select',opts:['menu','f23','ctrl_r','ctrl_l','alt_r','alt_l','shift_r','shift_l']},
   {key:'wake_word',label:I18N['cfg.wake_word'],type:'text',ph:I18N['cfg.wake_word_ph']},
@@ -139,7 +140,9 @@ async function openCfg(){
       el.value=v?'true':'false';
     }else if(f.type==='select'){
       el=document.createElement('select');el.id='cfg_'+f.key;
-      f.opts.forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=o;el.appendChild(op);});
+      // config に一覧外の値があれば選択肢に足す（保存で消さないため）
+      const opts=(v===null||v===undefined||f.opts.map(String).includes(String(v)))?f.opts:[...f.opts,String(v)];
+      opts.forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=o;el.appendChild(op);});
       if(v!==null&&v!==undefined)el.value=String(v);
     }else if(f.type==='device_select'){
       // 実際の選択肢は非同期の loadAudioDevices() が /api/audio-devices 取得後に差し替える。
