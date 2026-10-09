@@ -87,7 +87,12 @@ class VoiceprintStore:
         with _lock:
             people = self._load()
             for name, samples in samples_by_person.items():
-                merged = people.get(name.value, []) + [s.to_dict() for s in samples]
+                merged = people.get(name.value, [])
+                seen = {(d.get("source"), d.get("recorded_at")) for d in merged if isinstance(d, dict)}
+                for sample in samples:
+                    if (sample.source, sample.recorded_at) not in seen:
+                        seen.add((sample.source, sample.recorded_at))
+                        merged.append(sample.to_dict())
                 people[name.value] = merged[-cap:] if cap > 0 else merged
             self._save(people)
 

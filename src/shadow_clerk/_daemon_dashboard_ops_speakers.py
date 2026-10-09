@@ -13,6 +13,7 @@ from shadow_clerk._daemon_speaker_naming import relabel_lines, remap_offset, sum
 from shadow_clerk._daemon_voice_sidecar import read_voices, relabeled_voice_lines, voices_path
 from shadow_clerk._daemon_voiceprint_store import VoiceprintStore, VoiceprintStoreError
 from shadow_clerk._transcript_name import TranscriptName
+from shadow_clerk.domain.transcript_line import TranscriptLine
 from shadow_clerk.domain.voiceprint import PersonName, VoiceSample
 
 logger = logging.getLogger("shadow-clerk")
@@ -102,22 +103,29 @@ class _DashboardHandlerSpeakerOps:
                 self._speaker_error("dash.speakers_invalid")
                 return
             # 声紋を先に保存する。ストアが壊れていたら transcript には手を付けずに止める
-            enrolled = self._enroll(t_path, mapping)
+            enrolled = self._enroll(t_path, lines, mapping)
             if enrolled is None:
                 self._speaker_error("dash.voiceprint_store_error")
                 return
-            renamed = self._apply_names(t_path, lines, mapping)
+            try:
+                renamed = self._apply_names(t_path, lines, mapping)
+            except OSError as e:
+                logger.error("名前を書き込めない: %s", e)
+                self._speaker_error("dash.speakers_write_error")
+                return
         self._send_json({"status": "ok", "renamed": renamed, "enrolled": enrolled,
                          "message": t("dash.speakers_saved", count=renamed)})
 
-    def _enroll(self, t_path: str, mapping: dict[str, PersonName]) -> dict[str, int] | None:
+    def _enroll(self, t_path: str, lines: list[str], mapping: dict[str, PersonName]) -> dict[str, int] | None:
         """名前付けしたラベルの埋め込みを声紋に足す。ストアを読み書きできなければ None"""
         if not load_config().get("speaker_enrollment", False):
             return {}
         source = os.path.basename(t_path)
+        # transcript に今もある行の埋め込みだけ（切り出しで移った行や書き換え済みの古い項目を除く）
+        present = {(p.timestamp, p.speaker_label) for ln in lines if (p := TranscriptLine.parse(ln))}
         by_person: dict[PersonName, list[VoiceSample]] = defaultdict(list)
         for v in read_voices(t_path):
-            if v.label in mapping:
+            if v.label in mapping and (v.timestamp, v.label) in present:
                 by_person[mapping[v.label]].append(VoiceSample(v.embedding, v.timestamp, source))
         if not by_person:
             return {}

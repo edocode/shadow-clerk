@@ -30,7 +30,7 @@ def test_empty(store) -> None:
 
 def test_add_and_read(store) -> None:
     s = _sample(1)
-    store.add({PersonName("太郎"): [s], PersonName("次郎"): [_sample(2), _sample(3)]})
+    store.add({PersonName("太郎"): [s], PersonName("次郎"): [_sample(2), _sample(3, "2026-10-09 10:00:01")]})
     assert store.people() == {"太郎": 1, "次郎": 2}
     got = store.samples(PersonName("太郎"))
     assert len(got) == 1 and float(got[0].embedding @ s.embedding) > 0.999
@@ -38,7 +38,13 @@ def test_add_and_read(store) -> None:
 
 def test_add_appends(store) -> None:
     store.add({PersonName("太郎"): [_sample(1)]})
-    store.add({PersonName("太郎"): [_sample(2)]})
+    store.add({PersonName("太郎"): [_sample(2, "2026-10-09 10:00:01")]})
+    assert store.people() == {"太郎": 2}
+
+
+def test_add_is_idempotent_per_source_and_time(store) -> None:
+    store.add({PersonName("太郎"): [_sample(1)]})
+    store.add({PersonName("太郎"): [_sample(1), _sample(2, "2026-10-09 10:00:01")]})
     assert store.people() == {"太郎": 2}
 
 

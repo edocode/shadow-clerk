@@ -16,6 +16,7 @@ with open(os.path.join(DATA, "config.yaml"), "w", encoding="utf-8") as _f:
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
+from shadow_clerk.i18n import t  # noqa: E402
 from shadow_clerk._daemon_dashboard_ops import _DashboardHandlerOps  # noqa: E402
 from shadow_clerk._daemon_dashboard_ops_meeting import _DashboardHandlerMeetingOps  # noqa: E402
 from shadow_clerk._daemon_dashboard_ops_speakers import _DashboardHandlerSpeakerOps  # noqa: E402
@@ -119,6 +120,27 @@ def test_assign_many_to_one() -> None:
     assert "[太郎] About next week's release" in _read(TR)
     assert [e.label for e in read_voices(_p(MTG))] == ["太郎", "相手B", "太郎"]
     assert VoiceprintStore().people() == {"太郎": 2}
+
+
+def test_assign_enrolls_only_entries_still_in_transcript() -> None:
+    append_voice(_p(MTG), "2026-10-09 09:00:00", "相手A", _vec(7))
+    h = _H({"file": MTG, "mapping": {"相手A": "太郎"}})
+    h._assign_speakers()
+    assert h.sent["status"] == "ok" and h.sent["enrolled"] == {"太郎": 1}
+    assert VoiceprintStore().people() == {"太郎": 1}
+
+
+def test_assign_write_error_is_reported_and_retry_does_not_double_enroll(monkeypatch) -> None:
+    h = _H({"file": MTG, "mapping": {"相手A": "太郎"}})
+
+    def boom(path: str, lines: list[str]) -> None:
+        raise OSError("disk full")
+    monkeypatch.setattr(h, "_atomic_write_lines", boom)
+    h._assign_speakers()
+    assert h.sent["status"] == "error" and h.sent["message"] == t("dash.speakers_write_error")
+    monkeypatch.undo()
+    _H({"file": MTG, "mapping": {"相手A": "太郎"}})._assign_speakers()
+    assert VoiceprintStore().people() == {"太郎": 1}
 
 
 def test_assign_remaps_translate_offset() -> None:
