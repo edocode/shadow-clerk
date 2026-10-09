@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import re
 import threading
 from typing import Any
 
@@ -15,6 +16,7 @@ import numpy as np
 
 from shadow_clerk import DATA_DIR
 from shadow_clerk._daemon_config import load_config
+from shadow_clerk.domain.transcript_line import TranscriptLine
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -112,11 +114,35 @@ def _generate_label(idx: int) -> str:
     return f"相手{idx}"
 
 
+_LABEL_RE = re.compile(r"^相手([A-Z]|[0-9]+)$")
+
+
+def label_index(label: str) -> int | None:
+    """_generate_label の逆。会議内ラベルでなければ None"""
+    m = _LABEL_RE.match(label)
+    if not m:
+        return None
+    g = m.group(1)
+    return ord(g) - 64 if g.isalpha() else int(g)
+
+
+def max_label_index(transcript_path: str) -> int:
+    """transcript に既にある会議内ラベルの最大番号。ファイルが無ければ 0"""
+    try:
+        with open(transcript_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except OSError:
+        return 0
+    return max((i for line in lines
+                if (tl := TranscriptLine.parse(line)) and tl.speaker_label
+                and (i := label_index(tl.speaker_label)) is not None), default=0)
+
+
 class SpeakerDiarizer:
     """wespeaker ONNX による話者分離エンジン（セッションスコープ）。
 
     onnxruntime が未インストールの場合は available=False となり、
-    identify_speaker() は常に "相手" を返す。
+    identify_speaker() は None を返す。
     """
 
     def __init__(self) -> None:
@@ -125,6 +151,8 @@ class SpeakerDiarizer:
         self._load_failed = False
         self._session_speakers: dict[str, list[np.ndarray]] = {}
         self._next_idx = 0
+        self._session_lock = threading.Lock()
+        self._bound_path: str | None = None
 
     def _load_model(self) -> bool:
         """モデルを遅延ロード。成功したら True。失敗後はラッチして再試行しない。"""
@@ -194,8 +222,23 @@ class SpeakerDiarizer:
     def _min_sec(self) -> float:
         return float(load_config().get("diarization_min_sec", _MIN_SEGMENT_SEC))
 
-    def identify_speaker(self, audio: np.ndarray) -> str | None:
-        """音声セグメントから話者ラベルを返す。分離不能・短すぎる場合は None。"""
+    def bind_output(self, transcript_path: str) -> None:
+        """出力先が変わったら会議内クラスタを捨て、ラベル番号はそのファイルの続きから振る。
+
+        名前付けはラベル単位なので、1つの transcript 内で同じラベルが別人を指してはいけない。
+        デーモン再起動や会議の開始・終了で同じ日次ファイルに戻ってきても衝突しないよう、
+        既存の最大番号を引き継ぐ
+        """
+        if transcript_path == self._bound_path:
+            return
+        next_idx = max_label_index(transcript_path)
+        with self._session_lock:
+            self._session_speakers.clear()
+            self._next_idx = next_idx
+            self._bound_path = transcript_path
+
+    def identify_speaker(self, audio: np.ndarray) -> tuple[str, np.ndarray] | None:
+        """音声セグメントから (会議内ラベル, 埋め込み) を返す。分離不能・短すぎる場合は None。"""
         duration = len(audio) / _SAMPLE_RATE
         min_sec = self._min_sec()
         if duration < min_sec:
@@ -207,23 +250,19 @@ class SpeakerDiarizer:
             return None
 
         thr = self._threshold()
-        label, score = self._best_match(emb, self._session_speakers)
-        if label and score >= thr:
-            pool = self._session_speakers[label]
-            pool.append(emb)
-            if len(pool) > _MAX_EMBEDDINGS_PER_SPEAKER:
-                self._session_speakers[label] = pool[-_MAX_EMBEDDINGS_PER_SPEAKER:]
-            logger.info("話者分離: %s (類似度 %.3f, 閾値 %.2f)", label, score, thr)
-            return label
+        with self._session_lock:
+            label, score = self._best_match(emb, self._session_speakers)
+            if label and score >= thr:
+                pool = self._session_speakers[label]
+                pool.append(emb)
+                if len(pool) > _MAX_EMBEDDINGS_PER_SPEAKER:
+                    self._session_speakers[label] = pool[-_MAX_EMBEDDINGS_PER_SPEAKER:]
+                logger.info("話者分離: %s (類似度 %.3f, 閾値 %.2f)", label, score, thr)
+                return label, emb
 
-        self._next_idx += 1
-        new_label = _generate_label(self._next_idx)
-        self._session_speakers[new_label] = [emb]
+            self._next_idx += 1
+            new_label = _generate_label(self._next_idx)
+            self._session_speakers[new_label] = [emb]
         best_str = f"最高類似度 {label}:{score:.3f}" if label else "既存話者なし"
         logger.info("話者分離: 新規話者 %s (%s, 閾値 %.2f)", new_label, best_str, thr)
-        return new_label
-
-    def reset_session(self) -> None:
-        """セッション話者状態をリセット。新しい会議の開始時に呼ぶ。"""
-        self._session_speakers.clear()
-        self._next_idx = 0
+        return new_label, emb

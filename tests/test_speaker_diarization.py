@@ -4,9 +4,6 @@ onnxruntime / モデル不要でも動くテスト（特徴量生成・マッチ
 """
 from __future__ import annotations
 
-import sys
-sys.path.insert(0, "/home/ktat/git/gitlab.edocode.co.jp/common/shadow-clerk-diarization-v2/src")
-
 import numpy as np
 import pytest
 from unittest.mock import patch, MagicMock
@@ -15,6 +12,7 @@ from shadow_clerk._daemon_speaker_diarization import (
     SpeakerDiarizer,
     _cosine_similarity,
     _generate_label,
+    label_index,
 )
 from shadow_clerk.domain.transcript_line import TranscriptLine, Speaker
 
@@ -143,3 +141,70 @@ def test_transcript_line_parse_roundtrip_with_diarization_label():
     assert parsed.speaker == Speaker.OTHER
     assert parsed.speaker_label == "相手A"
     assert parsed.text == "こんにちは"
+
+
+# --- ラベル番号の逆変換 ---
+
+def test_label_index_roundtrip():
+    for i in range(1, 31):
+        assert label_index(_generate_label(i)) == i
+    assert label_index("相手?") is None
+    assert label_index("相手") is None
+    assert label_index("太郎") is None
+
+
+# --- identify_speaker は (ラベル, 埋め込み) を返す ---
+
+def _unit(*xs: float) -> np.ndarray:
+    v = np.array(xs, dtype=np.float32)
+    return v / np.linalg.norm(v)
+
+
+def _fake(d: SpeakerDiarizer, monkeypatch, emb: np.ndarray) -> None:
+    monkeypatch.setattr(d, "extract_embedding", lambda a: emb)
+    monkeypatch.setattr(d, "_threshold", lambda: 0.7)
+    monkeypatch.setattr(d, "_min_sec", lambda: 1.0)
+
+
+def test_identify_returns_label_and_embedding(monkeypatch):
+    d = SpeakerDiarizer()
+    e = _unit(1, 0)
+    _fake(d, monkeypatch, e)
+    result = d.identify_speaker(_silence(2.0))
+    assert result is not None
+    label, emb = result
+    assert label == "相手A" and np.allclose(emb, e)
+
+
+# --- 出力先ファイルの続き番号 ---
+
+def test_bind_output_continues_numbering(tmp_path, monkeypatch):
+    t = tmp_path / "transcript-20261009.txt"
+    t.write_text("[2026-10-09 10:00:00] [相手C] あ\n"
+                 "[2026-10-09 10:00:05] [太郎] い\n"
+                 "[2026-10-09 10:00:09] [相手?] う\n", encoding="utf-8")
+    d = SpeakerDiarizer()
+    _fake(d, monkeypatch, _unit(1, 0))
+    d.bind_output(str(t))
+    assert d.identify_speaker(_silence(2.0))[0] == "相手D"
+
+
+def test_bind_output_same_path_keeps_clusters(tmp_path, monkeypatch):
+    d = SpeakerDiarizer()
+    _fake(d, monkeypatch, _unit(1, 0))
+    a = str(tmp_path / "transcript-20261009.txt")
+    d.bind_output(a)
+    assert d.identify_speaker(_silence(2.0))[0] == "相手A"
+    d.bind_output(a)
+    assert d.identify_speaker(_silence(2.0))[0] == "相手A"
+    assert d._next_idx == 1
+
+
+def test_bind_output_new_path_drops_clusters(tmp_path, monkeypatch):
+    d = SpeakerDiarizer()
+    _fake(d, monkeypatch, _unit(1, 0))
+    d.bind_output(str(tmp_path / "transcript-20261009.txt"))
+    d.identify_speaker(_silence(2.0))
+    d.bind_output(str(tmp_path / "transcript-202610091000.txt"))
+    assert d._session_speakers == {}
+    assert d.identify_speaker(_silence(2.0))[0] == "相手A"
