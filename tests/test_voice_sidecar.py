@@ -66,6 +66,22 @@ def test_copy_range(tmp_path) -> None:
     assert len(read_voices(src)) == 4
 
 
+def test_copy_range_write_error(tmp_path) -> None:
+    src = str(tmp_path / "transcript-20261009.txt")
+    dst = str(tmp_path / "transcript-202610091000.txt")
+    for i, ts in enumerate(["09:59:59", "10:00:00", "10:30:00"]):
+        append_voice(src, f"2026-10-09 {ts}", "相手A", _vec(i))
+    # Make destination write fail by creating a directory at the voices path
+    dst_voices_dir = voices_path(dst)
+    assert dst_voices_dir is not None
+    os.mkdir(dst_voices_dir)
+    # Should catch OSError and return 0, not raise
+    n = copy_voice_range(src, dst, "2026-10-09 10:00:00", "2026-10-09 10:30:00")
+    assert n == 0
+    # Source should remain unchanged
+    assert len(read_voices(src)) == 3
+
+
 def test_related_files_include_voices(tmp_path) -> None:
     t = str(tmp_path / "transcript-202610091000.txt")
     tn = TranscriptName.parse(os.path.basename(t))

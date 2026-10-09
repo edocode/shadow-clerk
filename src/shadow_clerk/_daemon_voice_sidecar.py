@@ -70,6 +70,10 @@ def copy_voice_range(src_transcript: str, dst_transcript: str, start_ts: str, en
     entries = [e for e in read_voices(src_transcript) if start_ts <= e.timestamp <= end_ts]
     if dst is None or not entries:
         return 0
-    with open(dst, "a", encoding="utf-8") as f:
-        f.writelines(e.to_json_line() for e in entries)
+    try:
+        with open(dst, "a", encoding="utf-8") as f:
+            f.writelines(e.to_json_line() for e in entries)
+    except OSError as e:
+        logger.warning("voices サイドカーへコピーできない: %s", e)
+        return 0
     return len(entries)
