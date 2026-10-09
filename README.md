@@ -711,6 +711,7 @@ interim_model: base           # Model for interim transcription
 japanese_asr_model: default   # Japanese ASR model (default/kotoba-whisper/reazonspeech-k2)
 kotoba_whisper_model: kotoba-tech/kotoba-whisper-v2.0-faster  # Kotoba-Whisper model
 interim_japanese_asr_model: default  # Japanese ASR for interim transcription
+english_asr_model: default    # English ASR (default/moonshine/a faster-whisper model name such as medium.en)
 asr_engine: whisper           # ASR engine for all languages (whisper/moonshine)
 interim_asr_engine: whisper   # ASR engine for interim transcription
 reazonspeech_model: ja        # ReazonSpeech k2: ja / ja-en (Japanese-English bilingual)

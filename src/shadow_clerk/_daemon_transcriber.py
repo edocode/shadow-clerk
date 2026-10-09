@@ -129,14 +129,20 @@ class Transcriber:
                 return ("reazonspeech-k2", f"reazonspeech-k2-{config.get('reazonspeech_model') or 'ja'}")
         if self.language == "en":
             en_asr = config.get("english_asr_model", "default")
+            if en_asr == "moonshine":
+                return self._moonshine_or_whisper()
             if en_asr != "default":
                 return ("whisper", en_asr)
-        # Moonshine は言語指定が要る。自動検出・未対応言語・未インストールは Whisper
+        # Moonshine は言語指定が要る。自動検出は Whisper
         if config.get(self._engine_config_key) == "moonshine" and self.language:
-            if self.language in _moonshine_languages():
-                return ("moonshine", f"moonshine-{self.language}")
-            logger.warning("[%s] Moonshine は言語 %s に使えません (未対応か未インストール) — "
-                           "Whisper を使います。", self._label, self.language)
+            return self._moonshine_or_whisper()
+        return ("whisper", self.model_size)
+
+    def _moonshine_or_whisper(self) -> tuple[str, str]:
+        if self.language in _moonshine_languages():
+            return ("moonshine", f"moonshine-{self.language}")
+        logger.warning("[%s] Moonshine は言語 %s に使えません (未対応か未インストール) — "
+                       "Whisper を使います。", self._label, self.language)
         return ("whisper", self.model_size)
 
     def load_model(self) -> None:
