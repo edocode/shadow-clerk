@@ -63,7 +63,8 @@ def _extract_fbank(audio: np.ndarray, num_mel_bins: int = 80) -> np.ndarray:
         online_fbank.accept_waveform(_SAMPLE_RATE, audio.tolist())
         online_fbank.input_finished()
         frames = [online_fbank.get_frame(i) for i in range(online_fbank.num_frames_ready)]
-        return np.array(frames, dtype=np.float32)
+        fbank = np.array(frames, dtype=np.float32)
+        return fbank - fbank.mean(axis=0, keepdims=True)  # CMN（wespeaker と同じ）
 
     # --- numpy フォールバック ---
     sr = _SAMPLE_RATE
