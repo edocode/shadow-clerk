@@ -64,6 +64,15 @@ def relabeled_voice_lines(transcript_path: str, mapping: dict[str, PersonName]) 
     return out
 
 
+def voice_lines_without_label(path: str, label: str) -> list[str] | None:
+    """サイドカー（パス直指定）から label の行を除いた全行。壊れた行は残す。変化が無い・無ければ None"""
+    lines = _read_raw(path)
+    if lines is None:
+        return None
+    kept = [ln for ln in lines if (e := VoiceEntry.parse(ln)) is None or e.label != label]
+    return kept if len(kept) != len(lines) else None
+
+
 def copy_voice_range(src_transcript: str, dst_transcript: str, start_ts: str, end_ts: str) -> int:
     """src の時刻範囲 [start_ts, end_ts] の行を dst のサイドカーへ追記し、件数を返す"""
     dst = voices_path(dst_transcript)

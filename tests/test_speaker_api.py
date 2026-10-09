@@ -244,8 +244,27 @@ def test_voiceprints_list_and_delete() -> None:
     assert h.sent == {"status": "ok", "people": [{"name": "太郎", "count": 1}]}
     h = _H({"name": "太郎"})
     h._delete_voiceprint()
-    assert h.sent == {"status": "ok", "deleted": True}
+    assert h.sent == {"status": "ok", "deleted": True, "sidecar_entries_removed": 1}
     assert VoiceprintStore().people() == {}
+
+
+def test_delete_voiceprint_also_removes_named_sidecar_entries() -> None:
+    _H({"file": MTG, "mapping": {"相手A": "太郎"}})._assign_speakers()
+    assert [e.label for e in read_voices(_p(MTG))] == ["太郎", "相手B", "相手C"]
+    h = _H({"name": "太郎"})
+    h._delete_voiceprint()
+    assert h.sent == {"status": "ok", "deleted": True, "sidecar_entries_removed": 1}
+    assert VoiceprintStore().people() == {}
+    assert [e.label for e in read_voices(_p(MTG))] == ["相手B", "相手C"]
+
+
+def test_delete_voiceprint_cleans_sidecars_even_if_store_has_no_person() -> None:
+    _H({"file": MTG, "mapping": {"相手A": "太郎"}})._assign_speakers()
+    VoiceprintStore().delete("太郎")
+    h = _H({"name": "太郎"})
+    h._delete_voiceprint()
+    assert h.sent == {"status": "ok", "deleted": False, "sidecar_entries_removed": 1}
+    assert [e.label for e in read_voices(_p(MTG))] == ["相手B", "相手C"]
 
 
 def test_extract_meeting_copies_voices() -> None:

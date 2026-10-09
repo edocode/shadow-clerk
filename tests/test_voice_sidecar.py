@@ -7,7 +7,7 @@ import numpy as np
 
 from shadow_clerk._daemon_dashboard_ops import _DashboardHandlerOps
 from shadow_clerk._daemon_voice_sidecar import (
-    append_voice, copy_voice_range, read_voices, relabeled_voice_lines, voices_path,
+    append_voice, copy_voice_range, read_voices, relabeled_voice_lines, voice_lines_without_label, voices_path,
 )
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain.voiceprint import PersonName
@@ -53,6 +53,21 @@ def test_relabel_keeps_others_and_broken_lines(tmp_path) -> None:
     lines = relabeled_voice_lines(t, {"相手A": PersonName("太郎")})
     assert lines is not None and len(lines) == 3
     assert '"label": "太郎"' in lines[0] and lines[1] == "broken\n" and '"label": "相手B"' in lines[2]
+
+
+def test_lines_without_label(tmp_path) -> None:
+    t = str(tmp_path / "transcript-202610091000.txt")
+    vp = voices_path(t)
+    assert voice_lines_without_label(vp, "太郎") is None
+    append_voice(t, "2026-10-09 10:00:01", "太郎", _vec(1))
+    assert voice_lines_without_label(vp, "次郎") is None
+    with open(vp, "a", encoding="utf-8") as f:
+        f.write("broken\n")
+    append_voice(t, "2026-10-09 10:00:05", "相手B", _vec(2))
+    append_voice(t, "2026-10-09 10:00:09", "太郎", _vec(3))
+    lines = voice_lines_without_label(vp, "太郎")
+    assert lines is not None and len(lines) == 2
+    assert lines[0] == "broken\n" and '"label": "相手B"' in lines[1]
 
 
 def test_copy_range(tmp_path) -> None:

@@ -235,10 +235,11 @@ voiceprint_max_samples: 200   # per person (default 200)
 - With `speaker_enrollment: true`, the diarization embeddings are saved per transcript in `transcript-*.voices.jsonl`.
 - After the meeting, the 👥 button in the dashboard lets you name labels such as `相手A` (for example `太郎`). Several labels may get the same name. Expected attendees and already registered people are offered as candidates, and you can also type any name.
 - Naming rewrites the labels in the transcript and its translations. If `speaker_enrollment` is enabled, that voice is also stored as a voiceprint in `voiceprints.json` (up to `voiceprint_max_samples` per person).
-- A file that is still being recorded cannot be named.
+- A file that is still being recorded, or whose translation is still running, cannot be named.
+- Merging lines into an existing meeting can mix two different speakers under the same label; name such a file carefully (or extract into a new meeting instead).
 - Showing names during a meeting is not implemented yet (planned).
 
-**Privacy:** voiceprints are biometric data. They stay inside the data directory and are never passed to an LLM. Audio is not stored. You can delete a person's voiceprints from the dashboard; deleting `voiceprints.json` and the `*.voices.jsonl` files erases everything.
+**Privacy:** voiceprints are biometric data. They stay inside the data directory and are never passed to an LLM. Audio is not stored. Deleting a person from the dashboard removes their stored voiceprints and every embedding named after them in the per-meeting `*.voices.jsonl` files; deleting `voiceprints.json` and all `*.voices.jsonl` files erases everything.
 
 ### Optional: Google Calendar integration
 

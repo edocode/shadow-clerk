@@ -10,7 +10,9 @@ from shadow_clerk.i18n import t
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_dashboard_base import read_attendees, read_local_json_body
 from shadow_clerk._daemon_speaker_naming import relabel_lines, remap_offset, summarize_labels
-from shadow_clerk._daemon_voice_sidecar import read_voices, relabeled_voice_lines, voices_path
+from shadow_clerk._daemon_voice_sidecar import (
+    read_voices, relabeled_voice_lines, voice_lines_without_label, voices_path,
+)
 from shadow_clerk._daemon_voiceprint_store import VoiceprintStore, VoiceprintStoreError
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain.transcript_line import TranscriptLine
@@ -170,7 +172,7 @@ class _DashboardHandlerSpeakerOps:
         self._send_json({"status": "ok", "people": [{"name": n, "count": c} for n, c in people.items()]})
 
     def _delete_voiceprint(self) -> None:
-        """POST /api/voiceprints/delete — その人の声紋を全部消す"""
+        """POST /api/voiceprints/delete — その人の声紋と、各サイドカーに残る名前付きの埋め込みを全部消す"""
         data = read_local_json_body(self, "voiceprints")
         if data is None:
             return
@@ -183,4 +185,24 @@ class _DashboardHandlerSpeakerOps:
         except (VoiceprintStoreError, OSError):
             self._speaker_error("dash.voiceprint_store_error")
             return
-        self._send_json({"status": "ok", "deleted": deleted})
+        self._send_json({"status": "ok", "deleted": deleted,
+                         "sidecar_entries_removed": self._purge_sidecar_label(name)})
+
+    def _purge_sidecar_label(self, name: str) -> int:
+        """全サイドカーから name の埋め込みを消し、消した件数を返す"""
+        removed = 0
+        with self.recorder.transcript_lock:
+            for f in sorted(os.listdir(self.recorder._output_dir)):
+                if not f.endswith(".voices.jsonl"):
+                    continue
+                vp = os.path.join(self.recorder._output_dir, f)
+                try:
+                    kept = voice_lines_without_label(vp, name)
+                    if kept is None:
+                        continue
+                    n = len(self._read_lines(vp)) - len(kept)
+                    self._atomic_write_lines(vp, kept)
+                    removed += n
+                except OSError as e:
+                    logger.error("サイドカーから声紋を消せない: %s", e)
+        return removed
