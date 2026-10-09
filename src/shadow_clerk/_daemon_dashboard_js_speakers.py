@@ -10,9 +10,12 @@ async function openSpeakerModal(){
   _spkFile=curFile||activeFile;
   const box=document.getElementById('spkRows'),info=document.getElementById('spkInfo');
   box.innerHTML='';info.textContent='';
-  if(!_spkFile)return;
+  if(!_spkFile){
+    info.textContent=I18N['dash.speakers_none'];document.getElementById('spkSaveBtn').disabled=true;
+    await loadVoiceprints();document.getElementById('speakerModal').classList.add('open');return;
+  }
   let d;
-  try{d=await(await fetch('/api/speakers?file='+encodeURIComponent(_spkFile))).json();}catch(e){return;}
+  try{d=await(await fetch('/api/speakers?file='+encodeURIComponent(_spkFile))).json();}catch(e){alert(String(e));return;}
   if(d.status!=='ok'){alert(d.message||'error');return;}
   const dl=document.getElementById('spkSuggest');dl.innerHTML='';
   for(const s of d.suggestions){const o=document.createElement('option');o.value=s;dl.appendChild(o);}
@@ -44,14 +47,14 @@ async function saveSpeakers(){
   if(!Object.keys(mapping).length)return;
   let d;
   try{d=await(await fetch('/api/speakers/assign',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({file:_spkFile,mapping})})).json();}catch(e){return;}
+    body:JSON.stringify({file:_spkFile,mapping})})).json();}catch(e){alert(String(e));return;}
   if(d.status!=='ok'){alert(d.message||'error');return;}
   closeSpeakerModal();showToast(d.message);loadT(_spkFile);loadR(_spkFile);
 }
 async function loadVoiceprints(){
   const box=document.getElementById('vpRows');box.innerHTML='';
   let d;
-  try{d=await(await fetch('/api/voiceprints')).json();}catch(e){return;}
+  try{d=await(await fetch('/api/voiceprints')).json();}catch(e){box.textContent=String(e);return;}
   if(d.status!=='ok'){box.textContent=d.message||'';return;}
   if(!d.people.length){box.textContent=I18N['dash.voiceprints_empty'];return;}
   for(const p of d.people){
@@ -66,7 +69,7 @@ async function deleteVoiceprint(name){
   if(!confirm(I18N['dash.voiceprint_delete_confirm'].replace('{name}',name)))return;
   let d;
   try{d=await(await fetch('/api/voiceprints/delete',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name})})).json();}catch(e){return;}
+    body:JSON.stringify({name})})).json();}catch(e){alert(String(e));return;}
   if(d.status!=='ok'){alert(d.message||'error');return;}
   await loadVoiceprints();
 }

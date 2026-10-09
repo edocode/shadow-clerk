@@ -40,13 +40,15 @@ const document={getElementById:id=>els[id],createElement:()=>el(),
 let curFile='transcript-202610091000.txt',activeFile='';
 const posted=[],toasts=[],loaded=[];
 let speakersResp,vpResp={status:'ok',people:[{name:'太郎',count:3}]};
+let failNext=false;const alerts=[];
 async function fetch(url,opt){
+  if(failNext){failNext=false;throw new Error('down');}
   if(opt){posted.push({url,body:JSON.parse(opt.body)});
     return {json:async()=>({status:'ok',message:'2 行に名前を付けました'})};}
   return {json:async()=>url.startsWith('/api/speakers')?speakersResp:vpResp};}
 function showToast(m){toasts.push(m);}
 function loadT(f){loaded.push('T:'+f);}function loadR(f){loaded.push('R:'+f);}
-function alert(m){}function confirm(){return true;}
+function alert(m){alerts.push(m);}function confirm(){return true;}
 """ + _JS_TEMPLATE_SPEAKERS + r"""
 (async()=>{
   const out={};
@@ -68,6 +70,16 @@ function alert(m){}function confirm(){return true;}
   out.activeInfo=els.spkInfo.textContent;out.activeDisabled=els.spkSaveBtn.disabled;
   await deleteVoiceprint('太郎');
   out.deletePosted=posted[1];
+  alerts.length=0;
+  failNext=true;await openSpeakerModal();out.openErr=alerts.slice();alerts.length=0;
+  inputs=[{dataset:{label:'相手A'},value:'太郎'}];
+  failNext=true;await saveSpeakers();out.saveErr=alerts.slice();alerts.length=0;
+  failNext=true;await deleteVoiceprint('太郎');out.delErr=alerts.slice();alerts.length=0;
+  failNext=true;await loadVoiceprints();out.vpErr=els.vpRows.textContent;
+  curFile='';activeFile='';els.speakerModal.classList.open=false;els.spkSaveBtn.disabled=false;
+  await openSpeakerModal();
+  out.emptyOpen=els.speakerModal.classList.open;out.emptyInfo=els.spkInfo.textContent;
+  out.emptyDisabled=els.spkSaveBtn.disabled;out.emptyVp=els.vpRows.children.length;
   console.log(JSON.stringify(out));
 })();
 """
@@ -90,4 +102,10 @@ check("保存後にトーストと再読み込み", out["toasts"] == ["2 行に�
 check("録音中は保存できない", out["activeInfo"] == "ACTIVE" and out["activeDisabled"] is True)
 check("声紋の削除を送る", out["deletePosted"] == {"url": "/api/voiceprints/delete", "body": {"name": "太郎"}},
       repr(out["deletePosted"]))
+check("modal 取得失敗は alert", out["openErr"] == ["Error: down"], repr(out["openErr"]))
+check("保存失敗は alert", out["saveErr"] == ["Error: down"], repr(out["saveErr"]))
+check("削除失敗は alert", out["delErr"] == ["Error: down"], repr(out["delErr"]))
+check("声紋一覧の失敗は本文に出す", out["vpErr"] == "Error: down", repr(out["vpErr"]))
+check("ファイル未選択でもモーダルを開く", out["emptyOpen"] is True and out["emptyInfo"] == "NONE"
+      and out["emptyDisabled"] is True and out["emptyVp"] == 1, repr((out["emptyOpen"], out["emptyInfo"], out["emptyDisabled"], out["emptyVp"])))
 sys.exit(0 if all(results) else 1)
