@@ -70,6 +70,7 @@ class _DashboardHandlerSpeakerOps:
                         "samples": samples[s.label]} for s in summarize_labels(self._read_lines(t_path))],
             "suggestions": list(dict.fromkeys(read_attendees(t_path) + registered)),
             "active": self._is_active_transcript(t_path),
+            "translating": self.recorder.is_translating(t_path),
             "enrollment": bool(load_config().get("speaker_enrollment", False)),
         })
 
@@ -99,6 +100,9 @@ class _DashboardHandlerSpeakerOps:
             return
         with self.recorder.transcript_lock:
             lines = self._read_lines(t_path)
+            if self.recorder.is_translating(t_path):
+                self._speaker_error("dash.speakers_translating")
+                return
             if not set(mapping) <= {s.label for s in summarize_labels(lines)}:
                 self._speaker_error("dash.speakers_invalid")
                 return

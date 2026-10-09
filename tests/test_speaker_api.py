@@ -39,6 +39,10 @@ class _Rec:
         self._output_dir = DATA
         self.output_path = os.path.join(DATA, active) if active else ""
         self.transcript_lock = threading.Lock()
+        self.translating: set[str] = set()
+
+    def is_translating(self, path: str) -> bool:
+        return os.path.abspath(path) in self.translating
 
 
 class _H(_DashboardHandlerSpeakerOps, _DashboardHandlerMeetingOps, _DashboardHandlerOps):
@@ -150,6 +154,50 @@ def test_assign_remaps_translate_offset() -> None:
     _H({"file": MTG, "mapping": {"相手A": "太郎"}})._assign_speakers()
     with open(_p(MTG) + ".translate_offset", encoding="utf-8") as f:
         assert int(f.read()) == os.path.getsize(_p(MTG))
+
+
+def test_assign_remaps_translate_offset_mid_file() -> None:
+    first_two = len("".join(LINES[:2]).encode("utf-8"))
+    with open(_p(MTG) + ".translate_offset", "w", encoding="utf-8") as f:
+        f.write(str(first_two))
+    _H({"file": MTG, "mapping": {"相手B": "次郎"}})._assign_speakers()
+    with open(_p(MTG) + ".translate_offset", encoding="utf-8") as f:
+        new_offset = int(f.read())
+    assert new_offset == len("".join(_read(MTG).splitlines(keepends=True)[:2]).encode("utf-8"))
+    assert new_offset == first_two  # 相手A の行は変わらない
+
+
+def test_assign_mid_file_offset_after_renamed_line() -> None:
+    first_three = len("".join(LINES[:3]).encode("utf-8"))
+    with open(_p(MTG) + ".translate_offset", "w", encoding="utf-8") as f:
+        f.write(str(first_three))
+    _H({"file": MTG, "mapping": {"相手A": "太郎"}})._assign_speakers()
+    with open(_p(MTG) + ".translate_offset", encoding="utf-8") as f:
+        new_offset = int(f.read())
+    assert new_offset == len("".join(_read(MTG).splitlines(keepends=True)[:3]).encode("utf-8"))
+    assert new_offset != first_three
+
+
+def test_assign_refused_while_translating() -> None:
+    rec = _Rec()
+    rec.translating.add(_p(MTG))
+    h = _H({"file": MTG, "mapping": {"相手A": "太郎"}}, rec=rec)
+    h._assign_speakers()
+    assert h.sent == {"status": "error", "message": t("dash.speakers_translating")}
+    assert _read(MTG) == "".join(LINES) and VoiceprintStore().people() == {}
+    assert "[相手A]" in _read(TR)
+    assert [e.label for e in read_voices(_p(MTG))] == ["相手A", "相手B", "相手C"]
+
+
+def test_serve_speakers_reports_translating() -> None:
+    rec = _Rec()
+    h = _H(path=f"/api/speakers?file={MTG}", rec=rec)
+    h._serve_speakers()
+    assert h.sent["translating"] is False
+    rec.translating.add(_p(MTG))
+    h = _H(path=f"/api/speakers?file={MTG}", rec=rec)
+    h._serve_speakers()
+    assert h.sent["translating"] is True
 
 
 def test_assign_rejects_and_writes_nothing() -> None:

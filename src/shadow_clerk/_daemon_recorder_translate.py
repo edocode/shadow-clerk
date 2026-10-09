@@ -117,6 +117,11 @@ class _RecorderTranslateMixin:
             return offset + chunk_limit
         return offset + nl + 1
 
+    def is_translating(self, transcript_path: str) -> bool:
+        """その transcript の one-shot 翻訳が実行中か"""
+        with self._translating_lock:
+            return os.path.abspath(transcript_path) in self._translating_paths
+
     def _translate_loop(self, target_transcript: str | None = None,
                         stop_event: threading.Event | None = None) -> None:
         """翻訳ループスレッド (llm_provider: api 用)
@@ -138,6 +143,8 @@ class _RecorderTranslateMixin:
                      f" (one-shot: {os.path.basename(target_transcript)})" if one_shot else "")
         if target_transcript:
             self.translate_target_path = target_transcript
+            with self._translating_lock:
+                self._translating_paths.add(os.path.abspath(target_transcript))
         fail_count = 0  # 連続失敗回数（バックオフ用）
         try:
             while not self.stop_event.is_set() and not stop_event.is_set():
@@ -236,6 +243,9 @@ class _RecorderTranslateMixin:
                 stop_event.wait(timeout=wait)
         finally:
             self.translate_target_path = None
+            if target_transcript:
+                with self._translating_lock:
+                    self._translating_paths.discard(os.path.abspath(target_transcript))
 
         logger.info("翻訳ループ終了")
 

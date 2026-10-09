@@ -271,6 +271,8 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         self._translate_stop_event = threading.Event()
         self._translate_thread: threading.Thread | None = None
         self.translate_target_path: str | None = None  # 現在翻訳中のトランスクリプトパス
+        self._translating_paths: set[str] = set()  # 実行中の one-shot 翻訳の対象（並行実行で translate_target_path は足りない）
+        self._translating_lock = threading.Lock()
 
         # リアルタイム interim 翻訳キュー (maxsize=1 で最新のみ保持)
         self._interim_translate_queue: queue.Queue = queue.Queue(maxsize=1)

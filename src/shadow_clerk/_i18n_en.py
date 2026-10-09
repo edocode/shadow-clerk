@@ -86,6 +86,7 @@ STRINGS_EN: dict[str, str] = {
     "dash.add_row": "+ Add Row",
     "dash.workdir_title": "Working directory for this meeting",
     "dash.speakers_active": "Cannot name speakers in the file being recorded. Try again after the meeting.",
+    "dash.speakers_translating": "Translation of this meeting is still running. Name speakers after it finishes.",
     "dash.speakers_invalid": "Invalid request",
     "dash.speakers_invalid_name": "Some names are not allowed (empty, brackets, \"自分\", \"Claude\", or starting with \"相手\")",
     "dash.speakers_nothing": "No names entered",

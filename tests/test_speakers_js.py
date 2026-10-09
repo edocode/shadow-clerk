@@ -25,7 +25,7 @@ from shadow_clerk._daemon_dashboard_js_speakers import _JS_TEMPLATE_SPEAKERS  # 
 
 HARNESS = r"""
 const I18N={'dash.speakers_count':'発話 {count} 件','dash.speakers_samples':'声紋 {count} 件',
-  'dash.speakers_none':'NONE','dash.speakers_active':'ACTIVE','dash.speakers_enrollment_off':'OFF',
+  'dash.speakers_none':'NONE','dash.speakers_active':'ACTIVE','dash.speakers_translating':'TRANSLATING','dash.speakers_enrollment_off':'OFF',
   'dash.voiceprints_empty':'EMPTY','dash.delete':'削除','dash.voiceprint_delete_confirm':'{name} を消す？'};
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function escAttr(s){return esc(s).replace(/"/g,'&quot;');}
@@ -68,6 +68,10 @@ function alert(m){alerts.push(m);}function confirm(){return true;}
     suggestions:[],active:true,enrollment:true};
   await openSpeakerModal();
   out.activeInfo=els.spkInfo.textContent;out.activeDisabled=els.spkSaveBtn.disabled;
+  speakersResp={status:'ok',labels:[{label:'相手A',count:1,example:'x',samples:0}],
+    suggestions:[],active:false,translating:true,enrollment:true};
+  await openSpeakerModal();
+  out.trInfo=els.spkInfo.textContent;out.trDisabled=els.spkSaveBtn.disabled;
   await deleteVoiceprint('太郎');
   out.deletePosted=posted[1];
   alerts.length=0;
@@ -99,6 +103,7 @@ check("assign に file と mapping を送る", out["posted"] == {"url": "/api/sp
 check("保存後にトーストと再読み込み", out["toasts"] == ["2 行に名前を付けました"]
       and out["loaded"] == ["T:transcript-202610091000.txt", "R:transcript-202610091000.txt"],
       repr((out["toasts"], out["loaded"])))
+check("翻訳中は保存できない", out["trInfo"] == "TRANSLATING" and out["trDisabled"] is True)
 check("録音中は保存できない", out["activeInfo"] == "ACTIVE" and out["activeDisabled"] is True)
 check("声紋の削除を送る", out["deletePosted"] == {"url": "/api/voiceprints/delete", "body": {"name": "太郎"}},
       repr(out["deletePosted"]))

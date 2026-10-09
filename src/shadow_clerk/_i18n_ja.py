@@ -86,6 +86,7 @@ STRINGS_JA: dict[str, str] = {
     "dash.add_row": "+ 行追加",
     "dash.workdir_title": "この会議の起動ディレクトリ",
     "dash.speakers_active": "録音中のファイルには名前を付けられません。会議が終わってから操作してください",
+    "dash.speakers_translating": "この会議の翻訳が実行中です。翻訳が終わってから名前を付けてください",
     "dash.speakers_invalid": "リクエストが不正です",
     "dash.speakers_invalid_name": "使えない名前があります（空・括弧入り・「自分」「Claude」・「相手」で始まる名前は不可）",
     "dash.speakers_nothing": "名前が入力されていません",
