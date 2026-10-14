@@ -407,17 +407,30 @@ class _DashboardHandlerSkillOps:
             except OSError:
                 return 0
 
+        journal = self.recorder.rewrite_journal
+
         def _emit_new_lines() -> bool:
-            """path の offset 以降を最後の改行まで流す。流したら True"""
-            nonlocal offset
+            """path の offset 以降を最後の改行まで流す。流したら True
+
+            ダッシュボードが行を消して書き直していたら、読み位置を書き換え後の座標へ写してから読む。
+            写せないほど書き換えが重なっていたら今の末尾から読み直す（会議全体を送り直さない）。
+            記録と読み取りが食い違わないよう、写しと読み取りは transcript_lock の中で行う。
+            """
+            nonlocal offset, generation
             chunk = b""
-            if _size() > offset:
-                try:
-                    with open(path, "rb") as f:
-                        f.seek(offset)
-                        chunk = f.read()
-                except OSError:
-                    chunk = b""
+            with self.recorder.transcript_lock:
+                mapped, generation = journal.remap_since(path, generation, offset)
+                size = _size()
+                offset = size if mapped is None else mapped
+                if size < offset:
+                    offset = 0        # 記録のない書き直し（作り直しなど）。先頭から拾い直す
+                if size > offset:
+                    try:
+                        with open(path, "rb") as f:
+                            f.seek(offset)
+                            chunk = f.read()
+                    except OSError:
+                        chunk = b""
             nl = chunk.rfind(b"\n")
             if nl < 0:
                 return False
@@ -427,7 +440,9 @@ class _DashboardHandlerSkillOps:
             self.wfile.flush()
             return True
 
-        offset, quiet = _size(), 0
+        with self.recorder.transcript_lock:
+            offset, generation = _size(), journal.generation(path)
+        quiet = 0
         logger.info("監視ストリーム開始: %s (interval=%ds)", os.path.basename(path), interval)
         try:
             while not self.recorder.stop_event.is_set():
@@ -437,11 +452,10 @@ class _DashboardHandlerSkillOps:
                 if follow and (target := self.recorder.output_path) != path:
                     _emit_new_lines()   # 前のファイルの残り（会議終了の印など）を先に流しきる
                     path, offset, quiet = target, self.recorder.output_switch_offset.get(target, 0), 0
+                    generation = journal.generation(path)
                     self.wfile.write(f"<notice>書き込み先が {os.path.basename(path)} に変わりました</notice>\n".encode())
                     self.wfile.flush()
                     logger.info("監視ストリーム: 書き込み先が変わった: %s", os.path.basename(path))
-                if _size() < offset:
-                    offset = 0        # 書き直された。先頭から拾い直す
                 if _emit_new_lines():
                     quiet = 0
                 else:

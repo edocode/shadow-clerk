@@ -12,7 +12,7 @@ import threading
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_constants import SESSION_FILE
-from shadow_clerk.domain import meeting_start_marker
+from shadow_clerk.domain import TranscriptRewrite, meeting_start_marker
 from shadow_clerk._transcript_name import TranscriptName
 
 logger = logging.getLogger("shadow-clerk")
@@ -56,6 +56,9 @@ class _DashboardHandlerOps:
             if not removed:
                 self._send_json({"status": "error", "message": t("dash.delete_error")})
                 return
+            # translate_offset は「削除した翻訳済みバイト分」だけ縮める。
+            # 新サイズへのリセットだと未翻訳の末尾を翻訳済みと誤認しスキップするため
+            self._record_rewrite(t_path, TranscriptRewrite.removing(old_lines, removed), old_offset)
 
             # タイムスタンプを抽出して翻訳ファイルから対応行を削除
             timestamps = []
@@ -78,11 +81,6 @@ class _DashboardHandlerOps:
         # FileWatcher の SSE オフセットは新サイズに合わせる
         self._reset_watch_offsets(
             [("transcript", t_path), ("translation", tr_path)], [])
-        # translate_offset は「削除した翻訳済みバイト分」だけ縮める。
-        # 新サイズへのリセットだと未翻訳の末尾を翻訳済みと誤認しスキップするため
-        if old_offset is not None:
-            self._write_translate_offset(
-                t_path, self._shrink_translate_offset(old_lines, removed, old_offset))
 
         # transcript がマーカー行・空行のみになった場合は関連ファイルごと削除
         cleaned = self._check_and_cleanup_empty_transcript(t_path)
@@ -322,28 +320,15 @@ class _DashboardHandlerOps:
             return [], lines
         return removed, lines
 
-    @staticmethod
-    def _shrink_translate_offset(old_lines: list[str], removed_indices: list[int],
-                                 old_offset: int) -> int:
-        """行削除後の translate_offset（翻訳済み境界のバイト位置）を算出する。
+    def _record_rewrite(self, t_path: str, rewrite: TranscriptRewrite, old_offset: int | None) -> None:
+        """書き直しを記録し、translate_offset を新しい座標へ写す。transcript_lock を持って呼ぶこと。
 
-        削除された行のうち旧オフセットより前（＝翻訳済み領域）にあった分の
-        バイト数だけオフセットを縮める。単純に新ファイルサイズへリセットすると、
-        削除時点で未翻訳だった末尾を「翻訳済み」と誤認して恒久的にスキップして
-        しまうため、翻訳済み領域だけを正確に縮める。
+        記録は /api/watch と翻訳ループが自分の読み位置を写すのに使う。translate_offset もロック内で
+        書くので、LLM 呼び出しから戻った翻訳ループの書き込みと前後が入れ替わらない。
         """
-        removed = set(removed_indices)
-        new_offset = old_offset
-        pos = 0
-        for i, line in enumerate(old_lines):
-            blen = len(line.encode("utf-8"))
-            if i in removed:
-                if pos + blen <= old_offset:
-                    new_offset -= blen
-                elif pos < old_offset:  # オフセットが行の途中（通常起きない）
-                    new_offset -= (old_offset - pos)
-            pos += blen
-        return max(0, new_offset)
+        self.recorder.rewrite_journal.record_rewrite(t_path, rewrite)
+        if old_offset is not None:
+            self._write_translate_offset(t_path, rewrite.map_offset(old_offset))
 
     @staticmethod
     def _read_translate_offset(path: str) -> int | None:

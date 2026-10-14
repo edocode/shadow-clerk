@@ -30,7 +30,7 @@ from shadow_clerk._daemon_recorder_monitor import _RecorderMonitorBackendMixin
 from shadow_clerk._daemon_talk import mic_voice_due
 from shadow_clerk._daemon_vad import VADSegmenter
 from shadow_clerk._daemon_transcriber import Transcriber, GlossaryReplacer
-from shadow_clerk.domain import AudioDevice, MeetingSession
+from shadow_clerk.domain import AudioDevice, MeetingSession, TranscriptRewriteJournal
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -150,6 +150,7 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         self.interim_queue: queue.Queue = queue.Queue(maxsize=2)
         self.transcript_lock = threading.Lock()  # トランスクリプトファイル読み書きの排他制御
         self.output_switch_offset: dict[str, int] = {}  # 書き込み先 → 移った時点の大きさ（/api/watch 用）
+        self.rewrite_journal = TranscriptRewriteJournal()  # ダッシュボードの書き直し履歴（/api/watch・翻訳の offset を写す）
 
         self.backend_name, self.backend = detect_backend(args.backend)
 
