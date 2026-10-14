@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import sys
 import tempfile
 import threading
 
@@ -21,7 +22,7 @@ from shadow_clerk._daemon_dashboard_ops import _DashboardHandlerOps  # noqa: E40
 from shadow_clerk._daemon_dashboard_ops_meeting import _DashboardHandlerMeetingOps  # noqa: E402
 from shadow_clerk._daemon_dashboard_ops_speakers import _DashboardHandlerSpeakerOps  # noqa: E402
 from shadow_clerk._daemon_voice_sidecar import append_voice, read_voices  # noqa: E402
-from shadow_clerk._daemon_voiceprint_store import VOICEPRINTS_FILE, VoiceprintStore  # noqa: E402
+from shadow_clerk._daemon_voiceprint_store import VoiceprintStore  # noqa: E402
 
 MTG = "transcript-202610091000@週次定例.txt"
 TR = "transcript-202610091000@週次定例-en.txt"
@@ -76,7 +77,18 @@ def _p(name: str) -> str:
 
 
 @pytest.fixture(autouse=True)
-def meeting() -> None:
+def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """他のテストが先に shadow_clerk を import 済みでも、実 DATA_DIR / config に触れない"""
+    import shadow_clerk._daemon_dashboard_ops_speakers as speakers_mod
+    import shadow_clerk._daemon_voiceprint_store as store_mod
+    monkeypatch.setattr(store_mod, "VOICEPRINTS_FILE", _p("voiceprints.json"))
+    for mod in (speakers_mod, store_mod, sys.modules["shadow_clerk._daemon_dashboard_ops_meeting"]):
+        monkeypatch.setattr(mod, "load_config", lambda: {"speaker_enrollment": True})
+    assert os.path.dirname(VoiceprintStore().path) == DATA, "store path leaked outside the test data dir"
+
+
+@pytest.fixture(autouse=True)
+def meeting(isolated: None) -> None:
     for f in os.listdir(DATA):
         if f != "config.yaml":
             os.remove(_p(f))
@@ -93,6 +105,10 @@ def meeting() -> None:
 def _read(name: str) -> str:
     with open(_p(name), encoding="utf-8") as f:
         return f.read()
+
+
+def test_default_store_path_is_resolved_at_call_time() -> None:
+    assert VoiceprintStore().path == _p("voiceprints.json")
 
 
 def test_serve_speakers() -> None:
@@ -139,10 +155,10 @@ def test_assign_write_error_is_reported_and_retry_does_not_double_enroll(monkeyp
 
     def boom(path: str, lines: list[str]) -> None:
         raise OSError("disk full")
-    monkeypatch.setattr(h, "_atomic_write_lines", boom)
-    h._assign_speakers()
+    with monkeypatch.context() as m:
+        m.setattr(h, "_atomic_write_lines", boom)
+        h._assign_speakers()
     assert h.sent["status"] == "error" and h.sent["message"] == t("dash.speakers_write_error")
-    monkeypatch.undo()
     _H({"file": MTG, "mapping": {"相手A": "太郎"}})._assign_speakers()
     assert VoiceprintStore().people() == {"太郎": 1}
 
@@ -219,7 +235,7 @@ def test_assign_rejects_and_writes_nothing() -> None:
 
 
 def test_assign_with_broken_store_writes_nothing() -> None:
-    with open(VOICEPRINTS_FILE, "w", encoding="utf-8") as f:
+    with open(_p("voiceprints.json"), "w", encoding="utf-8") as f:
         f.write("{broken")
     h = _H({"file": MTG, "mapping": {"相手A": "太郎"}})
     h._assign_speakers()

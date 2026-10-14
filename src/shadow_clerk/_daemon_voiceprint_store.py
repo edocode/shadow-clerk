@@ -28,8 +28,8 @@ class VoiceprintStoreError(Exception):
 
 
 class VoiceprintStore:
-    def __init__(self, path: str = VOICEPRINTS_FILE) -> None:
-        self.path = path
+    def __init__(self, path: str | None = None) -> None:
+        self.path = path or VOICEPRINTS_FILE
 
     def _load(self) -> dict[str, list[dict]]:
         try:
