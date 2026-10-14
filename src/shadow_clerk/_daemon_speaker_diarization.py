@@ -5,6 +5,7 @@ onnxruntime がインストールされていない場合は無効化され、No
 """
 from __future__ import annotations
 
+import importlib.util
 import logging
 import math
 import os
@@ -28,11 +29,9 @@ _MIN_SEGMENT_SEC = 1.0
 _MAX_EMBEDDINGS_PER_SPEAKER = 20
 _SAMPLE_RATE = 16000
 
-try:
-    import onnxruntime as _ort
-    _HAS_ORT = True
-except ImportError:
-    _HAS_ORT = False
+# onnxruntime はネイティブスレッドを起動し、以降の fork() の子が終了時にハングするため
+# インポート時には読み込まず、存在確認のみ行う (実体は _load_model で遅延 import)
+_HAS_ORT = importlib.util.find_spec("onnxruntime") is not None
 
 try:
     import kaldi_native_fbank as _knf
@@ -172,12 +171,13 @@ class SpeakerDiarizer:
                 return False
             try:
                 import huggingface_hub as hf
+                import onnxruntime as ort
                 onnx_path = hf.hf_hub_download(
                     _WESPEAKER_REPO, _ONNX_FILENAME, cache_dir=_CACHE_DIR)
-                opts = _ort.SessionOptions()
+                opts = ort.SessionOptions()
                 opts.inter_op_num_threads = 1
                 opts.intra_op_num_threads = 2
-                self._session = _ort.InferenceSession(
+                self._session = ort.InferenceSession(
                     onnx_path, sess_options=opts,
                     providers=["CPUExecutionProvider"])
                 logger.info("話者分離モデル読み込み完了: %s", onnx_path)

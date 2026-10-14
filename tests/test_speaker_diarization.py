@@ -4,6 +4,10 @@ onnxruntime / モデル不要でも動くテスト（特徴量生成・マッチ
 """
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+
 import numpy as np
 import pytest
 from unittest.mock import patch, MagicMock
@@ -220,3 +224,32 @@ def test_bind_output_new_path_drops_clusters(tmp_path, monkeypatch):
     d.bind_output(str(tmp_path / "transcript-202610091000.txt"))
     assert d._session_speakers == {}
     assert d.identify_speaker(_silence(2.0))[0] == "相手A"
+
+
+_FORK_SCRIPT = """
+import os, sys, time
+import shadow_clerk._daemon_main
+print("ort_imported=%s" % ("onnxruntime" in sys.modules))
+pid = os.fork()
+if pid == 0:
+    sys.exit(0)
+for _ in range(100):
+    done, _st = os.waitpid(pid, os.WNOHANG)
+    if done:
+        print("exited")
+        break
+    time.sleep(0.1)
+else:
+    os.kill(pid, 9)
+    os.waitpid(pid, 0)
+    print("HUNG")
+"""
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="requires os.fork")
+def test_daemon_main_import_keeps_fork_exit_safe():
+    """onnxruntime をインポート時に読み込むと fork 後の子が終了時にハングする。"""
+    r = subprocess.run([sys.executable, "-c", _FORK_SCRIPT],
+                       capture_output=True, text=True, timeout=60)
+    assert "ort_imported=False" in r.stdout, r.stdout + r.stderr
+    assert "exited" in r.stdout, r.stdout + r.stderr
