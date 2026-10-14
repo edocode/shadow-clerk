@@ -254,7 +254,7 @@ def test_assign_active_file_can_be_named() -> None:
 
 def test_assign_active_file_refused_while_continuously_translated() -> None:
     rec = _Rec(active=MTG)
-    rec.translating.add(_p(MTG))  # 実機では継続翻訳ループが active ファイルを翻訳中のとき is_translating が True
+    rec.translating.add(_p(MTG))  # 実機では継続ループがそのチャンクを翻訳している間、そのファイルが is_translating のレジストリに載る
     h = _H({"file": MTG, "mapping": {"相手A": "太郎"}}, rec=rec)
     h._assign_speakers()
     assert h.sent == {"status": "error", "message": t("dash.speakers_translating")}

@@ -117,15 +117,21 @@ class _RecorderTranslateMixin:
             return offset + chunk_limit
         return offset + nl + 1
 
-    def is_translating(self, transcript_path: str) -> bool:
-        """その transcript が翻訳中か（one-shot の実行中、または出力先を追う継続ループの対象）"""
+    def _register_translating(self, transcript_path: str) -> None:
+        with self._translating_lock:
+            self._translating_paths[os.path.abspath(transcript_path)] += 1
+
+    def _unregister_translating(self, transcript_path: str) -> None:
         path = os.path.abspath(transcript_path)
         with self._translating_lock:
-            if path in self._translating_paths:
-                return True
-        # 継続ループは one-shot ではないので translate_target_path が空のまま output_path を追う
-        return (self._translate_thread is not None and self._translate_thread.is_alive()
-                and self.translate_target_path is None and path == os.path.abspath(self.output_path or ""))
+            self._translating_paths[path] -= 1
+            if self._translating_paths[path] <= 0:
+                del self._translating_paths[path]
+
+    def is_translating(self, transcript_path: str) -> bool:
+        """その transcript を今翻訳しているジョブがあるか（one-shot の全期間、継続ループのチャンク処理中）"""
+        with self._translating_lock:
+            return self._translating_paths.get(os.path.abspath(transcript_path), 0) > 0
 
     def _translate_loop(self, target_transcript: str | None = None,
                         stop_event: threading.Event | None = None) -> None:
@@ -148,14 +154,17 @@ class _RecorderTranslateMixin:
                      f" (one-shot: {os.path.basename(target_transcript)})" if one_shot else "")
         if target_transcript:
             self.translate_target_path = target_transcript
-            with self._translating_lock:
-                self._translating_paths.add(os.path.abspath(target_transcript))
+            self._register_translating(target_transcript)
         fail_count = 0  # 連続失敗回数（バックオフ用）
         try:
             while not self.stop_event.is_set() and not stop_event.is_set():
                 failed = False
+                held: str | None = None  # 継続ループがこのチャンクで触っているファイル（日付変更後も元のファイルを守る）
                 try:
                     transcript = target_transcript or self.output_path
+                    if not one_shot:
+                        held = transcript
+                        self._register_translating(held)
                     offset_file = self._translate_offset_file(transcript)
                     try:
                         with open(offset_file, "r", encoding="utf-8") as f:
@@ -236,6 +245,9 @@ class _RecorderTranslateMixin:
                     failed = True
                     if one_shot:
                         return
+                finally:
+                    if held is not None:
+                        self._unregister_translating(held)
 
                 # 失敗が続くと LLM/翻訳サーバを 5 秒毎に無限に叩き続けるため指数バックオフ。
                 # 成功したら 5 秒間隔に戻す（バックログ消化のためのポーリング間隔）
@@ -249,8 +261,7 @@ class _RecorderTranslateMixin:
         finally:
             self.translate_target_path = None
             if target_transcript:
-                with self._translating_lock:
-                    self._translating_paths.discard(os.path.abspath(target_transcript))
+                self._unregister_translating(target_transcript)
 
         logger.info("翻訳ループ終了")
 
