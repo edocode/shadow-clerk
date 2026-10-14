@@ -9,6 +9,7 @@ import pytest
 
 import shadow_clerk._daemon_recorder_translate as tr
 from shadow_clerk._daemon_recorder_translate import _RecorderTranslateMixin
+from shadow_clerk.domain import TranscriptRewriteJournal
 
 
 class _Boom(BaseException):
@@ -24,6 +25,8 @@ class _Rec(_RecorderTranslateMixin):
         self._translating_lock = threading.Lock()
         self._translate_thread: threading.Thread | None = None
         self.output_path = ""
+        self.transcript_lock = threading.Lock()
+        self.rewrite_journal = TranscriptRewriteJournal()
 
 
 def _setup(tmp_path, monkeypatch, seen: list[bool], rec: _Rec, exc: BaseException | None):

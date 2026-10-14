@@ -18,7 +18,7 @@ os.environ["SHADOW_CLERK_DATA_DIR"] = DATA
 
 from shadow_clerk._daemon_constants import SESSION_FILE  # noqa: E402
 from shadow_clerk._daemon_dashboard_ops import _DashboardHandlerOps as Ops  # noqa: E402
-from shadow_clerk.domain import meeting_start_marker  # noqa: E402
+from shadow_clerk.domain import TranscriptRewriteJournal, meeting_start_marker  # noqa: E402
 
 results: list[bool] = []
 START = datetime.datetime(2026, 10, 4, 10, 0)
@@ -37,6 +37,7 @@ class _Rec:
         self._output_dir = DATA
         self.output_path = output
         self.transcript_lock = threading.Lock()
+        self.rewrite_journal = TranscriptRewriteJournal()
         self.current_session = types.SimpleNamespace(started_at=START) if in_meeting else None
 
     def _get_default_output(self) -> str:

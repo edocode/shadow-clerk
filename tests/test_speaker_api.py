@@ -15,6 +15,8 @@ with open(os.path.join(DATA, "config.yaml"), "w", encoding="utf-8") as _f:
     _f.write("speaker_enrollment: true\n")
 
 import numpy as np  # noqa: E402
+
+from shadow_clerk.domain import TranscriptRewriteJournal  # noqa: E402
 import pytest  # noqa: E402
 
 from shadow_clerk.i18n import t  # noqa: E402
@@ -41,6 +43,7 @@ class _Rec:
         self._output_dir = DATA
         self.output_path = os.path.join(DATA, active) if active else ""
         self.transcript_lock = threading.Lock()
+        self.rewrite_journal = TranscriptRewriteJournal()
         self.translating: set[str] = set()
 
     def is_translating(self, path: str) -> bool:
