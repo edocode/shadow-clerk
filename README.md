@@ -235,6 +235,7 @@ voiceprint_max_samples: 200   # per person (default 200)
 - With `speaker_enrollment: true`, the diarization embeddings are saved per transcript in `transcript-*.voices.jsonl`.
 - After the meeting, the 👥 button in the dashboard lets you name labels such as `相手A` (for example `太郎`). Several labels may get the same name. Expected attendees and already registered people are offered as candidates, and you can also type any name.
 - Naming rewrites the labels in the transcript and its translations. If `speaker_enrollment` is enabled, that voice is also stored as a voiceprint in `voiceprints.json` (up to `voiceprint_max_samples` per person).
+- Every assigned name is remembered (names only, no voice data, regardless of `speaker_enrollment`) in `speaker_names.json` and offered as a suggestion in every meeting. A row that already has a name shows it as a placeholder; leave the field empty to keep it. Deleting a person from the dashboard removes their name too.
 - Already-named speakers stay in the list and can be renamed (for a typo, say); their voiceprints from that meeting move to the new name.
 - A file that is still being recorded, or whose translation is still running, cannot be named.
 - Merging lines into an existing meeting can mix two different speakers under the same label; name such a file carefully (or extract into a new meeting instead).
@@ -875,6 +876,7 @@ shadow-clerk/                          # Repository
   daemon.log / daemon.pid              # Daemon log and PID
   gcal_token.json                      # Google Calendar OAuth token (created by gcal-auth)
   wespeaker_cache/                     # Speaker diarization ONNX model (downloaded on first use)
+  speaker_names.json                   # Names given to speakers (names only)
   voiceprints.json                     # Voiceprints (speaker_enrollment, after naming)
   transcript-YYYYMMDDHHMM@Title.voices.jsonl  # Speaker diarization embeddings (speaker_enrollment)
 ```

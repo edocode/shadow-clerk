@@ -23,6 +23,21 @@ _VERSION = 1
 _lock = threading.Lock()
 
 
+def atomic_write_json(path: str, body: dict, prefix: str) -> None:
+    """同じディレクトリの一時ファイルに書いて os.replace する（mkstemp は 0600 で作る）"""
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", prefix=prefix, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(body, f, ensure_ascii=False)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 class VoiceprintStoreError(Exception):
     """voiceprints.json を読めない。空とみなして上書きすると溜めた声紋が消えるので、書き込みを止める"""
 
@@ -53,19 +68,8 @@ class VoiceprintStore:
         return result
 
     def _save(self, people: dict[str, list[dict]]) -> None:
-        body = {"version": _VERSION, "people": {n: {"samples": s} for n, s in people.items()}}
-        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(self.path) or ".", prefix=".voiceprints-",
-                                   suffix=".tmp")  # mkstemp は 0600 で作る
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(body, f, ensure_ascii=False)
-            os.replace(tmp, self.path)
-        except BaseException:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
+        atomic_write_json(self.path, {"version": _VERSION, "people": {n: {"samples": s} for n, s in people.items()}},
+                          ".voiceprints-")
 
     def people(self) -> dict[str, int]:
         with _lock:

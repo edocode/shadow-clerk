@@ -234,6 +234,7 @@ voiceprint_max_samples: 200   # 1人あたりの保存件数（既定 200）
 - `speaker_enrollment: true` で、話者分離の埋め込みを transcript ごとの `transcript-*.voices.jsonl` に保存する。
 - 会議後、ダッシュボードの 👥 ボタンで `相手A` などに名前（例: `太郎`）を付けられる。複数のラベルに同じ名前を付けてもよい。参加予定者と登録済みの人が候補に出るが、自由入力もできる。
 - 名前を付けると transcript と翻訳のラベルが書き換わる。`speaker_enrollment` が有効なら、その声が `voiceprints.json` に声紋として保存される（1人あたり `voiceprint_max_samples` 件まで）。
+- 付けた名前は `speaker_enrollment` に関係なく `speaker_names.json` に覚えられ（名前だけで声のデータは含まない）、どの会議でも候補に出る。名前が付いている行は現在の名前が薄く表示され、空欄のままならそのまま。ダッシュボードで人を削除するとその名前も消える。
 - 名前付け済みの話者も一覧に残り、付け直せる（誤字の修正など）。その会議の声紋は新しい名前へ移る。
 - 録音中のファイル、または翻訳が実行中のファイルには名前を付けられない。
 - 既存の会議に行を切り出して統合すると、別人が同じラベルに混ざることがある。そのようなファイルは注意して名前を付けるか、新しい会議として切り出すこと。
@@ -870,6 +871,7 @@ shadow-clerk/                          # リポジトリ
   daemon.log / daemon.pid              # daemon のログと PID
   gcal_token.json                      # Google Calendar OAuth トークン（gcal-auth で生成）
   wespeaker_cache/                     # 話者分離の ONNX モデル（初回利用時にダウンロード）
+  speaker_names.json                   # 話者に付けた名前（名前のみ）
   voiceprints.json                     # 声紋（speaker_enrollment、名前付け後）
   transcript-YYYYMMDDHHMM@会議名.voices.jsonl  # 話者分離の埋め込み（speaker_enrollment）
 ```

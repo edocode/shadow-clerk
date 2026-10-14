@@ -22,6 +22,7 @@ from shadow_clerk._daemon_dashboard_ops import _DashboardHandlerOps  # noqa: E40
 from shadow_clerk._daemon_dashboard_ops_meeting import _DashboardHandlerMeetingOps  # noqa: E402
 from shadow_clerk._daemon_dashboard_ops_speakers import _DashboardHandlerSpeakerOps  # noqa: E402
 from shadow_clerk._daemon_voice_sidecar import append_voice, read_voices  # noqa: E402
+from shadow_clerk._daemon_speaker_names import SpeakerNameBook  # noqa: E402
 from shadow_clerk._daemon_voiceprint_store import VoiceprintStore  # noqa: E402
 
 MTG = "transcript-202610091000@週次定例.txt"
@@ -81,10 +82,13 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     """他のテストが先に shadow_clerk を import 済みでも、実 DATA_DIR / config に触れない"""
     import shadow_clerk._daemon_dashboard_ops_speakers as speakers_mod
     import shadow_clerk._daemon_voiceprint_store as store_mod
+    import shadow_clerk._daemon_speaker_names as names_mod
     monkeypatch.setattr(store_mod, "VOICEPRINTS_FILE", _p("voiceprints.json"))
+    monkeypatch.setattr(names_mod, "SPEAKER_NAMES_FILE", _p("speaker_names.json"))
     for mod in (speakers_mod, store_mod, sys.modules["shadow_clerk._daemon_dashboard_ops_meeting"]):
         monkeypatch.setattr(mod, "load_config", lambda: {"speaker_enrollment": True})
     assert os.path.dirname(VoiceprintStore().path) == DATA, "store path leaked outside the test data dir"
+    assert os.path.dirname(SpeakerNameBook().path) == DATA, "name book path leaked outside the test data dir"
 
 
 @pytest.fixture(autouse=True)
@@ -294,7 +298,7 @@ def test_voiceprints_list_and_delete() -> None:
     assert h.sent == {"status": "ok", "people": [{"name": "太郎", "count": 1}]}
     h = _H({"name": "太郎"})
     h._delete_voiceprint()
-    assert h.sent == {"status": "ok", "deleted": True, "sidecar_entries_removed": 1}
+    assert h.sent == {"status": "ok", "deleted": True, "name_removed": True, "sidecar_entries_removed": 1}
     assert VoiceprintStore().people() == {}
 
 
@@ -303,7 +307,7 @@ def test_delete_voiceprint_also_removes_named_sidecar_entries() -> None:
     assert [e.label for e in read_voices(_p(MTG))] == ["太郎", "相手B", "相手C"]
     h = _H({"name": "太郎"})
     h._delete_voiceprint()
-    assert h.sent == {"status": "ok", "deleted": True, "sidecar_entries_removed": 1}
+    assert h.sent == {"status": "ok", "deleted": True, "name_removed": True, "sidecar_entries_removed": 1}
     assert VoiceprintStore().people() == {}
     assert [e.label for e in read_voices(_p(MTG))] == ["相手B", "相手C"]
 
@@ -313,8 +317,67 @@ def test_delete_voiceprint_cleans_sidecars_even_if_store_has_no_person() -> None
     VoiceprintStore().delete("太郎")
     h = _H({"name": "太郎"})
     h._delete_voiceprint()
-    assert h.sent == {"status": "ok", "deleted": False, "sidecar_entries_removed": 1}
+    assert h.sent == {"status": "ok", "deleted": False, "name_removed": True, "sidecar_entries_removed": 1}
     assert [e.label for e in read_voices(_p(MTG))] == ["相手B", "相手C"]
+
+
+MTG2 = "transcript-202610101000@別件.txt"
+
+
+def _second_meeting() -> None:
+    with open(_p(MTG2), "w", encoding="utf-8") as f:
+        f.write("--- 会議開始 2026-10-10 10:00 ---\n[2026-10-10 10:00:01] [相手A] こんにちは\n")
+
+
+def _suggestions(name: str) -> list[str]:
+    h = _H(path=f"/api/speakers?file={name}")
+    h._serve_speakers()
+    assert h.sent["status"] == "ok"
+    return h.sent["suggestions"]
+
+
+def test_assigned_name_is_suggested_in_other_meetings_without_enrollment(monkeypatch) -> None:
+    import shadow_clerk._daemon_dashboard_ops_speakers as ops
+    monkeypatch.setattr(ops, "load_config", lambda: {"speaker_enrollment": False})
+    _second_meeting()
+    assert _suggestions(MTG2) == []
+    _H({"file": MTG, "mapping": {"相手A": "三郎"}})._assign_speakers()
+    assert SpeakerNameBook().names() == ["三郎"]
+    assert VoiceprintStore().people() == {}
+    assert _suggestions(MTG2) == ["三郎"]
+
+
+def test_suggestion_order_attendees_transcript_names_voiceprints() -> None:
+    from shadow_clerk.domain.voiceprint import PersonName, VoiceSample
+    with open(_p(MTG), "a", encoding="utf-8") as f:
+        f.write("[2026-10-09 10:00:05] [四郎] 追加です\n")
+    SpeakerNameBook().add([PersonName("五郎"), PersonName("四郎"), PersonName("太郎")])
+    VoiceprintStore().add({PersonName("六郎"): [VoiceSample(_vec(9), "x", "y")]})
+    assert _suggestions(MTG) == ["次郎", "太郎", "四郎", "五郎", "六郎"]
+
+
+def test_delete_voiceprint_forgets_the_name() -> None:
+    _second_meeting()
+    _H({"file": MTG, "mapping": {"相手A": "太郎"}})._assign_speakers()
+    assert "太郎" in _suggestions(MTG2)
+    h = _H({"name": "太郎"})
+    h._delete_voiceprint()
+    assert h.sent["name_removed"] is True
+    assert SpeakerNameBook().names() == [] and "太郎" not in _suggestions(MTG2)
+
+
+def test_broken_name_book_does_not_break_assign_or_get() -> None:
+    _second_meeting()
+    with open(_p("speaker_names.json"), "w", encoding="utf-8") as f:
+        f.write("{broken")
+    assert _suggestions(MTG2) == []
+    h = _H({"file": MTG, "mapping": {"相手A": "太郎"}})
+    h._assign_speakers()
+    assert h.sent["status"] == "ok" and "[太郎]" in _read(MTG)
+    assert _read("speaker_names.json") == "{broken"
+    h = _H({"name": "太郎"})
+    h._delete_voiceprint()
+    assert h.sent["status"] == "ok" and h.sent["name_removed"] is False
 
 
 def test_extract_meeting_copies_voices() -> None:

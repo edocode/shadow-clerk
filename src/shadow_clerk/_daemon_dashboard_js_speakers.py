@@ -28,7 +28,7 @@ async function openSpeakerModal(){
       +'<span class="spk-meta">'+esc(I18N['dash.speakers_count'].replace('{count}',l.count))
       +(d.enrollment?' / '+esc(I18N['dash.speakers_samples'].replace('{count}',l.samples)):'')+'</span>'
       +'<input type="text" list="spkSuggest" data-label="'+escAttr(l.label)+'"'
-      +(l.named?' value="'+escAttr(l.label)+'"':'')+'>'
+      +(l.named?' placeholder="'+escAttr(l.label)+'"':'')+'>'
       +'<span class="spk-example">'+esc(l.example)+'</span>';
     box.appendChild(row);
   }

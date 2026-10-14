@@ -10,6 +10,7 @@ from shadow_clerk.i18n import t
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_dashboard_base import read_attendees, read_local_json_body
 from shadow_clerk._daemon_speaker_naming import relabel_lines, remap_offset, summarize_labels
+from shadow_clerk._daemon_speaker_names import SpeakerNameBook, SpeakerNameBookError
 from shadow_clerk._daemon_voice_sidecar import (
     read_voices, relabeled_voice_lines, voice_lines_without_label, voices_path,
 )
@@ -66,13 +67,18 @@ class _DashboardHandlerSpeakerOps:
             registered = list(VoiceprintStore().people())
         except VoiceprintStoreError:
             registered = []
+        try:
+            remembered = SpeakerNameBook().names()
+        except SpeakerNameBookError as e:
+            logger.warning("名前の名簿を読めない: %s", e)
+            remembered = []
         summaries = summarize_labels(self._read_lines(t_path))
         in_transcript = [s.label for s in summaries if s.named]
         self._send_json({
             "status": "ok",
             "labels": [{"label": s.label, "count": s.count, "example": s.example, "named": s.named,
                         "samples": samples[s.label]} for s in summaries],
-            "suggestions": list(dict.fromkeys(read_attendees(t_path) + in_transcript + registered)),
+            "suggestions": list(dict.fromkeys(read_attendees(t_path) + in_transcript + remembered + registered)),
             "active": self._is_active_transcript(t_path),
             "translating": self.recorder.is_translating(t_path),
             "enrollment": bool(load_config().get("speaker_enrollment", False)),
@@ -123,6 +129,10 @@ class _DashboardHandlerSpeakerOps:
                 logger.error("名前を書き込めない: %s", e)
                 self._speaker_error("dash.speakers_write_error")
                 return
+        try:  # 名前は生体情報ではないので enrollment に関係なく覚える。失敗しても名前付けは済んでいる
+            SpeakerNameBook().add(mapping.values())
+        except (SpeakerNameBookError, OSError) as e:
+            logger.warning("名前を名簿に足せない: %s", e)
         self._send_json({"status": "ok", "renamed": renamed, "enrolled": enrolled,
                          "message": t("dash.speakers_saved", count=renamed)})
 
@@ -180,7 +190,7 @@ class _DashboardHandlerSpeakerOps:
         self._send_json({"status": "ok", "people": [{"name": n, "count": c} for n, c in people.items()]})
 
     def _delete_voiceprint(self) -> None:
-        """POST /api/voiceprints/delete — その人の声紋と、各サイドカーに残る名前付きの埋め込みを全部消す"""
+        """POST /api/voiceprints/delete — その人の声紋と名簿の名前と、各サイドカーに残る名前付きの埋め込みを全部消す"""
         data = read_local_json_body(self, "voiceprints")
         if data is None:
             return
@@ -193,7 +203,12 @@ class _DashboardHandlerSpeakerOps:
         except (VoiceprintStoreError, OSError):
             self._speaker_error("dash.voiceprint_store_error")
             return
-        self._send_json({"status": "ok", "deleted": deleted,
+        try:
+            name_removed = SpeakerNameBook().remove(name)
+        except (SpeakerNameBookError, OSError) as e:
+            logger.warning("名前を名簿から消せない: %s", e)
+            name_removed = False
+        self._send_json({"status": "ok", "deleted": deleted, "name_removed": name_removed,
                          "sidecar_entries_removed": self._purge_sidecar_label(name)})
 
     def _purge_sidecar_label(self, name: str) -> int:

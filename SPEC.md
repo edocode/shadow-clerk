@@ -611,6 +611,7 @@ sequenceDiagram
 | `transcript-YYYYMMDDHHMM@<会議名>.txt` | 会議名付き transcript（Google Calendar 連携、rename 時） |
 | `transcript-*-<lang>.txt` | 翻訳結果ファイル（会議名含む対応: `transcript-YYYYMMDDHHMM@<会議名>-<lang>.txt`） |
 | `transcript-*.voices.jsonl` | 話者分離の埋め込み（ラベル+ベクトル。`speaker_enrollment: true` のとき transcript ごとに保存。名前付けで使う） |
+| `speaker_names.json` | 名前付けで付けた名前の名簿（名前のみ。どの会議でも候補に出す。人の削除で消える） |
 | `voiceprints.json` | 人ごとの声紋（名前付け後に追加。1人あたり `voiceprint_max_samples`、既定 200 件） |
 | `wespeaker_cache/` | 話者分離の wespeaker ResNet34 ONNX モデル（初回利用時にダウンロード） |
 | `summary-YYYYMMDD.md` | 議事録（日次 transcript に対応） |
