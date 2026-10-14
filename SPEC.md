@@ -636,7 +636,7 @@ sequenceDiagram
 
 `speaker_diarization: true` のとき、相手側（monitor）の発話に `SpeakerDiarizer` が `[相手A]`、`[相手B]`… を付ける（`diarization_threshold` 既定 0.70、`diarization_min_sec` 既定 1.0 秒未満は `[相手?]`）。1つの transcript 内で同じラベルが別人を指さないよう、出力先が変わると会議内クラスタを捨て、そのファイルの最大番号の続きから振る。
 
-`speaker_enrollment: true` なら埋め込みを `transcript-*.voices.jsonl` に保存し、会議後にダッシュボードの 👥 から名前を付ける。声紋は生体情報なのでデータディレクトリの外に出さず、LLM にも渡さない。音声は保存しない。録音中のファイルには名前を付けられない。
+`speaker_enrollment: true` なら埋め込みを `transcript-*.voices.jsonl` に保存し、会議後にダッシュボードの 👥 から名前を付ける。声紋は生体情報なのでデータディレクトリの外に出さず、LLM にも渡さない。音声は保存しない。録音中のファイルにも名前を付けられる（新しい行には引き続き話者ラベルが付くので、あとでもう一度付ける）。翻訳が実行中（one-shot・継続ループ）のファイルは拒否する。サイドカーへの追記は transcript_lock の中で行い、名前付け・声紋削除の書き換えと直列化する。
 
 ```mermaid
 flowchart LR

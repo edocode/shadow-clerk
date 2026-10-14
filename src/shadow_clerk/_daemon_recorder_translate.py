@@ -118,9 +118,14 @@ class _RecorderTranslateMixin:
         return offset + nl + 1
 
     def is_translating(self, transcript_path: str) -> bool:
-        """その transcript の one-shot 翻訳が実行中か"""
+        """その transcript が翻訳中か（one-shot の実行中、または出力先を追う継続ループの対象）"""
+        path = os.path.abspath(transcript_path)
         with self._translating_lock:
-            return os.path.abspath(transcript_path) in self._translating_paths
+            if path in self._translating_paths:
+                return True
+        # 継続ループは one-shot ではないので translate_target_path が空のまま output_path を追う
+        return (self._translate_thread is not None and self._translate_thread.is_alive()
+                and self.translate_target_path is None and path == os.path.abspath(self.output_path or ""))
 
     def _translate_loop(self, target_transcript: str | None = None,
                         stop_event: threading.Event | None = None) -> None:

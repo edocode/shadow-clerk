@@ -58,6 +58,11 @@ class _RecorderTranscribeMixin:
                 f.write(tl.format())
                 f.flush()
 
+    def _append_voice(self, timestamp: str, label: str, embedding: Any) -> None:
+        """声紋サイドカーに追記する。名前付け・声紋削除の書き換えと同じ transcript_lock で直列化する"""
+        with self.transcript_lock:
+            append_voice(self.output_path, timestamp, label, embedding)
+
     @staticmethod
     def _is_noise_text(text: str) -> bool:
         """短いノイズ語（「あっ」「ピッ」「ピン」「フフ」「はあ」「あ」等）かどうか判定"""
@@ -180,7 +185,7 @@ class _RecorderTranscribeMixin:
             else:
                 speaker_label, embedding = result
                 if load_config().get("speaker_enrollment", False):
-                    append_voice(self.output_path, timestamp, speaker_label, embedding)
+                    self._append_voice(timestamp, speaker_label, embedding)
         tl = TranscriptLine(timestamp=timestamp, speaker=file_speaker, text=text,
                             speaker_label=speaker_label)
         self._append_transcript_line(tl)

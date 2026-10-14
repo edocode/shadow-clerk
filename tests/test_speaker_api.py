@@ -243,6 +243,28 @@ def test_assign_refused_while_translating() -> None:
     assert [e.label for e in read_voices(_p(MTG))] == ["相手A", "相手B", "相手C"]
 
 
+def test_assign_active_file_can_be_named() -> None:
+    h = _H({"file": MTG, "mapping": {"相手A": "太郎"}}, rec=_Rec(active=MTG))
+    h._assign_speakers()
+    assert h.sent["status"] == "ok", h.sent
+    assert "[太郎] 来週のリリースの件ですが" in _read(MTG)
+    assert "[太郎]" in _read(TR)
+    assert VoiceprintStore().people() == {"太郎": 1}
+
+
+def test_assign_active_file_refused_while_continuously_translated() -> None:
+    rec = _Rec(active=MTG)
+    rec.translating.add(_p(MTG))  # 実機では継続翻訳ループが active ファイルを翻訳中のとき is_translating が True
+    h = _H({"file": MTG, "mapping": {"相手A": "太郎"}}, rec=rec)
+    h._assign_speakers()
+    assert h.sent == {"status": "error", "message": t("dash.speakers_translating")}
+    assert _read(MTG) == "".join(LINES) and VoiceprintStore().people() == {}
+    assert [e.label for e in read_voices(_p(MTG))] == ["相手A", "相手B", "相手C"]
+    g = _H(path=f"/api/speakers?file={MTG}", rec=rec)
+    g._serve_speakers()
+    assert g.sent["active"] is True and g.sent["translating"] is True
+
+
 def test_serve_speakers_reports_translating() -> None:
     rec = _Rec()
     h = _H(path=f"/api/speakers?file={MTG}", rec=rec)
@@ -262,7 +284,6 @@ def test_assign_rejects_and_writes_nothing() -> None:
         ({"file": MTG, "mapping": {"相手A": 3}}, None),
         ({"file": MTG, "mapping": "相手A=太郎"}, None),
         ({"file": MTG, "mapping": {"相手A": "  "}}, None),
-        ({"file": MTG, "mapping": {"相手A": "太郎"}}, _Rec(active=MTG)),
     ]
     for body, rec in cases:
         h = _H(body, rec=rec)

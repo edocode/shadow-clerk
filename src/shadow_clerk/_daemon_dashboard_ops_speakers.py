@@ -93,9 +93,6 @@ class _DashboardHandlerSpeakerOps:
         if t_path is None:
             self._speaker_error("dash.transcript_not_found")
             return
-        if self._is_active_transcript(t_path):
-            self._speaker_error("dash.speakers_active")
-            return
         raw = data.get("mapping")
         if not isinstance(raw, dict) or not all(isinstance(v, str) for v in raw.values()):
             self._speaker_error("dash.speakers_invalid")

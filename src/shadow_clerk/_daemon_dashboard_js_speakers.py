@@ -19,8 +19,8 @@ async function openSpeakerModal(){
   if(d.status!=='ok'){alert(d.message||'error');return;}
   const dl=document.getElementById('spkSuggest');dl.innerHTML='';
   for(const s of d.suggestions){const o=document.createElement('option');o.value=s;dl.appendChild(o);}
-  info.textContent=!d.labels.length?I18N['dash.speakers_none']:d.active?I18N['dash.speakers_active']
-    :d.translating?I18N['dash.speakers_translating']
+  info.textContent=!d.labels.length?I18N['dash.speakers_none']:d.translating?I18N['dash.speakers_translating']
+    :d.active?I18N['dash.speakers_active']
     :!d.enrollment?I18N['dash.speakers_enrollment_off']:'';
   for(const l of d.labels){
     const row=document.createElement('div');row.className='spk-row';
@@ -32,7 +32,7 @@ async function openSpeakerModal(){
       +'<span class="spk-example">'+esc(l.example)+'</span>';
     box.appendChild(row);
   }
-  document.getElementById('spkSaveBtn').disabled=!d.labels.length||!!(d.active||d.translating);
+  document.getElementById('spkSaveBtn').disabled=!d.labels.length||!!d.translating;
   await loadVoiceprints();
   document.getElementById('speakerModal').classList.add('open');
 }

@@ -102,3 +102,38 @@ def test_related_files_include_voices(tmp_path) -> None:
     tn = TranscriptName.parse(os.path.basename(t))
     files = {"transcript-202610091000.txt", "transcript-202610091000.voices.jsonl"}
     assert "transcript-202610091000.voices.jsonl" in _DashboardHandlerOps._related_file_names(t, tn, files)
+
+
+def test_recorder_appends_voice_under_transcript_lock(tmp_path) -> None:
+    """文字起こし側の追記は transcript_lock の中で行う（assign / 声紋削除のサイドカー書き換えと競合させない）"""
+    import threading
+    from shadow_clerk._daemon_recorder_transcribe import _RecorderTranscribeMixin
+
+    class _Lock:
+        def __init__(self) -> None:
+            self.held = False
+            self.acquired = 0
+
+        def __enter__(self) -> None:
+            self.held = True
+            self.acquired += 1
+
+        def __exit__(self, *a: object) -> None:
+            self.held = False
+
+    class _Rec(_RecorderTranscribeMixin):
+        def __init__(self) -> None:
+            self.transcript_lock = _Lock()
+            self.output_path = str(tmp_path / "transcript-202610091000.txt")
+
+    rec = _Rec()
+    seen: list[bool] = []
+    import shadow_clerk._daemon_recorder_transcribe as mod
+    orig = mod.append_voice
+    mod.append_voice = lambda *a, **k: (seen.append(rec.transcript_lock.held), orig(*a, **k))[1]
+    try:
+        rec._append_voice("2026-10-09 10:00:01", "相手A", np.ones(4, dtype=np.float32))
+    finally:
+        mod.append_voice = orig
+    assert seen == [True] and rec.transcript_lock.acquired == 1
+    assert [v.label for v in read_voices(rec.output_path)] == ["相手A"]

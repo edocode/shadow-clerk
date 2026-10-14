@@ -21,6 +21,8 @@ class _Rec(_RecorderTranslateMixin):
         self.translate_target_path = None
         self._translating_paths: set[str] = set()
         self._translating_lock = threading.Lock()
+        self._translate_thread: threading.Thread | None = None
+        self.output_path = ""
 
 
 def _setup(tmp_path, monkeypatch, seen: list[bool], rec: _Rec, exc: BaseException | None):
@@ -60,3 +62,22 @@ def test_concurrent_jobs_tracked_independently(tmp_path) -> None:
     rec._translating_paths |= {os.path.abspath(a), os.path.abspath(b)}
     rec._translating_paths.discard(os.path.abspath(a))
     assert not rec.is_translating(a) and rec.is_translating(b)
+
+
+def test_continuous_loop_counts_for_its_output_file(tmp_path) -> None:
+    rec = _Rec()
+    rec.output_path = str(tmp_path / "transcript-20261009.txt")
+    other = str(tmp_path / "transcript-20261008.txt")
+    assert not rec.is_translating(rec.output_path)
+    stop = threading.Event()
+    rec._translate_thread = threading.Thread(target=stop.wait)
+    rec._translate_thread.start()
+    try:
+        assert rec.is_translating(rec.output_path) and not rec.is_translating(other)
+        rec.translate_target_path = other  # one-shot が走っている間は継続ループ扱いにしない
+        assert not rec.is_translating(rec.output_path)
+    finally:
+        stop.set()
+        rec._translate_thread.join()
+    rec.translate_target_path = None
+    assert not rec.is_translating(rec.output_path)
