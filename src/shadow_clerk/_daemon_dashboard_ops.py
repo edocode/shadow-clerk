@@ -2,6 +2,7 @@
 # pylint: disable=duplicate-code  # POST ボディ解析・パス解決の定型は各ハンドラで共通形
 from __future__ import annotations
 import collections
+import datetime
 import json
 import logging
 import os
@@ -10,6 +11,8 @@ import tempfile
 import threading
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_config import load_config
+from shadow_clerk._daemon_constants import SESSION_FILE
+from shadow_clerk.domain import meeting_start_marker
 from shadow_clerk._transcript_name import TranscriptName
 
 logger = logging.getLogger("shadow-clerk")
@@ -142,7 +145,14 @@ class _DashboardHandlerOps:
                       if k == t_path or (trans_prefix and k.startswith(trans_prefix))]:
                 del self.file_watcher._mtimes[k]
         if self.recorder.output_path == t_path:
-            self.recorder.output_path = self.recorder._get_default_output()
+            if os.path.exists(SESSION_FILE):
+                # 会議中は書き込み先を動かさない（以降の発話と終了マーカーが日次へ漏れる）。
+                # 開始マーカーだけの会議ファイルを作り直す。呼び出し元は transcript_lock を持たない
+                session = getattr(self.recorder, "current_session", None)
+                with self.recorder.transcript_lock, open(t_path, "a", encoding="utf-8") as f:
+                    f.write(meeting_start_marker(session.started_at if session else datetime.datetime.now()))
+            else:
+                self.recorder.output_path = self.recorder._get_default_output()
         return deleted
 
     def _delete_transcript_file(self) -> None:
