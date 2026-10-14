@@ -27,7 +27,8 @@ async function openSpeakerModal(){
     row.innerHTML='<span class="spk-label">'+esc(l.label)+'</span>'
       +'<span class="spk-meta">'+esc(I18N['dash.speakers_count'].replace('{count}',l.count))
       +(d.enrollment?' / '+esc(I18N['dash.speakers_samples'].replace('{count}',l.samples)):'')+'</span>'
-      +'<input type="text" list="spkSuggest" data-label="'+escAttr(l.label)+'">'
+      +'<input type="text" list="spkSuggest" data-label="'+escAttr(l.label)+'"'
+      +(l.named?' value="'+escAttr(l.label)+'"':'')+'>'
       +'<span class="spk-example">'+esc(l.example)+'</span>';
     box.appendChild(row);
   }
@@ -39,7 +40,7 @@ function closeSpeakerModal(){document.getElementById('speakerModal').classList.r
 function speakerMapping(){
   const m={};
   for(const i of document.querySelectorAll('#spkRows input[data-label]')){
-    const v=i.value.trim();if(v)m[i.dataset.label]=v;
+    const v=i.value.trim();if(v&&v!==i.dataset.label)m[i.dataset.label]=v;
   }
   return m;
 }

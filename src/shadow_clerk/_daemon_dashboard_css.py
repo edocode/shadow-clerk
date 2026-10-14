@@ -84,7 +84,7 @@ main {
 .spk-row { display:flex; align-items:center; gap:8px; padding:4px 0; font-size:13px; }
 .spk-row .spk-label { flex:none; width:64px; font-weight:bold; }
 .spk-row .spk-meta { flex:none; width:150px; color:var(--muted); font-size:11px; }
-.spk-row input { flex:none; width:140px; }
+.modal-body .spk-row input { flex:none; width:140px; }  /* .modal-body input { width:100% } に勝たせる */
 .spk-row .spk-example { flex:1; min-width:0; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 /* 末尾の説明文は折り返す。折り返さないとモーダルが横にはみ出してスクロールバーが出る */
 .extract-option .eo-label:last-child { white-space:normal; min-width:0; }

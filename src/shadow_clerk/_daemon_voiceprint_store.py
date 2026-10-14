@@ -83,10 +83,22 @@ class VoiceprintStore:
         return out
 
     def add(self, samples_by_person: dict[PersonName, list[VoiceSample]]) -> None:
+        self.update(samples_by_person, {})
+
+    def update(self, add: dict[PersonName, list[VoiceSample]],
+               remove: dict[str, set[tuple[str, str]]]) -> None:
+        """remove の (source, recorded_at) に当たるサンプルを外し、add を足す。1回の読み書きで行う。空になった人は消す"""
         cap = int(load_config().get("voiceprint_max_samples", _MAX_SAMPLES_DEFAULT))
         with _lock:
             people = self._load()
-            for name, samples in samples_by_person.items():
+            for name, keys in remove.items():
+                kept = [d for d in people.get(name, [])
+                        if not (isinstance(d, dict) and (d.get("source"), d.get("recorded_at")) in keys)]
+                if kept:
+                    people[name] = kept
+                else:
+                    people.pop(name, None)
+            for name, samples in add.items():
                 merged = people.get(name.value, [])
                 seen = {(d.get("source"), d.get("recorded_at")) for d in merged if isinstance(d, dict)}
                 for sample in samples:

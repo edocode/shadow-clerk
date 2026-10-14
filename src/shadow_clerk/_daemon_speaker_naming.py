@@ -9,27 +9,32 @@ from shadow_clerk.domain.transcript_line import TranscriptLine
 from shadow_clerk.domain.voiceprint import PersonName
 
 
+_UNASSIGNED = frozenset({"相手?", Speaker.OTHER.value})
+
+
 @dataclass(frozen=True)
 class LabelSummary:
     label: str
     count: int
     example: str  # 誰だったか思い出せるよう、最長の発話を見せる
+    named: bool = False  # 名前付け済み（相手A 等ではなく人名）
 
 
 def summarize_labels(lines: list[str]) -> list[LabelSummary]:
-    """名前付けの対象になる会議内ラベル（相手A 等）を番号順に返す"""
+    """名前付けの対象ラベルを返す。相手A 等を番号順、続けて付け済みの人名を名前順（相手? と 相手 は除く）"""
     counts: dict[str, int] = {}
     longest: dict[str, str] = {}
     for line in lines:
         tl = TranscriptLine.parse(line)
         if (tl is None or tl.speaker != Speaker.OTHER or not tl.speaker_label
-                or label_index(tl.speaker_label) is None):
+                or tl.speaker_label in _UNASSIGNED):
             continue
         label = tl.speaker_label
         counts[label] = counts.get(label, 0) + 1
         if len(tl.text) > len(longest.get(label, "")):
             longest[label] = tl.text
-    return [LabelSummary(lb, counts[lb], longest[lb]) for lb in sorted(counts, key=label_index)]
+    order = sorted(counts, key=lambda lb: (label_index(lb) is None, label_index(lb) or 0, lb))
+    return [LabelSummary(lb, counts[lb], longest[lb], label_index(lb) is None) for lb in order]
 
 
 def relabel_lines(lines: list[str], mapping: dict[str, PersonName]) -> tuple[list[str], int]:

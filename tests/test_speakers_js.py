@@ -62,6 +62,15 @@ function alert(m){alerts.push(m);}function confirm(){return true;}
   out.vp=els.vpRows.children.length;
   inputs=[{dataset:{label:'相手A'},value:' 太郎 '},{dataset:{label:'相手B'},value:''}];
   out.mapping=speakerMapping();
+  speakersResp={status:'ok',labels:[{label:'太郎',count:2,example:'<i>x</i>',samples:1,named:true},
+    {label:'相手A',count:1,example:'y',samples:0,named:false}],suggestions:[],active:false,enrollment:true};
+  await openSpeakerModal();
+  out.namedHtml=els.spkRows.children[0].innerHTML;out.unnamedHtml=els.spkRows.children[1].innerHTML;
+  inputs=[{dataset:{label:'太郎'},value:'太郎'},{dataset:{label:'相手A'},value:''}];
+  out.unchangedMapping=speakerMapping();
+  inputs=[{dataset:{label:'太郎'},value:' 次郎 '},{dataset:{label:'相手A'},value:'三郎'}];
+  out.changedMapping=speakerMapping();
+  inputs=[{dataset:{label:'相手A'},value:' 太郎 '},{dataset:{label:'相手B'},value:''}];
   await saveSpeakers();
   out.posted=posted[0];out.toasts=toasts;out.loaded=loaded;
   speakersResp={status:'ok',labels:[{label:'相手A',count:1,example:'x',samples:0}],
@@ -96,6 +105,12 @@ out = json.loads(r.stdout.strip().splitlines()[-1])
 check("例文は HTML エスケープする", "&lt;b&gt;" in out["rowHtml"] and "<b>" not in out["rowHtml"], out["rowHtml"])
 check("ラベルと件数を出す", "相手A" in out["rowHtml"] and "発話 2 件" in out["rowHtml"], out["rowHtml"])
 check("候補は参加者→登録済みの順", out["suggest"] == ["次郎", "太郎"], repr(out["suggest"]))
+check("付け済みの行は現在の名前を入力欄に入れ、ラベル欄にも出す",
+      'value="太郎"' in out["namedHtml"] and '<span class="spk-label">太郎</span>' in out["namedHtml"]
+      and "&lt;i&gt;" in out["namedHtml"], out["namedHtml"])
+check("未命名の行の入力欄は空", "value=" not in out["unnamedHtml"], out["unnamedHtml"])
+check("変更のない付け済みの行は送らない", out["unchangedMapping"] == {}, repr(out["unchangedMapping"]))
+check("変更した付け済みの行は送る", out["changedMapping"] == {"太郎": "次郎", "相手A": "三郎"}, repr(out["changedMapping"]))
 check("モーダルを開く", out["open"] and out["saveDisabled"] is False and out["vp"] == 1)
 check("空欄は送らず前後空白を落とす", out["mapping"] == {"相手A": "太郎"}, repr(out["mapping"]))
 check("assign に file と mapping を送る", out["posted"] == {"url": "/api/speakers/assign",

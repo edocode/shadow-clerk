@@ -27,7 +27,19 @@ def test_summarize_labels() -> None:
         LabelSummary("相手B", 1, "はい"),
         LabelSummary("相手C", 1, "資料は共有済みです"),
         LabelSummary("相手27", 1, "それでお願いします"),
+        LabelSummary("次郎", 1, "了解", True),
     ]
+
+
+def test_summarize_labels_includes_named_after_numbered() -> None:
+    lines = LINES + ["[2026-10-09 10:00:10] [太郎] 長い方の発話です\n",
+                     "[2026-10-09 10:00:11] [太郎] 短\n"]
+    got = summarize_labels(lines)
+    assert [(s.label, s.named) for s in got] == [
+        ("相手A", False), ("相手B", False), ("相手C", False), ("相手27", False),
+        ("太郎", True), ("次郎", True)]
+    assert got[-2] == LabelSummary("太郎", 2, "長い方の発話です", True)
+    assert not any(s.label in {"相手?", "相手"} for s in got)
 
 
 def test_relabel_many_to_one() -> None:

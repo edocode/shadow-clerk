@@ -62,6 +62,40 @@ def test_delete(store) -> None:
     assert store.people() == {}
 
 
+def test_update_moves_samples_between_people(store) -> None:
+    a, b = _sample(1), _sample(2, "2026-10-09 10:00:01")
+    store.add({PersonName("太郎"): [a, b]})
+    store.update({PersonName("次郎"): [a]}, {"太郎": {(a.source, a.recorded_at)}})
+    assert store.people() == {"太郎": 1, "次郎": 1}
+    assert store.samples(PersonName("太郎"))[0].recorded_at == b.recorded_at
+
+
+def test_update_drops_emptied_person_with_a_single_save(store, monkeypatch) -> None:
+    a = _sample(1)
+    store.add({PersonName("太郎"): [a]})
+    saves: list[dict] = []
+    orig = store._save
+    monkeypatch.setattr(store, "_save", lambda people: (saves.append(people), orig(people))[1])
+    store.update({PersonName("次郎"): [a]}, {"太郎": {(a.source, a.recorded_at)}})
+    assert store.people() == {"次郎": 1} and len(saves) == 1
+
+
+def test_update_remove_only_and_unknown_person(store) -> None:
+    a = _sample(1)
+    store.add({PersonName("太郎"): [a]})
+    store.update({}, {"太郎": {(a.source, a.recorded_at)}, "三郎": {("x", "y")}})
+    assert store.people() == {}
+
+
+def test_update_refuses_broken_file(store) -> None:
+    with open(store.path, "w", encoding="utf-8") as f:
+        f.write("{broken")
+    with pytest.raises(VoiceprintStoreError):
+        store.update({PersonName("次郎"): [_sample(1)]}, {"太郎": {("a", "b")}})
+    with open(store.path, encoding="utf-8") as f:
+        assert f.read() == "{broken"
+
+
 def test_file_is_private(store) -> None:
     store.add({PersonName("太郎"): [_sample(1)]})
     assert stat.S_IMODE(os.stat(store.path).st_mode) == 0o600

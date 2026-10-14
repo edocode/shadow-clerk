@@ -66,11 +66,13 @@ class _DashboardHandlerSpeakerOps:
             registered = list(VoiceprintStore().people())
         except VoiceprintStoreError:
             registered = []
+        summaries = summarize_labels(self._read_lines(t_path))
+        in_transcript = [s.label for s in summaries if s.named]
         self._send_json({
             "status": "ok",
-            "labels": [{"label": s.label, "count": s.count, "example": s.example,
-                        "samples": samples[s.label]} for s in summarize_labels(self._read_lines(t_path))],
-            "suggestions": list(dict.fromkeys(read_attendees(t_path) + registered)),
+            "labels": [{"label": s.label, "count": s.count, "example": s.example, "named": s.named,
+                        "samples": samples[s.label]} for s in summaries],
+            "suggestions": list(dict.fromkeys(read_attendees(t_path) + in_transcript + registered)),
             "active": self._is_active_transcript(t_path),
             "translating": self.recorder.is_translating(t_path),
             "enrollment": bool(load_config().get("speaker_enrollment", False)),
@@ -93,7 +95,7 @@ class _DashboardHandlerSpeakerOps:
             self._speaker_error("dash.speakers_invalid")
             return
         try:
-            mapping = {label: PersonName(name) for label, name in raw.items() if name.strip()}
+            mapping = {label: PersonName(name) for label, name in raw.items() if name.strip() and name.strip() != label}
         except ValueError:
             self._speaker_error("dash.speakers_invalid_name")
             return
@@ -105,11 +107,13 @@ class _DashboardHandlerSpeakerOps:
             if self.recorder.is_translating(t_path):
                 self._speaker_error("dash.speakers_translating")
                 return
-            if not set(mapping) <= {s.label for s in summarize_labels(lines)}:
+            summaries = summarize_labels(lines)
+            if not set(mapping) <= {s.label for s in summaries}:
                 self._speaker_error("dash.speakers_invalid")
                 return
+            named = {s.label for s in summaries if s.named}
             # 声紋を先に保存する。ストアが壊れていたら transcript には手を付けずに止める
-            enrolled = self._enroll(t_path, lines, mapping)
+            enrolled = self._enroll(t_path, lines, mapping, named)
             if enrolled is None:
                 self._speaker_error("dash.voiceprint_store_error")
                 return
@@ -122,21 +126,25 @@ class _DashboardHandlerSpeakerOps:
         self._send_json({"status": "ok", "renamed": renamed, "enrolled": enrolled,
                          "message": t("dash.speakers_saved", count=renamed)})
 
-    def _enroll(self, t_path: str, lines: list[str], mapping: dict[str, PersonName]) -> dict[str, int] | None:
-        """名前付けしたラベルの埋め込みを声紋に足す。ストアを読み書きできなければ None"""
+    def _enroll(self, t_path: str, lines: list[str], mapping: dict[str, PersonName],
+                named: set[str]) -> dict[str, int] | None:
+        """名前付けしたラベルの埋め込みを声紋に足す（付け済みの名前の変更は元の人から移す）。ストアを読み書きできなければ None"""
         if not load_config().get("speaker_enrollment", False):
             return {}
         source = os.path.basename(t_path)
         # transcript に今もある行の埋め込みだけ（切り出しで移った行や書き換え済みの古い項目を除く）
         present = {(p.timestamp, p.speaker_label) for ln in lines if (p := TranscriptLine.parse(ln))}
         by_person: dict[PersonName, list[VoiceSample]] = defaultdict(list)
+        moved: dict[str, set[tuple[str, str]]] = defaultdict(set)
         for v in read_voices(t_path):
             if v.label in mapping and (v.timestamp, v.label) in present:
                 by_person[mapping[v.label]].append(VoiceSample(v.embedding, v.timestamp, source))
+                if v.label in named:
+                    moved[v.label].add((source, v.timestamp))
         if not by_person:
             return {}
         try:
-            VoiceprintStore().add(dict(by_person))
+            VoiceprintStore().update(dict(by_person), dict(moved))
         except (VoiceprintStoreError, OSError) as e:
             logger.error("声紋を保存できない: %s", e)
             return None

@@ -123,6 +123,40 @@ def test_serve_speakers() -> None:
     assert h.sent["active"] is False and h.sent["enrollment"] is True
 
 
+def test_serve_speakers_lists_named_and_suggests_them() -> None:
+    from shadow_clerk.domain.voiceprint import PersonName, VoiceSample
+    with open(_p(MTG), "a", encoding="utf-8") as f:
+        f.write("[2026-10-09 10:00:05] [四郎] 追加です\n")
+    VoiceprintStore().add({PersonName("三郎"): [VoiceSample(_vec(9), "x", "y")],
+                           PersonName("次郎"): [VoiceSample(_vec(8), "x", "z")]})
+    h = _H(path=f"/api/speakers?file={MTG}")
+    h._serve_speakers()
+    assert [(x["label"], x["named"]) for x in h.sent["labels"]] == \
+        [("相手A", False), ("相手B", False), ("相手C", False), ("四郎", True)]
+    assert h.sent["suggestions"] == ["次郎", "太郎", "四郎", "三郎"]
+
+
+def test_rename_named_speaker_moves_voiceprints() -> None:
+    _H({"file": MTG, "mapping": {"相手A": "太郎"}})._assign_speakers()
+    assert VoiceprintStore().people() == {"太郎": 1}
+    h = _H({"file": MTG, "mapping": {"太郎": "次郎"}})
+    h._assign_speakers()
+    assert h.sent["status"] == "ok" and h.sent["renamed"] == 1 and h.sent["enrolled"] == {"次郎": 1}
+    assert "[次郎] 来週のリリースの件ですが" in _read(MTG) and "[太郎]" not in _read(MTG)
+    assert "[次郎] About next week's release" in _read(TR)
+    assert [e.label for e in read_voices(_p(MTG))] == ["次郎", "相手B", "相手C"]
+    assert VoiceprintStore().people() == {"次郎": 1}
+
+
+def test_assign_same_name_is_nothing_to_assign() -> None:
+    _H({"file": MTG, "mapping": {"相手A": "太郎"}})._assign_speakers()
+    before = _read(MTG)
+    h = _H({"file": MTG, "mapping": {"太郎": "太郎"}})
+    h._assign_speakers()
+    assert h.sent == {"status": "error", "message": t("dash.speakers_nothing")}
+    assert _read(MTG) == before and VoiceprintStore().people() == {"太郎": 1}
+
+
 def test_serve_speakers_rejects_unknown_file() -> None:
     for f in ["", "../config.yaml", "transcript-209901011000.txt", TR]:
         h = _H(path=f"/api/speakers?file={f}")
