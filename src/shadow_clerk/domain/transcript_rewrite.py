@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import bisect
 import collections
+import os
 import threading
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -15,20 +16,29 @@ from dataclasses import dataclass
 REWRITE_HISTORY = 16  # パスごとに覚えておく書き換えの数
 
 
-def _starts(lines: Sequence[str]) -> list[int]:
-    """各行の開始バイト位置と、末尾に全体のバイト長を付けたリスト"""
+def _starts(lines: Sequence[str], newline: str) -> list[int]:
+    """各行のディスク上の開始バイト位置と、末尾に全体のバイト長を付けたリスト。
+
+    行は readlines()（改行は \\n）で読んだもの。テキストモードの書き込みは \\n を newline に
+    置き換えるので（Windows なら \\r\\n）、その差をここで足す。
+    """
     pos = [0]
+    extra = len(newline.encode("utf-8")) - 1
     for line in lines:
-        pos.append(pos[-1] + len(line.encode("utf-8")))
+        pos.append(pos[-1] + len(line.encode("utf-8")) + line.count("\n") * extra)
     return pos
 
 
 @dataclass(frozen=True)
 class TranscriptRewrite:
-    """1 回の書き換え。kept[i] は旧 i 行目に対応する新しい行の index（消えたら None）"""
+    """1 回の書き換え。kept[i] は旧 i 行目に対応する新しい行の index（消えたら None）。
+
+    newline はディスク上の改行（テキストモードで書いたファイルなら os.linesep）。
+    """
     old_lines: tuple[str, ...]
     kept: tuple[int | None, ...]
     new_lines: tuple[str, ...]
+    newline: str = os.linesep
 
     def __post_init__(self) -> None:
         for name in ("old_lines", "kept", "new_lines"):
@@ -37,7 +47,8 @@ class TranscriptRewrite:
             raise ValueError("kept must have one entry per old line")
 
     @classmethod
-    def removing(cls, old_lines: Sequence[str], removed: Sequence[int]) -> TranscriptRewrite:
+    def removing(cls, old_lines: Sequence[str], removed: Sequence[int],
+                 newline: str = os.linesep) -> TranscriptRewrite:
         """old_lines から removed の行を除いた書き換え"""
         gone = set(removed)
         kept: list[int | None] = []
@@ -48,7 +59,7 @@ class TranscriptRewrite:
             else:
                 kept.append(len(new_lines))
                 new_lines.append(line)
-        return cls(tuple(old_lines), tuple(kept), tuple(new_lines))
+        return cls(tuple(old_lines), tuple(kept), tuple(new_lines), newline)
 
     def map_offset(self, old_offset: int) -> int:
         """旧ファイルのバイト位置を新ファイルのバイト位置へ写す。
@@ -57,7 +68,7 @@ class TranscriptRewrite:
         消えた行の中 → 次に残る行の開始（無ければ新しい末尾）。
         旧末尾以降 → 新しい末尾 + はみ出し分（書き換え後に追記された分）。
         """
-        old_pos, new_pos = _starts(self.old_lines), _starts(self.new_lines)
+        old_pos, new_pos = _starts(self.old_lines, self.newline), _starts(self.new_lines, self.newline)
         if old_offset >= old_pos[-1]:
             return new_pos[-1] + (old_offset - old_pos[-1])
         i = bisect.bisect_right(old_pos, old_offset) - 1
@@ -84,6 +95,13 @@ class TranscriptRewriteJournal:
         """書き換えを記録し、新しい世代を返す"""
         with self._lock:
             self._rewrites.setdefault(path, collections.deque(maxlen=self._history)).append(rewrite)
+            gen = self._generation[path] = self._generation.get(path, 0) + 1
+            return gen
+
+    def invalidate(self, path: str) -> int:
+        """写せない書き直し（並べ替え挿入・作り直し）を記録する。それより前の世代の読み手は resync になる"""
+        with self._lock:
+            self._rewrites.pop(path, None)
             gen = self._generation[path] = self._generation.get(path, 0) + 1
             return gen
 

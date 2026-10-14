@@ -77,6 +77,29 @@ def test_kept_line_shorter() -> None:
     check("短くなった行の途中は新しい行の末尾で止める", rw.map_offset(_b([A]) + 4) == _b([A]) + 2)
 
 
+def test_crlf_on_disk() -> None:
+    """Windows のテキストモードでは各行が \r\n で書かれる。readlines() の \n より 1 バイト長い"""
+    def disk(lines: list[str]) -> int:
+        return _b(lines) + len(lines)
+    rw = TranscriptRewrite.removing([A, B, C, D], [1], newline="\r\n")
+    check("CRLF: 削除行の後ろの行の開始", rw.map_offset(disk([A, B])) == disk([A]), str(rw.map_offset(disk([A, B]))))
+    check("CRLF: 削除行の途中 → 次に残る行の開始", rw.map_offset(disk([A]) + 3) == disk([A]))
+    check("CRLF: 残った行の途中", rw.map_offset(disk([A, B]) + 2) == disk([A]) + 2)
+    check("CRLF: 旧末尾の先", rw.map_offset(disk([A, B, C, D]) + 3) == disk([A, C, D]) + 3)
+
+
+def test_journal_invalidate() -> None:
+    j = TranscriptRewriteJournal()
+    p = "/x/merged.txt"
+    j.record_rewrite(p, TranscriptRewrite.removing([A, B], [0]))
+    j.invalidate(p)
+    check("invalidate で世代が上がる", j.generation(p) == 2)
+    check("invalidate を挟む読み手は resync", j.remap_since(p, 0, 4) == (None, 2) and j.remap_since(p, 1, 4) == (None, 2))
+    check("invalidate 後の世代からは通常どおり", j.remap_since(p, 2, 4) == (4, 2))
+    j.record_rewrite(p, TranscriptRewrite.removing([A, B], [0]))
+    check("invalidate 後の書き換えは写せる", j.remap_since(p, 2, _b([A, B])) == (_b([B]), 3))
+
+
 def test_journal_generations_and_chain() -> None:
     j = TranscriptRewriteJournal()
     p = "/x/transcript-20261004.txt"
@@ -110,6 +133,8 @@ def main() -> int:
     test_removed_run_at_start_and_end()
     test_multibyte()
     test_kept_line_shorter()
+    test_crlf_on_disk()
+    test_journal_invalidate()
     test_journal_generations_and_chain()
     test_journal_bounded_history_resync()
     print(f"\n{sum(results)}/{len(results)} passed")

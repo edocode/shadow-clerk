@@ -204,22 +204,63 @@ def test_translate_commit_remaps_offset() -> None:
     check("翻訳は 1 回だけ追記", _read(tr_path) == "訳0\n訳1\n訳2\n", repr(_read(tr_path)))
 
 
-def test_translate_discards_when_history_overflows() -> None:
-    rec, path, tr_path = _translate_env("transcript-20261006.txt", L[:3], _b(L[0]))
+def _check_translate_discards(name: str, label: str, disrupt: callable) -> None:
+    """LLM 待ちの間に disrupt(rec, path) で写せない書き直しが起きたら、結果を捨てて取り直す"""
+    rec, path, tr_path = _translate_env(name, L[:3], _b(L[0]))
     calls: list[str] = []
 
     def fake(cmd: list[str], **kw: object) -> types.SimpleNamespace:
         calls.append(str(kw.get("input")))
         if len(calls) == 1:
-            for _ in range(REWRITE_HISTORY + 1):   # 追いきれないほど書き換えが重なった
-                rec.rewrite_journal.record_rewrite(path, TranscriptRewrite.removing([], []))
+            disrupt(rec, path)
             return types.SimpleNamespace(returncode=0, stdout="捨てる訳\n", stderr="")
         return types.SimpleNamespace(returncode=0, stdout="訳1\n訳2\n", stderr="")
 
     _with_fake_llm(fake, rec, path)
-    check("追いきれない結果は捨てて取り直す", len(calls) == 2 and "捨てる訳" not in _read(tr_path),
+    check(f"{label}: 結果は捨てて取り直す", len(calls) == 2 and "捨てる訳" not in _read(tr_path),
           repr((calls, _read(tr_path))))
-    check("取り直した結果で offset を進める", _read(path + ".translate_offset") == str(_b("".join(L[:3]))))
+    check(f"{label}: 取り直した結果で offset を進める",
+          _read(path + ".translate_offset") == str(_b("".join(L[:3]))))
+
+
+def _overflow(rec: _Rec, path: str) -> None:
+    for _ in range(REWRITE_HISTORY + 1):   # 追いきれないほど書き換えが重なった
+        rec.rewrite_journal.record_rewrite(path, TranscriptRewrite.removing([], []))
+
+
+def test_translate_discards_when_history_overflows() -> None:
+    _check_translate_discards("transcript-20261006.txt", "履歴あふれ", _overflow)
+
+
+def test_translate_discards_after_invalidate() -> None:
+    _check_translate_discards("transcript-20261008.txt", "invalidate",
+                              lambda rec, path: rec.rewrite_journal.invalidate(path))
+
+
+def test_merge_to_daily_records_invalidate() -> None:
+    """録音先の日次ファイルへ会議をマージしても、監視ストリームは会議を送り直さない"""
+    daily = os.path.join(DATA, "transcript-20261009.txt")
+    mtg = os.path.join(DATA, "transcript-202610090900@acme.txt")
+    _write(daily, "[2026-10-09 08:00:00] [自分] 朝の行\n[2026-10-09 10:00:00] [自分] 後の行\n")
+    _write(mtg, "--- 会議開始 ---\n[2026-10-09 09:00:00] [相手] 会議の発言です\n--- 会議終了 ---\n")
+    rec = _Rec(daily)
+    h = _Handler(rec, query="interval=1")
+    th = threading.Thread(target=h._serve_watch, daemon=True)
+    th.start()
+    time.sleep(0.3)
+    m = _Handler(rec, {"file": os.path.basename(mtg)})
+    m._merge_meeting_to_daily()
+    check("マージは成功", m.sent.get("status") == "ok", repr(m.sent))
+    check("マージは書き換えを無効化として記録する", rec.rewrite_journal.generation(daily) == 1)
+    time.sleep(1.0)
+    _append(daily, "[2026-10-09 10:05:00] [自分] マージ後の発言\n")
+    time.sleep(1.2)
+    rec.stop_event.set()
+    th.join(timeout=3)
+    out = h.wfile.getvalue().decode()
+    check("マージ後: 新しい行を流す", "マージ後の発言" in out, repr(out))
+    check("マージ後: 会議や既存の行を送り直さない",
+          "会議の発言" not in out and "後の行" not in out and "朝の行" not in out, repr(out))
 
 
 def main() -> int:
@@ -229,6 +270,8 @@ def main() -> int:
     test_watch_after_small_delete_no_partial()
     test_translate_commit_remaps_offset()
     test_translate_discards_when_history_overflows()
+    test_translate_discards_after_invalidate()
+    test_merge_to_daily_records_invalidate()
     print(f"\n{sum(results)}/{len(results)} passed")
     return 0 if all(results) else 1
 

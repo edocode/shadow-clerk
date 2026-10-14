@@ -147,8 +147,10 @@ class _DashboardHandlerOps:
                 # 会議中は書き込み先を動かさない（以降の発話と終了マーカーが日次へ漏れる）。
                 # 開始マーカーだけの会議ファイルを作り直す。呼び出し元は transcript_lock を持たない
                 session = getattr(self.recorder, "current_session", None)
-                with self.recorder.transcript_lock, open(t_path, "a", encoding="utf-8") as f:
-                    f.write(meeting_start_marker(session.started_at if session else datetime.datetime.now()))
+                with self.recorder.transcript_lock:
+                    with open(t_path, "a", encoding="utf-8") as f:
+                        f.write(meeting_start_marker(session.started_at if session else datetime.datetime.now()))
+                    self.recorder.rewrite_journal.invalidate(t_path)
             else:
                 self.recorder.output_path = self.recorder._get_default_output()
         return deleted
@@ -240,8 +242,10 @@ class _DashboardHandlerOps:
             # バイトオフセットの部分的な引き継ぎができない）
             old_daily_offset = self._read_translate_offset(daily_path)
             old_daily_size = self._get_file_size(daily_path)
-            # transcript 本体をマージ
+            # transcript 本体をマージ。並べ替え挿入はバイト位置を写せないので、日次ファイルを
+            # 追う読み手（/api/watch・翻訳ループ）には読み直しを促す
             _merge_file(t_path, daily_path)
+            self.recorder.rewrite_journal.invalidate(daily_path)
             # 翻訳ファイルをマージ (transcript-YYYYMMDDHHMM[@name]-{lang}.txt → transcript-YYYYMMDD-{lang}.txt)
             for fname in os.listdir(output_dir):
                 if fname.startswith(tn.stem + "-") and fname.endswith(".txt"):
@@ -250,19 +254,20 @@ class _DashboardHandlerOps:
                         daily_tr = os.path.join(output_dir, daily_tn.translation_filename(lang))
                         _merge_file(os.path.join(output_dir, fname), daily_tr)
                         merged_translations.append(daily_tr)
+            # translate_offset: マージは並べ替えのため部分オフセットを引き継げない。
+            # 追いついていた場合のみ新サイズ（翻訳ファイルも一緒にマージ済み＝翻訳済み）、
+            # 追いついていなければ 0 から再翻訳（未翻訳末尾のスキップを避ける）。
+            # 翻訳ループが古い offset を読まないようロック内で書く
+            if old_daily_offset is not None:
+                self._write_translate_offset(
+                    daily_path,
+                    self._get_file_size(daily_path) if old_daily_offset >= old_daily_size else 0)
 
         # マージは日次ファイルの途中に行を挿入するため、FileWatcher の SSE オフセットは
         # 新サイズに合わせる（無関係なバイト範囲の再配信を防ぐ）
         self._reset_watch_offsets(
             [("transcript", daily_path)] + [("translation", p) for p in merged_translations],
             [])
-        # translate_offset: マージは並べ替えのため部分オフセットを引き継げない。
-        # 追いついていた場合のみ新サイズ（翻訳ファイルも一緒にマージ済み＝翻訳済み）、
-        # 追いついていなければ 0 から再翻訳（未翻訳末尾のスキップを避ける）
-        if old_daily_offset is not None:
-            self._write_translate_offset(
-                daily_path,
-                self._get_file_size(daily_path) if old_daily_offset >= old_daily_size else 0)
 
         deleted = self._cleanup_transcript_files(t_path, tn)
         if not deleted:
