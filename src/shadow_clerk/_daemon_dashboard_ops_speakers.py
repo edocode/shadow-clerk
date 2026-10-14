@@ -107,6 +107,9 @@ class _DashboardHandlerSpeakerOps:
             return
         with self.recorder.transcript_lock:
             lines = self._read_lines(t_path)
+            if self._is_active_transcript(t_path):
+                self._speaker_error("dash.speakers_active")
+                return
             if self.recorder.is_translating(t_path):
                 self._speaker_error("dash.speakers_translating")
                 return

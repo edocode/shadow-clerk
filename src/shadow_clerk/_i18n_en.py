@@ -85,7 +85,7 @@ STRINGS_EN: dict[str, str] = {
     "dash.close": "Close",
     "dash.add_row": "+ Add Row",
     "dash.workdir_title": "Working directory for this meeting",
-    "dash.speakers_active": "This file is being recorded. New lines from the same person will still get labels like 相手A after saving (you can name them again).",
+    "dash.speakers_active": "Cannot name speakers in the file being recorded. Do it after the meeting (for the daily file: after the date changes, or extract it as a meeting with ⏱ first).",
     "dash.speakers_translating": "Translation of this meeting is still running. Name speakers after it finishes.",
     "dash.speakers_invalid": "Invalid request",
     "dash.speakers_invalid_name": "Some names are not allowed (empty, brackets, \"自分\", \"Claude\", or starting with \"相手\")",

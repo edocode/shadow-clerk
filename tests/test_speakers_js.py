@@ -123,8 +123,8 @@ check("保存後にトーストと再読み込み", out["toasts"] == ["2 行に�
       and out["loaded"] == ["T:transcript-202610091000.txt", "R:transcript-202610091000.txt"],
       repr((out["toasts"], out["loaded"])))
 check("翻訳中は保存できない", out["trInfo"] == "TRANSLATING" and out["trDisabled"] is True)
-check("録音中でも保存できる（注意書きを出す）", out["activeInfo"] == "ACTIVE" and out["activeDisabled"] is False)
-check("録音中かつ翻訳中は保存できない", out["bothInfo"] == "TRANSLATING" and out["bothDisabled"] is True)
+check("録音中は保存できない", out["activeInfo"] == "ACTIVE" and out["activeDisabled"] is True)
+check("録音中かつ翻訳中は保存できない", out["bothInfo"] == "ACTIVE" and out["bothDisabled"] is True)
 check("声紋の削除を送る", out["deletePosted"] == {"url": "/api/voiceprints/delete", "body": {"name": "太郎"}},
       repr(out["deletePosted"]))
 check("modal 取得失敗は alert", out["openErr"] == ["Error: down"], repr(out["openErr"]))
