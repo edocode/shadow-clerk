@@ -15,7 +15,8 @@ import time
 from typing import Any
 
 from shadow_clerk import DATA_DIR
-from shadow_clerk._transcript_name import sanitize_meeting_name as _sanitize_name
+from shadow_clerk._daemon_constants import SESSION_FILE
+from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name as _sanitize_name
 
 logger = logging.getLogger("shadow-clerk.gcal")
 
@@ -52,6 +53,17 @@ def _get_credentials(credentials_file: str, token_file: str):
             f.write(creds.to_json())
 
     return creds
+
+
+def _session_is_meeting(meeting_name: str) -> bool:
+    """SESSION_FILE の会議セッションが meeting_name（サニタイズ済み）の会議か。読めなければ False。"""
+    try:
+        with open(SESSION_FILE, encoding="utf-8") as f:
+            path = f.read().strip()
+    except OSError:
+        return False
+    parsed = TranscriptName.parse(os.path.basename(path)) if path else None
+    return parsed is not None and parsed.meeting_name == meeting_name
 
 
 def _build_service(creds):
@@ -306,9 +318,14 @@ class GCalMonitor:
                     if not self._wait_for_silence():
                         logger.info("会議開始延期（前の会議の会話が継続中）: %s (%s)", summary, event_id)
                         continue
-                self._send_command(f"start_meeting {sanitized}")
-                self._processed[event_id] = "started"
-                logger.info("会議開始検出 (%s): %s (%s)", "進行中" if is_ongoing else "予定", summary, event_id)
+                if _session_is_meeting(sanitized):
+                    # デーモン再起動でセッションが復元済み: 二重に transcript を作らない
+                    self._processed[event_id] = "started"
+                    logger.info("会議開始検出 (セッション継続中のため送信なし): %s (%s)", summary, event_id)
+                else:
+                    self._send_command(f"start_meeting {sanitized}")
+                    self._processed[event_id] = "started"
+                    logger.info("会議開始検出 (%s): %s (%s)", "進行中" if is_ongoing else "予定", summary, event_id)
 
             # 終了トリガー: end_dt を過ぎたら end_meeting を試みる
             # ただし直近1分間に会話があれば延期（次回ポーリングで再チェック）
