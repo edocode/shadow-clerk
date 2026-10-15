@@ -234,7 +234,12 @@ class _DashboardHandlerSkillOps:
         if lang != "auto" and lang not in {v.value for v in Language}:
             self._send_json({"status": "error", "message": "language must be auto or a known language code"})
             return
-        self.recorder._execute_command("unset_language" if lang == "auto" else f"set_language {lang}")
+        try:
+            self.recorder._execute_command("unset_language" if lang == "auto" else f"set_language {lang}")
+        except Exception as e:  # モデルの取得・ロードに失敗 (オフライン等)。応答を返さないと skill の curl が空応答で再試行し続ける
+            logger.exception("language: 切り替えに失敗 (%s)", lang)
+            self._send_json({"status": "error", "message": f"{type(e).__name__}: {e}"})
+            return
         self._send_json({"status": "ok", "language": lang})
 
     def _meeting(self) -> None:
