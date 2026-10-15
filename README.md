@@ -38,6 +38,27 @@ Available on PyPI: <https://pypi.org/project/shadow-clerk/>
 
 ### Windows-specific notes
 
+#### Prerequisites (PowerShell, uv, Git)
+
+A fresh Windows install has neither `uv` nor `git`. Run every command below in **PowerShell**:
+
+- **Open PowerShell**: press the Windows key, type `powershell`, and choose **Windows PowerShell** (or right-click the Start button → **Terminal**). No administrator rights are needed.
+- **Install uv** (pick one):
+  ```powershell
+  winget install --id=astral-sh.uv -e
+  # or the official installer:
+  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+  ```
+- **Install Git** (needed for the ReazonSpeech k2 package, which is fetched from a Git repository):
+  ```powershell
+  winget install --id Git.Git -e
+  ```
+- **Close and reopen PowerShell** so the new `PATH` takes effect, then check with `uv --version` and `git --version`.
+
+If `winget` is not found, install **App Installer** from the Microsoft Store, or download uv from <https://docs.astral.sh/uv/getting-started/installation/> and Git from <https://git-scm.com/download/win>.
+
+#### Install
+
 Recommended install (explicit Windows deps):
 
 ```powershell
@@ -45,6 +66,8 @@ uv python install 3.13
 uv tool install --python 3.13 --with PyAudioWPatch "shadow-clerk[spell-check,gcal]"
 # +ReazonSpeech k2 (Japanese ASR, optional):
 uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr" "shadow-clerk[spell-check,gcal,reazonspeech]"
+# Add the tool directory (%USERPROFILE%\.local\bin) to PATH, then reopen PowerShell:
+uv tool update-shell
 ```
 
 Why explicit `--python` and `--with`:
@@ -64,6 +87,28 @@ Other notes:
 - **AI Console**: uses ConPTY through [pywinpty](https://github.com/andfoy/pywinpty), declared as a Windows-only dependency. Without it the daemon still runs; only the console reports the missing package and refuses to start.
 - **Talk with Claude**: sending Claude's voice into a meeting app needs PipeWire, so that option is disabled on Windows.
 - **Standalone binary**: `clerk-daemon.exe` and `clerk-util.exe` can be built with PyInstaller. See [Building standalone binaries](#building-standalone-binaries).
+
+#### Desktop shortcuts
+
+To start and stop the daemon without typing commands, create shortcuts once. Run this in PowerShell after installing:
+
+```powershell
+$exe = Join-Path (uv tool dir --bin) "clerk-util.exe"
+$shell = New-Object -ComObject WScript.Shell
+foreach ($s in @(@("Shadow Clerk", "start -d"), @("Shadow Clerk (stop)", "stop"))) {
+    $lnk = $shell.CreateShortcut("$([Environment]::GetFolderPath('Desktop'))\$($s[0]).lnk")
+    $lnk.TargetPath = $exe
+    $lnk.Arguments = $s[1]
+    $lnk.WindowStyle = 7  # minimized
+    $lnk.Save()
+}
+```
+
+**Shadow Clerk** starts the daemon in the background; open the dashboard at <http://localhost:8765>. **Shadow Clerk (stop)** stops it.
+
+To create one by hand instead: right-click the desktop → **New** → **Shortcut**, enter `%USERPROFILE%\.local\bin\clerk-util.exe start -d` (`uv tool dir --bin` prints the folder if it differs), and name it.
+
+To start the daemon when you sign in, copy the **Shadow Clerk** shortcut into the Startup folder (press Win+R and enter `shell:startup` to open it).
 
 ## Features and requirements
 

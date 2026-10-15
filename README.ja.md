@@ -38,6 +38,27 @@ PyPI で公開中: <https://pypi.org/project/shadow-clerk/>
 
 ### Windows 固有の注意点
 
+#### 事前準備（PowerShell・uv・Git）
+
+Windows には標準で `uv` も `git` も入っていません。以下のコマンドはすべて **PowerShell** で実行します:
+
+- **PowerShell の起動**: Windows キーを押して `powershell` と入力し、**Windows PowerShell** を選ぶ（またはスタートボタンを右クリック →**ターミナル**）。管理者権限は不要です。
+- **uv のインストール**（どちらか一方）:
+  ```powershell
+  winget install --id=astral-sh.uv -e
+  # または公式インストーラー:
+  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+  ```
+- **Git のインストール**（ReazonSpeech k2 パッケージを Git リポジトリから取得するために必要）:
+  ```powershell
+  winget install --id Git.Git -e
+  ```
+- インストール後は **PowerShell を開き直して** `PATH` を反映し、`uv --version` と `git --version` で確認します。
+
+`winget` が見つからない場合は Microsoft Store から **アプリ インストーラー** を入れるか、uv は <https://docs.astral.sh/uv/getting-started/installation/>、Git は <https://git-scm.com/download/win> から入手してください。
+
+#### インストール
+
 推奨インストール(Windows 用 dep を明示):
 
 ```powershell
@@ -45,6 +66,8 @@ uv python install 3.13
 uv tool install --python 3.13 --with PyAudioWPatch "shadow-clerk[spell-check,gcal]"
 # +ReazonSpeech k2(日本語 ASR、オプション):
 uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr" "shadow-clerk[spell-check,gcal,reazonspeech]"
+# ツールの置き場所 (%USERPROFILE%\.local\bin) を PATH に追加し、PowerShell を開き直す:
+uv tool update-shell
 ```
 
 `--python` と `--with` を明示する理由:
@@ -64,6 +87,28 @@ uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "re
 - **AI コンソール**: ConPTY を [pywinpty](https://github.com/andfoy/pywinpty) 経由で使う(Windows 限定 dep として宣言済み)。入っていなくても daemon 自体は動き、コンソールだけが「pywinpty が要る」と報告して起動しない。
 - **Claude と会議**: Claude の声を会議アプリに届ける機能は PipeWire が前提なので、Windows では選べない。
 - **スタンドアロンバイナリ**: `clerk-daemon.exe` と `clerk-util.exe` を PyInstaller で作れる。[スタンドアロンバイナリのビルド](#スタンドアロンバイナリのビルド)を参照。
+
+#### デスクトップショートカット
+
+コマンドを打たずに起動・停止できるよう、ショートカットを一度作っておくと便利です。インストール後に PowerShell で実行します:
+
+```powershell
+$exe = Join-Path (uv tool dir --bin) "clerk-util.exe"
+$shell = New-Object -ComObject WScript.Shell
+foreach ($s in @(@("Shadow Clerk", "start -d"), @("Shadow Clerk (stop)", "stop"))) {
+    $lnk = $shell.CreateShortcut("$([Environment]::GetFolderPath('Desktop'))\$($s[0]).lnk")
+    $lnk.TargetPath = $exe
+    $lnk.Arguments = $s[1]
+    $lnk.WindowStyle = 7  # 最小化で起動
+    $lnk.Save()
+}
+```
+
+**Shadow Clerk** でデーモンをバックグラウンド起動し、ダッシュボード <http://localhost:8765> を開きます。**Shadow Clerk (stop)** で停止します。
+
+手で作る場合は、デスクトップを右クリック →**新規作成**→**ショートカット** を選び、`%USERPROFILE%\.local\bin\clerk-util.exe start -d` と入力し（置き場所が違う場合は `uv tool dir --bin` で確認できます）、名前を付けます。
+
+サインイン時に自動起動したい場合は、**Shadow Clerk** のショートカットをスタートアップフォルダーにコピーします（Win+R で `shell:startup` と入力すると開きます）。
 
 ## 機能と必要なもの
 
