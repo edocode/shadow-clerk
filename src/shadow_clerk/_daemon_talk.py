@@ -282,12 +282,13 @@ class TalkDriver:
             and self._echo.overlaps(seg_start, seg_end))
 
     def on_other_line(self, line: TranscriptLine) -> None:
-        """[相手] 行が書かれた。Claude 宛ての依頼・質問なら engine に渡して応答させる"""
+        """[相手] 行が書かれた。届け先ありの会議で Claude 宛ての依頼・質問なら engine に渡して応答させる
+        (届け先なしでは monitor は Claude 自身の声しか来ないので数えるだけ)"""
         with self._lock:
             if not self._active:
                 return
             self._note_line_locked(line)
-            if not _is_addressed_to_claude(line.text):
+            if self._route is None or not _is_addressed_to_claude(line.text):
                 return
             engine = self._engine
             self._arm_filler_locked()
@@ -311,11 +312,11 @@ class TalkDriver:
                 if busy or engine.wants_idle_interrupt:
                     engine.on_interrupt(cut)
                 logger.info("talk: 制止 (busy=%s, cut=%r)", busy, cut)
+            # routed（多人数会議）では Claude 宛ての発言だけ応答する。制止の言葉は常に渡す
+            elif self._route is not None and not _is_addressed_to_claude(line.text):
                 return
-            # routed（多人数会議）では Claude 宛ての発言だけ応答する
-            if self._route is not None and not _is_addressed_to_claude(line.text):
-                return
-            self._arm_filler_locked()
+            else:
+                self._arm_filler_locked()
         engine.on_self_line(line.text)
 
     def api_say(self, text: str, lang: Language | None = None, display: str | None = None) -> dict:
