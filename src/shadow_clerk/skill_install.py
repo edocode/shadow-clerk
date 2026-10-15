@@ -7,6 +7,7 @@
 from __future__ import annotations
 import logging
 import os
+import re
 import pathlib
 import shutil
 import sys
@@ -190,8 +191,9 @@ def migrate_init_prompt() -> bool:
     return False
 
 
-def _as_tuple(version: str) -> tuple:
-    return tuple(int(p) if p.isdigit() else p for p in version.split("."))
+def _as_tuple(version: str) -> tuple[int, ...]:
+    """"1.4.0-beta" や手で直した "1.4.x" でも比較できるよう、各区切りの先頭の数字だけを見る（無ければ 0）"""
+    return tuple(int(m.group()) if (m := re.match(r"\d+", p.strip())) else 0 for p in version.split("."))
 
 
 def _state(installed: str | None, bundled: str | None) -> str:
