@@ -1,4 +1,5 @@
 """Shadow-clerk daemon: ダッシュボード JavaScript（Claude talk mode）"""
+from __future__ import annotations
 
 _JS_TEMPLATE_TALK = r"""
 /* --- Claude talk mode --- */

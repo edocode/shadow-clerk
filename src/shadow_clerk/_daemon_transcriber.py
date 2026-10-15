@@ -11,7 +11,7 @@ from shadow_clerk._daemon_constants import GLOSSARY_FILE, SAMPLE_RATE
 from shadow_clerk._daemon_config import load_config
 
 try:
-    from shadow_clerk.llm_client import get_api_client, load_glossary, load_glossary_replacements, load_dotenv as llm_load_dotenv, _spell_check
+    from shadow_clerk.llm_client import load_glossary_replacements
     _HAS_LLM_CLIENT = True
 except ImportError:
     _HAS_LLM_CLIENT = False
@@ -29,7 +29,7 @@ class GlossaryReplacer:
         self._lang: str | None = None
         self._load(None)
 
-    def _load(self, lang: str | None):
+    def _load(self, lang: str | None) -> None:
         try:
             mtime = os.path.getmtime(self._path)
             if mtime == self._mtime and lang == self._lang:

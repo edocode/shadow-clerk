@@ -4,6 +4,7 @@
 SSE は描かずに状態だけ覚える。切り替えたら grid を取り直す（full snapshot がクライアントの
 行を作り直すので、状態の掃除は loadConsole に任せる）。
 """
+from __future__ import annotations
 
 _JS_TEMPLATE_CONSOLE_ROLE = """\
 /* --- AI Console の役割（assistant / talk） --- */

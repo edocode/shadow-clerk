@@ -92,7 +92,7 @@ class _RecorderCommandMixin:
             self._execute_command(voice_cmd)
         else:
             logger.info("音声コマンド不一致 (PTT+spell): '%s' (訂正後: '%s')", text, corrected)
-            print(t("rec.voice_cmd_fail", text=text, confidence=0))
+            logger.info(t("rec.voice_cmd_fail", text=text, confidence=0))
 
     def _llm_match_and_execute(self, text: str) -> None:
         """LLM にコマンドマッチングを依頼し、confidence が高ければ実行する"""
@@ -121,7 +121,7 @@ class _RecorderCommandMixin:
 
         if confidence >= 80 and command:
             logger.info("LLM コマンドマッチ: '%s' → %s (confidence=%d)", text, command, confidence)
-            print(t("rec.voice_cmd_llm", text=text.strip(), command=command, confidence=confidence))
+            logger.info(t("rec.voice_cmd_llm", text=text.strip(), command=command, confidence=confidence))
             self._execute_command(command)
         else:
             logger.info("LLM コマンドマッチ低信頼度: '%s' → %s (confidence=%d)", text, command, confidence)
@@ -131,7 +131,7 @@ class _RecorderCommandMixin:
                 logger.info("LLM クエリにフォールバック: %s", text.strip())
                 self._execute_command(f"llm_query {text.strip()}")
             else:
-                print(t("rec.voice_cmd_fail", text=text.strip(), confidence=confidence))
+                logger.info(t("rec.voice_cmd_fail", text=text.strip(), confidence=confidence))
                 if hasattr(self, "_file_watcher"):
                     self._file_watcher._broadcast("alert", json.dumps(
                         {"message": t("dash.alert_cmd_fail", text=text.strip())},
@@ -227,7 +227,7 @@ class _RecorderCommandMixin:
 
         src_name = os.path.basename(source_path)
         logger.info("要約実行: provider=api, %s → %s", src_name, summary_name)
-        print(t("rec.auto_summary_start", src=src_name, dst=summary_name))
+        logger.info(t("rec.auto_summary_start", src=src_name, dst=summary_name))
 
         try:
             result = subprocess.run(
@@ -237,17 +237,17 @@ class _RecorderCommandMixin:
             )
             if result.returncode == 0:
                 logger.info("自動要約完了: %s", summary_path)
-                print(t("rec.auto_summary_done", name=summary_name))
+                logger.info(t("rec.auto_summary_done", name=summary_name))
                 if hasattr(self, "_file_watcher"):
                     self._file_watcher._broadcast("alert", json.dumps(
                         {"message": t("dash.alert_summary_done", name=summary_name)},
                         ensure_ascii=False))
             else:
                 logger.warning("自動要約失敗: %s", result.stderr.strip())
-                print(t("rec.auto_summary_fail", error=result.stderr.strip()[:100]))
+                logger.info(t("rec.auto_summary_fail", error=result.stderr.strip()[:100]))
         except subprocess.TimeoutExpired:
             logger.warning("自動要約タイムアウト")
-            print(t("rec.auto_summary_timeout"))
+            logger.info(t("rec.auto_summary_timeout"))
         except Exception as e:
             logger.warning("自動要約エラー: %s", e)
 
@@ -279,7 +279,6 @@ class _RecorderCommandMixin:
 
     def _key_listener_thread(self) -> None:
         """pynput でグローバルキー監視を行うスレッド"""
-        from typing import Any
         target_key = self._resolve_pynput_key(self._voice_command_key)
         if target_key is None:
             logger.warning("voice_command_key '%s' を解決できません", self._voice_command_key)
@@ -291,14 +290,14 @@ class _RecorderCommandMixin:
             if key == target_key:
                 self._command_mode = True
                 logger.info("コマンドモード ON (%s pressed)", self._voice_command_key)
-                print(t("rec.ptt_on", vkey=self._voice_command_key))
+                logger.info(t("rec.ptt_on", vkey=self._voice_command_key))
 
         def on_release(key: Any) -> None:
             if key == target_key:
                 self._command_mode = False
                 self._command_mode_release_time = time.time()
                 logger.info("コマンドモード OFF (%s released)", self._voice_command_key)
-                print(t("rec.ptt_off", vkey=self._voice_command_key))
+                logger.info(t("rec.ptt_off", vkey=self._voice_command_key))
 
         with pynput_keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
             self.stop_event.wait()
@@ -400,14 +399,14 @@ class _RecorderCommandMixin:
                                     self._command_mode = True
                                     logger.info("コマンドモード ON (%s pressed) [evdev]",
                                                 self._voice_command_key)
-                                    print(t("rec.ptt_on", vkey=self._voice_command_key))
+                                    logger.info(t("rec.ptt_on", vkey=self._voice_command_key))
                                 elif event.value == 0:  # key up
                                     initially_held = False  # リリースされたのでフラグ解除
                                     self._command_mode = False
                                     self._command_mode_release_time = time.time()
                                     logger.info("コマンドモード OFF (%s released) [evdev]",
                                                 self._voice_command_key)
-                                    print(t("rec.ptt_off", vkey=self._voice_command_key))
+                                    logger.info(t("rec.ptt_off", vkey=self._voice_command_key))
                                 # value == 2 (キーリピート) は無視
                     except OSError:
                         # デバイス切断。リストに残すと select が即時 return し
@@ -492,7 +491,7 @@ class _RecorderCommandMixin:
         with open(SESSION_FILE, "w", encoding="utf-8") as f:
             f.write(self.output_path)
         logger.info("会議開始: %s", self.output_path)
-        print(t("rec.meeting_start", path=self.output_path))
+        logger.info(t("rec.meeting_start", path=self.output_path))
         self._save_attendees_for_session(self.output_path)
         if analyze:
             self._maybe_start_analysis(self.output_path)
@@ -535,7 +534,7 @@ class _RecorderCommandMixin:
                 with open(session_transcript, "a", encoding="utf-8") as f:
                     f.write(marker)
             logger.info("会議終了: %s", session_transcript)
-            print(t("rec.meeting_end", path=session_transcript))
+            logger.info(t("rec.meeting_end", path=session_transcript))
             # 明示的 output 指定の場合はその値に戻す、そうでなければ現在日付のデフォルト
             if self._explicit_output:
                 self.output_path = self.args.output
@@ -559,10 +558,10 @@ class _RecorderCommandMixin:
         elif cmd.startswith("set_model "):
             model_size = cmd.split(None, 1)[1].strip()
             logger.info("モデル変更中: %s ...", model_size)
-            print(t("rec.model_changing", model=model_size))
+            logger.info(t("rec.model_changing", model=model_size))
             self.transcriber.reload_model(model_size)
             logger.info("モデル変更完了: %s", model_size)
-            print(t("rec.model_changed", model=model_size))
+            logger.info(t("rec.model_changed", model=model_size))
 
         elif cmd == "translate_start" or cmd.startswith("translate_start "):
             parts = cmd.split(None, 1)
@@ -573,7 +572,7 @@ class _RecorderCommandMixin:
                 logger.info("翻訳ループは既に動作中 (provider=%s)", provider)
             else:
                 self._launch_translate_thread(target, reset_offset=False)
-            print(t("rec.translate_start"))
+            logger.info(t("rec.translate_start"))
 
         elif cmd == "translate_stop":
             if self._translate_thread and self._translate_thread.is_alive():
@@ -581,7 +580,7 @@ class _RecorderCommandMixin:
                 self._translate_thread.join(timeout=10)
                 self._translate_thread = None
                 logger.info("翻訳停止: 内部スレッド")
-            print(t("rec.translate_stop"))
+            logger.info(t("rec.translate_stop"))
 
         elif cmd.startswith("translate_regenerate"):
             parts = cmd.split(None, 1)
@@ -599,7 +598,7 @@ class _RecorderCommandMixin:
         elif cmd.startswith("custom_exec "):
             action = cmd.split(None, 1)[1]
             logger.info("カスタムコマンド実行: %s", action)
-            print(t("rec.custom_exec", action=action))
+            logger.info(t("rec.custom_exec", action=action))
             subprocess.Popen(action, shell=True)
 
         elif cmd.startswith("llm_query "):
@@ -645,7 +644,7 @@ class _RecorderCommandMixin:
             for pattern, action in self._custom_commands:
                 if pattern.search(cmd):
                     logger.info("コマンド再マッチ(custom): %s → %s", cmd, action)
-                    print(t("rec.custom_exec", action=action))
+                    logger.info(t("rec.custom_exec", action=action))
                     subprocess.Popen(action, shell=True)
                     return
             logger.warning("不明なコマンド: %s", cmd)

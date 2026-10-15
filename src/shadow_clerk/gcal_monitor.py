@@ -29,7 +29,7 @@ _SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 _POLL_INTERVAL = 60
 
 
-def _get_credentials(credentials_file: str, token_file: str):
+def _get_credentials(credentials_file: str, token_file: str) -> Any:
     """OAuth2 認証情報を取得する。トークンがなければブラウザ認証フローを起動。"""
     try:
         from google.oauth2.credentials import Credentials
@@ -68,12 +68,12 @@ def _session_is_meeting(meeting_name: str) -> bool:
     return parsed is not None and parsed.meeting_name == meeting_name
 
 
-def _build_service(creds):
+def _build_service(creds: Any) -> Any:
     from googleapiclient.discovery import build
     return build("calendar", "v3", credentials=creds)
 
 
-def _fetch_events(service, calendar_id: str, now: datetime.datetime, lookahead_minutes: int = 120):
+def _fetch_events(service: Any, calendar_id: str, now: datetime.datetime, lookahead_minutes: int = 120) -> list[dict]:
     """進行中〜今後 lookahead_minutes 分以内のイベントを取得する。
     進行中イベントを確実に含めるため time_min を 24 時間前に設定する。"""
     time_min = (now - datetime.timedelta(hours=24)).isoformat() + "Z"
@@ -266,14 +266,14 @@ class GCalMonitor:
                 break
         return trailing >= min_trailing_sec
 
-    def _send_command(self, cmd: str):
+    def _send_command(self, cmd: str) -> None:
         if self._recorder is None:
             logger.warning("gcal コマンド送信失敗: recorder 未初期化")
             return
         logger.info("gcal コマンド送信: %s", cmd)
         self._recorder._execute_command(cmd)
 
-    def _run(self):
+    def _run(self) -> None:
         credentials_file = self._config.get("gcal_credentials_file")
         if not credentials_file:
             logger.error("gcal_credentials_file が設定されていません")
@@ -316,7 +316,7 @@ class GCalMonitor:
                 return True
         return False
 
-    def _poll(self, service, calendar_id: str, buffer_min: int, end_buffer_min: int):
+    def _poll(self, service: Any, calendar_id: str, buffer_min: int, end_buffer_min: int) -> None:
         now_utc = datetime.datetime.utcnow()
         next_poll = now_utc + datetime.timedelta(seconds=_POLL_INTERVAL)
         # 本日の全予定を表示するため time_max を今日の終わり（UTC翌日0時）まで拡張

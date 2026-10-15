@@ -195,7 +195,7 @@ class _RecorderTranscribeMixin:
             self.talk.on_other_line(tl)
         effective_speaker = speaker_label if speaker_label else display_speaker
         display_line = f"[{timestamp}] [{effective_speaker}] {text}"
-        print(f"  {display_line}")
+        logger.info("%s", display_line)
         self._clear_interim(source)
         return file_speaker
 
@@ -250,7 +250,7 @@ class _RecorderTranscribeMixin:
                     self._append_transcript_line(tl)
                     last_file_speaker = file_speaker
                     display_line = f"[{timestamp}] [{display_speaker}] {text}"
-                    print(f"  {display_line}")
+                    logger.info("%s", display_line)
             except Exception:
                 logger.exception("終了時の文字起こし処理でエラー、スキップします")
 
@@ -354,8 +354,8 @@ class _RecorderTranscribeMixin:
                 "別パスに移ります。uv 管理 Python (`uv python install` + "
                 "`uv tool install --python 3.13 ...`) か python.org 版 Python "
                 "の使用を推奨。SHADOW_CLERK_DATA_DIR で固定パスへ強制も可")
-        print(t("rec.recording"))
-        print(t("rec.output", path=self.output_path))
+        logger.info(t("rec.recording"))
+        logger.info(t("rec.output", path=self.output_path))
 
         self.talk = TalkDriver(self._append_transcript_line)
         self.mic_segmenter = VADSegmenter()
@@ -423,7 +423,7 @@ class _RecorderTranscribeMixin:
             ThreadingHTTPServer.allow_reuse_address = True
 
             class _QuietServer(ThreadingHTTPServer):
-                def handle_error(self, request, client_address):
+                def handle_error(self, request: Any, client_address: Any) -> None:
                     # ブラウザの接続切断は害がないので、ConnectionError 系は静かに無視する
                     import sys as _sys
                     exc = _sys.exc_info()[1]

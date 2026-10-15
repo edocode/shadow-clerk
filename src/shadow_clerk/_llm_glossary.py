@@ -1,4 +1,5 @@
 """shadow-clerk LLM client: 用語集"""
+from __future__ import annotations
 import logging
 import os
 import re

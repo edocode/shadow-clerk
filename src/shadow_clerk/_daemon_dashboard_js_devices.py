@@ -1,4 +1,5 @@
 """Shadow-clerk daemon: ダッシュボード JavaScript (device selection)"""
+from __future__ import annotations
 
 _JS_TEMPLATE_DEVICES = """\
 async function loadAudioDevices(cfg){

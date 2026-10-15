@@ -1,4 +1,5 @@
 """Minimal i18n for shadow-clerk (ja/en)."""
+from __future__ import annotations
 
 import os
 

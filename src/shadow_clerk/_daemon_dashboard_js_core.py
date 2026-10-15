@@ -1,4 +1,5 @@
 """Shadow-clerk daemon: ダッシュボード JavaScript (part A)"""
+from __future__ import annotations
 
 _JS_TEMPLATE_CORE = """\
 /*I18N_JSON*/

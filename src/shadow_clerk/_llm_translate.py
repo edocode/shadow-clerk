@@ -1,5 +1,6 @@
 """shadow-clerk LLM client: 翻訳"""
 from __future__ import annotations
+from typing import Any
 import argparse
 import json
 import logging
@@ -32,7 +33,7 @@ def _fix_libretranslate_uppercase(line: str) -> str:
     return line
 
 
-def _lt_request(q, lang: str, endpoint: str, api_key: str | None):
+def _lt_request(q: str | list[str], lang: str, endpoint: str, api_key: str | None) -> str | list[str]:
     """LibreTranslate /translate を1回叩き、translatedText を返す（str または list）。"""
     import urllib.request
     payload: dict = {"q": q, "source": "auto", "target": lang, "format": "text"}
@@ -86,7 +87,7 @@ def _translate_libretranslate(texts: list[str], lang: str, endpoint: str, api_ke
 _spell_checker_cache: dict[str, tuple] = {}  # model_name -> (tokenizer, model)
 
 
-def _load_spell_checker(model_name: str):
+def _load_spell_checker(model_name: str) -> tuple[Any, Any]:
     """transformers モデルをロードしてキャッシュする。"""
     if model_name in _spell_checker_cache:
         return _spell_checker_cache[model_name]

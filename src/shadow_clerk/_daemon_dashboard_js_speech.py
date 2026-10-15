@@ -3,6 +3,7 @@
 talk mode で Claude が話す練習言語の文（/api/say の lang 付き）と、AI分析 の 🔊 の例文を、このタブの
 speechSynthesis で読む。VOICEVOX は日本語の声なので、英語などはブラウザの声のほうがお手本になる。
 """
+from __future__ import annotations
 
 _JS_TEMPLATE_SPEECH = r"""
 /* --- ブラウザの読み上げ: daemon は最後に名乗ったタブ1つにだけ talk_speak を送る --- */
