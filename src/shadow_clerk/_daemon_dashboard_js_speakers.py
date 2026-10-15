@@ -18,9 +18,17 @@ function recolorSpeakers(){
 async function loadSpeakerGroups(){
   try{const d=await(await fetch('/api/speaker-groups')).json();if(d.status==='ok'){spkGroups=d;recolorSpeakers();}}catch(e){}
 }
+function _applyNameDefaults(name,g,p,og,op){
+  if(g&&g.dataset.touched!=='1')g.value=name?(spkGroups.names[name]||''):og;
+  if(p&&p.dataset.touched!=='1')p.checked=name?!(spkGroups.groups[name]||spkGroups.persons[name]===false):op;
+}
 function onSpkNameInput(el){
-  if(!spkGroups.groups[el.value.trim()])return;
-  for(const c of document.querySelectorAll('#spkRows input[data-person-for]'))if(c.dataset.personFor===el.dataset.label)c.checked=false;
+  const l=el.dataset.label,find=(k)=>[...document.querySelectorAll('#spkRows input[data-'+k+'-for]')].find(c=>c.dataset[k+'For']===l);
+  const g=find('group'),p=find('person');
+  _applyNameDefaults(el.value.trim(),g,p,g?g.dataset.orig||'':'',p?p.dataset.orig==='1':true);
+}
+function onRlNameInput(){
+  _applyNameDefaults(document.getElementById('rlName').value.trim(),document.getElementById('rlGroup'),document.getElementById('rlPerson'),'',true);
 }
 async function regenSummaryFor(f){
   if(!confirm(I18N['dash.summary_regen_after_naming']))return;
@@ -54,8 +62,8 @@ async function openSpeakerModal(){
       +'<input type="text" list="spkSuggest" oninput="onSpkNameInput(this)" data-label="'+escAttr(l.label)+'"'
       +' data-named="'+(l.named?'1':'0')+'"'+(l.named?' placeholder="'+escAttr(l.label)+'"':'')+'>'
       +'<input type="text" class="spk-group" list="grpSuggest" data-group-for="'+escAttr(l.label)+'"'
-      +' data-orig="'+escAttr(l.group||'')+'" value="'+escAttr(l.group||'')+'" placeholder="'+escAttr(I18N['dash.group_label'])+'">'
-      +'<label class="spk-person"><input type="checkbox" data-person-for="'+escAttr(l.label)+'"'
+      +' oninput="this.dataset.touched=\'1\'" data-orig="'+escAttr(l.group||'')+'" value="'+escAttr(l.group||'')+'" placeholder="'+escAttr(I18N['dash.group_label'])+'">'
+      +'<label class="spk-person"><input type="checkbox" onchange="this.dataset.touched=\'1\'" data-person-for="'+escAttr(l.label)+'"'
       +' data-orig="'+(l.person===false?'0':'1')+'"'+(l.person===false?'':' checked')+'>'+esc(I18N['dash.person_enroll'])+'</label>'
       +'<span class="spk-example">'+esc(l.example)+'</span>';
     box.appendChild(row);
@@ -74,9 +82,10 @@ function speakerMapping(){
     const name=i.value.trim()||(named?label:'');
     if(!name)continue;
     const gi=g[label],pi=p[label];
-    const group=gi?gi.value.trim():'',person=pi?!!pi.checked:true;
-    const changed=name!==label||(gi&&group!==(gi.dataset.orig||''))||(pi&&person!==(pi.dataset.orig==='1'));
-    if(changed)m[label]={name,group,person};
+    const e={name};
+    if(gi&&gi.dataset.touched==='1')e.group=gi.value.trim();
+    if(pi&&pi.dataset.touched==='1')e.person=!!pi.checked;
+    if(name!==label||Object.keys(e).length>1)m[label]=e;
   }
   return m;
 }
@@ -102,7 +111,7 @@ async function loadVoiceprints(){
     const del=document.createElement('button');del.className='dan';del.textContent=I18N['dash.delete'];
     del.onclick=()=>deleteVoiceprint(p.name);
     const grp=document.createElement('input');grp.type='text';grp.className='spk-group';
-    grp.setAttribute&&grp.setAttribute('list','grpSuggest');
+    grp.setAttribute('list','grpSuggest');
     grp.value=spkGroups.names[p.name]||'';grp.placeholder=I18N['dash.group_label'];
     grp.onchange=()=>setPersonGroup(p.name,grp.value.trim());
     row.appendChild(name);row.appendChild(grp);row.appendChild(del);box.appendChild(row);
@@ -132,6 +141,7 @@ async function openRelabelModal(){
   info.textContent=I18N['dash.relabel_count'].replace('{count}',_rlItems.length);
   document.getElementById('rlName').value='';document.getElementById('rlGroup').value='';
   document.getElementById('rlPerson').checked=true;
+  document.getElementById('rlGroup').dataset.touched='';document.getElementById('rlPerson').dataset.touched='';
   let d=null;
   try{d=await(await fetch('/api/speakers?file='+encodeURIComponent(_rlFile))).json();}catch(e){}
   if(d&&d.status==='ok'){
@@ -146,8 +156,9 @@ function closeRelabelModal(){document.getElementById('relabelModal').classList.r
 async function saveRelabel(){
   const name=document.getElementById('rlName').value.trim();
   if(!name||!_rlItems.length)return;
-  const body={file:_rlFile,lines:_rlItems,name,group:document.getElementById('rlGroup').value.trim(),
-    person:!!document.getElementById('rlPerson').checked};
+  const body={file:_rlFile,lines:_rlItems,name},gi=document.getElementById('rlGroup'),pi=document.getElementById('rlPerson');
+  if(gi.dataset.touched==='1')body.group=gi.value.trim();
+  if(pi.dataset.touched==='1')body.person=!!pi.checked;
   let d;
   try{d=await(await fetch('/api/speakers/assign-lines',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify(body)})).json();}catch(e){alert(String(e));return;}

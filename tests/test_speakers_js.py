@@ -34,7 +34,7 @@ function escAttr(s){return esc(s).replace(/"/g,'&quot;');}
 function el(){return {children:[],_h:'',textContent:'',value:'',disabled:false,dataset:{},
   get innerHTML(){return this._h;},set innerHTML(v){this._h=v;this.children=[];},
   classList:{open:false,add(){this.open=true;},remove(){this.open=false;}},
-  appendChild(c){this.children.push(c);}};}
+  appendChild(c){this.children.push(c);},setAttribute(k,v){this[k]=v;}};}
 const els={spkRows:el(),spkInfo:el(),spkSuggest:el(),spkSaveBtn:el(),vpRows:el(),speakerModal:el(),
   rlName:el(),rlGroup:el(),rlPerson:el(),rlInfo:el(),rlSaveBtn:el(),relabelModal:el(),grpSuggest:el(),rlSuggest:el()};
 let inputs=[],groupInputs=[],personInputs=[];
@@ -56,7 +56,7 @@ function showToast(m){toasts.push(m);}
 function loadT(f){loaded.push('T:'+f);}function loadR(f){loaded.push('R:'+f);}
 function alert(m){alerts.push(m);}function confirm(){return true;}
 let selected=[];function getSelectedLines(){return selected;}function deselectAll(){selected=[];}
-let groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true},groups:{acme:'#e57373','自社':'#64b5f6'},self_group:'自社'};
+let groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true,'花子':false},groups:{acme:'#e57373','自社':'#64b5f6'},self_group:'自社'};
 """ + _JS_TEMPLATE_SPEAKERS + r"""
 (async()=>{
   const out={};
@@ -70,10 +70,22 @@ let groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true},grou
   out.vp=els.vpRows.children.length;
   inputs=[{dataset:{label:'相手A',named:'0'},value:' 太郎 '},{dataset:{label:'相手B',named:'0'},value:''},
           {dataset:{label:'次郎',named:'1'},value:''}];
-  groupInputs=[{dataset:{groupFor:'相手A',orig:''},value:'acme'},{dataset:{groupFor:'次郎',orig:''},value:'自社'}];
-  personInputs=[{dataset:{personFor:'相手A',orig:'1'},checked:true},{dataset:{personFor:'次郎',orig:'1'},checked:true}];
+  groupInputs=[{dataset:{groupFor:'相手A',orig:'',touched:'1'},value:'acme'},{dataset:{groupFor:'次郎',orig:'',touched:'1'},value:'自社'}];
+  personInputs=[{dataset:{personFor:'相手A',orig:'1',touched:'1'},checked:true},{dataset:{personFor:'次郎',orig:'1'},checked:true}];
   out.mapping=speakerMapping();
+  groupInputs=[{dataset:{groupFor:'相手A',orig:''},value:'acme'}];
+  personInputs=[{dataset:{personFor:'相手A',orig:'1'},checked:true}];
+  inputs=[{dataset:{label:'相手A',named:'0'},value:'太郎'}];
+  out.untouchedMapping=speakerMapping();
+  const nm={dataset:{label:'相手A',named:'0'},value:'花子'},gi={dataset:{groupFor:'相手A',orig:''},value:''},
+    pi={dataset:{personFor:'相手A',orig:'1'},checked:true};
+  inputs=[nm];groupInputs=[gi];personInputs=[pi];out.typing=[];
+  for(const v of ['花子','太郎','acme','新人']){nm.value=v;onSpkNameInput(nm);out.typing.push([pi.checked,gi.value]);}
+  pi.dataset.touched='1';gi.dataset.touched='1';gi.value='x';pi.checked=false;nm.value='太郎';onSpkNameInput(nm);
+  out.typingTouched=[pi.checked,gi.value];
   groupInputs=[];personInputs=[];
+  inputs=[{dataset:{label:'相手A',named:'0'},value:' 太郎 '},{dataset:{label:'相手B',named:'0'},value:''},
+          {dataset:{label:'次郎',named:'1'},value:''}];
   speakersResp={status:'ok',labels:[{label:'太郎',count:2,example:'<i>x</i>',samples:1,named:true},
     {label:'相手A',count:1,example:'y',samples:0,named:false}],suggestions:[],active:false,enrollment:true};
   await openSpeakerModal();
@@ -115,7 +127,17 @@ let groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true},grou
   posted.length=0;
   selected=[{dataset:{raw:'[2026-10-09 10:00:05] [相手A] 二行目'}},{dataset:{raw:'[2026-10-09 10:00:06] [自分] 自分'}}];
   await openRelabelModal();
-  els.rlName.value=' acme ';els.rlGroup.value='acme';els.rlPerson.checked=false;
+  out.rlOpen=[els.rlPerson.checked,els.rlGroup.dataset.touched||''];
+  els.rlName.value='太郎';onRlNameInput();out.rlTaro=[els.rlPerson.checked,els.rlGroup.value];
+  els.rlName.value='花子';onRlNameInput();out.rlHanako=[els.rlPerson.checked,els.rlGroup.value];
+  els.rlName.value='新人';onRlNameInput();out.rlNew=[els.rlPerson.checked,els.rlGroup.value];
+  els.rlName.value='太郎';onRlNameInput();
+  await saveRelabel();
+  out.relabelUntouched=posted[0];posted.length=0;
+  selected=[{dataset:{raw:'[2026-10-09 10:00:05] [相手A] 二行目'}}];
+  await openRelabelModal();
+  els.rlName.value=' acme ';els.rlGroup.value='acme';els.rlGroup.dataset.touched='1';
+  els.rlPerson.checked=false;els.rlPerson.dataset.touched='1';
   await saveRelabel();
   out.relabelPosted=posted[0];out.regenPosted=posted[1];
   out.regenSaved=posted.length;
@@ -137,14 +159,14 @@ check("付け済みの行の名前欄は空で、現在の名前は placeholder 
 check("未命名の行の名前欄は空", 'data-named="0">' in out["unnamedHtml"], out["unnamedHtml"])
 check("空のままの付け済みの行は送らない", out["unchangedMapping"] == {}, repr(out["unchangedMapping"]))
 check("変更した付け済みの行は送る", out["changedMapping"] == {
-      "太郎": {"name": "次郎", "group": "", "person": True}, "相手A": {"name": "三郎", "group": "", "person": True}},
+      "太郎": {"name": "次郎"}, "相手A": {"name": "三郎"}},
       repr(out["changedMapping"]))
 check("モーダルを開く", out["open"] and out["saveDisabled"] is False and out["vp"] == 1)
 check("空欄は送らず前後空白を落とし、グループと個人区分も送る",
       out["mapping"] == {"相手A": {"name": "太郎", "group": "acme", "person": True},
-                         "次郎": {"name": "次郎", "group": "自社", "person": True}}, repr(out["mapping"]))
+                         "次郎": {"name": "次郎", "group": "自社"}}, repr(out["mapping"]))
 check("assign に file と mapping を送る", out["posted"] == {"url": "/api/speakers/assign",
-      "body": {"file": "transcript-202610091000.txt", "mapping": {"相手A": {"name": "太郎", "group": "", "person": True}}}},
+      "body": {"file": "transcript-202610091000.txt", "mapping": {"相手A": {"name": "太郎"}}}},
       repr(out["posted"]))
 check("保存後にトーストと再読み込み", out["toasts"][:2] == ["2 行に名前を付けました", "STARTED"]
       and out["loaded"][:2] == ["T:transcript-202610091000.txt", "R:transcript-202610091000.txt"],
@@ -165,6 +187,15 @@ check("名前のグループ色", out["taroColor"] == "#e57373" and out["unknown
 check("行の付け替えは相手側の行だけ送る", out["relabelPosted"] == {"url": "/api/speakers/assign-lines", "body": {
       "file": "transcript-202610091000.txt", "lines": [{"ts": "2026-10-09 10:00:05", "label": "相手A"}],
       "name": "acme", "group": "acme", "person": False}}, repr(out["relabelPosted"]))
+check("名前だけ変えたら group/person は送らない", out["untouchedMapping"] == {"相手A": {"name": "太郎"}}, repr(out["untouchedMapping"]))
+check("名前の入力で個人チェックとグループ表示が追従する", out["typing"] == [[False, ""], [True, "acme"], [False, ""], [True, ""]]
+      and out["typingTouched"] == [False, "x"], repr((out["typing"], out["typingTouched"])))
+check("付け替え: 開いた時は個人・未編集", out["rlOpen"] == [True, ""], repr(out["rlOpen"]))
+check("付け替え: 名前に追従", out["rlTaro"] == [True, "acme"] and out["rlHanako"] == [False, ""] and out["rlNew"] == [True, ""],
+      repr((out["rlTaro"], out["rlHanako"], out["rlNew"])))
+check("付け替え: 触っていなければ group/person は送らない", out["relabelUntouched"]["body"] == {
+      "file": "transcript-202610091000.txt", "lines": [{"ts": "2026-10-09 10:00:05", "label": "相手A"}], "name": "太郎"},
+      repr(out["relabelUntouched"]))
 check("保存後に議事録の再生成を確認して頼む", out["regenPosted"] == {"url": "/api/summary",
       "body": {"file": "transcript-202610091000.txt"}}, repr(out["regenPosted"]))
 sys.exit(0 if all(results) else 1)
