@@ -160,6 +160,7 @@ DEFAULT_CONFIG = {
     "diarization_threshold": 0.70,  # コサイン類似度
     "diarization_min_sec": 1.0,     # 識別する発話の最短秒数
     "voiceprint_max_samples": 200,  # 1人あたりの声紋の保存件数
+    "self_group": "",
     "interim_transcription": False,
     "interim_translation": True,  # interim_transcription の出力を翻訳して dashboard に流す
     "interim_translation_provider": None,  # null=auto / "api" / "libretranslate" / "claude"

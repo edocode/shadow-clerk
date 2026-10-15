@@ -89,9 +89,12 @@ STRINGS_JA: dict[str, str] = {
     "dash.speakers_translating": "この会議の翻訳が実行中です。翻訳が終わってから名前を付けてください",
     "dash.speakers_invalid": "リクエストが不正です",
     "dash.speakers_invalid_name": "使えない名前があります（空・括弧入り・「自分」「Claude」・「相手」で始まる名前は不可）",
+    "dash.speakers_group_invalid": "グループ名に使えない文字があります（括弧・改行は不可、50文字まで）",
     "dash.speakers_nothing": "名前が入力されていません",
     "dash.speakers_write_error": "名前を書き込めませんでした。ファイルの一部だけが書き換わっている可能性があります。もう一度保存してください",
     "dash.speakers_saved": "{count} 行に名前を付けました",
+    "dash.speakers_relabel_saved": "{count} 行の話者を変更しました",
+    "dash.speaker_book_error": "名前帳 (speaker_names.json) を読めません。壊れている可能性があります",
     "dash.voiceprint_store_error": "声紋ファイル (voiceprints.json) を読み書きできません。壊れている可能性があります",
     "dash.workdir_pattern": "会議名パターン (正規表現)",
     "dash.workdir_pattern_hint": "会議名には表記ゆれがあります (Board_Meeting / Board MTG)。全部に当たるようパターンを緩めてください。",
@@ -322,6 +325,8 @@ STRINGS_JA: dict[str, str] = {
     "cfg.diarization_threshold": "話者分離のしきい値（低いほど同じ人が分かれにくい）",
     "cfg.diarization_min_sec": "話者分離の最短発話（秒）",
     "cfg.voiceprint_max_samples": "1人あたりの声紋の最大件数",
+    "cfg.self_group": "自分の所属グループ（会社名など。文字起こしの色分けと議事録の整理に使う）",
+    "cfg.self_group_ph": "例: acme",
     "cfg.interim_transcription": "中間文字起こし",
     "cfg.interim_translation": "中間翻訳",
     "cfg.interim_translation_provider": "中間翻訳プロバイダ (空=自動)",
@@ -509,6 +514,18 @@ STRINGS_JA: dict[str, str] = {
         "誰が実際に発言したかは transcript だけでは判別できないことを踏まえ、"
         "断定的な帰属は避けてください。"
     ),
+    "llm.summary_speakers_block": (
+        "\n【話者と所属グループ（ユーザーが確定したもの）】\n"
+        "{speakers}\n"
+        "ユーザー自身の所属: {self_group}\n"
+        "話者名はこのとおりに使う。相手A のようなラベルは名前の分からない話者。\n"
+    ),
+    "llm.summary_speakers_unknown_group": "（不明）",
+    "llm.summary_speakers_self_mark": "（ユーザー本人）",
+    "llm.summary_groups_instruction": (
+        "複数のグループが参加している。決定事項・要望・宿題は、どのグループのものか"
+        "（ユーザーの所属か、どの相手方か）を明記し、グループ間の立場を混ぜない。\n"
+    ),
     "llm.summary_length_half": "\n【出力量】A4半枚（400字）以上でまとめてください。重要な内容があればそれ以上長くなっても構いません。",
     "llm.summary_length_1page": "\n【出力量】A41枚（800字）以上でまとめてください。重要な内容があればそれ以上長くなっても構いません。",
     "llm.summary_length_2pages": "\n【出力量】A42枚（1600字）以上で詳細にまとめてください。各議題の議論内容を具体的に記述してください。重要な内容があればそれ以上長くなっても構いません。",
@@ -638,11 +655,17 @@ STRINGS_JA: dict[str, str] = {
     "err.transcript_empty": "エラー: transcript が空です。",
     "err.summary_failed": "エラー: 要約の生成に失敗しました（LLM 呼び出し失敗または応答不足）。",
     "dash.speakers_title": "話者に名前を付ける",
+    "dash.group_label": "グループ",
+    "dash.person_enroll": "個人（声紋に登録）",
+    "dash.relabel_title": "選んだ行の話者を変更",
+    "dash.relabel_name_ph": "名前・会社名・役割名",
+    "dash.relabel_count": "選んだ相手側の行: {count} 行",
+    "dash.summary_regen_after_naming": "名前・グループを反映して、この会議の議事録を作り直しますか？",
     "dash.speakers_none": "このファイルには話者分離のラベル（相手A など）がありません",
     "dash.speakers_enrollment_off": "声紋の登録は無効です（speaker_enrollment）。名前の書き換えだけ行います",
     "dash.speakers_count": "発話 {count} 件",
     "dash.speakers_samples": "声紋 {count} 件",
-    "dash.voiceprints_title": "登録済みの声紋",
+    "dash.voiceprints_title": "登録済みの人",
     "dash.voiceprints_empty": "まだありません",
     "dash.voiceprint_delete_confirm": "{name} の声紋をすべて削除しますか？",
 }

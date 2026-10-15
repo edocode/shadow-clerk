@@ -11,6 +11,7 @@ from openai import OpenAI
 from shadow_clerk import DATA_DIR
 from shadow_clerk.i18n import t, nt
 from shadow_clerk._llm_config import load_config, get_api_client, resolve_path, call_claude_cli, chat_completion
+from shadow_clerk._daemon_speaker_roster import load_roster, roster_prompt_block
 from shadow_clerk._llm_glossary import load_glossary_for_summary
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain import Summary
@@ -35,6 +36,13 @@ def _load_attendees_block(transcript_path: str) -> str:
         return ""
     formatted = "\n".join(f"- {name}" for name in attendees)
     return nt("llm.summary_attendees_block", attendees=formatted) or ""
+
+
+def _load_context_block(transcript_path: str, transcript: str, config: dict) -> str:
+    """参加予定者と、話者・グループのブロックをまとめて返す"""
+    self_group = str(config.get("self_group") or "").strip()
+    return _load_attendees_block(transcript_path) + roster_prompt_block(
+        load_roster(transcript.splitlines(keepends=True), self_group), self_group)
 
 
 def _get_hiragana_step(config: dict) -> str:
@@ -122,9 +130,9 @@ def summarize(args: argparse.Namespace) -> None:
         print(t("err.transcript_empty"), file=sys.stderr)
         sys.exit(1)
 
-    attendees_block = _load_attendees_block(transcript_path)
+    attendees_block = _load_context_block(transcript_path, transcript, config)
     if attendees_block:
-        logger.info("参加予定者情報を読み込み（プロンプトに付与）")
+        logger.info("参加予定者・話者のグループをプロンプトに付与")
 
     if args.mode == "full":
         result = _summarize_full(client, model, transcript, attendees_block, provider=provider)

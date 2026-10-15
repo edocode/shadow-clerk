@@ -1,10 +1,12 @@
 """Shadow-clerk daemon: 話者の名前付け（会議内ラベル → 人名）の純粋な処理"""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from shadow_clerk._daemon_speaker_diarization import label_index
 from shadow_clerk.domain.speaker import Speaker
+from shadow_clerk.domain.speaker_group import GroupName, SpeakerEntry
 from shadow_clerk.domain.transcript_line import TranscriptLine
 from shadow_clerk.domain.voiceprint import PersonName
 
@@ -37,18 +39,74 @@ def summarize_labels(lines: list[str]) -> list[LabelSummary]:
     return [LabelSummary(lb, counts[lb], longest[lb], label_index(lb) is None) for lb in order]
 
 
-def relabel_lines(lines: list[str], mapping: dict[str, PersonName]) -> tuple[list[str], int]:
-    """mapping のラベルを名前に書き換えた行と、書き換えた行数を返す。行数は変えない"""
+def relabel_lines_where(lines: list[str], pick: Callable[[TranscriptLine], str | None]) -> tuple[list[str], int]:
+    """pick が新しいラベルを返した行だけ書き換え、行と書き換えた行数を返す。行数は変えない"""
     out: list[str] = []
     renamed = 0
     for line in lines:
         tl = TranscriptLine.parse(line)
-        if tl is not None and tl.speaker_label in mapping:
-            line = TranscriptLine(tl.timestamp, tl.speaker, tl.text,
-                                  mapping[tl.speaker_label].value).format()
+        new = pick(tl) if tl is not None else None
+        if tl is not None and new is not None and new != tl.speaker_label:
+            line = TranscriptLine(tl.timestamp, tl.speaker, tl.text, new).format()
             renamed += 1
         out.append(line)
     return out, renamed
+
+
+def line_target_picker(targets: set[tuple[str, str]], new_label: str) -> Callable[[TranscriptLine], str | None]:
+    """(時刻, 今のラベル) が targets にある相手側の行だけ new_label にする。分離なしの行のラベルは「相手」"""
+    def pick(tl: TranscriptLine) -> str | None:
+        if tl.speaker != Speaker.OTHER:
+            return None
+        return new_label if (tl.timestamp, tl.speaker_label or Speaker.OTHER.value) in targets else None
+    return pick
+
+
+@dataclass(frozen=True)
+class Assignment:
+    """ダッシュボードから来た1件の割り当て。group None は台帳の値を保つ、"" はグループなし"""
+    name: PersonName
+    group: str | None = None
+    person: bool | None = None
+
+
+def parse_assignment(raw: object) -> Assignment:
+    if isinstance(raw, str):
+        return Assignment(PersonName(raw))
+    if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
+        raise ValueError("割り当ての形式が不正")
+    group, person = raw.get("group"), raw.get("person")
+    if (group is not None and not isinstance(group, str)) or (person is not None and not isinstance(person, bool)):
+        raise ValueError("割り当ての型が不正")
+    if group is not None:
+        group = GroupName(group).value if group.strip() else ""
+    return Assignment(PersonName(raw["name"]), group, person)
+
+
+@dataclass(frozen=True)
+class Decision:
+    """台帳と照らして決まった割り当て"""
+    name: PersonName
+    group: str
+    person: bool
+
+    def entry(self) -> SpeakerEntry:
+        return SpeakerEntry(self.group, self.person)
+
+    def changes(self, label: str, entries: dict[str, SpeakerEntry]) -> bool:
+        return self.name.value != label or entries.get(self.name.value) != self.entry()
+
+
+def decide_assignment(a: Assignment, entries: dict[str, SpeakerEntry], groups: dict[str, str]) -> Decision:
+    current = entries.get(a.name.value)
+    group = a.group if a.group is not None else (current.group if current else "")
+    if a.person is not None:
+        person = a.person
+    elif current is not None:
+        person = current.person
+    else:
+        person = a.name.value not in groups  # グループ名そのままなら会社名のラベルとみなす
+    return Decision(a.name, group, person)
 
 
 def remap_offset(old_lines: list[str], new_lines: list[str], old_offset: int) -> int:

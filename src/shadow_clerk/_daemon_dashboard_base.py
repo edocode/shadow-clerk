@@ -6,7 +6,6 @@ import logging
 import os
 import queue
 import re
-import threading
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from shadow_clerk import DATA_DIR
@@ -14,6 +13,7 @@ from shadow_clerk.i18n import t, t_all
 from shadow_clerk._daemon_constants import SESSION_FILE
 from shadow_clerk._daemon_log_buffer import _SSE_CLOSE_EVENT
 from shadow_clerk._daemon_config import load_config
+from shadow_clerk._daemon_summary_regen import regenerate_summary
 from shadow_clerk._daemon_dashboard_html import _HTML_TEMPLATE
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk._markdown import render_markdown
@@ -207,6 +207,10 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_speakers()
         elif path == "/api/voiceprints":
             self._serve_voiceprints()
+        elif path == "/api/speaker-groups":
+            self._serve_speaker_groups()
+        elif path == "/api/speaker-roster":
+            self._serve_speaker_roster()
         else:
             self.send_error(404)
 
@@ -284,6 +288,10 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._save_misheard()
         elif path == "/api/speakers/assign":
             self._assign_speakers()
+        elif path == "/api/speakers/assign-lines":
+            self._assign_lines()
+        elif path == "/api/speaker-groups/set":
+            self._set_speaker_group()
         elif path == "/api/voiceprints/delete":
             self._delete_voiceprint()
         else:
@@ -540,15 +548,9 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         if not os.path.exists(transcript_path):
             self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
             return
-        config = load_config()
-        logger.info("ダッシュボード: 要約生成 provider=%s, file=%s",
-                    config.get("llm_provider", "claude"), os.path.basename(transcript_path))
-        self._send_json({"status": "ok", "message": t("dash.summary_generation_started")})
-        threading.Thread(
-            target=self.recorder._auto_summarize,
-            args=(transcript_path,),
-            name="dashboard-summary", daemon=True,
-        ).start()
+        method = regenerate_summary(self.recorder, transcript_path)
+        logger.info("ダッシュボード: 要約生成 method=%s, file=%s", method, os.path.basename(transcript_path))
+        self._send_json({"status": "ok", "method": method, "message": t("dash.summary_generation_started")})
 
     def _notify_summary_done(self) -> None:
         """POST /api/summary/notify — 外部プロセスからの要約完了通知"""

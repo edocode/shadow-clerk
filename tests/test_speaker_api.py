@@ -365,7 +365,7 @@ def test_assigned_name_is_suggested_in_other_meetings_without_enrollment(monkeyp
     _second_meeting()
     assert _suggestions(MTG2) == []
     _H({"file": MTG, "mapping": {"相手A": "三郎"}})._assign_speakers()
-    assert SpeakerNameBook().names() == ["三郎"]
+    assert sorted(SpeakerNameBook().entries()) == ["三郎"]
     assert VoiceprintStore().people() == {}
     assert _suggestions(MTG2) == ["三郎"]
 
@@ -374,7 +374,8 @@ def test_suggestion_order_attendees_transcript_names_voiceprints() -> None:
     from shadow_clerk.domain.voiceprint import PersonName, VoiceSample
     with open(_p(MTG), "a", encoding="utf-8") as f:
         f.write("[2026-10-09 10:00:05] [四郎] 追加です\n")
-    SpeakerNameBook().add([PersonName("五郎"), PersonName("四郎"), PersonName("太郎")])
+    for n in ("五郎", "四郎", "太郎"):
+        SpeakerNameBook().set_entry(PersonName(n), None, True)
     VoiceprintStore().add({PersonName("六郎"): [VoiceSample(_vec(9), "x", "y")]})
     assert _suggestions(MTG) == ["次郎", "太郎", "四郎", "五郎", "六郎"]
 
@@ -386,18 +387,14 @@ def test_delete_voiceprint_forgets_the_name() -> None:
     h = _H({"name": "太郎"})
     h._delete_voiceprint()
     assert h.sent["name_removed"] is True
-    assert SpeakerNameBook().names() == [] and "太郎" not in _suggestions(MTG2)
+    assert SpeakerNameBook().entries() == {} and "太郎" not in _suggestions(MTG2)
 
 
-def test_broken_name_book_does_not_break_assign_or_get() -> None:
+def test_broken_name_book_does_not_break_get_or_delete() -> None:
     _second_meeting()
     with open(_p("speaker_names.json"), "w", encoding="utf-8") as f:
         f.write("{broken")
     assert _suggestions(MTG2) == []
-    h = _H({"file": MTG, "mapping": {"相手A": "太郎"}})
-    h._assign_speakers()
-    assert h.sent["status"] == "ok" and "[太郎]" in _read(MTG)
-    assert _read("speaker_names.json") == "{broken"
     h = _H({"name": "太郎"})
     h._delete_voiceprint()
     assert h.sent["status"] == "ok" and h.sent["name_removed"] is False
@@ -415,3 +412,127 @@ def test_extract_meeting_copies_voices() -> None:
     assert h.sent["status"] == "ok", h.sent
     assert [e.timestamp for e in read_voices(_p("transcript-202610091030@昼会.txt"))] == \
         ["2026-10-09 11:00:00"]
+
+
+def test_assign_object_with_group_and_non_person() -> None:
+    h = _H({"file": MTG, "mapping": {"相手A": {"name": "acme", "group": "acme", "person": False}}})
+    h._assign_speakers()
+    assert h.sent["status"] == "ok" and h.sent["enrolled"] == {}, h.sent
+    assert "[acme] 来週のリリースの件ですが" in _read(MTG)
+    assert VoiceprintStore().people() == {}
+    book = SpeakerNameBook()
+    assert book.entries()["acme"].group == "acme" and book.entries()["acme"].person is False
+    assert "acme" in book.groups()
+
+
+def test_assign_to_non_person_removes_samples() -> None:
+    _H({"file": MTG, "mapping": {"相手A": "太郎"}})._assign_speakers()
+    assert VoiceprintStore().people() == {"太郎": 1}
+    h = _H({"file": MTG, "mapping": {"太郎": {"name": "acme", "person": False}}})
+    h._assign_speakers()
+    assert h.sent["status"] == "ok", h.sent
+    assert VoiceprintStore().people() == {}
+    assert "[acme] 来週のリリースの件ですが" in _read(MTG)
+
+
+def test_group_only_change_does_not_rewrite() -> None:
+    _H({"file": MTG, "mapping": {"相手A": "太郎"}})._assign_speakers()
+    before = _read(MTG)
+    h = _H({"file": MTG, "mapping": {"太郎": {"name": "太郎", "group": "acme"}}})
+    h._assign_speakers()
+    assert h.sent["status"] == "ok" and h.sent["renamed"] == 0, h.sent
+    assert _read(MTG) == before
+    assert SpeakerNameBook().entries()["太郎"].group == "acme"
+    assert VoiceprintStore().people() == {"太郎": 1}
+
+
+def test_default_person_false_for_group_name() -> None:
+    from shadow_clerk.domain.speaker_group import GroupName
+    SpeakerNameBook().ensure_group(GroupName("acme"))
+    h = _H({"file": MTG, "mapping": {"相手A": "acme"}})
+    h._assign_speakers()
+    assert h.sent["status"] == "ok" and h.sent["enrolled"] == {}
+    assert SpeakerNameBook().entries()["acme"].person is False
+
+
+def test_has_summary_and_serve_group_fields() -> None:
+    with open(_p("summary-202610091000@週次定例.md"), "w", encoding="utf-8") as f:
+        f.write("# 議事録\n")
+    h = _H({"file": MTG, "mapping": {"相手A": {"name": "太郎", "group": "acme"}}})
+    h._assign_speakers()
+    assert h.sent["has_summary"] is True
+    h = _H(path=f"/api/speakers?file={MTG}")
+    h._serve_speakers()
+    taro = next(x for x in h.sent["labels"] if x["label"] == "太郎")
+    assert taro["group"] == "acme" and taro["person"] is True
+    assert h.sent["groups"] == ["acme"]
+
+
+def test_assign_with_broken_name_book_writes_nothing() -> None:
+    with open(_p("speaker_names.json"), "w", encoding="utf-8") as f:
+        f.write("{broken")
+    names = ("voiceprints.json", "speaker_names.json", MTG, TR, f"{MTG[:-4]}.voices.jsonl")
+    before = {n: _read(n) if os.path.exists(_p(n)) else None for n in names}
+    h = _H({"file": MTG, "mapping": {"相手A": "太郎"}})
+    h._assign_speakers()
+    assert h.sent == {"status": "error", "message": t("dash.speaker_book_error")}, h.sent
+    assert {n: _read(n) if os.path.exists(_p(n)) else None for n in names} == before
+
+
+EXTRA = "[2026-10-09 10:00:05] [相手A] 二行目です\n"
+
+
+def _with_second_a() -> None:
+    with open(_p(MTG), "a", encoding="utf-8") as f:
+        f.write(EXTRA)
+    append_voice(_p(MTG), "2026-10-09 10:00:05", "相手A", _vec(5))
+
+
+def test_assign_lines_only_touches_targets() -> None:
+    _with_second_a()
+    h = _H({"file": MTG, "lines": [{"ts": "2026-10-09 10:00:05", "label": "相手A"}], "name": "次郎"})
+    h._assign_lines()
+    assert h.sent["status"] == "ok" and h.sent["renamed"] == 1 and h.sent["enrolled"] == {"次郎": 1}, h.sent
+    body = _read(MTG)
+    assert "[相手A] 来週のリリースの件ですが" in body and "[次郎] 二行目です" in body
+    assert "[相手A] About next week's release" in _read(TR)
+    assert [(e.timestamp, e.label) for e in read_voices(_p(MTG))][-1] == ("2026-10-09 10:00:05", "次郎")
+    assert SpeakerNameBook().entries()["次郎"].person is True
+
+
+def test_assign_lines_rejects_self_and_writes_nothing() -> None:
+    before = _read(MTG)
+    for lines in ([{"ts": "2026-10-09 10:00:04", "label": "自分"}],
+                  [{"ts": "2026-10-09 10:00:01", "label": "相手A"}, {"ts": "2026-10-09 10:00:04", "label": "自分"}],
+                  [{"ts": "2026-10-09 10:00:09", "label": "相手A"}],
+                  [], "x", [{"ts": 1, "label": "相手A"}]):
+        h = _H({"file": MTG, "lines": lines, "name": "次郎"})
+        h._assign_lines()
+        assert h.sent["status"] == "error", lines
+        assert _read(MTG) == before
+    h = _H({"file": MTG, "lines": [{"ts": "2026-10-09 10:00:01", "label": "相手A"}], "name": "次郎"}, rec=_Rec(active=MTG))
+    h._assign_lines()
+    assert h.sent["status"] == "error" and _read(MTG) == before
+
+
+def test_assign_lines_non_person_moves_out() -> None:
+    _with_second_a()
+    _H({"file": MTG, "mapping": {"相手A": "太郎"}})._assign_speakers()
+    assert VoiceprintStore().people() == {"太郎": 2}
+    h = _H({"file": MTG, "lines": [{"ts": "2026-10-09 10:00:05", "label": "太郎"}],
+            "name": "acme", "group": "acme", "person": False})
+    h._assign_lines()
+    assert h.sent["status"] == "ok" and h.sent["enrolled"] == {}, h.sent
+    assert VoiceprintStore().people() == {"太郎": 1}
+    assert "[acme] 二行目です" in _read(MTG) and "[太郎] 来週のリリースの件ですが" in _read(MTG)
+
+
+def test_assign_lines_with_broken_name_book_writes_nothing() -> None:
+    with open(_p("speaker_names.json"), "w", encoding="utf-8") as f:
+        f.write("{broken")
+    names = ("voiceprints.json", "speaker_names.json", MTG, TR, f"{MTG[:-4]}.voices.jsonl")
+    before = {n: _read(n) if os.path.exists(_p(n)) else None for n in names}
+    h = _H({"file": MTG, "lines": [{"ts": "2026-10-09 10:00:01", "label": "相手A"}], "name": "次郎"})
+    h._assign_lines()
+    assert h.sent == {"status": "error", "message": t("dash.speaker_book_error")}, h.sent
+    assert {n: _read(n) if os.path.exists(_p(n)) else None for n in names} == before

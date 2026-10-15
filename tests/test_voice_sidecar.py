@@ -7,10 +7,10 @@ import numpy as np
 
 from shadow_clerk._daemon_dashboard_ops import _DashboardHandlerOps
 from shadow_clerk._daemon_voice_sidecar import (
-    append_voice, copy_voice_range, read_voices, relabeled_voice_lines, voice_lines_without_label, voices_path,
+    VoiceEntry, relabeled_voice_lines_where,
+    append_voice, copy_voice_range, read_voices, voice_lines_without_label, voices_path,
 )
 from shadow_clerk._transcript_name import TranscriptName
-from shadow_clerk.domain.voiceprint import PersonName
 
 
 def _vec(seed: int) -> np.ndarray:
@@ -43,14 +43,18 @@ def test_append_and_read(tmp_path) -> None:
                                                      ("2026-10-09 10:00:05", "相手B")]
 
 
+def _to_taro(e: VoiceEntry) -> str | None:
+    return "太郎" if e.label == "相手A" else None
+
+
 def test_relabel_keeps_others_and_broken_lines(tmp_path) -> None:
     t = str(tmp_path / "transcript-202610091000.txt")
-    assert relabeled_voice_lines(t, {"相手A": PersonName("太郎")}) is None
+    assert relabeled_voice_lines_where(t, _to_taro) is None
     append_voice(t, "2026-10-09 10:00:01", "相手A", _vec(1))
     with open(voices_path(t), "a", encoding="utf-8") as f:
         f.write("broken\n")
     append_voice(t, "2026-10-09 10:00:05", "相手B", _vec(2))
-    lines = relabeled_voice_lines(t, {"相手A": PersonName("太郎")})
+    lines = relabeled_voice_lines_where(t, _to_taro)
     assert lines is not None and len(lines) == 3
     assert '"label": "太郎"' in lines[0] and lines[1] == "broken\n" and '"label": "相手B"' in lines[2]
 
@@ -137,3 +141,14 @@ def test_recorder_appends_voice_under_transcript_lock(tmp_path) -> None:
         mod.append_voice = orig
     assert seen == [True] and rec.transcript_lock.acquired == 1
     assert [v.label for v in read_voices(rec.output_path)] == ["相手A"]
+
+
+from shadow_clerk._daemon_voice_sidecar import relabeled_voice_lines_where  # noqa: E402
+
+
+def test_relabel_where(tmp_path) -> None:
+    t = str(tmp_path / "transcript-202610091000.txt")
+    append_voice(t, "2026-10-09 10:00:01", "相手A", _vec(1))
+    append_voice(t, "2026-10-09 10:00:02", "相手A", _vec(2))
+    lines = relabeled_voice_lines_where(t, lambda e: "太郎" if e.timestamp.endswith("02") else None)
+    assert '"label": "相手A"' in lines[0] and '"label": "太郎"' in lines[1]

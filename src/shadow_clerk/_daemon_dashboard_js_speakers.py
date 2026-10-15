@@ -6,6 +6,48 @@ core の esc / escAttr / curFile / activeFile / loadT / loadR と、modals の s
 
 _JS_TEMPLATE_SPEAKERS = r"""
 let _spkFile='';
+function spColor(sp,mic){
+  const g=(sp===mic||sp==='自分')?spkGroups.self_group:spkGroups.names[sp];
+  const c=g?spkGroups.groups[g]:'';
+  return /^#[0-9a-f]{6}$/.test(c||'')?c:'';
+}
+function recolorSpeakers(){
+  const mic=I18N['speaker.mic']||'自分';
+  for(const s of document.querySelectorAll('#tp [data-sp],#rp [data-sp]'))s.style.color=spColor(s.dataset.sp,mic);
+}
+async function loadSpeakerGroups(){
+  try{const d=await(await fetch('/api/speaker-groups')).json();if(d.status==='ok'){spkGroups=d;recolorSpeakers();}}catch(e){}
+}
+function _applyNameDefaults(name,g,p,og,op){
+  if(g&&g.dataset.touched!=='1')g.value=name?(spkGroups.names[name]||''):og;
+  if(p&&p.dataset.touched!=='1')p.checked=name?!(spkGroups.groups[name]||spkGroups.persons[name]===false):op;
+  if(g&&p)g.hidden=p.checked;
+}
+function onSpkPersonChange(p){
+  p.dataset.touched='1';
+  const g=[...document.querySelectorAll('#spkRows input[data-group-for]')].find(c=>c.dataset.groupFor===p.dataset.personFor);
+  if(g)g.hidden=p.checked;
+}
+function onRlPersonChange(){
+  const p=document.getElementById('rlPerson');p.dataset.touched='1';document.getElementById('rlGroup').hidden=p.checked;
+}
+function onSpkNameInput(el){
+  const l=el.dataset.label,find=(k)=>[...document.querySelectorAll('#spkRows input[data-'+k+'-for]')].find(c=>c.dataset[k+'For']===l);
+  const g=find('group'),p=find('person');
+  _applyNameDefaults(el.value.trim(),g,p,g?g.dataset.orig||'':'',p?p.dataset.orig==='1':true);
+}
+function onRlNameInput(){
+  _applyNameDefaults(document.getElementById('rlName').value.trim(),document.getElementById('rlGroup'),document.getElementById('rlPerson'),'',true);
+}
+async function regenSummaryFor(f){
+  if(!confirm(I18N['dash.summary_regen_after_naming']))return;
+  try{await fetch('/api/summary',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file:f})});
+    showToast(I18N['dash.summary_started']||'');}catch(e){alert(String(e));}
+}
+function _fillOptions(id,values){
+  const dl=document.getElementById(id);dl.innerHTML='';
+  for(const v of values){const o=document.createElement('option');o.value=v;dl.appendChild(o);}
+}
 async function openSpeakerModal(){
   _spkFile=curFile||activeFile;
   const box=document.getElementById('spkRows'),info=document.getElementById('spkInfo');
@@ -17,8 +59,7 @@ async function openSpeakerModal(){
   let d;
   try{d=await(await fetch('/api/speakers?file='+encodeURIComponent(_spkFile))).json();}catch(e){alert(String(e));return;}
   if(d.status!=='ok'){alert(d.message||'error');return;}
-  const dl=document.getElementById('spkSuggest');dl.innerHTML='';
-  for(const s of d.suggestions){const o=document.createElement('option');o.value=s;dl.appendChild(o);}
+  _fillOptions('spkSuggest',d.suggestions);_fillOptions('grpSuggest',d.groups||[]);
   info.textContent=!d.labels.length?I18N['dash.speakers_none']:d.active?I18N['dash.speakers_active']
     :d.translating?I18N['dash.speakers_translating']
     :!d.enrollment?I18N['dash.speakers_enrollment_off']:'';
@@ -27,9 +68,13 @@ async function openSpeakerModal(){
     row.innerHTML='<span class="spk-label">'+esc(l.label)+'</span>'
       +'<span class="spk-meta">'+esc(I18N['dash.speakers_count'].replace('{count}',l.count))
       +(d.enrollment?' / '+esc(I18N['dash.speakers_samples'].replace('{count}',l.samples)):'')+'</span>'
-      +'<input type="text" list="spkSuggest" data-label="'+escAttr(l.label)+'"'
-      +(l.named?' placeholder="'+escAttr(l.label)+'"':'')+'>'
-      +'<span class="spk-example">'+esc(l.example)+'</span>';
+      +'<input type="text" list="spkSuggest" oninput="onSpkNameInput(this)" data-label="'+escAttr(l.label)+'"'
+      +' data-named="'+(l.named?'1':'0')+'"'+(l.named?' placeholder="'+escAttr(l.label)+'"':'')+'>'
+      +'<input type="text" class="spk-group" list="grpSuggest" data-group-for="'+escAttr(l.label)+'"'
+      +(l.person===false?'':' hidden')+' oninput="this.dataset.touched=\'1\'" data-orig="'+escAttr(l.group||'')+'" value="'+escAttr(l.group||'')+'" placeholder="'+escAttr(I18N['dash.group_label'])+'">'
+      +'<label class="spk-person"><input type="checkbox" onchange="onSpkPersonChange(this)" data-person-for="'+escAttr(l.label)+'"'
+      +' data-orig="'+(l.person===false?'0':'1')+'"'+(l.person===false?'':' checked')+'>'+esc(I18N['dash.person_enroll'])+'</label>'
+      +'<span class="spk-example" title="'+escAttr(l.example)+'">'+esc(l.example)+'</span>';
     box.appendChild(row);
   }
   document.getElementById('spkSaveBtn').disabled=!d.labels.length||!!(d.active||d.translating);
@@ -38,9 +83,18 @@ async function openSpeakerModal(){
 }
 function closeSpeakerModal(){document.getElementById('speakerModal').classList.remove('open');}
 function speakerMapping(){
-  const m={};
+  const g={},p={},m={};
+  for(const i of document.querySelectorAll('#spkRows input[data-group-for]'))g[i.dataset.groupFor]=i;
+  for(const i of document.querySelectorAll('#spkRows input[data-person-for]'))p[i.dataset.personFor]=i;
   for(const i of document.querySelectorAll('#spkRows input[data-label]')){
-    const v=i.value.trim();if(v&&v!==i.dataset.label)m[i.dataset.label]=v;
+    const label=i.dataset.label,named=i.dataset.named==='1';
+    const name=i.value.trim()||(named?label:'');
+    if(!name)continue;
+    const gi=g[label],pi=p[label];
+    const e={name};
+    if(gi&&gi.dataset.touched==='1'&&!(pi&&pi.checked))e.group=gi.value.trim();
+    if(pi&&pi.dataset.touched==='1')e.person=!!pi.checked;
+    if(name!==label||Object.keys(e).length>1)m[label]=e;
   }
   return m;
 }
@@ -51,20 +105,37 @@ async function saveSpeakers(){
   try{d=await(await fetch('/api/speakers/assign',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({file:_spkFile,mapping})})).json();}catch(e){alert(String(e));return;}
   if(d.status!=='ok'){alert(d.message||'error');return;}
-  closeSpeakerModal();showToast(d.message);loadT(_spkFile);loadR(_spkFile);
+  closeSpeakerModal();showToast(d.message);loadT(_spkFile);loadR(_spkFile);await loadSpeakerGroups();
+  if(d.has_summary)await regenSummaryFor(_spkFile);
 }
 async function loadVoiceprints(){
   const box=document.getElementById('vpRows');box.innerHTML='';
-  let d;
+  let d,gd=null;
   try{d=await(await fetch('/api/voiceprints')).json();}catch(e){box.textContent=String(e);return;}
   if(d.status!=='ok'){box.textContent=d.message||'';return;}
-  if(!d.people.length){box.textContent=I18N['dash.voiceprints_empty'];return;}
-  for(const p of d.people){
+  try{gd=await(await fetch('/api/speaker-groups')).json();}catch(e){}
+  const book=gd&&gd.status==='ok'?gd:null,counts={};
+  for(const p of d.people)counts[p.name]=p.count;
+  if(book){
+    for(const n of Object.keys(book.persons))if(book.persons[n]===true&&!(n in counts))counts[n]=0;
+    _fillOptions('grpSuggest',Object.keys(book.groups||{}));
+  }
+  const names=Object.keys(counts).sort();
+  if(!names.length){box.textContent=I18N['dash.voiceprints_empty'];return;}
+  for(const n of names){
     const row=document.createElement('div');row.className='spk-row';
-    const name=document.createElement('span');name.textContent=p.name+' ('+p.count+')';
+    const label=document.createElement('span');label.textContent=n+' ('+counts[n]+')';
+    row.appendChild(label);
+    if(book){
+      const grp=document.createElement('input');grp.type='text';grp.className='spk-group';
+      grp.setAttribute('list','grpSuggest');
+      grp.value=book.names[n]||'';grp.placeholder=I18N['dash.group_label'];
+      grp.onchange=()=>setPersonGroup(n,grp.value.trim());
+      row.appendChild(grp);
+    }
     const del=document.createElement('button');del.className='dan';del.textContent=I18N['dash.delete'];
-    del.onclick=()=>deleteVoiceprint(p.name);
-    row.appendChild(name);row.appendChild(del);box.appendChild(row);
+    del.onclick=()=>deleteVoiceprint(n);
+    row.appendChild(del);box.appendChild(row);
   }
 }
 async function deleteVoiceprint(name){
@@ -75,4 +146,46 @@ async function deleteVoiceprint(name){
   if(d.status!=='ok'){alert(d.message||'error');return;}
   await loadVoiceprints();
 }
+async function setPersonGroup(name,group){
+  let d;
+  try{d=await(await fetch('/api/speaker-groups/set',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name,group})})).json();}catch(e){alert(String(e));return;}
+  if(d.status!=='ok'){alert(d.message||'error');return;}
+  await loadSpeakerGroups();
+}
+let _rlFile='',_rlItems=[];
+async function openRelabelModal(){
+  _rlFile=curFile||activeFile;
+  _rlItems=getSelectedLines().map(l=>(l.dataset.raw||'').match(/^\[([^\]]+)\]\s\[([^\]]+)\]/))
+    .filter(m=>m&&m[2]!=='自分'&&m[2]!=='Claude').map(m=>({ts:m[1],label:m[2]}));
+  const info=document.getElementById('rlInfo');
+  info.textContent=I18N['dash.relabel_count'].replace('{count}',_rlItems.length);
+  document.getElementById('rlName').value='';document.getElementById('rlGroup').value='';
+  document.getElementById('rlPerson').checked=true;document.getElementById('rlGroup').hidden=true;
+  document.getElementById('rlGroup').dataset.touched='';document.getElementById('rlPerson').dataset.touched='';
+  let d=null;
+  try{d=await(await fetch('/api/speakers?file='+encodeURIComponent(_rlFile))).json();}catch(e){}
+  if(d&&d.status==='ok'){
+    _fillOptions('rlSuggest',d.suggestions);_fillOptions('grpSuggest',d.groups||[]);
+    if(d.active)info.textContent=I18N['dash.speakers_active'];
+    else if(d.translating)info.textContent=I18N['dash.speakers_translating'];
+  }
+  document.getElementById('rlSaveBtn').disabled=!_rlItems.length||!!(d&&(d.active||d.translating));
+  document.getElementById('relabelModal').classList.add('open');
+}
+function closeRelabelModal(){document.getElementById('relabelModal').classList.remove('open');}
+async function saveRelabel(){
+  const name=document.getElementById('rlName').value.trim();
+  if(!name||!_rlItems.length)return;
+  const body={file:_rlFile,lines:_rlItems,name},gi=document.getElementById('rlGroup'),pi=document.getElementById('rlPerson');
+  if(gi.dataset.touched==='1'&&!pi.checked)body.group=gi.value.trim();
+  if(pi.dataset.touched==='1')body.person=!!pi.checked;
+  let d;
+  try{d=await(await fetch('/api/speakers/assign-lines',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body)})).json();}catch(e){alert(String(e));return;}
+  if(d.status!=='ok'){alert(d.message||'error');return;}
+  closeRelabelModal();deselectAll();showToast(d.message);loadT(_rlFile);loadR(_rlFile);await loadSpeakerGroups();
+  if(d.has_summary)await regenSummaryFor(_rlFile);
+}
+loadSpeakerGroups();
 """

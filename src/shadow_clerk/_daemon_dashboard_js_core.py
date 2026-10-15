@@ -27,6 +27,7 @@ let panelMode=0;
 try{const _pm=parseInt(localStorage.getItem('panelMode')||'0',10);
     if(_pm>=0&&_pm<PANEL_MODES.length)panelMode=_pm;}catch(e){}
 let meetingGroups={}, curGroup=null; // 会議グループ管理
+let spkGroups={names:{},persons:{},groups:{},self_group:''}; // 話者→グループ→色（speakers が読む）
 const as={tp:true,rp:true,sp:true,logc:true};
 ['tp','rp','sp','logc'].forEach(id=>{
   document.getElementById(id).addEventListener('scroll',function(){
@@ -50,7 +51,7 @@ function fmtLine(t){
   const m=t.match(/^\\[(\\d{4}-\\d{2}-\\d{2}\\s\\d{2}:\\d{2}:\\d{2})\\]\\s\\[([^\\]]+)\\]\\s(.*)$/);
   if(m){const sp=m[2],mic=I18N['speaker.mic']||'自分';const c=spCls(sp,mic);
     const dl=sp===mic?mic:sp==='自分'?mic:(sp===(I18N['speaker.monitor']||'相手')||sp==='相手')?(I18N['speaker.monitor']||'相手'):sp;
-    return '<div class="ln" data-ts="'+escAttr(m[1])+'" data-raw="'+escAttr(t)+'"><span class="ln-text"><span class="ts">['+esc(m[1])+']</span> <span class="'+c+'">['+esc(dl)+']</span> '+esc(m[3])+'</span></div>';}
+    return '<div class="ln" data-ts="'+escAttr(m[1])+'" data-raw="'+escAttr(t)+'"><span class="ln-text"><span class="ts">['+esc(m[1])+']</span> <span class="'+c+'" data-sp="'+escAttr(sp)+'"'+(spColor(sp,mic)?' style="color:'+spColor(sp,mic)+'"':'')+'>['+esc(dl)+']</span> '+esc(m[3])+'</span></div>';}
   return '<div class="ln" data-raw="'+escAttr(t)+'"><span class="ln-text">'+esc(t)+'</span></div>';
 }
 function fmtTranscriptLine(t){
@@ -58,7 +59,7 @@ function fmtTranscriptLine(t){
   const m=t.match(/^\\[(\\d{4}-\\d{2}-\\d{2}\\s\\d{2}:\\d{2}:\\d{2})\\]\\s\\[([^\\]]+)\\]\\s(.*)$/);
   if(m){const sp=m[2],mic=I18N['speaker.mic']||'自分';const c=spCls(sp,mic);
     const dl=sp===mic?mic:sp==='自分'?mic:(sp===(I18N['speaker.monitor']||'相手')||sp==='相手')?(I18N['speaker.monitor']||'相手'):sp;
-    return '<div class="ln" data-ts="'+escAttr(m[1])+'" data-raw="'+escAttr(t)+'"><input type="checkbox" class="ln-cb" onchange="onSelChange()"><span class="ln-text"><span class="ts">['+esc(m[1])+']</span> <span class="'+c+'">['+esc(dl)+']</span> '+esc(m[3])+'</span></div>';}
+    return '<div class="ln" data-ts="'+escAttr(m[1])+'" data-raw="'+escAttr(t)+'"><input type="checkbox" class="ln-cb" onchange="onSelChange()"><span class="ln-text"><span class="ts">['+esc(m[1])+']</span> <span class="'+c+'" data-sp="'+escAttr(sp)+'"'+(spColor(sp,mic)?' style="color:'+spColor(sp,mic)+'"':'')+'>['+esc(dl)+']</span> '+esc(m[3])+'</span></div>';}
   return '<div class="ln" data-raw="'+escAttr(t)+'"><span class="ln-text">'+esc(t)+'</span></div>';
 }
 function addLines(id,text,fmt){
