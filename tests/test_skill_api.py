@@ -21,6 +21,7 @@ from shadow_clerk._daemon_constants import SESSION_FILE  # noqa: E402
 from shadow_clerk._daemon_dashboard_ops_skill import (
     wrap_transcript,  # noqa: E402
     _DashboardHandlerSkillOps as Ops, _norm)
+from shadow_clerk.domain import TranscriptRewriteJournal  # noqa: E402
 
 results: list[bool] = []
 
@@ -43,6 +44,8 @@ class _Handler(Ops):
             "output_path": os.path.join(DATA, active),
             "output_switch_offset": {},
             "stop_event": threading.Event(),
+            "transcript_lock": threading.Lock(),
+            "rewrite_journal": TranscriptRewriteJournal(),
         })()
 
     def _send_json(self, d: dict) -> None:

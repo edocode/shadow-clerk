@@ -2,6 +2,7 @@
 # pylint: disable=duplicate-code  # POST ボディ解析・パス解決の定型は各ハンドラで共通形
 from __future__ import annotations
 import collections
+import datetime
 import json
 import logging
 import os
@@ -10,6 +11,8 @@ import tempfile
 import threading
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_config import load_config
+from shadow_clerk._daemon_constants import SESSION_FILE
+from shadow_clerk.domain import TranscriptRewrite, meeting_start_marker
 from shadow_clerk._transcript_name import TranscriptName
 
 logger = logging.getLogger("shadow-clerk")
@@ -53,6 +56,9 @@ class _DashboardHandlerOps:
             if not removed:
                 self._send_json({"status": "error", "message": t("dash.delete_error")})
                 return
+            # translate_offset は「削除した翻訳済みバイト分」だけ縮める。
+            # 新サイズへのリセットだと未翻訳の末尾を翻訳済みと誤認しスキップするため
+            self._record_rewrite(t_path, TranscriptRewrite.removing(old_lines, removed), old_offset)
 
             # タイムスタンプを抽出して翻訳ファイルから対応行を削除
             timestamps = []
@@ -75,11 +81,6 @@ class _DashboardHandlerOps:
         # FileWatcher の SSE オフセットは新サイズに合わせる
         self._reset_watch_offsets(
             [("transcript", t_path), ("translation", tr_path)], [])
-        # translate_offset は「削除した翻訳済みバイト分」だけ縮める。
-        # 新サイズへのリセットだと未翻訳の末尾を翻訳済みと誤認しスキップするため
-        if old_offset is not None:
-            self._write_translate_offset(
-                t_path, self._shrink_translate_offset(old_lines, removed, old_offset))
 
         # transcript がマーカー行・空行のみになった場合は関連ファイルごと削除
         cleaned = self._check_and_cleanup_empty_transcript(t_path)
@@ -142,7 +143,16 @@ class _DashboardHandlerOps:
                       if k == t_path or (trans_prefix and k.startswith(trans_prefix))]:
                 del self.file_watcher._mtimes[k]
         if self.recorder.output_path == t_path:
-            self.recorder.output_path = self.recorder._get_default_output()
+            if os.path.exists(SESSION_FILE):
+                # 会議中は書き込み先を動かさない（以降の発話と終了マーカーが日次へ漏れる）。
+                # 開始マーカーだけの会議ファイルを作り直す。呼び出し元は transcript_lock を持たない
+                session = getattr(self.recorder, "current_session", None)
+                with self.recorder.transcript_lock:
+                    with open(t_path, "a", encoding="utf-8") as f:
+                        f.write(meeting_start_marker(session.started_at if session else datetime.datetime.now()))
+                    self.recorder.rewrite_journal.invalidate(t_path)
+            else:
+                self.recorder.output_path = self.recorder._get_default_output()
         return deleted
 
     def _delete_transcript_file(self) -> None:
@@ -232,8 +242,10 @@ class _DashboardHandlerOps:
             # バイトオフセットの部分的な引き継ぎができない）
             old_daily_offset = self._read_translate_offset(daily_path)
             old_daily_size = self._get_file_size(daily_path)
-            # transcript 本体をマージ
+            # transcript 本体をマージ。並べ替え挿入はバイト位置を写せないので、日次ファイルを
+            # 追う読み手（/api/watch・翻訳ループ）には読み直しを促す
             _merge_file(t_path, daily_path)
+            self.recorder.rewrite_journal.invalidate(daily_path)
             # 翻訳ファイルをマージ (transcript-YYYYMMDDHHMM[@name]-{lang}.txt → transcript-YYYYMMDD-{lang}.txt)
             for fname in os.listdir(output_dir):
                 if fname.startswith(tn.stem + "-") and fname.endswith(".txt"):
@@ -242,19 +254,20 @@ class _DashboardHandlerOps:
                         daily_tr = os.path.join(output_dir, daily_tn.translation_filename(lang))
                         _merge_file(os.path.join(output_dir, fname), daily_tr)
                         merged_translations.append(daily_tr)
+            # translate_offset: マージは並べ替えのため部分オフセットを引き継げない。
+            # 追いついていた場合のみ新サイズ（翻訳ファイルも一緒にマージ済み＝翻訳済み）、
+            # 追いついていなければ 0 から再翻訳（未翻訳末尾のスキップを避ける）。
+            # 翻訳ループが古い offset を読まないようロック内で書く
+            if old_daily_offset is not None:
+                self._write_translate_offset(
+                    daily_path,
+                    self._get_file_size(daily_path) if old_daily_offset >= old_daily_size else 0)
 
         # マージは日次ファイルの途中に行を挿入するため、FileWatcher の SSE オフセットは
         # 新サイズに合わせる（無関係なバイト範囲の再配信を防ぐ）
         self._reset_watch_offsets(
             [("transcript", daily_path)] + [("translation", p) for p in merged_translations],
             [])
-        # translate_offset: マージは並べ替えのため部分オフセットを引き継げない。
-        # 追いついていた場合のみ新サイズ（翻訳ファイルも一緒にマージ済み＝翻訳済み）、
-        # 追いついていなければ 0 から再翻訳（未翻訳末尾のスキップを避ける）
-        if old_daily_offset is not None:
-            self._write_translate_offset(
-                daily_path,
-                self._get_file_size(daily_path) if old_daily_offset >= old_daily_size else 0)
 
         deleted = self._cleanup_transcript_files(t_path, tn)
         if not deleted:
@@ -312,28 +325,15 @@ class _DashboardHandlerOps:
             return [], lines
         return removed, lines
 
-    @staticmethod
-    def _shrink_translate_offset(old_lines: list[str], removed_indices: list[int],
-                                 old_offset: int) -> int:
-        """行削除後の translate_offset（翻訳済み境界のバイト位置）を算出する。
+    def _record_rewrite(self, t_path: str, rewrite: TranscriptRewrite, old_offset: int | None) -> None:
+        """書き直しを記録し、translate_offset を新しい座標へ写す。transcript_lock を持って呼ぶこと。
 
-        削除された行のうち旧オフセットより前（＝翻訳済み領域）にあった分の
-        バイト数だけオフセットを縮める。単純に新ファイルサイズへリセットすると、
-        削除時点で未翻訳だった末尾を「翻訳済み」と誤認して恒久的にスキップして
-        しまうため、翻訳済み領域だけを正確に縮める。
+        記録は /api/watch と翻訳ループが自分の読み位置を写すのに使う。translate_offset もロック内で
+        書くので、LLM 呼び出しから戻った翻訳ループの書き込みと前後が入れ替わらない。
         """
-        removed = set(removed_indices)
-        new_offset = old_offset
-        pos = 0
-        for i, line in enumerate(old_lines):
-            blen = len(line.encode("utf-8"))
-            if i in removed:
-                if pos + blen <= old_offset:
-                    new_offset -= blen
-                elif pos < old_offset:  # オフセットが行の途中（通常起きない）
-                    new_offset -= (old_offset - pos)
-            pos += blen
-        return max(0, new_offset)
+        self.recorder.rewrite_journal.record_rewrite(t_path, rewrite)
+        if old_offset is not None:
+            self._write_translate_offset(t_path, rewrite.map_offset(old_offset))
 
     @staticmethod
     def _read_translate_offset(path: str) -> int | None:

@@ -145,21 +145,28 @@ class _RecorderTranslateMixin:
                 try:
                     transcript = target_transcript or self.output_path
                     offset_file = self._translate_offset_file(transcript)
-                    try:
-                        with open(offset_file, "r", encoding="utf-8") as f:
-                            offset = int(f.read().strip())
-                    except (OSError, ValueError):
-                        offset = 0
+                    # (a) offset・未翻訳分・書き換え世代をロック内でまとめて取る。LLM 呼び出し中は
+                    # ロックを持たないので、訳す中身はファイルではなくこのスナップショットを渡す
+                    with self.transcript_lock:
+                        try:
+                            with open(offset_file, "r", encoding="utf-8") as f:
+                                offset = int(f.read().strip())
+                        except (OSError, ValueError):
+                            offset = 0
+                        try:
+                            size = os.path.getsize(transcript)
+                        except OSError:
+                            size = 0
+                        generation = self.rewrite_journal.generation(transcript)
+                        chunk = b""
+                        if size > offset:
+                            # チャンク分割: 大量テキストを一度に投げないよう制限（改行境界にアライン）
+                            effective_size = self._aligned_chunk_end(transcript, offset, 8000, size)
+                            with open(transcript, "rb") as f:
+                                f.seek(offset)
+                                chunk = f.read(effective_size - offset)
 
-                    try:
-                        size = os.path.getsize(transcript)
-                    except OSError:
-                        size = 0
-
-                    if size > offset:
-                        # チャンク分割: 大量テキストを一度に投げないよう制限（改行境界にアライン）
-                        chunk_limit = 8000  # bytes
-                        effective_size = self._aligned_chunk_end(transcript, offset, chunk_limit, size)
+                    if chunk:
                         # 翻訳先ファイルパスを事前計算（コンテキスト渡しに使用）
                         tn = TranscriptName.parse(os.path.basename(transcript))
                         tr_path = (
@@ -170,11 +177,11 @@ class _RecorderTranslateMixin:
                                          os.path.basename(transcript).replace(".txt", f"-{lang}.txt"))
                         )
                         cmd = [sys.executable, "-m", "shadow_clerk.llm_client", "--verbose",
-                               "translate", lang, "--file", transcript, "--offset", str(offset),
-                               "--max-bytes", str(effective_size - offset)]
+                               "translate", lang]
                         if os.path.exists(tr_path):
                             cmd += ["--context-file", tr_path]
-                        result = subprocess.run(cmd, capture_output=True, text=True,
+                        result = subprocess.run(cmd, input=chunk.decode("utf-8", errors="replace"),
+                                                capture_output=True, text=True,
                                                 encoding="utf-8", errors="replace", timeout=300)
                         if result.returncode == 0 and result.stdout.strip():
                             translation = Translation(
@@ -187,11 +194,21 @@ class _RecorderTranslateMixin:
                                 if translation else tr_path
                             )
                             tr_name = os.path.basename(tr_path)
-                            mode = "w" if offset == 0 else "a"
-                            with open(tr_path, mode, encoding="utf-8") as f:
-                                f.write(result.stdout)
-                            with open(offset_file, "w", encoding="utf-8") as f:
-                                f.write(str(effective_size))
+                            # (b) 確定もロック内。翻訳中にダッシュボードが書き直していたら、訳し終えた
+                            # 位置（旧座標）を今の座標へ写して書く。写せないほど書き直しが重なったら
+                            # 結果を捨て、ダッシュボードが写した translate_offset から取り直す
+                            with self.transcript_lock:
+                                new_end, _ = self.rewrite_journal.remap_since(
+                                    transcript, generation, effective_size)
+                                if new_end is not None:
+                                    with open(tr_path, "w" if offset == 0 else "a", encoding="utf-8") as f:
+                                        f.write(result.stdout)
+                                    with open(offset_file, "w", encoding="utf-8") as f:
+                                        f.write(str(new_end))
+                            if new_end is None:
+                                logger.warning("翻訳中に書き直しが重なったため結果を捨てて取り直す: %s",
+                                               os.path.basename(transcript))
+                                continue
                             logger.info("翻訳完了: %d bytes → %s", effective_size - offset, tr_name)
                             # one-shot: 全チャンク翻訳完了したら終了
                             if one_shot and effective_size >= size:

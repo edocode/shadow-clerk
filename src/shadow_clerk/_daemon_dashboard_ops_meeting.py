@@ -8,7 +8,7 @@ import re
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name
-from shadow_clerk.domain import MEETING_END_MARKER, meeting_start_marker
+from shadow_clerk.domain import MEETING_END_MARKER, TranscriptRewrite, meeting_start_marker
 
 
 def _start_marker_at(ts: str) -> str:
@@ -96,6 +96,9 @@ class _DashboardHandlerMeetingOps:
 
             # 日次 transcript から抽出行を削除（一時ファイル→rename で安全に書き戻し）
             self._atomic_write_lines(t_path, remaining)
+            # 元ファイルの translate_offset は削除した翻訳済みバイト分だけ縮める
+            # （新サイズへのリセットだと未翻訳末尾を翻訳済みと誤認しスキップするため）
+            self._record_rewrite(t_path, TranscriptRewrite.removing(all_lines, extracted_idx), old_offset)
 
             # 翻訳ファイルも同様に処理
             config = load_config()
@@ -117,11 +120,6 @@ class _DashboardHandlerMeetingOps:
         self._reset_watch_offsets(
             [("transcript", t_path), ("translation", tr_path)],
             [meeting_path])
-        # 元ファイルの translate_offset は削除した翻訳済みバイト分だけ縮める
-        # （新サイズへのリセットだと未翻訳末尾を翻訳済みと誤認しスキップするため）
-        if old_offset is not None:
-            self._write_translate_offset(
-                t_path, self._shrink_translate_offset(all_lines, extracted_idx, old_offset))
 
         # 元ファイルがマーカー行・空行のみになった場合は関連ファイルごと削除
         source_deleted = self._check_and_cleanup_empty_transcript(t_path)
@@ -350,6 +348,8 @@ class _DashboardHandlerMeetingOps:
 
             # 元ファイルから分割済み行を削除（一時ファイル→rename で安全に書き戻し）
             self._atomic_write_lines(t_path, remaining_lines)
+            # 元ファイルの translate_offset は分割で除いた翻訳済みバイト分だけ縮める
+            self._record_rewrite(t_path, TranscriptRewrite.removing(all_lines, list(consumed)), old_offset)
 
             # 翻訳ファイルを各セグメントのタイムスタンプ範囲で分割
             tr_path = os.path.join(output_dir, _src_tn.translation_filename(lang)) if _src_tn else None
@@ -366,11 +366,6 @@ class _DashboardHandlerMeetingOps:
         # （縮小した元ファイルへの生バイト diff 配信を防ぐ）
         self._reset_watch_offsets(
             [("transcript", t_path), ("translation", tr_path)], [])
-        # 元ファイルの translate_offset は分割で除いた翻訳済みバイト分だけ縮める
-        # （新サイズへのリセットだと未翻訳末尾を翻訳済みと誤認しスキップするため）
-        if old_offset is not None:
-            self._write_translate_offset(
-                t_path, self._shrink_translate_offset(all_lines, list(consumed), old_offset))
 
         # 元ファイルがマーカー行・空行のみになった場合は関連ファイルごと削除
         source_deleted = self._check_and_cleanup_empty_transcript(t_path)
