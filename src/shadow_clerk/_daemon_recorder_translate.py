@@ -117,6 +117,22 @@ class _RecorderTranslateMixin:
             return offset + chunk_limit
         return offset + nl + 1
 
+    def _register_translating(self, transcript_path: str) -> None:
+        with self._translating_lock:
+            self._translating_paths[os.path.abspath(transcript_path)] += 1
+
+    def _unregister_translating(self, transcript_path: str) -> None:
+        path = os.path.abspath(transcript_path)
+        with self._translating_lock:
+            self._translating_paths[path] -= 1
+            if self._translating_paths[path] <= 0:
+                del self._translating_paths[path]
+
+    def is_translating(self, transcript_path: str) -> bool:
+        """その transcript を今翻訳しているジョブがあるか（one-shot の全期間、継続ループのチャンク処理中）"""
+        with self._translating_lock:
+            return self._translating_paths.get(os.path.abspath(transcript_path), 0) > 0
+
     def _translate_loop(self, target_transcript: str | None = None,
                         stop_event: threading.Event | None = None) -> None:
         """翻訳ループスレッド (llm_provider: api 用)
@@ -138,12 +154,17 @@ class _RecorderTranslateMixin:
                      f" (one-shot: {os.path.basename(target_transcript)})" if one_shot else "")
         if target_transcript:
             self.translate_target_path = target_transcript
+            self._register_translating(target_transcript)
         fail_count = 0  # 連続失敗回数（バックオフ用）
         try:
             while not self.stop_event.is_set() and not stop_event.is_set():
                 failed = False
+                held: str | None = None  # 継続ループがこのチャンクで触っているファイル（日付変更後も元のファイルを守る）
                 try:
                     transcript = target_transcript or self.output_path
+                    if not one_shot:
+                        held = transcript
+                        self._register_translating(held)
                     offset_file = self._translate_offset_file(transcript)
                     # (a) offset・未翻訳分・書き換え世代をロック内でまとめて取る。LLM 呼び出し中は
                     # ロックを持たないので、訳す中身はファイルではなくこのスナップショットを渡す
@@ -241,6 +262,9 @@ class _RecorderTranslateMixin:
                     failed = True
                     if one_shot:
                         return
+                finally:
+                    if held is not None:
+                        self._unregister_translating(held)
 
                 # 失敗が続くと LLM/翻訳サーバを 5 秒毎に無限に叩き続けるため指数バックオフ。
                 # 成功したら 5 秒間隔に戻す（バックログ消化のためのポーリング間隔）
@@ -253,6 +277,8 @@ class _RecorderTranslateMixin:
                 stop_event.wait(timeout=wait)
         finally:
             self.translate_target_path = None
+            if target_transcript:
+                self._unregister_translating(target_transcript)
 
         logger.info("翻訳ループ終了")
 

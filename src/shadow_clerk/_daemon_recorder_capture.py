@@ -8,6 +8,7 @@ import os
 import queue
 import re
 import threading
+from collections import Counter
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -215,6 +216,9 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         self.use_mic = True
         self.word_replacer = GlossaryReplacer()
 
+        from shadow_clerk._daemon_speaker_diarization import SpeakerDiarizer
+        self.diarizer = SpeakerDiarizer()
+
         # Push-to-Talk コマンドモード
         self._command_mode = False
         self._command_mode_release_time: float = 0.0  # キーリリース時刻
@@ -269,6 +273,8 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         self._translate_stop_event = threading.Event()
         self._translate_thread: threading.Thread | None = None
         self.translate_target_path: str | None = None  # 現在翻訳中のトランスクリプトパス
+        self._translating_paths: Counter[str] = Counter()  # 翻訳中のファイルごとのジョブ数（one-shot 全期間 / 継続ループのチャンク中）
+        self._translating_lock = threading.Lock()
 
         # リアルタイム interim 翻訳キュー (maxsize=1 で最新のみ保持)
         self._interim_translate_queue: queue.Queue = queue.Queue(maxsize=1)

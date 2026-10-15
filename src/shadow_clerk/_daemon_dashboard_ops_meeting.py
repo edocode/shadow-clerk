@@ -9,6 +9,7 @@ from shadow_clerk.i18n import t
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name
 from shadow_clerk.domain import MEETING_END_MARKER, TranscriptRewrite, meeting_start_marker
+from shadow_clerk._daemon_voice_sidecar import copy_voice_range
 
 
 def _start_marker_at(ts: str) -> str:
@@ -82,6 +83,7 @@ class _DashboardHandlerMeetingOps:
                     f.write(_start_marker_at(start_ts))
                     f.writelines(extracted)
                     f.write(MEETING_END_MARKER)
+                copy_voice_range(t_path, meeting_path, start_ts, end_ts)
             else:
                 # 既存会議ファイルにマージ
                 meeting_name = os.path.basename(target)
@@ -344,6 +346,8 @@ class _DashboardHandlerMeetingOps:
                     f.write(_start_marker_at(first_ts))
                     f.writelines(l for _, l in seg)
                     f.write(MEETING_END_MARKER)
+                seg_ts = [m.group(1) for _, l in seg if (m := ts_pattern.match(l))]
+                copy_voice_range(t_path, meeting_path, seg_ts[0], seg_ts[-1])
                 created.append(meeting_name)
 
             # 元ファイルから分割済み行を削除（一時ファイル→rename で安全に書き戻し）

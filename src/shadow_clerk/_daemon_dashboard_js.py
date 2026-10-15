@@ -9,7 +9,8 @@ from shadow_clerk._daemon_dashboard_js_panels import _JS_TEMPLATE_PANELS
 from shadow_clerk._daemon_dashboard_js_console import _JS_TEMPLATE_CONSOLE
 from shadow_clerk._daemon_dashboard_js_talk import _JS_TEMPLATE_TALK
 from shadow_clerk._daemon_dashboard_js_speech import _JS_TEMPLATE_SPEECH
+from shadow_clerk._daemon_dashboard_js_speakers import _JS_TEMPLATE_SPEAKERS
 
 _JS_TEMPLATE = (_JS_TEMPLATE_CORE + _JS_TEMPLATE_CONSOLE_ROLE + _JS_TEMPLATE_MODALS + _JS_TEMPLATE_DEVICES
                 + _JS_TEMPLATE_SETTINGS + _JS_TEMPLATE_PANELS
-                + _JS_TEMPLATE_CONSOLE + _JS_TEMPLATE_TALK + _JS_TEMPLATE_SPEECH)
+                + _JS_TEMPLATE_CONSOLE + _JS_TEMPLATE_TALK + _JS_TEMPLATE_SPEECH + _JS_TEMPLATE_SPEAKERS)

@@ -8,10 +8,12 @@ from shadow_clerk._daemon_dashboard_ops_screenshot import _DashboardHandlerScree
 from shadow_clerk._daemon_dashboard_ops_console import _DashboardHandlerConsoleOps
 from shadow_clerk._daemon_dashboard_ops_skill import _DashboardHandlerSkillOps
 from shadow_clerk._daemon_dashboard_ops_talk import _DashboardHandlerTalkOps
+from shadow_clerk._daemon_dashboard_ops_speakers import _DashboardHandlerSpeakerOps
 
 
 class DashboardHandler(_DashboardHandlerOps, _DashboardHandlerMeetingOps,
                        _DashboardHandlerConfigOps, _DashboardHandlerScreenshotOps,
                        _DashboardHandlerConsoleOps, _DashboardHandlerSkillOps,
-                       _DashboardHandlerTalkOps, _DashboardHandlerBase):
+                       _DashboardHandlerTalkOps, _DashboardHandlerSpeakerOps,
+                       _DashboardHandlerBase):
     """ダッシュボード HTTP リクエストハンドラー"""

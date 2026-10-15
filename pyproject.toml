@@ -51,6 +51,7 @@ dependencies = [
     "langdetect>=1.0.9",
     "pyte>=0.8.2",
     "markdown-it-py>=3.0",
+    "onnxruntime>=1.30.0",
 ]
 
 [project.urls]
@@ -80,6 +81,12 @@ gcal = [
     "google-auth-oauthlib>=1.0.0",
     "google-api-python-client>=2.0.0",
 ]
+# 話者分離 (speaker_diarization: true で有効化)
+# huggingface_hub は faster-whisper の推移的依存として常に利用可能
+diarization = [
+    "onnxruntime>=1.16.0",
+    "kaldi-native-fbank>=1.17.0",
+]
 
 [project.scripts]
 clerk-daemon = "shadow_clerk.clerk_daemon:main"
@@ -99,6 +106,7 @@ shadow_clerk = ["skills/**/*.md", "talk_prompts/*.md"]
 [dependency-groups]
 dev = [
     "mypy>=1.20.0",
+    "pylint>=4.1.2",
     "types-pyyaml>=6.0.12.20250915",
 ]
 

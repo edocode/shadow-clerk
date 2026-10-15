@@ -81,6 +81,11 @@ main {
 .extract-option { display:flex; align-items:center; gap:8px; padding:8px 0; cursor:pointer; font-size:13px; text-align:left; color:var(--text); }
 .extract-option input[type=radio] { width:auto !important; margin:0; flex-shrink:0; }
 .extract-option .eo-label { white-space:nowrap; }
+.spk-row { display:flex; align-items:center; gap:8px; padding:4px 0; font-size:13px; }
+.spk-row .spk-label { flex:none; width:64px; font-weight:bold; }
+.spk-row .spk-meta { flex:none; width:150px; color:var(--muted); font-size:11px; }
+.modal-body .spk-row input { flex:none; width:140px; }  /* .modal-body input { width:100% } に勝たせる */
+.spk-row .spk-example { flex:1; min-width:0; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 /* 末尾の説明文は折り返す。折り返さないとモーダルが横にはみ出してスクロールバーが出る */
 .extract-option .eo-label:last-child { white-space:normal; min-width:0; }
 .extract-option select { width:auto !important; flex:1; min-width:120px; margin-left:4px; padding:3px 6px; font-size:12px; }

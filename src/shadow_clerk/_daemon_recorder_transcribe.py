@@ -25,6 +25,7 @@ from shadow_clerk._daemon_transcriber import Transcriber
 from shadow_clerk._daemon_dashboard import LogBuffer, FileWatcher, DashboardHandler
 from shadow_clerk.domain import Speaker, TranscriptLine
 from shadow_clerk._daemon_talk import TalkDriver
+from shadow_clerk._daemon_voice_sidecar import append_voice
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -56,6 +57,11 @@ class _RecorderTranscribeMixin:
             with open(self.output_path, "a", encoding="utf-8") as f:
                 f.write(tl.format())
                 f.flush()
+
+    def _append_voice(self, timestamp: str, label: str, embedding: Any) -> None:
+        """声紋サイドカーに追記する。名前付け・声紋削除の書き換えと同じ transcript_lock で直列化する"""
+        with self.transcript_lock:
+            append_voice(self.output_path, timestamp, label, embedding)
 
     @staticmethod
     def _is_noise_text(text: str) -> bool:
@@ -170,13 +176,25 @@ class _RecorderTranscribeMixin:
             logger.debug("応答フィルタ: %r (speaker=%s) をスキップ", text.strip(), file_speaker)
             return last_file_speaker
 
-        tl = TranscriptLine(timestamp=timestamp, speaker=file_speaker, text=text)
+        speaker_label: str | None = None
+        if file_speaker == Speaker.OTHER and load_config().get("speaker_diarization", False):
+            self.diarizer.bind_output(self.output_path)
+            result = self.diarizer.identify_speaker(segment)
+            if result is None:
+                speaker_label = "相手?"
+            else:
+                speaker_label, embedding = result
+                if load_config().get("speaker_enrollment", False):
+                    self._append_voice(timestamp, speaker_label, embedding)
+        tl = TranscriptLine(timestamp=timestamp, speaker=file_speaker, text=text,
+                            speaker_label=speaker_label)
         self._append_transcript_line(tl)
         if file_speaker == Speaker.SELF:
             self.talk.on_self_line(tl)
         else:
             self.talk.on_other_line(tl)
-        display_line = f"[{timestamp}] [{display_speaker}] {text}"
+        effective_speaker = speaker_label if speaker_label else display_speaker
+        display_line = f"[{timestamp}] [{effective_speaker}] {text}"
         print(f"  {display_line}")
         self._clear_interim(source)
         return file_speaker

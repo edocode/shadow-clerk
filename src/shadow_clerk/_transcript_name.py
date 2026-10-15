@@ -118,6 +118,12 @@ class TranscriptName:
         return f"transcript-{self.datetime_str}{suffix}.attendees.json"
 
     @property
+    def voices_filename(self) -> str:
+        """transcript-YYYYMMDDHHMM[@name].voices.jsonl — 話者分離の埋め込み（名前付け用）"""
+        suffix = f"@{self.meeting_name}" if self.meeting_name else ""
+        return f"transcript-{self.datetime_str}{suffix}.voices.jsonl"
+
+    @property
     def advice_filename(self) -> str:
         """advice-YYYYMMDDHHMM[@name].md — AI アシスタントが書く未解決の提案"""
         suffix = f"@{self.meeting_name}" if self.meeting_name else ""

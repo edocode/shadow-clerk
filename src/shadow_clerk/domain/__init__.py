@@ -15,6 +15,7 @@ from shadow_clerk.domain.console_role import ConsoleRole
 from shadow_clerk.domain.talk_route import RouteTarget
 from shadow_clerk.domain.talk_echo import EchoFilter, SpokenSpan
 from shadow_clerk.domain.talk_speech import SpeechTab, estimate_speech_sec
+from shadow_clerk.domain.voiceprint import PersonName, VoiceEntry, VoiceSample
 from shadow_clerk.domain.transcript_rewrite import TranscriptRewrite, TranscriptRewriteJournal
 
 __all__ = [
@@ -36,6 +37,9 @@ __all__ = [
     "SpokenSpan",
     "SpeechTab",
     "estimate_speech_sec",
+    "PersonName",
+    "VoiceEntry",
+    "VoiceSample",
     "TranscriptRewrite",
     "TranscriptRewriteJournal",
 ]

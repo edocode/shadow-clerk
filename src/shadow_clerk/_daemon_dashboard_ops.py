@@ -106,7 +106,7 @@ class _DashboardHandlerOps:
                 if f != base and f.startswith(tn.stem + "-") and f.endswith(".txt"):
                     related.append(f)
             for name in (tn.summary_filename, tn.advice_filename,
-                         tn.analysis_filename):
+                         tn.analysis_filename, tn.voices_filename):
                 if name in all_files:
                     related.append(name)
         offset_name = base + ".translate_offset"

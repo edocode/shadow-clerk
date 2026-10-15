@@ -14,6 +14,7 @@ import os
 import subprocess
 import tempfile
 import threading
+from collections import Counter
 import time
 import types
 
@@ -49,6 +50,8 @@ class _Rec(_RecorderTranslateMixin):
         self._translate_stop_event = threading.Event()
         self.translate_target_path: str | None = None
         self.current_session = None
+        self._translating_paths: Counter[str] = Counter()
+        self._translating_lock = threading.Lock()
 
 
 class _Handler(_DashboardHandlerOps, _DashboardHandlerMeetingOps, _DashboardHandlerSkillOps):

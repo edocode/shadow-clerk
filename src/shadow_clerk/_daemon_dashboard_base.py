@@ -102,6 +102,22 @@ def read_local_json_body(handler: Any, label: str) -> dict | None:
     return data
 
 
+def read_attendees(transcript_path: str) -> list[str]:
+    """transcript と同じディレクトリの attendees.json から参加予定者を返す。無ければ空"""
+    tn = TranscriptName.parse(os.path.basename(transcript_path))
+    if tn is None:
+        return []
+    try:
+        with open(os.path.join(os.path.dirname(transcript_path), tn.attendees_filename),
+                  "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    return [a for a in (data.get("attendees") or []) if isinstance(a, str) and a.strip()]
+
+
 def _console_running(role: ConsoleRole = ConsoleRole.ASSISTANT) -> bool:
     """AI Console が動いているか。循環 import を避けてここで遅延 import する"""
     from shadow_clerk._daemon_console import get_console
@@ -187,6 +203,10 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_speaking()
         elif path == "/api/misheard":
             self._serve_misheard()
+        elif path == "/api/speakers":
+            self._serve_speakers()
+        elif path == "/api/voiceprints":
+            self._serve_voiceprints()
         else:
             self.send_error(404)
 
@@ -262,6 +282,10 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._talk_preview()
         elif path == "/api/misheard":
             self._save_misheard()
+        elif path == "/api/speakers/assign":
+            self._assign_speakers()
+        elif path == "/api/voiceprints/delete":
+            self._delete_voiceprint()
         else:
             self.send_error(404)
 
@@ -473,22 +497,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         指定した transcript ファイルの参加予定者リストを返す"""
         params = parse_qs(urlparse(self.path).query)
         file_param = params.get("file", [None])[0]
-        if not file_param:
-            self._send_json({"attendees": []})
-            return
-        tn = TranscriptName.parse(os.path.basename(file_param))
-        if tn is None:
-            self._send_json({"attendees": []})
-            return
-        path = os.path.join(self.recorder._output_dir, tn.attendees_filename)
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            self._send_json({"attendees": []})
-            return
-        attendees = [a for a in (data.get("attendees") or []) if isinstance(a, str) and a.strip()]
-        self._send_json({"attendees": attendees})
+        path = os.path.join(self.recorder._output_dir, os.path.basename(file_param)) if file_param else ""
+        self._send_json({"attendees": read_attendees(path) if path else []})
 
     def _serve_summary(self) -> None:
         """GET /api/summary — summary ファイルの内容を返す"""
