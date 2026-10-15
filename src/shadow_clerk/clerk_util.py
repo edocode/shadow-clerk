@@ -224,13 +224,17 @@ def _exec_clerk_daemon(args: list[str]) -> None:
         # PATH フォールバック: shutil.which は Windows で .exe を自動補完
         exe = shutil.which("clerk-daemon") or "clerk-daemon"
 
+    # 保険: encoding 指定漏れがあっても Windows (cp932) で落ちないよう、daemon と
+    # その子プロセスを UTF-8 モードで動かす。利用者が明示した値は尊重する
+    env = {**os.environ}
+    env.setdefault("PYTHONUTF8", "1")
     if sys.platform == "win32":
         try:
-            result = subprocess.run([exe] + args, check=False)
+            result = subprocess.run([exe] + args, check=False, env=env)
         except KeyboardInterrupt:
             sys.exit(130)
         sys.exit(result.returncode)
-    os.execv(exe, [exe] + args)
+    os.execve(exe, [exe] + args, env)
 
 
 def cmd_start(args: list[str]) -> None:

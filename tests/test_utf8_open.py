@@ -94,6 +94,53 @@ def test_config_roundtrip_under_cp932_default() -> None:
     assert "wake_word: シェルク" in cfg.read_text(encoding="utf-8")
 
 
+def _launched_env(platform: str, preset: str | None) -> dict[str, str]:
+    """_exec_clerk_daemon がデーモンに渡す環境変数を、実際には起動せずに取り出す"""
+    seen: dict[str, str] = {}
+
+    class _Done(Exception):
+        pass
+
+    def fake_execve(_exe: str, _argv: list[str], env: dict[str, str]) -> None:
+        seen.update(env)
+        raise _Done
+
+    def fake_run(_cmd: list[str], check: bool = False, env: dict[str, str] | None = None) -> object:
+        seen.update(env or {})
+        raise _Done
+
+    def fake_execv(_exe: str, _argv: list[str]) -> None:
+        raise _Done  # 環境を渡さない起動。本物の daemon を起動させないため必ず止める
+
+    saved = (sys.platform, os.environ.get("PYTHONUTF8"), clerk_util.os.execve, clerk_util.os.execv,
+             clerk_util.subprocess.run)
+    try:
+        sys.platform = platform
+        if preset is None:
+            os.environ.pop("PYTHONUTF8", None)
+        else:
+            os.environ["PYTHONUTF8"] = preset
+        clerk_util.os.execve = fake_execve
+        clerk_util.os.execv = fake_execv
+        clerk_util.subprocess.run = fake_run
+        with contextlib.suppress(_Done):
+            clerk_util._exec_clerk_daemon(["-d"])
+    finally:
+        sys.platform = saved[0]
+        if saved[1] is None:
+            os.environ.pop("PYTHONUTF8", None)
+        else:
+            os.environ["PYTHONUTF8"] = saved[1]
+        clerk_util.os.execve, clerk_util.os.execv, clerk_util.subprocess.run = saved[2], saved[3], saved[4]
+    return seen
+
+
+def test_daemon_launched_in_utf8_mode() -> None:
+    for platform in ("linux", "win32"):
+        assert _launched_env(platform, None).get("PYTHONUTF8") == "1", platform
+        assert _launched_env(platform, "0").get("PYTHONUTF8") == "0", platform  # 利用者の明示設定を優先
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in list(globals().items()):
