@@ -57,6 +57,10 @@ def _props(obj: dict) -> dict:
     return (obj.get("info") or {}).get("props") or {}
 
 
+# つながっている間の監視間隔の倍率（poll_sec に掛ける）
+CONNECTED_POLL_FACTOR = 2
+
+
 class PipeWireRoute:
     def __init__(self, runner: Runner = run_command, pid: int | None = None, poll_sec: float = 1.0,
                  which: Callable[[str], str | None] = shutil.which) -> None:
@@ -133,7 +137,8 @@ class PipeWireRoute:
         self._thread.start()
 
     def _watch(self) -> None:
-        while not self._stop.wait(self._poll_sec):
+        # つながっている間は間隔を伸ばす。pw-dump はグラフ全体の JSON で、1 時間の会議なら毎秒 3600 回になる
+        while not self._stop.wait(self._poll_sec * (CONNECTED_POLL_FACTOR if self._connected else 1)):
             try:
                 self._sync()
             except Exception as e:  # 想定外のグラフでも監視は止めない
@@ -149,14 +154,20 @@ class PipeWireRoute:
     def _sync(self) -> None:
         """選んだアプリの録音ストリームのうち、まだつないでいない入力ポートにつなぐ"""
         with self._lock:
-            if not self._app:
-                return
-            try:
-                objs = self._dump()
-            except (OSError, subprocess.SubprocessError, ValueError) as e:
+            app = self._app
+        if not app:
+            return
+        # pw-dump はロックの外で走らせる。握ったままだと status() と disconnect() が最長 5 秒待たされる
+        try:
+            objs = self._dump()
+        except (OSError, subprocess.SubprocessError, ValueError) as e:
+            with self._lock:
                 self._warn_once(f"talk: PipeWire のグラフを読めません: {e}")
                 self._connected = False
-                return
+            return
+        with self._lock:
+            if self._app != app:
+                return  # dump の間に disconnect された
             src = self._source_port_id(objs)
             links = {((o.get("info") or {}).get("output-port-id"), (o.get("info") or {}).get("input-port-id"))
                      for o in objs if o.get("type") == "PipeWire:Interface:Link"}
