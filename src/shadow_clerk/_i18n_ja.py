@@ -89,6 +89,7 @@ STRINGS_JA: dict[str, str] = {
     "dash.speakers_translating": "この会議の翻訳が実行中です。翻訳が終わってから名前を付けてください",
     "dash.speakers_invalid": "リクエストが不正です",
     "dash.speakers_invalid_name": "使えない名前があります（空・括弧入り・「自分」「Claude」・「相手」で始まる名前は不可）",
+    "dash.speakers_group_invalid": "グループ名に使えない文字があります（括弧・改行は不可、50文字まで）",
     "dash.speakers_nothing": "名前が入力されていません",
     "dash.speakers_write_error": "名前を書き込めませんでした。ファイルの一部だけが書き換わっている可能性があります。もう一度保存してください",
     "dash.speakers_saved": "{count} 行に名前を付けました",

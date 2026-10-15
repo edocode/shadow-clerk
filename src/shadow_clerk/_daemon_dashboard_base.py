@@ -207,6 +207,10 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_speakers()
         elif path == "/api/voiceprints":
             self._serve_voiceprints()
+        elif path == "/api/speaker-groups":
+            self._serve_speaker_groups()
+        elif path == "/api/speaker-roster":
+            self._serve_speaker_roster()
         else:
             self.send_error(404)
 
@@ -286,6 +290,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._assign_speakers()
         elif path == "/api/speakers/assign-lines":
             self._assign_lines()
+        elif path == "/api/speaker-groups/set":
+            self._set_speaker_group()
         elif path == "/api/voiceprints/delete":
             self._delete_voiceprint()
         else:

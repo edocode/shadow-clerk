@@ -89,6 +89,7 @@ STRINGS_EN: dict[str, str] = {
     "dash.speakers_translating": "Translation of this meeting is still running. Name speakers after it finishes.",
     "dash.speakers_invalid": "Invalid request",
     "dash.speakers_invalid_name": "Some names are not allowed (empty, brackets, \"自分\", \"Claude\", or starting with \"相手\")",
+    "dash.speakers_group_invalid": "The group name contains characters that are not allowed (no brackets or line breaks, up to 50 characters)",
     "dash.speakers_nothing": "No names entered",
     "dash.speakers_write_error": "Could not write the names. Some files may be only partly updated. Please save again.",
     "dash.speakers_saved": "Named {count} lines",
