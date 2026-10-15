@@ -123,6 +123,7 @@ module = [
     "shadow_clerk._daemon_recorder_capture",
     "shadow_clerk._daemon_recorder_command",
     "shadow_clerk._daemon_recorder_transcribe",
+    "shadow_clerk._daemon_recorder_translate",
 ]
 disable_error_code = ["attr-defined", "misc", "has-type", "assignment", "union-attr", "type-var", "arg-type"]
 
@@ -131,5 +132,13 @@ disable_error_code = ["attr-defined", "misc", "has-type", "assignment", "union-a
 module = [
     "shadow_clerk._daemon_dashboard_base",
     "shadow_clerk._daemon_dashboard_ops",
+    "shadow_clerk._daemon_dashboard_ops_config",
+    "shadow_clerk._daemon_dashboard_ops_console",
+    "shadow_clerk._daemon_dashboard_ops_meeting",
+    "shadow_clerk._daemon_dashboard_ops_screenshot",
+    "shadow_clerk._daemon_dashboard_ops_skill",
+    "shadow_clerk._daemon_dashboard_ops_speaker_groups",
+    "shadow_clerk._daemon_dashboard_ops_speakers",
+    "shadow_clerk._daemon_dashboard_ops_talk",
 ]
 disable_error_code = ["attr-defined"]

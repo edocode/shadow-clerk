@@ -10,7 +10,7 @@ import sys
 
 from shadow_clerk.i18n import t, nt
 from shadow_clerk._llm_config import (
-    load_config, get_api_client, get_translation_provider, resolve_path, call_claude_cli,
+    LlmClientError, load_config, get_api_client, get_translation_provider, resolve_path, call_claude_cli,
     chat_completion,
 )
 from shadow_clerk._llm_glossary import load_glossary, MARKER_RE, TIMESTAMP_RE, _seems_target_language
@@ -167,8 +167,7 @@ def translate(args: argparse.Namespace) -> None:
                 raw = f.read(max_bytes) if max_bytes else f.read()
             lines = raw.decode("utf-8", errors="replace")
         except FileNotFoundError:
-            print(t("err.file_not_found", path=file_path), file=sys.stderr)
-            sys.exit(1)
+            raise LlmClientError(t("err.file_not_found", path=file_path)) from None
     else:
         logger.debug("translate: reading from stdin")
         lines = sys.stdin.read()
@@ -214,8 +213,7 @@ def translate(args: argparse.Namespace) -> None:
         logger.info("翻訳実行: provider=libretranslate, %d 行", len(translatable))
         endpoint = config.get("libretranslate_endpoint")
         if not endpoint:
-            print("Error: libretranslate_endpoint is not configured.", file=sys.stderr)
-            sys.exit(1)
+            raise LlmClientError("Error: libretranslate_endpoint is not configured.")
         api_key = config.get("libretranslate_api_key")
         texts = [text for _, text in translatable]
 
@@ -228,8 +226,7 @@ def translate(args: argparse.Namespace) -> None:
         try:
             translated_list = _translate_libretranslate(texts, lang, endpoint, api_key)
         except Exception as e:
-            print(f"Error: LibreTranslate translation failed: {e}", file=sys.stderr)
-            sys.exit(1)
+            raise LlmClientError(f"Error: LibreTranslate translation failed: {e}") from e
 
         # 翻訳結果が不足していればリトライ
         if len(translated_list) < len(texts):
@@ -378,8 +375,7 @@ def translate(args: argparse.Namespace) -> None:
             # 呼び出し側が原文を翻訳ファイルに書いて offset を進めてしまい、
             # そのチャンクが永久に未翻訳のまま確定するため、異常終了して再試行させる。
             # （一部の行だけ欠けた場合は、個別行の再試行ループを避けるため従来通り原文で埋める）
-            print("Error: translation failed for all lines", file=sys.stderr)
-            sys.exit(1)
+            raise LlmClientError("Error: translation failed for all lines")
 
         # 出力を組み立て
         translate_idx = 0

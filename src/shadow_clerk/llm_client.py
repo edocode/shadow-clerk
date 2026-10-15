@@ -9,7 +9,7 @@ import sys
 from openai import OpenAI  # noqa: F401
 
 from shadow_clerk._llm_config import (  # noqa: F401
-    load_dotenv, load_config, resolve_path, get_api_client, get_translation_provider,
+    LlmClientError, load_dotenv, load_config, resolve_path, get_api_client, get_translation_provider,
     chat_completion, strip_reasoning, ENV_FILE, GLOSSARY_FILE,
 )
 from shadow_clerk._llm_glossary import (  # noqa: F401
@@ -214,16 +214,13 @@ def main() -> None:
 
     load_dotenv()
 
-    if args.command == "translate":
-        translate(args)
-    elif args.command == "query":
-        query(args)
-    elif args.command == "summarize":
-        summarize(args)
-    elif args.command == "match-command":
-        match_command(args)
-    elif args.command == "spell-check":
-        spell_check_cmd(args)
+    commands = {"translate": translate, "query": query, "summarize": summarize,
+                "match-command": match_command, "spell-check": spell_check_cmd}
+    try:
+        commands[args.command](args)
+    except LlmClientError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

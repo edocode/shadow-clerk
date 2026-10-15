@@ -4,13 +4,13 @@ import argparse
 import json
 import logging
 import os
-import sys
 
 from openai import OpenAI
 
 from shadow_clerk import DATA_DIR
 from shadow_clerk.i18n import t, nt
-from shadow_clerk._llm_config import load_config, get_api_client, resolve_path, call_claude_cli, chat_completion
+from shadow_clerk._llm_config import (LlmClientError, load_config, get_api_client, resolve_path, call_claude_cli,
+                                      chat_completion)
 from shadow_clerk._daemon_speaker_roster import load_roster, roster_prompt_block
 from shadow_clerk._llm_glossary import load_glossary_for_summary
 from shadow_clerk._transcript_name import TranscriptName
@@ -123,12 +123,10 @@ def summarize(args: argparse.Namespace) -> None:
         with open(transcript_path, "r", encoding="utf-8") as f:
             transcript = f.read()
     except FileNotFoundError:
-        print(t("err.transcript_not_found", path=transcript_path), file=sys.stderr)
-        sys.exit(1)
+        raise LlmClientError(t("err.transcript_not_found", path=transcript_path)) from None
 
     if not transcript.strip():
-        print(t("err.transcript_empty"), file=sys.stderr)
-        sys.exit(1)
+        raise LlmClientError(t("err.transcript_empty"))
 
     attendees_block = _load_context_block(transcript_path, transcript, config)
     if attendees_block:
@@ -152,8 +150,7 @@ def summarize(args: argparse.Namespace) -> None:
     if not result:
         # rc=0 で終了すると呼び出し側（自動要約）が成功と誤認して完了通知を出すため、
         # LLM 失敗・応答不足は異常終了で伝える
-        print(t("err.summary_failed"), file=sys.stderr)
-        sys.exit(1)
+        raise LlmClientError(t("err.summary_failed"))
 
     # Summary バリューオブジェクトとして扱う
     tn = TranscriptName.parse(os.path.basename(transcript_path))
