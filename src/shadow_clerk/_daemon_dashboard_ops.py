@@ -10,6 +10,7 @@ import re
 import tempfile
 import threading
 from shadow_clerk.i18n import t
+from shadow_clerk._daemon_dashboard_base import transcript_path_in
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_constants import SESSION_FILE
 from shadow_clerk.domain import TranscriptRewrite, meeting_start_marker
@@ -42,9 +43,8 @@ class _DashboardHandlerOps:
             self.send_error(400)
             return
 
-        # transcript ファイルパス
-        t_path = os.path.join(self.recorder._output_dir, os.path.basename(file_param))
-        if not os.path.exists(t_path):
+        t_path = transcript_path_in(self.recorder._output_dir, file_param) or ""
+        if not t_path or not os.path.exists(t_path):
             self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
             return
 
@@ -168,9 +168,8 @@ class _DashboardHandlerOps:
         if not file_param:
             self.send_error(400)
             return
-        output_dir = self.recorder._output_dir
-        t_path = os.path.join(output_dir, os.path.basename(file_param))
-        if not os.path.exists(t_path):
+        t_path = transcript_path_in(self.recorder._output_dir, file_param) or ""
+        if not t_path or not os.path.exists(t_path):
             self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
             return
         tn = TranscriptName.parse(os.path.basename(t_path))
@@ -194,8 +193,8 @@ class _DashboardHandlerOps:
             self.send_error(400)
             return
         output_dir = self.recorder._output_dir
-        t_path = os.path.join(output_dir, os.path.basename(file_param))
-        if not os.path.exists(t_path):
+        t_path = transcript_path_in(self.recorder._output_dir, file_param) or ""
+        if not t_path or not os.path.exists(t_path):
             self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
             return
         tn = TranscriptName.parse(os.path.basename(t_path))

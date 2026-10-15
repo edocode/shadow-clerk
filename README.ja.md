@@ -475,6 +475,7 @@ custom_commands:
 | `--verbose`, `-v` | 詳細ログ出力 | - |
 | `--dashboard` / `--no-dashboard` | ダッシュボード有効/無効 | 有効 |
 | `--dashboard-port` | ダッシュボードポート番号 | `8765` |
+| `--dashboard-host` | ダッシュボードの待ち受けアドレス。既定は loopback のみ。LAN に見せるには `0.0.0.0` を指定する（書き込み API は localhost からしか受け付けない） | `127.0.0.1` |
 | `--beam-size` | Whisper beam size (`1`=高速, `5`=高精度) | `5` |
 | `--compute-type` | Whisper 計算精度 (`int8`, `float16`, `float32`) | `int8` |
 | `--device` | Whisper デバイス (`cpu`, `cuda`) | `cpu` |

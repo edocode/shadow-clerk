@@ -432,7 +432,9 @@ class _RecorderTranscribeMixin:
                         return
                     super().handle_error(request, client_address)
 
-            self._dashboard_server = _QuietServer(("", port), DashboardHandler)
+            # 既定は loopback だけ。LAN に見せるのは --dashboard-host 0.0.0.0 を明示したときのみ
+            host = getattr(self.args, "dashboard_host", "127.0.0.1")
+            self._dashboard_server = _QuietServer((host, port), DashboardHandler)
             threads.append(threading.Thread(
                 target=self._dashboard_server.serve_forever,
                 name="dashboard", daemon=True))

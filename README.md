@@ -476,6 +476,7 @@ If a voice command doesn't match any built-in or custom command and an LLM is co
 | `--verbose`, `-v` | Verbose logging | - |
 | `--dashboard` / `--no-dashboard` | Enable/disable dashboard | Enabled |
 | `--dashboard-port` | Dashboard port number | `8765` |
+| `--dashboard-host` | Dashboard bind address. Only loopback by default; pass `0.0.0.0` to expose it on the LAN (write APIs still accept localhost only) | `127.0.0.1` |
 | `--beam-size` | Whisper beam size (`1`=fast, `5`=accurate) | `5` |
 | `--compute-type` | Whisper compute precision (`int8`, `float16`, `float32`) | `int8` |
 | `--device` | Whisper device (`cpu`, `cuda`) | `cpu` |

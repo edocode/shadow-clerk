@@ -6,6 +6,7 @@ import json
 import os
 import re
 from shadow_clerk.i18n import t
+from shadow_clerk._daemon_dashboard_base import transcript_path_in
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name
 from shadow_clerk.domain import MEETING_END_MARKER, TranscriptRewrite, meeting_start_marker
@@ -42,8 +43,8 @@ class _DashboardHandlerMeetingOps:
             return
 
         output_dir = self.recorder._output_dir
-        t_path = os.path.join(output_dir, os.path.basename(file_param))
-        if not os.path.exists(t_path):
+        t_path = transcript_path_in(self.recorder._output_dir, file_param) or ""
+        if not t_path or not os.path.exists(t_path):
             self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
             return
 
@@ -223,8 +224,8 @@ class _DashboardHandlerMeetingOps:
             return
 
         output_dir = self.recorder._output_dir
-        t_path = os.path.join(output_dir, os.path.basename(file_param))
-        if not os.path.exists(t_path):
+        t_path = transcript_path_in(self.recorder._output_dir, file_param) or ""
+        if not t_path or not os.path.exists(t_path):
             self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
             return
 

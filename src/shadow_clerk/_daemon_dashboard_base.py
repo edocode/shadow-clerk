@@ -75,20 +75,28 @@ def is_same_origin_request(headers: Any) -> bool:
     return True
 
 
-def read_local_json_body(handler: Any, label: str) -> dict | None:
-    """localhost 判定・Origin 判定・JSON ボディの読み取り。不正なら None を返して応答済みにする"""
-    client = handler.client_address[0] if handler.client_address else ""
+def accept_local_write(handler: Any, label: str) -> bool:
+    """書き込み系リクエストを通すか。localhost 以外とクロスオリジンは応答を返して拒否する
+
+    client_address ベースの localhost 判定は、ユーザー自身が開いた任意のページからの
+    クロスオリジン fetch に対しては無力 (ブラウザから見れば送信元は常にこのマシンの
+    127.0.0.1)。Origin ヘッダで自分自身へのリクエストかを見る
+    """
     if not is_localhost_client(handler.client_address):
+        client = handler.client_address[0] if handler.client_address else ""
         logger.warning("%s: 拒否 (client=%s)", label, client)
         handler._send_json({"status": "error", "message": f"{label} API is localhost only"})
-        return None
+        return False
     if not is_same_origin_request(handler.headers):
-        # client_address ベースの localhost 判定は、ユーザー自身が開いた
-        # 任意のページからのクロスオリジン fetch に対しては無力
-        # (ブラウザから見れば送信元は常にこのマシンの 127.0.0.1)。
-        # Origin ヘッダで自分自身へのリクエストかを見る
         logger.warning("%s: 拒否 (cross-origin, origin=%s)", label, handler.headers.get("Origin"))
         handler._send_json({"status": "error", "message": "cross-origin request rejected"})
+        return False
+    return True
+
+
+def read_local_json_body(handler: Any, label: str) -> dict | None:
+    """localhost 判定・Origin 判定・JSON ボディの読み取り。不正なら None を返して応答済みにする"""
+    if not accept_local_write(handler, label):
         return None
     try:
         length = int(handler.headers.get("Content-Length", 0))
@@ -116,6 +124,17 @@ def read_attendees(transcript_path: str) -> list[str]:
     if not isinstance(data, dict):
         return []
     return [a for a in (data.get("attendees") or []) if isinstance(a, str) and a.strip()]
+
+
+def transcript_path_in(output_dir: str, file_param: object) -> str | None:
+    """file パラメータを出力ディレクトリ内の transcript パスにする。
+    transcript の命名に合わないもの (.env や config.yaml など同じディレクトリの別ファイル) は None"""
+    if not isinstance(file_param, str) or not file_param:
+        return None
+    name = os.path.basename(file_param)
+    if TranscriptName.parse(name) is None:
+        return None
+    return os.path.join(output_dir, name)
 
 
 def _console_running(role: ConsoleRole = ConsoleRole.ASSISTANT) -> bool:
@@ -216,6 +235,10 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
+        # 書き込みはすべて localhost からの same-origin に限る。個々のハンドラに
+        # 任せると漏れる (以前は /api/command から custom_exec でシェルまで届いた)
+        if not accept_local_write(self, path):
+            return
         if path == "/api/command":
             self._handle_command()
         elif path == "/api/config":
@@ -420,8 +443,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         params = parse_qs(urlparse(self.path).query)
         file_param = params.get("file", [None])[0]
         if file_param:
-            file_param = os.path.basename(file_param)
-            filepath = os.path.join(self.recorder._output_dir, file_param)
+            filepath = transcript_path_in(self.recorder._output_dir, file_param) or ""
         else:
             filepath = self.recorder.output_path
         lines = []
@@ -486,6 +508,11 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         if not cmd:
             self.send_error(400)
             return
+        if cmd.startswith("custom_exec "):
+            # シェル実行は音声コマンド経路 (config の custom_commands) だけ。HTTP からは受けない
+            logger.warning("ダッシュボードからの custom_exec を拒否: %s", cmd)
+            self._send_json({"status": "error", "message": "custom_exec is not accepted via API"})
+            return
         logger.info("ダッシュボードからコマンド: %s", cmd)
         self.recorder._execute_command(cmd)
         self._send_json({"status": "ok", "command": cmd})
@@ -505,7 +532,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         指定した transcript ファイルの参加予定者リストを返す"""
         params = parse_qs(urlparse(self.path).query)
         file_param = params.get("file", [None])[0]
-        path = os.path.join(self.recorder._output_dir, os.path.basename(file_param)) if file_param else ""
+        path = transcript_path_in(self.recorder._output_dir, file_param) or ""
         self._send_json({"attendees": read_attendees(path) if path else []})
 
     def _serve_summary(self) -> None:
@@ -542,10 +569,10 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             data = {}
         file_param = data.get("file")
         if file_param:
-            transcript_path = os.path.join(self.recorder._output_dir, os.path.basename(file_param))
+            transcript_path = transcript_path_in(self.recorder._output_dir, file_param) or ""
         else:
             transcript_path = self.recorder.output_path
-        if not os.path.exists(transcript_path):
+        if not transcript_path or not os.path.exists(transcript_path):
             self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
             return
         method = regenerate_summary(self.recorder, transcript_path)
