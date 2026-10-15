@@ -62,6 +62,14 @@ def main() -> int:
     sent, _ = _run("別会議", [_event(-5, 30)])
     check("別会議のセッションなら start_meeting 送信 (back-to-back)",
           sent == ["start_meeting 週次定例"], str(sent))
+
+    sent, mon = _run(None, [_event(-5, 30)])
+    gm._fetch_events = lambda *a, **k: []
+    mon._poll(None, "primary", 2, 1)
+    check("開始済みの予定がカレンダーから消えたら end_meeting を送る",
+          sent == ["start_meeting 週次定例", "end_meeting"], str(sent))
+    mon._poll(None, "primary", 2, 1)
+    check("二度は送らない", sent == ["start_meeting 週次定例", "end_meeting"], str(sent))
     return 0 if all(results) else 1
 
 

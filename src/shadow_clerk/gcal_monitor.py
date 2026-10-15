@@ -398,6 +398,22 @@ class GCalMonitor:
                         self._mark(event_id, "ended", end_dt)
                         logger.info("会議終了検出: %s (%s)", summary, event_id)
 
+        # 開始済みの予定がカレンダーから消えた（削除・離れた日時への移動）: 終了トリガーが
+        # 二度と来ないので、ここで会議を終える。消えたまま録音を会議ファイルに続け、
+        # 自動要約も走らないのを防ぐ。取得に失敗した回は _run が _poll ごと中断するため
+        # ここには来ない（空の events を「全部消えた」と誤解しない）
+        present = {e.get("id", "") for e in events}
+        for event_id in [k for k, v in self._processed.items() if v == "started" and k not in present]:
+            # back-to-back で次の会議が始まっていればセッションはもう切り替わっている
+            if not self._another_meeting_ongoing(events, event_id, now_utc, end_buffer_min):
+                self._send_command("end_meeting")
+            try:
+                end_dt = datetime.datetime.fromisoformat(self._ends[event_id])
+            except (KeyError, ValueError):
+                end_dt = now_utc
+            self._mark(event_id, "ended", end_dt)
+            logger.info("会議終了 (予定がカレンダーから消えた): %s", event_id)
+
         self._prune_processed(now_utc)
 
 
