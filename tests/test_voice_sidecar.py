@@ -137,3 +137,14 @@ def test_recorder_appends_voice_under_transcript_lock(tmp_path) -> None:
         mod.append_voice = orig
     assert seen == [True] and rec.transcript_lock.acquired == 1
     assert [v.label for v in read_voices(rec.output_path)] == ["相手A"]
+
+
+from shadow_clerk._daemon_voice_sidecar import relabeled_voice_lines_where  # noqa: E402
+
+
+def test_relabel_where(tmp_path) -> None:
+    t = str(tmp_path / "transcript-202610091000.txt")
+    append_voice(t, "2026-10-09 10:00:01", "相手A", _vec(1))
+    append_voice(t, "2026-10-09 10:00:02", "相手A", _vec(2))
+    lines = relabeled_voice_lines_where(t, lambda e: "太郎" if e.timestamp.endswith("02") else None)
+    assert '"label": "相手A"' in lines[0] and '"label": "太郎"' in lines[1]

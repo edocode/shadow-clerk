@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 
 import numpy as np
 
@@ -50,18 +51,25 @@ def read_voices(transcript_path: str) -> list[VoiceEntry]:
     return [e for line in lines if (e := VoiceEntry.parse(line)) is not None]
 
 
-def relabeled_voice_lines(transcript_path: str, mapping: dict[str, PersonName]) -> list[str] | None:
-    """ラベルを名前に置き換えた全行。壊れた行はそのまま残す。サイドカーが無ければ None"""
+def relabeled_voice_lines_where(transcript_path: str, pick: Callable[[VoiceEntry], str | None]) -> list[str] | None:
+    """pick が新しいラベルを返した行を書き換えた全行。壊れた行はそのまま残す。サイドカーが無ければ None"""
     lines = _read_raw(voices_path(transcript_path))
     if lines is None:
         return None
     out: list[str] = []
     for line in lines:
         e = VoiceEntry.parse(line)
-        if e is not None and e.label in mapping:
-            line = VoiceEntry(e.timestamp, mapping[e.label].value, e.embedding).to_json_line()
+        new = pick(e) if e is not None else None
+        if e is not None and new is not None and new != e.label:
+            line = VoiceEntry(e.timestamp, new, e.embedding).to_json_line()
         out.append(line)
     return out
+
+
+def relabeled_voice_lines(transcript_path: str, mapping: dict[str, PersonName]) -> list[str] | None:
+    """ラベルを名前に置き換えた全行。壊れた行はそのまま残す。サイドカーが無ければ None"""
+    return relabeled_voice_lines_where(
+        transcript_path, lambda e: mapping[e.label].value if e.label in mapping else None)
 
 
 def voice_lines_without_label(path: str, label: str) -> list[str] | None:

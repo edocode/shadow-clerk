@@ -415,3 +415,57 @@ def test_extract_meeting_copies_voices() -> None:
     assert h.sent["status"] == "ok", h.sent
     assert [e.timestamp for e in read_voices(_p("transcript-202610091030@昼会.txt"))] == \
         ["2026-10-09 11:00:00"]
+
+
+def test_assign_object_with_group_and_non_person() -> None:
+    h = _H({"file": MTG, "mapping": {"相手A": {"name": "acme", "group": "acme", "person": False}}})
+    h._assign_speakers()
+    assert h.sent["status"] == "ok" and h.sent["enrolled"] == {}, h.sent
+    assert "[acme] 来週のリリースの件ですが" in _read(MTG)
+    assert VoiceprintStore().people() == {}
+    book = SpeakerNameBook()
+    assert book.entries()["acme"].group == "acme" and book.entries()["acme"].person is False
+    assert "acme" in book.groups()
+
+
+def test_assign_to_non_person_removes_samples() -> None:
+    _H({"file": MTG, "mapping": {"相手A": "太郎"}})._assign_speakers()
+    assert VoiceprintStore().people() == {"太郎": 1}
+    h = _H({"file": MTG, "mapping": {"太郎": {"name": "acme", "person": False}}})
+    h._assign_speakers()
+    assert h.sent["status"] == "ok", h.sent
+    assert VoiceprintStore().people() == {}
+    assert "[acme] 来週のリリースの件ですが" in _read(MTG)
+
+
+def test_group_only_change_does_not_rewrite() -> None:
+    _H({"file": MTG, "mapping": {"相手A": "太郎"}})._assign_speakers()
+    before = _read(MTG)
+    h = _H({"file": MTG, "mapping": {"太郎": {"name": "太郎", "group": "acme"}}})
+    h._assign_speakers()
+    assert h.sent["status"] == "ok" and h.sent["renamed"] == 0, h.sent
+    assert _read(MTG) == before
+    assert SpeakerNameBook().entries()["太郎"].group == "acme"
+    assert VoiceprintStore().people() == {"太郎": 1}
+
+
+def test_default_person_false_for_group_name() -> None:
+    from shadow_clerk.domain.speaker_group import GroupName
+    SpeakerNameBook().ensure_group(GroupName("acme"))
+    h = _H({"file": MTG, "mapping": {"相手A": "acme"}})
+    h._assign_speakers()
+    assert h.sent["status"] == "ok" and h.sent["enrolled"] == {}
+    assert SpeakerNameBook().entries()["acme"].person is False
+
+
+def test_has_summary_and_serve_group_fields() -> None:
+    with open(_p("summary-202610091000@週次定例.md"), "w", encoding="utf-8") as f:
+        f.write("# 議事録\n")
+    h = _H({"file": MTG, "mapping": {"相手A": {"name": "太郎", "group": "acme"}}})
+    h._assign_speakers()
+    assert h.sent["has_summary"] is True
+    h = _H(path=f"/api/speakers?file={MTG}")
+    h._serve_speakers()
+    taro = next(x for x in h.sent["labels"] if x["label"] == "太郎")
+    assert taro["group"] == "acme" and taro["person"] is True
+    assert h.sent["groups"] == ["acme"]
