@@ -870,6 +870,7 @@ shadow-clerk/                          # リポジトリ
   .env                                 # API キー (SHADOW_CLERK_API_KEY)
   daemon.log / daemon.pid              # daemon のログと PID
   gcal_token.json                      # Google Calendar OAuth トークン（gcal-auth で生成）
+  gcal_processed.json                  # 開始/終了済みのカレンダーイベント（デーモン再起動後も保持）
   wespeaker_cache/                     # 話者分離の ONNX モデル（初回利用時にダウンロード）
   speaker_names.json                   # 話者に付けた名前（名前のみ）
   voiceprints.json                     # 声紋（speaker_enrollment、名前付け後）

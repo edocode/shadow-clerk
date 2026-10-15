@@ -37,6 +37,9 @@ def _run(session_name: str | None, events: list[dict]) -> tuple[list[str], gm.GC
         with open(path, "w", encoding="utf-8") as f:
             f.write(os.path.join(_TMP, f"transcript-202610151100@{session_name}.txt"))
     sent: list[str] = []
+    gm.PROCESSED_FILE = os.path.join(_TMP, "gcal_processed.json")
+    if os.path.exists(gm.PROCESSED_FILE):
+        os.remove(gm.PROCESSED_FILE)  # 各ケースを「初回起動」として扱う
     mon = gm.GCalMonitor({})
     mon._send_command = sent.append  # type: ignore[method-assign]
     mon._wait_for_silence = lambda *a, **k: True  # type: ignore[method-assign]

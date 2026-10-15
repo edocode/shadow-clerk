@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 import datetime
+import json
 import logging
 import os
 import threading
@@ -16,6 +17,7 @@ from typing import Any
 
 from shadow_clerk import DATA_DIR
 from shadow_clerk._daemon_constants import SESSION_FILE
+from shadow_clerk._daemon_voiceprint_store import atomic_write_json
 from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name as _sanitize_name
 
 logger = logging.getLogger("shadow-clerk.gcal")
@@ -130,6 +132,11 @@ def _parse_event_time(event_time: dict) -> datetime.datetime | None:
     return None  # 終日イベントはスキップ
 
 
+PROCESSED_FILE = os.path.join(DATA_DIR, "gcal_processed.json")
+_PROCESSED_VERSION = 1
+_PROCESSED_KEEP = datetime.timedelta(days=1)
+
+
 class GCalMonitor:
     """Google Calendar を定期ポーリングして meeting コマンドを自動送信するスレッド"""
 
@@ -140,8 +147,53 @@ class GCalMonitor:
         self._thread: threading.Thread | None = None
         # 処理済みイベント ID のセット {event_id: "started" | "ended"}
         self._processed: dict[str, str] = {}
+        # event_id -> イベント終了時刻 (UTC naive ISO)。掃除用に processed と一緒に永続化する
+        self._ends: dict[str, str] = {}
+        self._load_processed()
         # 直近ポーリング結果キャッシュ (ダッシュボード表示用)
         self._last_events: list[dict] = []
+
+    def _load_processed(self) -> None:
+        """再起動後に終了済み会議へ start_meeting を再送しないよう、処理済み状態を読み戻す。
+
+        ファイル破損時は警告して空で始める。壊れたファイルは最初の状態変更で
+        上書きされるまで触らない（リネーム退避はしない）。
+        """
+        try:
+            with open(PROCESSED_FILE, encoding="utf-8") as f:
+                events = json.load(f)["events"]
+            loaded = {k: (v["state"], v["end"]) for k, v in events.items()
+                      if v["state"] in ("started", "ended")}
+        except FileNotFoundError:
+            return
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+            logger.warning("処理済みイベントファイルを読めないため空で開始: %s (%s)", PROCESSED_FILE, e)
+            return
+        self._processed = {k: st for k, (st, _) in loaded.items()}
+        self._ends = {k: end for k, (_, end) in loaded.items()}
+        self._prune_processed(datetime.datetime.utcnow())
+
+    def _prune_processed(self, now_utc: datetime.datetime) -> None:
+        """終了から1日以上経ったエントリを捨てる（終了時刻不明のものも捨てる）"""
+        def fresh(eid: str) -> bool:
+            try:
+                return datetime.datetime.fromisoformat(self._ends[eid]) > now_utc - _PROCESSED_KEEP
+            except (KeyError, ValueError):
+                return False
+        self._processed = {k: v for k, v in self._processed.items() if fresh(k)}
+        self._ends = {k: v for k, v in self._ends.items() if k in self._processed}
+
+    def _mark(self, event_id: str, state: str, end_dt: datetime.datetime) -> None:
+        """イベントの処理状態を記録し、変更をファイルへ保存する"""
+        self._processed[event_id] = state
+        self._ends[event_id] = end_dt.isoformat()
+        self._prune_processed(datetime.datetime.utcnow())
+        body = {"version": _PROCESSED_VERSION, "events": {
+            k: {"state": v, "end": self._ends[k]} for k, v in self._processed.items()}}
+        try:
+            atomic_write_json(PROCESSED_FILE, body, ".gcal_processed-")
+        except OSError as e:
+            logger.warning("処理済みイベントを保存できません: %s", e)
 
     def get_upcoming_events(self) -> list[dict]:
         """ダッシュボード向けに直近イベント情報を返す"""
@@ -320,11 +372,11 @@ class GCalMonitor:
                         continue
                 if _session_is_meeting(sanitized):
                     # デーモン再起動でセッションが復元済み: 二重に transcript を作らない
-                    self._processed[event_id] = "started"
+                    self._mark(event_id, "started", end_dt)
                     logger.info("会議開始検出 (セッション継続中のため送信なし): %s (%s)", summary, event_id)
                 else:
                     self._send_command(f"start_meeting {sanitized}")
-                    self._processed[event_id] = "started"
+                    self._mark(event_id, "started", end_dt)
                     logger.info("会議開始検出 (%s): %s (%s)", "進行中" if is_ongoing else "予定", summary, event_id)
 
             # 終了トリガー: end_dt を過ぎたら end_meeting を試みる
@@ -336,25 +388,17 @@ class GCalMonitor:
                         # back-to-back 会議: 後続会議の start_meeting で現在のセッションは
                         # 既に切り替わっている。引数なし end_meeting を送ると後続会議の
                         # セッションを誤終了させるため、送信せず ended 扱いにする
-                        self._processed[event_id] = "ended"
+                        self._mark(event_id, "ended", end_dt)
                         logger.info("会議終了 (後続会議が進行中のため end_meeting 送信なし): %s (%s)",
                                     summary, event_id)
                     elif not self._wait_for_silence():
                         logger.info("会議終了延期（会話継続中）: %s (%s)", summary, event_id)
                     else:
                         self._send_command("end_meeting")
-                        self._processed[event_id] = "ended"
+                        self._mark(event_id, "ended", end_dt)
                         logger.info("会議終了検出: %s (%s)", summary, event_id)
 
-        # 古い処理済みエントリを掃除 (6時間以上前のものを削除)
-        cutoff = now_utc - datetime.timedelta(hours=6)
-        self._processed = {
-            k: v for k, v in self._processed.items()
-            if any(
-                e.get("id") == k and (_parse_event_time(e.get("end", {})) or datetime.datetime.min) > cutoff
-                for e in events
-            )
-        }
+        self._prune_processed(now_utc)
 
 
 def run_auth(credentials_file: str, token_file: str | None = None) -> Any:
