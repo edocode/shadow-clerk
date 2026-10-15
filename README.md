@@ -38,6 +38,27 @@ Available on PyPI: <https://pypi.org/project/shadow-clerk/>
 
 ### Windows-specific notes
 
+#### Prerequisites (PowerShell, uv, Git)
+
+A fresh Windows install has neither `uv` nor `git`. Run every command below in **PowerShell**:
+
+- **Open PowerShell**: press the Windows key, type `powershell`, and choose **Windows PowerShell** (or right-click the Start button → **Terminal**). No administrator rights are needed.
+- **Install uv** (pick one):
+  ```powershell
+  winget install --id=astral-sh.uv -e
+  # or the official installer:
+  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+  ```
+- **Install Git** (needed for the ReazonSpeech k2 package, which is fetched from a Git repository):
+  ```powershell
+  winget install --id Git.Git -e
+  ```
+- **Close and reopen PowerShell** so the new `PATH` takes effect, then check with `uv --version` and `git --version`.
+
+If `winget` is not found, install **App Installer** from the Microsoft Store, or download uv from <https://docs.astral.sh/uv/getting-started/installation/> and Git from <https://git-scm.com/download/win>.
+
+#### Install
+
 Recommended install (explicit Windows deps):
 
 ```powershell
