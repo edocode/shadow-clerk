@@ -65,7 +65,7 @@ async function openSpeakerModal(){
       +' oninput="this.dataset.touched=\'1\'" data-orig="'+escAttr(l.group||'')+'" value="'+escAttr(l.group||'')+'" placeholder="'+escAttr(I18N['dash.group_label'])+'">'
       +'<label class="spk-person"><input type="checkbox" onchange="this.dataset.touched=\'1\'" data-person-for="'+escAttr(l.label)+'"'
       +' data-orig="'+(l.person===false?'0':'1')+'"'+(l.person===false?'':' checked')+'>'+esc(I18N['dash.person_enroll'])+'</label>'
-      +'<span class="spk-example">'+esc(l.example)+'</span>';
+      +'<span class="spk-example" title="'+escAttr(l.example)+'">'+esc(l.example)+'</span>';
     box.appendChild(row);
   }
   document.getElementById('spkSaveBtn').disabled=!d.labels.length||!!(d.active||d.translating);

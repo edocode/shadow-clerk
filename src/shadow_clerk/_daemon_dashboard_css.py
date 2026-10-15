@@ -88,7 +88,7 @@ main {
 .modal-body .spk-row input.spk-group { flex:none; width:110px; }
 .modal-body .spk-person input[type=checkbox] { width:auto; margin:0 2px 0 0; }
 .spk-person { flex:none; font-size:11px; color:var(--muted); white-space:nowrap; }
-.spk-row .spk-example { flex:1; min-width:0; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.spk-row .spk-example { flex:1; min-width:0; color:var(--muted); overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
 /* 末尾の説明文は折り返す。折り返さないとモーダルが横にはみ出してスクロールバーが出る */
 .extract-option .eo-label:last-child { white-space:normal; min-width:0; }
 .extract-option select { width:auto !important; flex:1; min-width:120px; margin-left:4px; padding:3px 6px; font-size:12px; }

@@ -412,7 +412,7 @@ _HTML_TEMPLATE = (
     "  </div>\n"
     "</div>\n"
     "<div class=\"modal-overlay\" id=\"speakerModal\" onclick=\"if(event.target===this)closeSpeakerModal()\">\n"
-    "  <div class=\"modal\" style=\"max-width:720px;\">\n"
+    "  <div class=\"modal\" style=\"width:min(1200px,94vw);\">\n"
     "    <div class=\"modal-head\"><span>{{i18n:dash.speakers_title}}</span><button onclick=\"closeSpeakerModal()\">&times;</button></div>\n"
     "    <div class=\"modal-body\" style=\"display:block\">\n"
     "      <div class=\"cfg-warn\" id=\"spkInfo\" style=\"margin-bottom:8px\"></div>\n"
