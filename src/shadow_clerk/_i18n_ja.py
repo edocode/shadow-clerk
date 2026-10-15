@@ -92,6 +92,7 @@ STRINGS_JA: dict[str, str] = {
     "dash.speakers_nothing": "名前が入力されていません",
     "dash.speakers_write_error": "名前を書き込めませんでした。ファイルの一部だけが書き換わっている可能性があります。もう一度保存してください",
     "dash.speakers_saved": "{count} 行に名前を付けました",
+    "dash.speakers_relabel_saved": "{count} 行の話者を変更しました",
     "dash.speaker_book_error": "名前帳 (speaker_names.json) を読めません。壊れている可能性があります",
     "dash.voiceprint_store_error": "声紋ファイル (voiceprints.json) を読み書きできません。壊れている可能性があります",
     "dash.workdir_pattern": "会議名パターン (正規表現)",

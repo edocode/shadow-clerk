@@ -11,7 +11,8 @@ from shadow_clerk.i18n import t
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_dashboard_base import read_attendees, read_local_json_body
 from shadow_clerk._daemon_speaker_naming import (
-    Decision, decide_assignment, parse_assignment, relabel_lines_where, remap_offset, summarize_labels,
+    Decision, decide_assignment, line_target_picker, parse_assignment, relabel_lines_where, remap_offset,
+    summarize_labels,
 )
 from shadow_clerk._daemon_speaker_names import SpeakerNameBook, SpeakerNameBookError
 from shadow_clerk._daemon_voice_sidecar import (
@@ -20,6 +21,7 @@ from shadow_clerk._daemon_voice_sidecar import (
 from shadow_clerk._daemon_voiceprint_store import VoiceprintStore, VoiceprintStoreError
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain.transcript_line import TranscriptLine
+from shadow_clerk.domain.speaker import Speaker
 from shadow_clerk.domain.speaker_group import GroupName, SpeakerEntry
 from shadow_clerk.domain.voiceprint import PersonName, VoiceEntry, VoiceSample
 
@@ -176,6 +178,65 @@ class _DashboardHandlerSpeakerOps:
         self._send_json({"status": "ok", "renamed": renamed, "enrolled": enrolled,
                          "has_summary": self._has_summary(t_path),
                          "message": t("dash.speakers_saved", count=renamed)})
+
+    def _assign_lines(self) -> None:
+        """POST /api/speakers/assign-lines — 選んだ行だけ別の話者（人・会社名・役割名）に付け替える"""
+        data = read_local_json_body(self, "speakers")
+        if data is None:
+            return
+        t_path = self._speaker_transcript_path(data.get("file"))
+        if t_path is None:
+            self._speaker_error("dash.transcript_not_found")
+            return
+        raw_lines = data.get("lines")
+        if (not isinstance(raw_lines, list) or not raw_lines
+                or not all(isinstance(x, dict) and isinstance(x.get("ts"), str) and isinstance(x.get("label"), str)
+                           for x in raw_lines)):
+            self._speaker_error("dash.speakers_invalid")
+            return
+        targets = {(x["ts"], x["label"]) for x in raw_lines}
+        if any(label in (Speaker.SELF.value, Speaker.CLAUDE.value) for _, label in targets):
+            self._speaker_error("dash.speakers_invalid")
+            return
+        try:
+            a = parse_assignment({k: data[k] for k in ("name", "group", "person") if k in data})
+        except ValueError:
+            self._speaker_error("dash.speakers_invalid_name")
+            return
+        try:
+            entries, groups = self._speaker_book(strict=True)
+        except SpeakerNameBookError:
+            self._speaker_error("dash.speaker_book_error")
+            return
+        d = decide_assignment(a, entries, groups)
+        pick_line = line_target_picker(targets, d.name.value)
+        with self.recorder.transcript_lock:
+            lines = self._read_lines(t_path)
+            if self._is_active_transcript(t_path):
+                self._speaker_error("dash.speakers_active")
+                return
+            if self.recorder.is_translating(t_path):
+                self._speaker_error("dash.speakers_translating")
+                return
+            if relabel_lines_where(lines, pick_line)[1] == 0:
+                self._speaker_error("dash.speakers_invalid")
+                return
+            named = {s.label for s in summarize_labels(lines) if s.named}
+            enrolled = self._enroll(t_path, lines, lambda v: d if (v.timestamp, v.label) in targets else None, named)
+            if enrolled is None:
+                self._speaker_error("dash.voiceprint_store_error")
+                return
+            try:
+                renamed = self._apply_relabel(t_path, lines, pick_line,
+                                              lambda e: d.name.value if (e.timestamp, e.label) in targets else None)
+            except OSError as e:
+                logger.error("話者を書き込めない: %s", e)
+                self._speaker_error("dash.speakers_write_error")
+                return
+        self._remember([d])
+        self._send_json({"status": "ok", "renamed": renamed, "enrolled": enrolled,
+                         "has_summary": self._has_summary(t_path),
+                         "message": t("dash.speakers_relabel_saved", count=renamed)})
 
     def _enroll(self, t_path: str, lines: list[str], decide: Callable[[VoiceEntry], Decision | None],
                 named: set[str]) -> dict[str, int] | None:

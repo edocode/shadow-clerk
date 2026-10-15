@@ -476,3 +476,62 @@ def test_assign_with_broken_name_book_writes_nothing() -> None:
     h._assign_speakers()
     assert h.sent == {"status": "error", "message": t("dash.speaker_book_error")}, h.sent
     assert {n: _read(n) if os.path.exists(_p(n)) else None for n in names} == before
+
+
+EXTRA = "[2026-10-09 10:00:05] [相手A] 二行目です\n"
+
+
+def _with_second_a() -> None:
+    with open(_p(MTG), "a", encoding="utf-8") as f:
+        f.write(EXTRA)
+    append_voice(_p(MTG), "2026-10-09 10:00:05", "相手A", _vec(5))
+
+
+def test_assign_lines_only_touches_targets() -> None:
+    _with_second_a()
+    h = _H({"file": MTG, "lines": [{"ts": "2026-10-09 10:00:05", "label": "相手A"}], "name": "次郎"})
+    h._assign_lines()
+    assert h.sent["status"] == "ok" and h.sent["renamed"] == 1 and h.sent["enrolled"] == {"次郎": 1}, h.sent
+    body = _read(MTG)
+    assert "[相手A] 来週のリリースの件ですが" in body and "[次郎] 二行目です" in body
+    assert "[相手A] About next week's release" in _read(TR)
+    assert [(e.timestamp, e.label) for e in read_voices(_p(MTG))][-1] == ("2026-10-09 10:00:05", "次郎")
+    assert SpeakerNameBook().entries()["次郎"].person is True
+
+
+def test_assign_lines_rejects_self_and_writes_nothing() -> None:
+    before = _read(MTG)
+    for lines in ([{"ts": "2026-10-09 10:00:04", "label": "自分"}],
+                  [{"ts": "2026-10-09 10:00:01", "label": "相手A"}, {"ts": "2026-10-09 10:00:04", "label": "自分"}],
+                  [{"ts": "2026-10-09 10:00:09", "label": "相手A"}],
+                  [], "x", [{"ts": 1, "label": "相手A"}]):
+        h = _H({"file": MTG, "lines": lines, "name": "次郎"})
+        h._assign_lines()
+        assert h.sent["status"] == "error", lines
+        assert _read(MTG) == before
+    h = _H({"file": MTG, "lines": [{"ts": "2026-10-09 10:00:01", "label": "相手A"}], "name": "次郎"}, rec=_Rec(active=MTG))
+    h._assign_lines()
+    assert h.sent["status"] == "error" and _read(MTG) == before
+
+
+def test_assign_lines_non_person_moves_out() -> None:
+    _with_second_a()
+    _H({"file": MTG, "mapping": {"相手A": "太郎"}})._assign_speakers()
+    assert VoiceprintStore().people() == {"太郎": 2}
+    h = _H({"file": MTG, "lines": [{"ts": "2026-10-09 10:00:05", "label": "太郎"}],
+            "name": "acme", "group": "acme", "person": False})
+    h._assign_lines()
+    assert h.sent["status"] == "ok" and h.sent["enrolled"] == {}, h.sent
+    assert VoiceprintStore().people() == {"太郎": 1}
+    assert "[acme] 二行目です" in _read(MTG) and "[太郎] 来週のリリースの件ですが" in _read(MTG)
+
+
+def test_assign_lines_with_broken_name_book_writes_nothing() -> None:
+    with open(_p("speaker_names.json"), "w", encoding="utf-8") as f:
+        f.write("{broken")
+    names = ("voiceprints.json", "speaker_names.json", MTG, TR, f"{MTG[:-4]}.voices.jsonl")
+    before = {n: _read(n) if os.path.exists(_p(n)) else None for n in names}
+    h = _H({"file": MTG, "lines": [{"ts": "2026-10-09 10:00:01", "label": "相手A"}], "name": "次郎"})
+    h._assign_lines()
+    assert h.sent == {"status": "error", "message": t("dash.speaker_book_error")}, h.sent
+    assert {n: _read(n) if os.path.exists(_p(n)) else None for n in names} == before

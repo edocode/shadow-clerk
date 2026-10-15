@@ -284,6 +284,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._save_misheard()
         elif path == "/api/speakers/assign":
             self._assign_speakers()
+        elif path == "/api/speakers/assign-lines":
+            self._assign_lines()
         elif path == "/api/voiceprints/delete":
             self._delete_voiceprint()
         else:
