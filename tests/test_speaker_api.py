@@ -365,7 +365,7 @@ def test_assigned_name_is_suggested_in_other_meetings_without_enrollment(monkeyp
     _second_meeting()
     assert _suggestions(MTG2) == []
     _H({"file": MTG, "mapping": {"相手A": "三郎"}})._assign_speakers()
-    assert SpeakerNameBook().names() == ["三郎"]
+    assert sorted(SpeakerNameBook().entries()) == ["三郎"]
     assert VoiceprintStore().people() == {}
     assert _suggestions(MTG2) == ["三郎"]
 
@@ -374,7 +374,8 @@ def test_suggestion_order_attendees_transcript_names_voiceprints() -> None:
     from shadow_clerk.domain.voiceprint import PersonName, VoiceSample
     with open(_p(MTG), "a", encoding="utf-8") as f:
         f.write("[2026-10-09 10:00:05] [四郎] 追加です\n")
-    SpeakerNameBook().add([PersonName("五郎"), PersonName("四郎"), PersonName("太郎")])
+    for n in ("五郎", "四郎", "太郎"):
+        SpeakerNameBook().set_entry(PersonName(n), None, True)
     VoiceprintStore().add({PersonName("六郎"): [VoiceSample(_vec(9), "x", "y")]})
     assert _suggestions(MTG) == ["次郎", "太郎", "四郎", "五郎", "六郎"]
 
@@ -386,7 +387,7 @@ def test_delete_voiceprint_forgets_the_name() -> None:
     h = _H({"name": "太郎"})
     h._delete_voiceprint()
     assert h.sent["name_removed"] is True
-    assert SpeakerNameBook().names() == [] and "太郎" not in _suggestions(MTG2)
+    assert SpeakerNameBook().entries() == {} and "太郎" not in _suggestions(MTG2)
 
 
 def test_broken_name_book_does_not_break_get_or_delete() -> None:

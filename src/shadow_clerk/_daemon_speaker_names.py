@@ -10,7 +10,6 @@ import json
 import logging
 import os
 import threading
-from collections.abc import Iterable
 
 from shadow_clerk import DATA_DIR
 from shadow_clerk._daemon_voiceprint_store import atomic_write_json
@@ -69,10 +68,6 @@ class SpeakerNameBook:
         groups[group] = next_group_color(groups.values())
         return True
 
-    def names(self) -> list[str]:
-        with _lock:
-            return sorted(self._load()[0])
-
     def entries(self) -> dict[str, SpeakerEntry]:
         with _lock:
             return self._load()[0]
@@ -80,14 +75,6 @@ class SpeakerNameBook:
     def groups(self) -> dict[str, str]:
         with _lock:
             return self._load()[1]
-
-    def add(self, names: Iterable[PersonName]) -> None:
-        with _lock:
-            current, groups = self._load()
-            missing = {n.value for n in names} - set(current)
-            if missing:
-                current.update({n: SpeakerEntry() for n in missing})
-                self._save(current, groups)
 
     def set_entry(self, name: PersonName, group: GroupName | None, person: bool) -> None:
         with _lock:

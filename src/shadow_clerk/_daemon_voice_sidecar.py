@@ -12,7 +12,7 @@ from collections.abc import Callable
 import numpy as np
 
 from shadow_clerk._transcript_name import TranscriptName
-from shadow_clerk.domain.voiceprint import PersonName, VoiceEntry
+from shadow_clerk.domain.voiceprint import VoiceEntry
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -64,12 +64,6 @@ def relabeled_voice_lines_where(transcript_path: str, pick: Callable[[VoiceEntry
             line = VoiceEntry(e.timestamp, new, e.embedding).to_json_line()
         out.append(line)
     return out
-
-
-def relabeled_voice_lines(transcript_path: str, mapping: dict[str, PersonName]) -> list[str] | None:
-    """ラベルを名前に置き換えた全行。壊れた行はそのまま残す。サイドカーが無ければ None"""
-    return relabeled_voice_lines_where(
-        transcript_path, lambda e: mapping[e.label].value if e.label in mapping else None)
 
 
 def voice_lines_without_label(path: str, label: str) -> list[str] | None:

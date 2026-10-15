@@ -53,12 +53,6 @@ def relabel_lines_where(lines: list[str], pick: Callable[[TranscriptLine], str |
     return out, renamed
 
 
-def relabel_lines(lines: list[str], mapping: dict[str, PersonName]) -> tuple[list[str], int]:
-    """mapping のラベルを名前に書き換えた行と、書き換えた行数を返す。行数は変えない"""
-    return relabel_lines_where(
-        lines, lambda tl: mapping[tl.speaker_label].value if tl.speaker_label in mapping else None)
-
-
 def line_target_picker(targets: set[tuple[str, str]], new_label: str) -> Callable[[TranscriptLine], str | None]:
     """(時刻, 今のラベル) が targets にある相手側の行だけ new_label にする。分離なしの行のラベルは「相手」"""
     def pick(tl: TranscriptLine) -> str | None:

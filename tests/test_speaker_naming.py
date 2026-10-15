@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from shadow_clerk._daemon_speaker_naming import (
-    LabelSummary, relabel_lines, remap_offset, summarize_labels,
+    LabelSummary, relabel_lines_where, remap_offset, summarize_labels,
 )
 from shadow_clerk.domain.transcript_line import TranscriptLine
 from shadow_clerk.domain.voiceprint import PersonName
@@ -44,7 +44,7 @@ def test_summarize_labels_includes_named_after_numbered() -> None:
 
 def test_relabel_many_to_one() -> None:
     taro = PersonName("太郎")
-    new, n = relabel_lines(LINES, {"相手A": taro, "相手C": taro})
+    new, n = relabel_lines_where(LINES, lambda tl: taro.value if tl.speaker_label in {"相手A", "相手C"} else None)
     assert n == 3 and len(new) == len(LINES)
     assert new[0] == LINES[0] and new[3] == LINES[3] and new[5] == LINES[5]
     parsed = TranscriptLine.parse(new[2])
@@ -57,7 +57,7 @@ def _bytes(lines: list[str]) -> int:
 
 
 def test_remap_offset() -> None:
-    new, _ = relabel_lines(LINES, {"相手A": PersonName("太郎")})
+    new, _ = relabel_lines_where(LINES, lambda tl: "太郎" if tl.speaker_label == "相手A" else None)
     assert remap_offset(LINES, new, 0) == 0
     assert remap_offset(LINES, new, _bytes(LINES)) == _bytes(new)
     assert remap_offset(LINES, new, _bytes(LINES[:3])) == _bytes(new[:3])
