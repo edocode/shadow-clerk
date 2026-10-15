@@ -77,3 +77,28 @@ def test_regenerate_falls_back_to_llm(meeting: str, monkeypatch: pytest.MonkeyPa
     rec = _Rec()
     assert regen.regenerate_summary(rec, meeting) == "llm"
     assert rec.done.wait(5) and console.sent == []
+
+
+def _session(monkeypatch: pytest.MonkeyPatch, tmp_path, active: str | None) -> None:
+    sf = tmp_path / ".clerk_session"
+    if active is not None:
+        sf.write_text(active, encoding="utf-8")
+    monkeypatch.setattr(regen, "SESSION_FILE", str(sf))
+
+
+def test_regenerate_avoids_console_during_other_meeting(meeting: str, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    open(os.path.join(os.path.dirname(meeting), "advice-202610151000@週次定例.md"), "w").close()
+    console = _patch(monkeypatch, True)
+    _session(monkeypatch, tmp_path, str(tmp_path / "transcript-202610160900@別件.txt"))
+    rec = _Rec()
+    assert regen.regenerate_summary(rec, meeting) == "llm"
+    assert rec.done.wait(5) and console.sent == []
+
+
+@pytest.mark.parametrize("active", [True, False])
+def test_regenerate_uses_console_for_active_or_no_meeting(meeting: str, monkeypatch: pytest.MonkeyPatch, tmp_path, active: bool) -> None:
+    open(os.path.join(os.path.dirname(meeting), "advice-202610151000@週次定例.md"), "w").close()
+    console = _patch(monkeypatch, True)
+    _session(monkeypatch, tmp_path, meeting if active else None)
+    assert regen.regenerate_summary(_Rec(), meeting) == "console"
+    assert len(console.sent) == 1

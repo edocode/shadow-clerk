@@ -11,6 +11,7 @@ import os
 import threading
 from typing import Any
 
+from shadow_clerk._daemon_constants import SESSION_FILE
 from shadow_clerk._daemon_console import get_console, start_console_for
 from shadow_clerk._transcript_name import TranscriptName
 
@@ -34,9 +35,23 @@ def regen_prompt(transcript_path: str) -> str:
             f"transcript を頭から読み直して議事録を作り直し、{summary} に上書きしてください。")
 
 
+def _other_meeting_active(transcript_path: str) -> bool:
+    """別の会議が進行中か（AI コンソールは1本の共有 PTY なので、会議中のアシスタントを横取りしない）"""
+    try:
+        with open(SESSION_FILE, "r", encoding="utf-8") as f:
+            active = f.read().strip()
+    except OSError:
+        return False
+    return bool(active) and os.path.basename(active) != os.path.basename(transcript_path)
+
+
 def regenerate_summary(recorder: Any, transcript_path: str) -> str:
     """作り直しを始め、使った作り方 ("console" / "llm") を返す。アシスタントを使えなければ LLM に落とす"""
-    if summary_method(transcript_path) == "console":
+    use_console = summary_method(transcript_path) == "console"
+    if use_console and _other_meeting_active(transcript_path):
+        use_console = False
+        logger.info("会議中のため、別の会議の議事録は LLM で再生成します")
+    if use_console:
         try:
             if start_console_for(transcript_path, send_prompt=False):
                 get_console().send_after_ready(regen_prompt(transcript_path) + "\r")
