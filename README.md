@@ -86,6 +86,28 @@ Other notes:
 - **Talk with Claude**: sending Claude's voice into a meeting app needs PipeWire, so that option is disabled on Windows.
 - **Standalone binary**: `clerk-daemon.exe` and `clerk-util.exe` can be built with PyInstaller. See [Building standalone binaries](#building-standalone-binaries).
 
+#### Desktop shortcuts
+
+To start and stop the daemon without typing commands, create shortcuts once. Run this in PowerShell after installing:
+
+```powershell
+$exe = (Get-Command clerk-util).Source
+$shell = New-Object -ComObject WScript.Shell
+foreach ($s in @(@("Shadow Clerk", "start -d"), @("Shadow Clerk (stop)", "stop"))) {
+    $lnk = $shell.CreateShortcut("$([Environment]::GetFolderPath('Desktop'))\$($s[0]).lnk")
+    $lnk.TargetPath = $exe
+    $lnk.Arguments = $s[1]
+    $lnk.WindowStyle = 7  # minimized
+    $lnk.Save()
+}
+```
+
+**Shadow Clerk** starts the daemon in the background; open the dashboard at <http://localhost:8765>. **Shadow Clerk (stop)** stops it.
+
+To create one by hand instead: right-click the desktop → **New** → **Shortcut**, enter the path printed by `(Get-Command clerk-util).Source` followed by ` start -d`, and name it.
+
+To start the daemon when you sign in, copy the **Shadow Clerk** shortcut into the Startup folder (press Win+R and enter `shell:startup` to open it).
+
 ## Features and requirements
 
 | Feature | Requires | Quality | Speed | Related settings |

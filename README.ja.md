@@ -86,6 +86,28 @@ uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "re
 - **Claude と会議**: Claude の声を会議アプリに届ける機能は PipeWire が前提なので、Windows では選べない。
 - **スタンドアロンバイナリ**: `clerk-daemon.exe` と `clerk-util.exe` を PyInstaller で作れる。[スタンドアロンバイナリのビルド](#スタンドアロンバイナリのビルド)を参照。
 
+#### デスクトップショートカット
+
+コマンドを打たずに起動・停止できるよう、ショートカットを一度作っておくと便利です。インストール後に PowerShell で実行します:
+
+```powershell
+$exe = (Get-Command clerk-util).Source
+$shell = New-Object -ComObject WScript.Shell
+foreach ($s in @(@("Shadow Clerk", "start -d"), @("Shadow Clerk (stop)", "stop"))) {
+    $lnk = $shell.CreateShortcut("$([Environment]::GetFolderPath('Desktop'))\$($s[0]).lnk")
+    $lnk.TargetPath = $exe
+    $lnk.Arguments = $s[1]
+    $lnk.WindowStyle = 7  # 最小化で起動
+    $lnk.Save()
+}
+```
+
+**Shadow Clerk** でデーモンをバックグラウンド起動し、ダッシュボード <http://localhost:8765> を開きます。**Shadow Clerk (stop)** で停止します。
+
+手で作る場合は、デスクトップを右クリック →**新規作成**→**ショートカット** を選び、`(Get-Command clerk-util).Source` が表示したパスの後ろに ` start -d` を付けて入力し、名前を付けます。
+
+サインイン時に自動起動したい場合は、**Shadow Clerk** のショートカットをスタートアップフォルダーにコピーします（Win+R で `shell:startup` と入力すると開きます）。
+
 ## 機能と必要なもの
 
 | 機能 | 必要なもの | 品質 | 速度 | 関連設定 |
