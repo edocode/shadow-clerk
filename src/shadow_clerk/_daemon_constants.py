@@ -154,6 +154,12 @@ DEFAULT_CONFIG = {
     "whisper_device": "cpu",       # cpu/cuda
     "whisper_vad_filter": True,    # Silero VAD で区間内の非音声を落とす
     "whisper_vad_threshold": 0.35, # 0.5 (既定) だと小声の発話の頭が削れる
+    # 話者分離 (diarization extra)。声紋の保存は speaker_enrollment を別に有効にしたときだけ
+    "speaker_diarization": False,
+    "speaker_enrollment": False,
+    "diarization_threshold": 0.70,  # コサイン類似度
+    "diarization_min_sec": 1.0,     # 識別する発話の最短秒数
+    "voiceprint_max_samples": 200,  # 1人あたりの声紋の保存件数
     "interim_transcription": False,
     "interim_translation": True,  # interim_transcription の出力を翻訳して dashboard に流す
     "interim_translation_provider": None,  # null=auto / "api" / "libretranslate" / "claude"

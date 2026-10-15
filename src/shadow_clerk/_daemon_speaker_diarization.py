@@ -17,6 +17,7 @@ import numpy as np
 
 from shadow_clerk import DATA_DIR
 from shadow_clerk._daemon_config import load_config
+from shadow_clerk._daemon_constants import DEFAULT_CONFIG
 from shadow_clerk.domain.transcript_line import TranscriptLine
 
 logger = logging.getLogger("shadow-clerk")
@@ -24,8 +25,8 @@ logger = logging.getLogger("shadow-clerk")
 _WESPEAKER_REPO = "wespeaker/wespeaker-voxceleb-resnet34-LM"
 _ONNX_FILENAME = "voxceleb_resnet34_LM.onnx"
 _CACHE_DIR = os.path.join(DATA_DIR, "wespeaker_cache")
-_SIMILARITY_THRESHOLD_DEFAULT = 0.70
-_MIN_SEGMENT_SEC = 1.0
+_SIMILARITY_THRESHOLD_DEFAULT = DEFAULT_CONFIG["diarization_threshold"]
+_MIN_SEGMENT_SEC = DEFAULT_CONFIG["diarization_min_sec"]
 _MAX_EMBEDDINGS_PER_SPEAKER = 20
 _SAMPLE_RATE = 16000
 

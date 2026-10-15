@@ -113,7 +113,9 @@ class _DashboardHandlerConfigOps:
             if key in data:
                 config[key] = data[key]
         # 設定モーダルの select は文字列で届く。数値に戻す
-        for key, conv in (("whisper_beam_size", int), ("whisper_vad_threshold", float)):
+        for key, conv in (("whisper_beam_size", int), ("whisper_vad_threshold", float),
+                          ("diarization_threshold", float), ("diarization_min_sec", float),
+                          ("voiceprint_max_samples", int)):
             if key in config:
                 try:
                     config[key] = conv(config[key])
