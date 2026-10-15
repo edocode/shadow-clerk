@@ -66,6 +66,8 @@ uv python install 3.13
 uv tool install --python 3.13 --with PyAudioWPatch "shadow-clerk[spell-check,gcal]"
 # +ReazonSpeech k2(日本語 ASR、オプション):
 uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr" "shadow-clerk[spell-check,gcal,reazonspeech]"
+# ツールの置き場所 (%USERPROFILE%\.local\bin) を PATH に追加し、PowerShell を開き直す:
+uv tool update-shell
 ```
 
 `--python` と `--with` を明示する理由:
@@ -91,7 +93,7 @@ uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "re
 コマンドを打たずに起動・停止できるよう、ショートカットを一度作っておくと便利です。インストール後に PowerShell で実行します:
 
 ```powershell
-$exe = (Get-Command clerk-util).Source
+$exe = Join-Path (uv tool dir --bin) "clerk-util.exe"
 $shell = New-Object -ComObject WScript.Shell
 foreach ($s in @(@("Shadow Clerk", "start -d"), @("Shadow Clerk (stop)", "stop"))) {
     $lnk = $shell.CreateShortcut("$([Environment]::GetFolderPath('Desktop'))\$($s[0]).lnk")
@@ -104,7 +106,7 @@ foreach ($s in @(@("Shadow Clerk", "start -d"), @("Shadow Clerk (stop)", "stop")
 
 **Shadow Clerk** でデーモンをバックグラウンド起動し、ダッシュボード <http://localhost:8765> を開きます。**Shadow Clerk (stop)** で停止します。
 
-手で作る場合は、デスクトップを右クリック →**新規作成**→**ショートカット** を選び、`(Get-Command clerk-util).Source` が表示したパスの後ろに ` start -d` を付けて入力し、名前を付けます。
+手で作る場合は、デスクトップを右クリック →**新規作成**→**ショートカット** を選び、`%USERPROFILE%\.local\bin\clerk-util.exe start -d` と入力し（置き場所が違う場合は `uv tool dir --bin` で確認できます）、名前を付けます。
 
 サインイン時に自動起動したい場合は、**Shadow Clerk** のショートカットをスタートアップフォルダーにコピーします（Win+R で `shell:startup` と入力すると開きます）。
 
