@@ -461,7 +461,7 @@ class _DashboardHandlerOps:
                         pass
                     # 専用の stop イベントを渡す: ユーザーが translate_stop した後でも
                     # 会議切り出しの自動翻訳は独立して動くようにする
-                    self.recorder._translate_loop(mp, threading.Event())
+                    self.recorder._translate_loop(mp, threading.Event(), watch=False)
                 if do_summary:
                     self.recorder._auto_summarize(mp)
 

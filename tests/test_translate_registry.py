@@ -135,3 +135,19 @@ def test_same_path_registrations_are_counted(tmp_path) -> None:
     assert rec.is_translating(a)
     rec._unregister_translating(a)
     assert not rec.is_translating(a)
+
+
+def test_background_job_does_not_take_over_watched_target(tmp_path, monkeypatch) -> None:
+    """会議切り出しの自動翻訳 (watch=False) は、ユーザーが見ている one-shot の監視先を奪わない"""
+    rec, seen = _Rec(), []
+    t = _setup(tmp_path, monkeypatch, seen, rec, None)
+    rec.translate_target_path = "/watched/transcript-20260101.txt"
+    rec._translate_loop(t, threading.Event(), watch=False)
+    assert rec.translate_target_path == "/watched/transcript-20260101.txt"
+
+
+def test_watched_job_publishes_and_clears_target(tmp_path, monkeypatch) -> None:
+    rec, seen = _Rec(), []
+    t = _setup(tmp_path, monkeypatch, seen, rec, None)
+    rec._translate_loop(t, threading.Event())
+    assert rec.translate_target_path is None
