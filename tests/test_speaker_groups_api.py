@@ -18,7 +18,8 @@ from shadow_clerk._daemon_dashboard_ops_speaker_groups import _DashboardHandlerS
 from shadow_clerk._daemon_dashboard_ops_speakers import _DashboardHandlerSpeakerOps  # noqa: E402
 from shadow_clerk._daemon_speaker_names import SpeakerNameBook  # noqa: E402
 from shadow_clerk.domain.speaker_group import GROUP_PALETTE, GroupName  # noqa: E402
-from shadow_clerk.domain.voiceprint import PersonName  # noqa: E402
+from shadow_clerk._daemon_voiceprint_store import VoiceprintStore  # noqa: E402
+from shadow_clerk.domain.voiceprint import PersonName, VoiceSample  # noqa: E402
 
 MTG = "transcript-202610151000@週次定例.txt"
 CFG = {"self_group": "自社"}
@@ -56,6 +57,8 @@ def sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
     for f in os.listdir(DATA):
         os.remove(os.path.join(DATA, f))
     monkeypatch.setattr(names_mod, "SPEAKER_NAMES_FILE", os.path.join(DATA, "speaker_names.json"))
+    import shadow_clerk._daemon_voiceprint_store as store_mod
+    monkeypatch.setattr(store_mod, "VOICEPRINTS_FILE", os.path.join(DATA, "voiceprints.json"))
     monkeypatch.setattr(groups_mod, "load_config", lambda: dict(CFG))
     assert os.path.dirname(SpeakerNameBook().path) == DATA
     with open(os.path.join(DATA, MTG), "w", encoding="utf-8") as f:
@@ -82,6 +85,19 @@ def test_set_group() -> None:
         h = _H(body)
         h._set_speaker_group()
         assert h.sent["status"] == "error", body
+
+
+def test_set_group_for_voiceprint_only_name_creates_book_entry() -> None:
+    VoiceprintStore().add({PersonName("次郎"): [VoiceSample([0.1, 0.2], "x", "y")]})
+    assert "次郎" not in SpeakerNameBook().entries()
+    h = _H({"name": "次郎", "group": "acme"})
+    h._set_speaker_group()
+    assert h.sent == {"status": "ok"}
+    e = SpeakerNameBook().entries()["次郎"]
+    assert e.group == "acme" and e.person is True
+    h = _H({"name": "三郎", "group": "acme"})
+    h._set_speaker_group()
+    assert h.sent["status"] == "error" and "三郎" not in SpeakerNameBook().entries()
 
 
 def test_roster_endpoint_and_localhost_guard() -> None:

@@ -9,7 +9,9 @@ from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_dashboard_base import is_localhost_client, read_local_json_body
 from shadow_clerk._daemon_speaker_names import SpeakerNameBook, SpeakerNameBookError
 from shadow_clerk._daemon_speaker_roster import load_roster
+from shadow_clerk._daemon_voiceprint_store import VoiceprintStore, VoiceprintStoreError
 from shadow_clerk.domain.speaker_group import GroupName
+from shadow_clerk.domain.voiceprint import PersonName
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -41,7 +43,7 @@ class _DashboardHandlerSpeakerGroupOps:
                          "groups": groups, "self_group": self_group})
 
     def _set_speaker_group(self) -> None:
-        """POST /api/speaker-groups/set {name, group} — 台帳の人のグループだけ変える（"" で外す）"""
+        """POST /api/speaker-groups/set {name, group} — 人のグループだけ変える（"" で外す）。名前帳に無くても声紋があれば個人として載せる"""
         data = read_local_json_body(self, "speaker-groups")
         if data is None:
             return
@@ -55,8 +57,12 @@ class _DashboardHandlerSpeakerGroupOps:
             self._send_json({"status": "error", "message": t("dash.speakers_group_invalid")})
             return
         try:
-            ok = SpeakerNameBook().set_group(name, g)
-        except (SpeakerNameBookError, OSError):
+            book = SpeakerNameBook()
+            ok = book.set_group(name, g)
+            if not ok and name in VoiceprintStore().people():
+                book.set_entry(PersonName(name), g, True)
+                ok = True
+        except (SpeakerNameBookError, VoiceprintStoreError, OSError):
             self._send_json({"status": "error", "message": t("dash.speaker_book_error")})
             return
         self._send_json({"status": "ok"} if ok else {"status": "error", "message": t("dash.speakers_invalid")})

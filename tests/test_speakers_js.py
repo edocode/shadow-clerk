@@ -71,8 +71,16 @@ let groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true,'花�
   inputs=[{dataset:{label:'相手A',named:'0'},value:' 太郎 '},{dataset:{label:'相手B',named:'0'},value:''},
           {dataset:{label:'次郎',named:'1'},value:''}];
   groupInputs=[{dataset:{groupFor:'相手A',orig:'',touched:'1'},value:'acme'},{dataset:{groupFor:'次郎',orig:'',touched:'1'},value:'自社'}];
-  personInputs=[{dataset:{personFor:'相手A',orig:'1',touched:'1'},checked:true},{dataset:{personFor:'次郎',orig:'1'},checked:true}];
+  personInputs=[{dataset:{personFor:'相手A',orig:'1',touched:'1'},checked:true},{dataset:{personFor:'次郎',orig:'0'},checked:false}];
   out.mapping=speakerMapping();
+  groupInputs=[{dataset:{groupFor:'相手A',orig:'',touched:'1'},value:'acme'}];
+  personInputs=[{dataset:{personFor:'相手A',orig:'0',touched:'1'},checked:false}];
+  inputs=[{dataset:{label:'相手A',named:'0'},value:'太郎'}];
+  out.uncheckedGroup=speakerMapping();
+  personInputs=[{dataset:{personFor:'相手A',orig:'1',touched:'1'},checked:true}];
+  out.recheckedNoGroup=speakerMapping();
+  inputs=[{dataset:{label:'相手A',named:'0'},value:' 太郎 '},{dataset:{label:'相手B',named:'0'},value:''},
+          {dataset:{label:'次郎',named:'1'},value:''}];
   groupInputs=[{dataset:{groupFor:'相手A',orig:''},value:'acme'}];
   personInputs=[{dataset:{personFor:'相手A',orig:'1'},checked:true}];
   inputs=[{dataset:{label:'相手A',named:'0'},value:'太郎'}];
@@ -80,12 +88,20 @@ let groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true,'花�
   const nm={dataset:{label:'相手A',named:'0'},value:'花子'},gi={dataset:{groupFor:'相手A',orig:''},value:''},
     pi={dataset:{personFor:'相手A',orig:'1'},checked:true};
   inputs=[nm];groupInputs=[gi];personInputs=[pi];out.typing=[];
-  for(const v of ['花子','太郎','acme','新人']){nm.value=v;onSpkNameInput(nm);out.typing.push([pi.checked,gi.value]);}
+  for(const v of ['花子','太郎','acme','新人']){nm.value=v;onSpkNameInput(nm);out.typing.push([pi.checked,gi.value,gi.hidden]);}
   pi.dataset.touched='1';gi.dataset.touched='1';gi.value='x';pi.checked=false;nm.value='太郎';onSpkNameInput(nm);
-  out.typingTouched=[pi.checked,gi.value];
+  out.typingTouched=[pi.checked,gi.value,gi.hidden];
+  pi.checked=true;onSpkPersonChange(pi);out.toggleHidden=[gi.hidden,pi.dataset.touched];
+  pi.checked=false;onSpkPersonChange(pi);out.toggleShown=gi.hidden;
   groupInputs=[];personInputs=[];
   inputs=[{dataset:{label:'相手A',named:'0'},value:' 太郎 '},{dataset:{label:'相手B',named:'0'},value:''},
           {dataset:{label:'次郎',named:'1'},value:''}];
+  speakersResp={status:'ok',labels:[{label:'太郎',count:2,example:'<i>x</i>',samples:1,named:true},
+    {label:'相手A',count:1,example:'y',samples:0,named:false}],suggestions:[],active:false,enrollment:true};
+  await openSpeakerModal();
+  speakersResp={status:'ok',labels:[{label:'先方営業',count:1,example:'z',samples:0,person:false,group:'acme'}],
+    suggestions:[],active:false,enrollment:true};
+  await openSpeakerModal();out.hiddenRowHtml=els.spkRows.children[0].innerHTML;
   speakersResp={status:'ok',labels:[{label:'太郎',count:2,example:'<i>x</i>',samples:1,named:true},
     {label:'相手A',count:1,example:'y',samples:0,named:false}],suggestions:[],active:false,enrollment:true};
   await openSpeakerModal();
@@ -127,20 +143,37 @@ let groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true,'花�
   posted.length=0;
   selected=[{dataset:{raw:'[2026-10-09 10:00:05] [相手A] 二行目'}},{dataset:{raw:'[2026-10-09 10:00:06] [自分] 自分'}}];
   await openRelabelModal();
-  out.rlOpen=[els.rlPerson.checked,els.rlGroup.dataset.touched||''];
-  els.rlName.value='太郎';onRlNameInput();out.rlTaro=[els.rlPerson.checked,els.rlGroup.value];
-  els.rlName.value='花子';onRlNameInput();out.rlHanako=[els.rlPerson.checked,els.rlGroup.value];
-  els.rlName.value='新人';onRlNameInput();out.rlNew=[els.rlPerson.checked,els.rlGroup.value];
+  out.rlOpen=[els.rlPerson.checked,els.rlGroup.dataset.touched||'',els.rlGroup.hidden];
+  els.rlName.value='太郎';onRlNameInput();out.rlTaro=[els.rlPerson.checked,els.rlGroup.value,els.rlGroup.hidden];
+  els.rlName.value='花子';onRlNameInput();out.rlHanako=[els.rlPerson.checked,els.rlGroup.value,els.rlGroup.hidden];
+  els.rlName.value='新人';onRlNameInput();out.rlNew=[els.rlPerson.checked,els.rlGroup.value,els.rlGroup.hidden];
   els.rlName.value='太郎';onRlNameInput();
   await saveRelabel();
   out.relabelUntouched=posted[0];posted.length=0;
   selected=[{dataset:{raw:'[2026-10-09 10:00:05] [相手A] 二行目'}}];
   await openRelabelModal();
   els.rlName.value=' acme ';els.rlGroup.value='acme';els.rlGroup.dataset.touched='1';
-  els.rlPerson.checked=false;els.rlPerson.dataset.touched='1';
+  els.rlPerson.checked=false;onRlPersonChange();out.rlToggle=[els.rlGroup.hidden,els.rlPerson.dataset.touched];
   await saveRelabel();
   out.relabelPosted=posted[0];out.regenPosted=posted[1];
+  posted.length=0;els.rlPerson.checked=true;onRlPersonChange();out.rlToggleBack=els.rlGroup.hidden;
+  await saveRelabel();out.relabelRechecked=posted[0];posted.length=0;posted.push(0,out.regenPosted);
   out.regenSaved=posted.length;
+  posted.length=0;
+  groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true,'花子':false,'三郎':true},groups:{acme:'#e57373'},self_group:''};
+  vpResp={status:'ok',people:[{name:'太郎',count:3},{name:'次郎',count:1}]};
+  await loadVoiceprints();
+  const rows=els.vpRows.children;
+  out.people=rows.map(r=>[r.children[0].textContent,r.children.length,r.children[1]?r.children[1].value:null]);
+  out.grpSuggest=els.grpSuggest.children.map(o=>o.value);
+  const g0=rows[1].children[1];g0.value=' globex ';await g0.onchange();
+  out.vpSet=posted[0];
+  groupsResp={status:'error',message:'broken'};alerts.length=0;
+  await loadVoiceprints();
+  out.peopleErr=els.vpRows.children.map(r=>[r.children[0].textContent,r.children.length]);out.peopleErrAlerts=alerts.slice();
+  vpResp={status:'ok',people:[]};
+  groupsResp={status:'ok',names:{},persons:{'花子':false},groups:{},self_group:''};
+  await loadVoiceprints();out.peopleNone=[els.vpRows.children.length,els.vpRows.textContent];
   console.log(JSON.stringify(out));
 })();
 """
@@ -163,8 +196,12 @@ check("変更した付け済みの行は送る", out["changedMapping"] == {
       repr(out["changedMapping"]))
 check("モーダルを開く", out["open"] and out["saveDisabled"] is False and out["vp"] == 1)
 check("空欄は送らず前後空白を落とし、グループと個人区分も送る",
-      out["mapping"] == {"相手A": {"name": "太郎", "group": "acme", "person": True},
+      out["mapping"] == {"相手A": {"name": "太郎", "person": True},
                          "次郎": {"name": "次郎", "group": "自社"}}, repr(out["mapping"]))
+check("個人のチェックを外してグループを入れたら person:false と group を送る",
+      out["uncheckedGroup"] == {"相手A": {"name": "太郎", "group": "acme", "person": False}}, repr(out["uncheckedGroup"]))
+check("チェックを入れ直したら group は送らない",
+      out["recheckedNoGroup"] == {"相手A": {"name": "太郎", "person": True}}, repr(out["recheckedNoGroup"]))
 check("assign に file と mapping を送る", out["posted"] == {"url": "/api/speakers/assign",
       "body": {"file": "transcript-202610091000.txt", "mapping": {"相手A": {"name": "太郎"}}}},
       repr(out["posted"]))
@@ -188,14 +225,30 @@ check("行の付け替えは相手側の行だけ送る", out["relabelPosted"] =
       "file": "transcript-202610091000.txt", "lines": [{"ts": "2026-10-09 10:00:05", "label": "相手A"}],
       "name": "acme", "group": "acme", "person": False}}, repr(out["relabelPosted"]))
 check("名前だけ変えたら group/person は送らない", out["untouchedMapping"] == {"相手A": {"name": "太郎"}}, repr(out["untouchedMapping"]))
-check("名前の入力で個人チェックとグループ表示が追従する", out["typing"] == [[False, ""], [True, "acme"], [False, ""], [True, ""]]
-      and out["typingTouched"] == [False, "x"], repr((out["typing"], out["typingTouched"])))
-check("付け替え: 開いた時は個人・未編集", out["rlOpen"] == [True, ""], repr(out["rlOpen"]))
-check("付け替え: 名前に追従", out["rlTaro"] == [True, "acme"] and out["rlHanako"] == [False, ""] and out["rlNew"] == [True, ""],
+check("名前の入力で個人チェックとグループ表示が追従する", out["typing"] == [[False, "", False], [True, "acme", True], [False, "", False], [True, "", True]]
+      and out["typingTouched"] == [False, "x", False], repr((out["typing"], out["typingTouched"])))
+check("チェックの切り替えでグループ欄が出入りする", out["toggleHidden"] == [True, "1"] and out["toggleShown"] is False,
+      repr((out["toggleHidden"], out["toggleShown"])))
+check("行の描画: 個人の行はグループ欄を隠し、個人でない行は出す",
+      'data-group-for="相手A"' in out["rowHtml"] and ' hidden' in out["rowHtml"].split('data-group-for')[1].split('>')[0]
+      and ' hidden' not in out["hiddenRowHtml"].split('data-group-for')[1].split('>')[0], repr((out["rowHtml"], out["hiddenRowHtml"])))
+check("付け替え: 開いた時は個人・未編集・グループ欄は隠す", out["rlOpen"] == [True, "", True], repr(out["rlOpen"]))
+check("付け替え: 名前に追従", out["rlTaro"] == [True, "acme", True] and out["rlHanako"] == [False, "", False] and out["rlNew"] == [True, "", True],
       repr((out["rlTaro"], out["rlHanako"], out["rlNew"])))
 check("付け替え: 触っていなければ group/person は送らない", out["relabelUntouched"]["body"] == {
       "file": "transcript-202610091000.txt", "lines": [{"ts": "2026-10-09 10:00:05", "label": "相手A"}], "name": "太郎"},
       repr(out["relabelUntouched"]))
+check("付け替え: チェックの切り替えでグループ欄が出入りし、入れ直したら group は送らない",
+      out["rlToggle"] == [False, "1"] and out["rlToggleBack"] is True and "group" not in out["relabelRechecked"]["body"]
+      and out["relabelRechecked"]["body"]["person"] is True, repr((out["rlToggle"], out["rlToggleBack"], out["relabelRechecked"])))
 check("保存後に議事録の再生成を確認して頼む", out["regenPosted"] == {"url": "/api/summary",
       "body": {"file": "transcript-202610091000.txt"}}, repr(out["regenPosted"]))
+check("登録済みの人: 名簿の個人（声紋0件も）と声紋のある人を名前順に出し、個人でないラベルは出さない",
+      out["people"] == [["三郎 (0)", 3, ""], ["太郎 (3)", 3, "acme"], ["次郎 (1)", 3, ""]]
+      and out["grpSuggest"] == ["acme"], repr((out["people"], out["grpSuggest"])))
+check("登録済みの人: グループ欄の変更で speaker-groups/set を送る",
+      out["vpSet"] == {"url": "/api/speaker-groups/set", "body": {"name": "太郎", "group": "globex"}}, repr(out["vpSet"]))
+check("名簿を読めなくても声紋のある人は出し、グループ欄なし・alert なし",
+      out["peopleErr"] == [["太郎 (3)", 2], ["次郎 (1)", 2]] and out["peopleErrAlerts"] == [], repr((out["peopleErr"], out["peopleErrAlerts"])))
+check("誰もいなければ空表示", out["peopleNone"] == [0, "EMPTY"], repr(out["peopleNone"]))
 sys.exit(0 if all(results) else 1)

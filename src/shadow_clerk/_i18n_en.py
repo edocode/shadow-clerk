@@ -648,7 +648,7 @@ STRINGS_EN: dict[str, str] = {
     "dash.speakers_enrollment_off": "Voiceprint enrollment is off (speaker_enrollment). Only the labels will be renamed.",
     "dash.speakers_count": "{count} lines",
     "dash.speakers_samples": "{count} voice samples",
-    "dash.voiceprints_title": "Registered voiceprints",
+    "dash.voiceprints_title": "Registered people",
     "dash.voiceprints_empty": "None yet",
     "dash.voiceprint_delete_confirm": "Delete all voiceprints of {name}?",
 }
