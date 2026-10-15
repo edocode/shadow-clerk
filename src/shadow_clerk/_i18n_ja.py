@@ -322,6 +322,8 @@ STRINGS_JA: dict[str, str] = {
     "cfg.diarization_threshold": "話者分離のしきい値（低いほど同じ人が分かれにくい）",
     "cfg.diarization_min_sec": "話者分離の最短発話（秒）",
     "cfg.voiceprint_max_samples": "1人あたりの声紋の最大件数",
+    "cfg.self_group": "自分の所属グループ（会社名など。文字起こしの色分けと議事録の整理に使う）",
+    "cfg.self_group_ph": "例: acme",
     "cfg.interim_transcription": "中間文字起こし",
     "cfg.interim_translation": "中間翻訳",
     "cfg.interim_translation_provider": "中間翻訳プロバイダ (空=自動)",

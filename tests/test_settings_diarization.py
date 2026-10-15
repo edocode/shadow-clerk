@@ -121,6 +121,13 @@ TAIL = r"""
 """
 
 
+def test_self_group_saved() -> None:
+    h = _Handler({"self_group": "自社"})
+    h._save_config()
+    with open(os.path.join(DATA, "config.yaml"), encoding="utf-8") as f:
+        check("self_group を保存する", "self_group: 自社" in f.read())
+
+
 def test_js() -> None:
     if shutil.which("node") is None:
         print("[SKIP] node が無いため JS 検証をしない")
@@ -143,6 +150,7 @@ def test_js() -> None:
 if __name__ == "__main__":
     test_defaults()
     test_save()
+    test_self_group_saved()
     test_js()
     shutil.rmtree(DATA, ignore_errors=True)
     sys.exit(0 if all(results) else 1)

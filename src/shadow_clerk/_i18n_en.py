@@ -323,6 +323,8 @@ STRINGS_EN: dict[str, str] = {
     "cfg.diarization_threshold": "Diarization Threshold (lower = fewer split labels)",
     "cfg.diarization_min_sec": "Diarization Min Utterance (sec)",
     "cfg.voiceprint_max_samples": "Voiceprints per Person (max)",
+    "cfg.self_group": "Your group (company etc.; used for transcript colors and minutes)",
+    "cfg.self_group_ph": "e.g. acme",
     "cfg.interim_transcription": "Interim Transcription",
     "cfg.interim_translation": "Interim Translation",
     "cfg.interim_translation_provider": "Interim Translation Provider (empty=auto)",

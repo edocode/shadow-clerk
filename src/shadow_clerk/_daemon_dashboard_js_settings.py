@@ -29,6 +29,7 @@ const CFG_FIELDS=[
   {key:'diarization_threshold',label:I18N['cfg.diarization_threshold'],type:'select',opts:['0.50','0.55','0.60','0.65','0.70','0.75','0.80']},
   {key:'diarization_min_sec',label:I18N['cfg.diarization_min_sec'],type:'select',opts:['1.0','1.5','2.0','2.5','3.0']},
   {key:'voiceprint_max_samples',label:I18N['cfg.voiceprint_max_samples'],type:'number'},
+  {key:'self_group',label:I18N['cfg.self_group'],type:'text',ph:I18N['cfg.self_group_ph']},
   {key:'asr_engine',label:I18N['cfg.asr_engine'],type:'select',opts:['whisper','moonshine']},
   {key:'japanese_asr_model',label:I18N['cfg.japanese_asr_model'],type:'select',opts:['default','kotoba-whisper','reazonspeech-k2']},
   {key:'english_asr_model',label:I18N['cfg.english_asr_model'],type:'select',opts:['default','moonshine','small.en','medium.en','large-v3-turbo','distil-large-v3']},
