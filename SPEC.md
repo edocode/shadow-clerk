@@ -611,7 +611,7 @@ sequenceDiagram
 | `transcript-YYYYMMDDHHMM@<会議名>.txt` | 会議名付き transcript（Google Calendar 連携、rename 時） |
 | `transcript-*-<lang>.txt` | 翻訳結果ファイル（会議名含む対応: `transcript-YYYYMMDDHHMM@<会議名>-<lang>.txt`） |
 | `transcript-*.voices.jsonl` | 話者分離の埋め込み（ラベル+ベクトル。`speaker_enrollment: true` のとき transcript ごとに保存。名前付けで使う） |
-| `speaker_names.json` | 名前付けで付けた名前の名簿（名前のみ。どの会議でも候補に出す。人の削除で消える） |
+| `speaker_names.json` | 名前帳 v2（名前・グループ・個人区分・グループの色。声紋は含まない。どの会議でも候補に出す。人の削除で消える） |
 | `voiceprints.json` | 人ごとの声紋（名前付け後に追加。1人あたり `voiceprint_max_samples`、既定 200 件） |
 | `wespeaker_cache/` | 話者分離の wespeaker ResNet34 ONNX モデル（初回利用時にダウンロード） |
 | `summary-YYYYMMDD.md` | 議事録（日次 transcript に対応） |
@@ -646,6 +646,44 @@ flowchart LR
     A -->|声紋を追加| P[(voiceprints.json)]
     A -->|ラベルを書き換え| T[transcript / 翻訳 / voices]
 ```
+
+#### 名前帳 v2（グループ）
+
+`speaker_names.json` は人とグループの台帳。version 1（`"names"` が配列）は読み込み時に v2 へ自動移行する（グループなしとして取り込む。壊れたファイルは上書きしない）。
+
+```json
+{
+  "version": 2,
+  "names": {"太郎": {"group": "acme", "person": true}, "次郎": {"group": "", "person": true},
+            "先方営業": {"group": "acme", "person": false}},
+  "groups": {"acme": {"color": "#e57373"}, "自社": {"color": "#64b5f6"}}
+}
+```
+
+- `person: false` は会社名・役割名のラベル。声紋に登録せず、元が個人だった行の声紋は外す。グループ名と同じ文字列を入れたときも既定でオフ
+- 色はグループ作成時にパレットから自動で割り当てて保存する（会議をまたいで同じ色）。自分の所属は設定キー `self_group`（`[自分]` の色）
+- 名前付け・付け替えでグループ・個人区分は、ユーザーが編集したときだけ変える。触らなければ台帳の値を保つ
+
+| エンドポイント | 役割 |
+|---|---|
+| `POST /api/speakers/assign` | ラベルへ名前・グループ・`person` を付ける（声紋は `person` かつ `speaker_enrollment` のときだけ） |
+| `POST /api/speakers/assign-lines` | `{"file","lines":[{"ts","label"}],"name","group?","person?"}`。時刻とラベルの両方が一致する行だけを付け替える（相手側のみ。`[自分]` `[Claude]` は不可）。transcript・翻訳・voices サイドカーを書き換え、書き換えジャーナルに記録し、声紋のサンプルを移す |
+| `GET /api/speaker-groups` | `{names, persons, groups, self_group}`。ダッシュボードの色分け用。保存後に読み直す |
+| `POST /api/speaker-groups/set` | `{name, group}`。台帳の人のグループだけ変える（`""` で外す） |
+| `GET /api/speaker-roster?file=` | スキル向け（localhost 限定）。transcript の話者 × 台帳 → `[{label, group, self}]`。clerk-meeting-helper が議事録・分析の前に読む |
+
+名前付け・付け替えは、録音中のファイル、翻訳中のファイル、名前帳または声紋ストアが読めないときは断る。
+
+#### 議事録の再生成
+
+議事録（LLM 方式）のプロンプトには「話者とグループ」ブロックが入り、グループが2つ以上ならグループ別に整理させる。名前・グループの保存後、議事録があればダッシュボードが再生成を確認する（自動では作り直さない）。作り方は次の表で決める。メタデータは持たない。
+
+| 条件 | 再生成の方法 |
+|---|---|
+| 別の会議が進行中 | 常に LLM 方式（ライブのアシスタントを止めない） |
+| advice または analysis ファイルがある | AI コンソール（clerk-meeting-helper）に依頼。止まっていればその会議で起動してから依頼 |
+| どちらもない | LLM 方式 |
+| コンソールを起動できない | LLM 方式にフォールバック |
 
 ## 設定ファイル (config.yaml)
 

@@ -236,6 +236,13 @@ voiceprint_max_samples: 200   # per person (default 200)
 - After the meeting, the 👥 button in the dashboard lets you name labels such as `相手A` (for example `太郎`). Several labels may get the same name. Expected attendees and already registered people are offered as candidates, and you can also type any name.
 - Naming rewrites the labels in the transcript and its translations. If `speaker_enrollment` is enabled, that voice is also stored as a voiceprint in `voiceprints.json` (up to `voiceprint_max_samples` per person).
 - Every assigned name is remembered (names only, no voice data, regardless of `speaker_enrollment`) in `speaker_names.json` and offered as a suggestion in every meeting. A row that already has a name shows it as a placeholder; leave the field empty to keep it. Deleting a person from the dashboard removes their name too.
+- In the naming modal you can also give each name a **group** (a company or organization). Untick "register as a person (voiceprint)" to treat the label as a company or role name (for example `acme`, `先方営業`): it gets a group and a color but never enrolls a voiceprint. Group and person status change only when you edit them; otherwise the stored values are kept.
+- Select transcript lines and press 👤 ("change speaker") to reassign **only those lines** to another speaker (same name, group and person options). Only remote-side lines can be reassigned, not `[自分]` or `[Claude]`.
+- Speakers are colored by group in the transcript. Set `self_group` ("your own group" in the settings modal) and `[自分]` takes that group's color; each group gets an automatic, persistent color.
+- Minutes (both the LLM method and the AI assistant method) receive a "speakers and groups" block. With two or more groups they are asked to organize requests, agreements and action items by group. The `clerk-meeting-helper` skill (1.1.0) reads it from `GET /api/speaker-roster`.
+- After saving names or groups, if the meeting has minutes the dashboard asks whether to regenerate them. If the meeting has AI-assistant output (advice or analysis files), the assistant rebuilds them (started first if needed, with an LLM fallback); otherwise the LLM does. While a different meeting is in progress the LLM is always used, so the live assistant is not interrupted.
+- Naming and line reassignment are refused for the file being recorded, a file being translated, and when the name book or voiceprint store is unreadable.
+- `speaker_names.json` holds only names, groups, person flag and colors, never voiceprints.
 - Already-named speakers stay in the list and can be renamed (for a typo, say); their voiceprints from that meeting move to the new name.
 - The file currently being recorded cannot be named (rewriting it would break the live AI-assistant stream's read offsets). Wait until the meeting ends; for the daily file, wait until the date changes or extract it as a meeting with ⏱ first. A file whose translation is running (one-shot or the continuous loop) cannot be named until it finishes.
 - Merging lines into an existing meeting can mix two different speakers under the same label; name such a file carefully (or extract into a new meeting instead).
@@ -876,7 +883,7 @@ shadow-clerk/                          # Repository
   daemon.log / daemon.pid              # Daemon log and PID
   gcal_token.json                      # Google Calendar OAuth token (created by gcal-auth)
   wespeaker_cache/                     # Speaker diarization ONNX model (downloaded on first use)
-  speaker_names.json                   # Names given to speakers (names only)
+  speaker_names.json                   # Names, groups and colors of speakers (no voice data)
   voiceprints.json                     # Voiceprints (speaker_enrollment, after naming)
   transcript-YYYYMMDDHHMM@Title.voices.jsonl  # Speaker diarization embeddings (speaker_enrollment)
 ```
