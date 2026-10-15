@@ -212,7 +212,7 @@ uv sync --extra diarization
 ```
 
 ```yaml
-# config.yaml
+# config.yaml (or the dashboard settings modal, Transcription section)
 speaker_diarization: true   # default false
 diarization_threshold: 0.70 # cosine similarity (default 0.70)
 diarization_min_sec: 1.0    # shortest utterance to identify, in seconds (default 1.0)
@@ -227,7 +227,7 @@ The wespeaker ResNet34 ONNX model is downloaded on first use into `wespeaker_cac
 #### Naming speakers and voiceprints
 
 ```yaml
-# config.yaml
+# config.yaml (or the dashboard settings modal)
 speaker_enrollment: true      # default false (requires speaker_diarization: true)
 voiceprint_max_samples: 200   # per person (default 200)
 ```
