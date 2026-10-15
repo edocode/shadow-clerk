@@ -492,6 +492,18 @@ STRINGS_EN: dict[str, str] = {
         "Even when attributing remarks, avoid definitive attribution since the transcript alone "
         "cannot determine who actually spoke."
     ),
+    "llm.summary_speakers_block": (
+        "\n[Speakers and their groups (confirmed by the user)]\n"
+        "{speakers}\n"
+        "The user's own group: {self_group}\n"
+        "Use these speaker names as they are. Labels such as 相手A are speakers whose name is unknown.\n"
+    ),
+    "llm.summary_speakers_unknown_group": "(unknown)",
+    "llm.summary_speakers_self_mark": " (the user)",
+    "llm.summary_groups_instruction": (
+        "Several groups took part. For decisions, requests and action items, state which group each "
+        "belongs to (the user's group vs. each other group) and do not merge the groups' positions.\n"
+    ),
     "llm.summary_length_half": "\n[OUTPUT LENGTH] At least half an A4 page (400+ characters). May be longer if important content warrants it.",
     "llm.summary_length_1page": "\n[OUTPUT LENGTH] At least one A4 page (800+ characters). May be longer if important content warrants it.",
     "llm.summary_length_2pages": "\n[OUTPUT LENGTH] At least two A4 pages (1600+ characters). Describe each topic's discussion in detail. May be longer if important content warrants it.",

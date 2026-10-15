@@ -511,6 +511,18 @@ STRINGS_JA: dict[str, str] = {
         "誰が実際に発言したかは transcript だけでは判別できないことを踏まえ、"
         "断定的な帰属は避けてください。"
     ),
+    "llm.summary_speakers_block": (
+        "\n【話者と所属グループ（ユーザーが確定したもの）】\n"
+        "{speakers}\n"
+        "ユーザー自身の所属: {self_group}\n"
+        "話者名はこのとおりに使う。相手A のようなラベルは名前の分からない話者。\n"
+    ),
+    "llm.summary_speakers_unknown_group": "（不明）",
+    "llm.summary_speakers_self_mark": "（ユーザー本人）",
+    "llm.summary_groups_instruction": (
+        "複数のグループが参加している。決定事項・要望・宿題は、どのグループのものか"
+        "（ユーザーの所属か、どの相手方か）を明記し、グループ間の立場を混ぜない。\n"
+    ),
     "llm.summary_length_half": "\n【出力量】A4半枚（400字）以上でまとめてください。重要な内容があればそれ以上長くなっても構いません。",
     "llm.summary_length_1page": "\n【出力量】A41枚（800字）以上でまとめてください。重要な内容があればそれ以上長くなっても構いません。",
     "llm.summary_length_2pages": "\n【出力量】A42枚（1600字）以上で詳細にまとめてください。各議題の議論内容を具体的に記述してください。重要な内容があればそれ以上長くなっても構いません。",
