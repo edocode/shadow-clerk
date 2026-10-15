@@ -25,7 +25,7 @@ def _wpctl_status(args: list[str]) -> str:
         return ""
     try:
         result = subprocess.run(["wpctl", "status", *args],
-                                capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC)
+                                capture_output=True, text=True, encoding="utf-8", timeout=IPC_TIMEOUT_SEC)
         return result.stdout if result.returncode == 0 else ""
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return ""
@@ -62,7 +62,7 @@ def _pw_dump_node_props() -> Iterator[dict[str, Any]]:
     if not shutil.which("pw-dump"):
         return
     try:
-        result = subprocess.run(["pw-dump"], capture_output=True, text=True,
+        result = subprocess.run(["pw-dump"], capture_output=True, text=True, encoding="utf-8",
                                 timeout=IPC_TIMEOUT_SEC)
         objects = json.loads(result.stdout) if result.returncode == 0 else []
     except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError) as e:

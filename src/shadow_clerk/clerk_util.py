@@ -29,7 +29,7 @@ def _read_output_directory() -> None:
     """
     global OUTPUT_DIR
     if os.path.isfile(CONFIG_FILE):
-        with open(CONFIG_FILE) as f:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
             for line in f:
                 if line.startswith("output_directory:"):
                     val = line.split(":", 1)[1].strip()
@@ -54,7 +54,7 @@ _read_output_directory()
 
 def cmd_ls(args: list[str]) -> None:
     try:
-        result = subprocess.run(["ls", "-la", DATA_DIR + "/"], capture_output=True, text=True)
+        result = subprocess.run(["ls", "-la", DATA_DIR + "/"], capture_output=True, text=True, encoding="utf-8")
         sys.stdout.write(result.stdout)
     except Exception:
         pass
@@ -62,7 +62,7 @@ def cmd_ls(args: list[str]) -> None:
         print()
         print(f"Output directory ({OUTPUT_DIR}):")
         try:
-            result = subprocess.run(["ls", "-la", OUTPUT_DIR + "/"], capture_output=True, text=True)
+            result = subprocess.run(["ls", "-la", OUTPUT_DIR + "/"], capture_output=True, text=True, encoding="utf-8")
             sys.stdout.write(result.stdout)
         except Exception:
             pass
@@ -75,7 +75,7 @@ def cmd_command(args: list[str]) -> None:
         sys.exit(1)
     import yaml
     try:
-        with open(CONFIG_FILE) as f:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
     except Exception:
         cfg = {}
@@ -100,7 +100,7 @@ PID_FILE = os.path.join(DATA_DIR, "daemon.pid")
 def _read_pid() -> int | None:
     """PID ファイルから PID を読み取る。ファイルがなければ None"""
     try:
-        with open(PID_FILE) as f:
+        with open(PID_FILE, encoding="utf-8") as f:
             return int(f.read().strip())
     except (FileNotFoundError, ValueError):
         return None
@@ -135,7 +135,7 @@ def cmd_recorder_status(args: list[str]) -> None:
 def cmd_read_config(args: list[str]) -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
     if os.path.isfile(CONFIG_FILE):
-        with open(CONFIG_FILE) as f:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
             sys.stdout.write(f.read())
     else:
         default_config = """# shadow-clerk 設定
@@ -154,9 +154,9 @@ initial_prompt: null
 voice_command_key: f23
 wake_word: シェルク
 ui_language: ja"""
-        with open(CONFIG_FILE, "w") as f:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             f.write(default_config + "\n")
-        with open(CONFIG_FILE) as f:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
             sys.stdout.write(f.read())
 
 
@@ -177,12 +177,12 @@ def cmd_write_config_value(args: list[str]) -> None:
 
     # config.yaml を読み込み
     if os.path.isfile(CONFIG_FILE):
-        with open(CONFIG_FILE) as f:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
             lines = f.readlines()
     else:
         # read-config でデフォルト生成
         cmd_read_config([])
-        with open(CONFIG_FILE) as f:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
             lines = f.readlines()
 
     # 指定キーの行を更新
@@ -199,7 +199,7 @@ def cmd_write_config_value(args: list[str]) -> None:
     if not found:
         new_lines.append(f"{key}: {yaml_value}\n")
 
-    with open(CONFIG_FILE, "w") as f:
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         f.writelines(new_lines)
 
 
@@ -358,7 +358,7 @@ def cmd_summarize(args: list[str]) -> None:
     if tn is None:
         session_file = os.path.join(DATA_DIR, ".clerk_session")
         if os.path.isfile(session_file):
-            with open(session_file) as f:
+            with open(session_file, encoding="utf-8") as f:
                 session_name = f.read().strip()
             if session_name:
                 tn = TranscriptName.parse(os.path.basename(session_name))
@@ -399,7 +399,7 @@ def cmd_summarize(args: list[str]) -> None:
     source_path = transcript_path
     if os.path.isfile(CONFIG_FILE):
         import yaml
-        with open(CONFIG_FILE) as f:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
             config = yaml.safe_load(f) or {}
         summary_source = config.get("summary_source")
         if summary_source in ("translate", None):
@@ -428,7 +428,7 @@ def cmd_summarize(args: list[str]) -> None:
     if result.returncode == 0:
         import yaml
         try:
-            with open(CONFIG_FILE) as f:
+            with open(CONFIG_FILE, encoding="utf-8") as f:
                 cfg = yaml.safe_load(f) or {}
         except Exception:
             cfg = {}

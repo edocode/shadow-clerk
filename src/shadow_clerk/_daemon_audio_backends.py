@@ -58,7 +58,7 @@ def _wpctl_inspect_default_sink() -> str:
     """
     return subprocess.run(
         ["wpctl", "inspect", "@DEFAULT_AUDIO_SINK@"],
-        capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC,
+        capture_output=True, text=True, encoding="utf-8", timeout=IPC_TIMEOUT_SEC,
     ).stdout
 
 
@@ -69,7 +69,7 @@ def _wpctl_inspect_default_source() -> str:
     """
     return subprocess.run(
         ["wpctl", "inspect", "@DEFAULT_AUDIO_SOURCE@"],
-        capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC,
+        capture_output=True, text=True, encoding="utf-8", timeout=IPC_TIMEOUT_SEC,
     ).stdout
 
 
@@ -222,7 +222,7 @@ class PipeWireBackend(AudioBackend):
             try:
                 result = subprocess.run(
                     ["wpctl", "status"],
-                    capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC,
+                    capture_output=True, text=True, encoding="utf-8", timeout=IPC_TIMEOUT_SEC,
                 )
                 if result.stdout.strip():
                     print(result.stdout)
@@ -235,7 +235,7 @@ class PipeWireBackend(AudioBackend):
             try:
                 result = subprocess.run(
                     ["pactl", "list", "short", "sinks"],
-                    capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC,
+                    capture_output=True, text=True, encoding="utf-8", timeout=IPC_TIMEOUT_SEC,
                 )
                 if result.stdout.strip():
                     print(result.stdout)
@@ -276,7 +276,7 @@ class PulseAudioBackend(AudioBackend):
         try:
             result = subprocess.run(
                 ["pactl", "list", "short", "sources"],
-                capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC,
+                capture_output=True, text=True, encoding="utf-8", timeout=IPC_TIMEOUT_SEC,
             )
             for line in result.stdout.splitlines():
                 if ".monitor" in line:
@@ -292,7 +292,7 @@ class PulseAudioBackend(AudioBackend):
         try:
             result = subprocess.run(
                 ["pactl", "list", "short", "sources"],
-                capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC,
+                capture_output=True, text=True, encoding="utf-8", timeout=IPC_TIMEOUT_SEC,
             )
             if result.stdout.strip():
                 print(result.stdout)

@@ -49,7 +49,7 @@ def _get_credentials(credentials_file: str, token_file: str):
         else:
             flow = InstalledAppFlow.from_client_secrets_file(credentials_file, _SCOPES)
             creds = flow.run_local_server(port=0)
-        with open(token_file, "w") as f:
+        with open(token_file, "w", encoding="utf-8") as f:
             f.write(creds.to_json())
 
     return creds

@@ -68,13 +68,13 @@ def _daemonize() -> None:
 
 
 def _write_pid_file() -> None:
-    with open(PID_FILE, "w") as f:
+    with open(PID_FILE, "w", encoding="utf-8") as f:
         f.write(str(os.getpid()))
 
 
 def _read_existing_pid() -> int | None:
     try:
-        with open(PID_FILE) as f:
+        with open(PID_FILE, encoding="utf-8") as f:
             return int(f.read().strip())
     except (OSError, ValueError):
         return None
