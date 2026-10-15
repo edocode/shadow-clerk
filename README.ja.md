@@ -211,7 +211,7 @@ uv sync --extra diarization
 ```
 
 ```yaml
-# config.yaml
+# config.yaml（ダッシュボードの設定モーダル「文字起こし」でも変更可）
 speaker_diarization: true   # 既定 false
 diarization_threshold: 0.70 # コサイン類似度（既定 0.70）
 diarization_min_sec: 1.0    # 識別する発話の最短秒数（既定 1.0）
@@ -226,7 +226,7 @@ wespeaker ResNet34 の ONNX モデルは初回利用時にデータディレク�
 #### 話者の名前付けと声紋
 
 ```yaml
-# config.yaml
+# config.yaml（ダッシュボードの設定モーダルでも変更可）
 speaker_enrollment: true      # 既定 false（speaker_diarization: true が前提）
 voiceprint_max_samples: 200   # 1人あたりの保存件数（既定 200）
 ```

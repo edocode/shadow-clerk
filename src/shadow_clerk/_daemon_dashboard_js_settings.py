@@ -24,6 +24,11 @@ const CFG_FIELDS=[
   {key:'whisper_device',label:I18N['cfg.whisper_device'],type:'select',opts:['cpu','cuda']},
   {key:'whisper_vad_filter',label:I18N['cfg.whisper_vad_filter'],type:'bool',def:true},
   {key:'whisper_vad_threshold',label:I18N['cfg.whisper_vad_threshold'],type:'select',opts:['0.2','0.35','0.5']},
+  {key:'speaker_diarization',label:I18N['cfg.speaker_diarization'],type:'bool'},
+  {key:'speaker_enrollment',label:I18N['cfg.speaker_enrollment'],type:'bool'},
+  {key:'diarization_threshold',label:I18N['cfg.diarization_threshold'],type:'select',opts:['0.50','0.55','0.60','0.65','0.70','0.75','0.80']},
+  {key:'diarization_min_sec',label:I18N['cfg.diarization_min_sec'],type:'select',opts:['1.0','1.5','2.0','2.5','3.0']},
+  {key:'voiceprint_max_samples',label:I18N['cfg.voiceprint_max_samples'],type:'number'},
   {key:'asr_engine',label:I18N['cfg.asr_engine'],type:'select',opts:['whisper','moonshine']},
   {key:'japanese_asr_model',label:I18N['cfg.japanese_asr_model'],type:'select',opts:['default','kotoba-whisper','reazonspeech-k2']},
   {key:'english_asr_model',label:I18N['cfg.english_asr_model'],type:'select',opts:['default','moonshine','small.en','medium.en','large-v3-turbo','distil-large-v3']},
@@ -140,10 +145,11 @@ async function openCfg(){
       el.value=v?'true':'false';
     }else if(f.type==='select'){
       el=document.createElement('select');el.id='cfg_'+f.key;
-      // config に一覧外の値があれば選択肢に足す（保存で消さないため）
-      const opts=(v===null||v===undefined||f.opts.map(String).includes(String(v)))?f.opts:[...f.opts,String(v)];
+      // config に一覧外の値があれば選択肢に足す（保存で消さないため）。JSON の 1.0 は 1 で届くので数値でも突き合わせる
+      const hit=(v===null||v===undefined)?undefined:f.opts.find(o=>String(o)===String(v)||(v!==''&&o!==''&&!isNaN(o)&&Number(o)===Number(v)));
+      const opts=(v===null||v===undefined||hit!==undefined)?f.opts:[...f.opts,String(v)];
       opts.forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=o;el.appendChild(op);});
-      if(v!==null&&v!==undefined)el.value=String(v);
+      if(v!==null&&v!==undefined)el.value=String(hit!==undefined?hit:v);
     }else if(f.type==='device_select'){
       // 実際の選択肢は非同期の loadAudioDevices() が /api/audio-devices 取得後に差し替える。
       // ここでは自動＋現在値だけの仮の選択肢を出しておく（保存直後クリック等でも値が保持される）。

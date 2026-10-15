@@ -13,12 +13,13 @@ import threading
 
 from shadow_clerk import DATA_DIR
 from shadow_clerk._daemon_config import load_config
+from shadow_clerk._daemon_constants import DEFAULT_CONFIG
 from shadow_clerk.domain.voiceprint import PersonName, VoiceSample
 
 logger = logging.getLogger("shadow-clerk")
 
 VOICEPRINTS_FILE = os.path.join(DATA_DIR, "voiceprints.json")
-_MAX_SAMPLES_DEFAULT = 200
+_MAX_SAMPLES_DEFAULT = DEFAULT_CONFIG["voiceprint_max_samples"]
 _VERSION = 1
 _lock = threading.Lock()
 
