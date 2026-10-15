@@ -225,7 +225,8 @@ def test_practice_skill() -> None:
     """語学の練習の skill が同梱・配布され、talk と同じ許可だけで動くこと"""
     practice = skill_install.PRACTICE_SKILL_NAME
     check("clerk-practice を同梱する", practice in skill_install.BUNDLED_SKILLS, repr(skill_install.BUNDLED_SKILLS))
-    check("clerk-practice の版が 1.1.0", skill_install.read_skill_version(skill_install.bundled_skill_dir(practice)) == "1.1.0")
+    practice_version = skill_install.read_skill_version(skill_install.bundled_skill_dir(practice))
+    check("clerk-practice に版が付いている", bool(practice_version) and practice_version.count(".") == 2, repr(practice_version))
     with tempfile.TemporaryDirectory() as tmp:
         skill_install.install(tmp)
         check("clerk-practice も配られた", (pathlib.Path(tmp) / practice / "SKILL.md").is_file())

@@ -10,7 +10,10 @@ import threading
 
 import numpy as np
 
-from shadow_clerk._daemon_recorder_transcribe import _RecorderTranscribeMixin
+# ユーザーの config.yaml (speaker_diarization 等) に左右されないよう空のデータディレクトリを使う
+os.environ["SHADOW_CLERK_DATA_DIR"] = tempfile.mkdtemp(prefix="shadow-clerk-talk-hook-")
+
+from shadow_clerk._daemon_recorder_transcribe import _RecorderTranscribeMixin  # noqa: E402
 from shadow_clerk.domain import Speaker, TranscriptLine
 
 results: list[bool] = []

@@ -35,8 +35,8 @@ def test_say_marks_and_speaks() -> None:
     check("🔊 で始まる項目にだけ .say を付ける", out["classes"] == [["say"], [], ["say"]], repr(out))
     check("クリックできると分かる title", out["titles"] == ["SAY", "", "SAY"], repr(out))
     check("🔊 の無い項目はクリックしても何もしない", out["plain"] is None, repr(out))
-    check("🔊 の後ろの文を聞き取り中の言語で読む（auto なら言語を指定しない）",
-          out["spoken"] == [{"text": "They are there.", "lang": "en"}, {"text": "Quote", "lang": ""}], repr(out))
+    check("🔊 の後ろの文を聞き取り中の言語で読む（auto でも、かな・漢字の無い文は en）",
+          out["spoken"] == [{"text": "They are there.", "lang": "en"}, {"text": "Quote", "lang": "en"}], repr(out))
     check("入れ子（引用の中の段落）で二度読まない", out["stopped"] == 2, repr(out))
 
 
