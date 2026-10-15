@@ -92,6 +92,7 @@ STRINGS_EN: dict[str, str] = {
     "dash.speakers_nothing": "No names entered",
     "dash.speakers_write_error": "Could not write the names. Some files may be only partly updated. Please save again.",
     "dash.speakers_saved": "Named {count} lines",
+    "dash.speaker_book_error": "Cannot read the name book (speaker_names.json). It may be corrupted.",
     "dash.voiceprint_store_error": "Cannot read or write the voiceprint file (voiceprints.json). It may be corrupted.",
     "dash.workdir_pattern": "Meeting name pattern (regex)",
     "dash.workdir_pattern_hint": "Meeting names vary (Board_Meeting / Board MTG). Loosen the pattern so it matches all of them.",

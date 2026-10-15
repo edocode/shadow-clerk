@@ -389,15 +389,11 @@ def test_delete_voiceprint_forgets_the_name() -> None:
     assert SpeakerNameBook().names() == [] and "太郎" not in _suggestions(MTG2)
 
 
-def test_broken_name_book_does_not_break_assign_or_get() -> None:
+def test_broken_name_book_does_not_break_get_or_delete() -> None:
     _second_meeting()
     with open(_p("speaker_names.json"), "w", encoding="utf-8") as f:
         f.write("{broken")
     assert _suggestions(MTG2) == []
-    h = _H({"file": MTG, "mapping": {"相手A": "太郎"}})
-    h._assign_speakers()
-    assert h.sent["status"] == "ok" and "[太郎]" in _read(MTG)
-    assert _read("speaker_names.json") == "{broken"
     h = _H({"name": "太郎"})
     h._delete_voiceprint()
     assert h.sent["status"] == "ok" and h.sent["name_removed"] is False
@@ -469,3 +465,14 @@ def test_has_summary_and_serve_group_fields() -> None:
     taro = next(x for x in h.sent["labels"] if x["label"] == "太郎")
     assert taro["group"] == "acme" and taro["person"] is True
     assert h.sent["groups"] == ["acme"]
+
+
+def test_assign_with_broken_name_book_writes_nothing() -> None:
+    with open(_p("speaker_names.json"), "w", encoding="utf-8") as f:
+        f.write("{broken")
+    names = ("voiceprints.json", "speaker_names.json", MTG, TR, f"{MTG[:-4]}.voices.jsonl")
+    before = {n: _read(n) if os.path.exists(_p(n)) else None for n in names}
+    h = _H({"file": MTG, "mapping": {"相手A": "太郎"}})
+    h._assign_speakers()
+    assert h.sent == {"status": "error", "message": t("dash.speaker_book_error")}, h.sent
+    assert {n: _read(n) if os.path.exists(_p(n)) else None for n in names} == before

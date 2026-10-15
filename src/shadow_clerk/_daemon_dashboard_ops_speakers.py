@@ -58,11 +58,14 @@ class _DashboardHandlerSpeakerOps:
                 if (parsed := TranscriptName.parse_translation(f)) and parsed[0].filename == base]
 
     @staticmethod
-    def _speaker_book() -> tuple[dict[str, SpeakerEntry], dict[str, str]]:
+    def _speaker_book(strict: bool = False) -> tuple[dict[str, SpeakerEntry], dict[str, str]]:
+        """名前帳の (entries, groups)。読めないとき strict なら SpeakerNameBookError、でなければ空（読み取り専用の用途）"""
         try:
             book = SpeakerNameBook()
             return book.entries(), book.groups()
         except SpeakerNameBookError as e:
+            if strict:
+                raise
             logger.warning("名前帳を読めない: %s", e)
             return {}, {}
 
@@ -131,7 +134,11 @@ class _DashboardHandlerSpeakerOps:
         except ValueError:
             self._speaker_error("dash.speakers_invalid_name")
             return
-        entries, groups = self._speaker_book()
+        try:  # 読めない名簿の既定値で個人区分を決めると、記録済みの選択に反して声紋を登録しかねない
+            entries, groups = self._speaker_book(strict=True)
+        except SpeakerNameBookError:
+            self._speaker_error("dash.speaker_book_error")
+            return
         decided = {label: d for label, a in parsed.items()
                    if (d := decide_assignment(a, entries, groups)).changes(label, entries)}
         if not decided:
