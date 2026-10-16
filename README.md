@@ -14,6 +14,13 @@ It runs on Linux and Windows. Transcription and LibreTranslate translation work 
 
 Available on PyPI: <https://pypi.org/project/shadow-clerk/>
 
+## Privacy and Usage Notes
+
+- **Audio is processed locally.** Transcription runs on-device using Whisper or another local ASR model. Raw audio exists only in memory during processing and is never sent to any external server or written to disk.
+- **Transcripts are stored locally.** Text files are saved to your machine only (`~/.local/share/shadow-clerk/`). They are not uploaded anywhere automatically.
+- **LLM calls send transcript text externally.** When you use an LLM (Claude, OpenAI, etc.) for translation or meeting minutes, the transcript text is sent to that provider's API. Anthropic and OpenAI do not use API requests for model training by default, but check your plan's data policy. **Claude Code Team or Enterprise plans provide contractual guarantees of no data retention.**
+- **Consider consent from meeting participants.** Recording a conversation without the knowledge of others may raise legal or ethical concerns depending on your jurisdiction and context. It is generally advisable to inform participants that the conversation is being recorded and to obtain their consent where appropriate.
+
 ## Contents
 
 - [Platform support](#platform-support)
