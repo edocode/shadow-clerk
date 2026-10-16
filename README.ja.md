@@ -438,7 +438,7 @@ daemon 起動後に接続したデバイスは、一覧を更新するまでド�
 
 ### ダッシュボード
 
-ダッシュボード（<http://localhost:8765>。ポートは `--dashboard-port` で変更）には transcript と翻訳がリアルタイムに流れ、ほとんどの機能はここから操作する。
+ダッシュボード（<http://localhost:8765>。ポートは `--dashboard-port` で変更）には transcript と翻訳がリアルタイムに流れ、ほとんどの機能はここから操作する。待ち受けは `127.0.0.1` のみなので、別マシンから開くには `--dashboard-host 0.0.0.0` を指定する。どちらの場合も、書き込み API は localhost からの same-origin リクエストしか受け付けない。
 
 | 場所 | 内容 |
 |---|---|
@@ -852,6 +852,9 @@ gcal_token_file: null         # 認証済みトークンの保存先 (null=DATA_
 gcal_calendar_id: primary     # 監視するカレンダー
 gcal_buffer_minutes: 2        # 予定開始の N 分前に start_meeting を送る
 gcal_end_buffer_minutes: 1    # 予定終了の N 分後に end_meeting を送る
+
+# --- Dashboard ---
+dashboard_port: 8765          # ダッシュボードのポート。--dashboard-port が優先。clerk-util もこのキーを見てデーモンに繋ぐ
 
 # --- UI ---
 ui_language: ja               # UI言語 (ja/en) — ダッシュボード・ターミナル出力・LLMプロンプト

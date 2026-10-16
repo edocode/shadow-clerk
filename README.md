@@ -439,7 +439,7 @@ A bar highlights yellow after 10 seconds of loud-but-flat audio (steady noise, n
 
 ### Dashboard
 
-The dashboard (<http://localhost:8765>, `--dashboard-port` to change) shows the transcript and translation live and is where most features are driven from.
+The dashboard (<http://localhost:8765>, `--dashboard-port` to change) shows the transcript and translation live and is where most features are driven from. It listens on `127.0.0.1` only; pass `--dashboard-host 0.0.0.0` to reach it from another machine. Write APIs stay restricted to same-origin requests from localhost either way.
 
 | Area | What it holds |
 |---|---|
@@ -857,6 +857,9 @@ gcal_token_file: null         # Saved token (null=DATA_DIR/gcal_token.json)
 gcal_calendar_id: primary     # Calendar to watch
 gcal_buffer_minutes: 2        # Send start_meeting this many minutes before an event starts
 gcal_end_buffer_minutes: 1    # Send end_meeting this many minutes after it ends
+
+# --- Dashboard ---
+dashboard_port: 8765          # Dashboard port. --dashboard-port overrides it; clerk-util reads this key to reach the daemon
 
 # --- UI ---
 ui_language: ja               # UI language (ja/en) — dashboard, terminal output, LLM prompts
