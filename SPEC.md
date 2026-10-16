@@ -626,6 +626,7 @@ sequenceDiagram
 | `config.yaml` | 設定ファイル |
 | `.clerk_response` | LLM フォールバックの回答（最新の1件） |
 | `gcal_token.json` | Google Calendar OAuth 認証トークン（`gcal_token_file` で変更可） |
+| `gcal_processed.json` | 開始/終了処理済みのカレンダーイベント（再起動後の start_meeting 再送防止。終了1日後に破棄） |
 | `.env` | API キー等の環境変数（llm_client.py が読み込む） |
 | `advice-<stem>.md` | AI アシスタントが書く未解決の提案（上書き更新） |
 | `analysis-<stem>.md` | AI アシスタントが書く確定した事実（追記） |

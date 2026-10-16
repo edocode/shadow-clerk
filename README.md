@@ -925,6 +925,7 @@ shadow-clerk/                          # Repository
   .env                                 # API key (SHADOW_CLERK_API_KEY)
   daemon.log / daemon.pid              # Daemon log and PID
   gcal_token.json                      # Google Calendar OAuth token (created by gcal-auth)
+  gcal_processed.json                  # Calendar events already started/ended (survives daemon restarts)
   wespeaker_cache/                     # Speaker diarization ONNX model (downloaded on first use)
   speaker_names.json                   # Names, groups and colors of speakers (no voice data)
   voiceprints.json                     # Voiceprints (speaker_enrollment, after naming)
