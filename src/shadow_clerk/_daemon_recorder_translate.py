@@ -134,11 +134,13 @@ class _RecorderTranslateMixin:
             return self._translating_paths.get(os.path.abspath(transcript_path), 0) > 0
 
     def _translate_loop(self, target_transcript: str | None = None,
-                        stop_event: threading.Event | None = None) -> None:
+                        stop_event: threading.Event | None = None, *, watch: bool = True) -> None:
         """翻訳ループスレッド (llm_provider: api 用)
 
         target_transcript が指定されている場合、そのファイルを一括翻訳して終了する。
         指定がない場合は self.output_path を継続的にポーリングする。
+        watch=False はダッシュボードに進捗を流さない裏方のジョブ（会議切り出しの自動翻訳）。
+        translate_target_path を触らないので、ユーザーが見ている one-shot 翻訳の監視先を奪わない。
 
         stop_event はスレッド起動ごとに専用インスタンスを渡すこと。共有の
         self._translate_stop_event を直接参照すると、stop→再起動時の clear() で
@@ -153,7 +155,8 @@ class _RecorderTranslateMixin:
         logger.info("翻訳ループ開始: provider=%s, lang=%s%s", provider, lang,
                      f" (one-shot: {os.path.basename(target_transcript)})" if one_shot else "")
         if target_transcript:
-            self.translate_target_path = target_transcript
+            if watch:
+                self.translate_target_path = target_transcript
             self._register_translating(target_transcript)
         fail_count = 0  # 連続失敗回数（バックオフ用）
         try:
@@ -276,7 +279,8 @@ class _RecorderTranslateMixin:
                     wait = 5.0
                 stop_event.wait(timeout=wait)
         finally:
-            self.translate_target_path = None
+            if watch and self.translate_target_path == target_transcript:
+                self.translate_target_path = None
             if target_transcript:
                 self._unregister_translating(target_transcript)
 
