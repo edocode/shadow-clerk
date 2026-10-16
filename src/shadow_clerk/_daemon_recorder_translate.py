@@ -13,11 +13,12 @@ import urllib.request
 
 try:
     from shadow_clerk.llm_client import (
-        get_api_client, load_glossary, load_dotenv as llm_load_dotenv, _spell_check,
+        LlmClientError, get_api_client, load_glossary, load_dotenv as llm_load_dotenv, _spell_check,
         chat_completion, strip_reasoning,
     )
     _HAS_LLM_CLIENT = True
 except ImportError:
+    LlmClientError = RuntimeError  # type: ignore[misc,assignment]  # provider=api の経路は _HAS_LLM_CLIENT で止まる
     _HAS_LLM_CLIENT = False
 
 from shadow_clerk import DATA_DIR
@@ -456,7 +457,7 @@ class _RecorderTranslateMixin:
                             {"source": source, "speaker": speaker, "text": text,
                              "translated": translated, "timestamp": timestamp},
                             ensure_ascii=False))
-                except SystemExit:
+                except LlmClientError:
                     logger.warning("中間翻訳: API 設定不足のためスキップ (provider=api)")
                     client = None
                 except Exception as e:

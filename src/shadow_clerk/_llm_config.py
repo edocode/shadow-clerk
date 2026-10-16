@@ -20,6 +20,11 @@ logger = logging.getLogger("llm-client")
 ENV_FILE = os.path.join(DATA_DIR, ".env")
 
 
+class LlmClientError(RuntimeError):
+    """設定不足・入力不備・LLM の失敗。CLI (llm_client.main) が stderr に出して rc=1 にする。
+    daemon から直接呼ぶ関数 (get_api_client など) では sys.exit と違ってスレッドを巻き込まない"""
+
+
 def load_dotenv() -> None:
     """データディレクトリの .env ファイルから環境変数を読み込む。
 
@@ -125,23 +130,17 @@ def get_api_client(config: dict) -> tuple[OpenAI, str]:
     model = config.get("api_model")
 
     if not endpoint:
-        print(t("err.api_endpoint_missing"), file=sys.stderr)
-        print(t("err.api_endpoint_hint"), file=sys.stderr)
-        sys.exit(1)
+        raise LlmClientError(f"{t('err.api_endpoint_missing')}\n{t('err.api_endpoint_hint')}")
 
     if not model:
-        print(t("err.api_model_missing"), file=sys.stderr)
-        print(t("err.api_model_hint"), file=sys.stderr)
-        sys.exit(1)
+        raise LlmClientError(f"{t('err.api_model_missing')}\n{t('err.api_model_hint')}")
 
     # API キー取得
     api_key_env = config.get("api_key_env")
     if api_key_env:
         api_key = os.environ.get(api_key_env)
         if not api_key:
-            print(t("err.api_key_missing"), file=sys.stderr)
-            print(t("err.api_key_hint", dir=DATA_DIR, env_var=api_key_env), file=sys.stderr)
-            sys.exit(1)
+            raise LlmClientError(f"{t('err.api_key_missing')}\n{t('err.api_key_hint', dir=DATA_DIR, env_var=api_key_env)}")
     else:
         # api_key_env: null の場合（ローカル API 用）ダミーキーを使用
         api_key = "dummy"
