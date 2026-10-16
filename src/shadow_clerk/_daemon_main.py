@@ -150,6 +150,11 @@ def main() -> None:
         help="ダッシュボードポート (default: 8765)",
     )
     parser.add_argument(
+        "--dashboard-host",
+        default="127.0.0.1",
+        help="ダッシュボードの待ち受けアドレス (default: 127.0.0.1。LAN に公開するなら 0.0.0.0)",
+    )
+    parser.add_argument(
         "--beam-size",
         type=int,
         default=None,
