@@ -53,12 +53,11 @@ PENDING_KEYS: dict[str, str] = {
     "talk_stop_words": "not yet in modal",
     "talk_voicevox_url": "not yet in modal",
     "talk_volume": "not yet in modal",
+    "dashboard_port": "not yet in modal (CLI --dashboard-port overrides it)",
 }
 
 # config 読み取りに見えるが config ではない `.get("...")` (理由必須)
-NOT_CONFIG_KEYS: dict[str, str] = {
-    "dashboard_port": "pending: read in clerk_util with a default but absent from DEFAULT_CONFIG",
-}
+NOT_CONFIG_KEYS: dict[str, str] = {}
 
 # 変数名が config / cfg / conf の dict への読み取り、または load_config().get(...) を設定読み取りとみなす
 READ_RES = [

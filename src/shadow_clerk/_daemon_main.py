@@ -146,8 +146,8 @@ def main() -> None:
     parser.add_argument(
         "--dashboard-port",
         type=int,
-        default=8765,
-        help="ダッシュボードポート (default: 8765)",
+        default=None,
+        help="ダッシュボードポート (default: config の dashboard_port、なければ 8765)",
     )
     parser.add_argument(
         "--dashboard-host",
@@ -193,6 +193,9 @@ def main() -> None:
         args.model = config["default_model"]
     if args.language is None and config.get("default_language"):
         args.language = config["default_language"]
+    # clerk-util も同じキーを読んで API を叩くので、CLI 未指定なら config に揃える
+    if args.dashboard_port is None:
+        args.dashboard_port = int(config.get("dashboard_port") or 8765)
     args.whisper_beam_size = args.beam_size if args.beam_size is not None else config.get("whisper_beam_size", 5)
     args.whisper_compute_type = args.compute_type if args.compute_type is not None else config.get("whisper_compute_type", "int8")
     args.whisper_device = args.device if args.device is not None else config.get("whisper_device", "cpu")
