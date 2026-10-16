@@ -227,6 +227,9 @@ def test_practice_skill() -> None:
     check("clerk-practice を同梱する", practice in skill_install.BUNDLED_SKILLS, repr(skill_install.BUNDLED_SKILLS))
     practice_version = skill_install.read_skill_version(skill_install.bundled_skill_dir(practice))
     check("clerk-practice に版が付いている", bool(practice_version) and practice_version.count(".") == 2, repr(practice_version))
+    check("数字でない区切りがあっても版を比べられる",
+          skill_install._state("1.4.0-beta", "1.4.1") == "outdated" and skill_install._state("1.4.x", "1.4.1") == "outdated"
+          and skill_install._state("1.4.1", "1.4.1") != "outdated")
     with tempfile.TemporaryDirectory() as tmp:
         skill_install.install(tmp)
         check("clerk-practice も配られた", (pathlib.Path(tmp) / practice / "SKILL.md").is_file())
