@@ -98,7 +98,7 @@ def get_default_sink_name() -> str | None:
         try:
             result = subprocess.run(
                 ["pactl", "get-default-sink"],
-                capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC,
+                capture_output=True, text=True, encoding="utf-8", timeout=IPC_TIMEOUT_SEC,
             )
             name = result.stdout.strip()
             if name:
@@ -137,7 +137,7 @@ def get_default_source_name() -> str | None:
         try:
             result = subprocess.run(
                 ["pactl", "get-default-source"],
-                capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC,
+                capture_output=True, text=True, encoding="utf-8", timeout=IPC_TIMEOUT_SEC,
             )
             name = result.stdout.strip()
             if name:
@@ -255,7 +255,7 @@ def device_exists(name: str) -> bool | None:
     if shutil.which("wpctl"):
         try:
             result = subprocess.run(["wpctl", "status", "--name"],
-                                    capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC)
+                                    capture_output=True, text=True, encoding="utf-8", timeout=IPC_TIMEOUT_SEC)
             if result.returncode == 0 and result.stdout:
                 return target in _wpctl_audio_node_names(result.stdout)
         except subprocess.TimeoutExpired:
@@ -267,7 +267,7 @@ def device_exists(name: str) -> bool | None:
         for kind in ("sources", "sinks"):
             try:
                 result = subprocess.run(["pactl", "list", "short", kind],
-                                        capture_output=True, text=True, timeout=IPC_TIMEOUT_SEC)
+                                        capture_output=True, text=True, encoding="utf-8", timeout=IPC_TIMEOUT_SEC)
             except (subprocess.TimeoutExpired, FileNotFoundError):
                 return None
             for line in result.stdout.splitlines():

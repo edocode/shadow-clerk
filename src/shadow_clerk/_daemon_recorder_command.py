@@ -447,7 +447,7 @@ class _RecorderCommandMixin:
             tr_name = tn.translation_filename(lang) if tn else os.path.basename(transcript).replace(".txt", f"-{lang}.txt")
             tr_path = os.path.join(os.path.dirname(transcript), tr_name)
             try:
-                open(tr_path, "w").close()
+                open(tr_path, "w", encoding="utf-8").close()
                 logger.debug("翻訳ファイル truncate: %s", tr_name)
             except OSError:
                 pass

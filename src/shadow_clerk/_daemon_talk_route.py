@@ -23,7 +23,7 @@ _TOOLS = ("pw-dump", "pw-link", "pw-cat")
 
 
 def run_command(argv: list[str]) -> str:
-    return subprocess.run(argv, check=True, capture_output=True, text=True, timeout=5).stdout
+    return subprocess.run(argv, check=True, capture_output=True, text=True, encoding="utf-8", timeout=5).stdout
 
 
 class TalkRoute(Protocol):
