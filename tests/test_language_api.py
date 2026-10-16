@@ -54,7 +54,19 @@ def test_rejects() -> None:
     check("外部からは拒否", h.sent.get("status") == "error" and h.commands == [], repr(h.sent))
 
 
+def test_model_failure_is_reported() -> None:
+    h = _Handler({"language": "en"})
+
+    def _boom(_s, c):
+        raise RuntimeError("model download failed")
+    h.recorder = type("_Rec", (), {"_execute_command": _boom})()
+    h._set_language()
+    check("モデルの失敗は error の応答にする", h.sent.get("status") == "error" and "model download failed" in h.sent.get("message", ""),
+          repr(h.sent))
+
+
 if __name__ == "__main__":
     test_switch()
     test_rejects()
+    test_model_failure_is_reported()
     sys.exit(0 if all(results) else 1)
