@@ -574,6 +574,7 @@ class ConsoleSession:
             self.screen.resize(VIRTUAL_ROWS, self._cols)
         self.screen.set_mode(pyte.modes.LNM)
         self._csi_filter.reset()
+        self._decoder.reset()  # 前の子が多バイト文字の途中で死んでいても、次の子の先頭を壊さない
 
     def _read_loop(self) -> None:
         pty_session = self._pty

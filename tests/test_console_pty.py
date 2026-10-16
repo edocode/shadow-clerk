@@ -826,5 +826,14 @@ def main() -> int:
     return 0 if all(results) else 1
 
 
+def test_reset_screen_drops_partial_utf8() -> None:
+    """前の子を多バイト文字の途中で落としても、次のセッションの先頭が U+FFFD にならない"""
+    sess = ConsoleSession()
+    sess._decoder.decode("あ".encode("utf-8")[:2])  # 途中で切れた1文字
+    sess._reset_screen()
+    check("reset 後は残りの部分列を引きずらない", sess._decoder.decode("い".encode("utf-8")) == "い")
+
+
 if __name__ == "__main__":
+    test_reset_screen_drops_partial_utf8()
     raise SystemExit(main())
