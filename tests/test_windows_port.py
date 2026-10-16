@@ -138,19 +138,19 @@ def test_backend_is_chosen_by_platform() -> None:
     orig = pty_mod.IS_WINDOWS
     pty_mod.IS_WINDOWS = True
     try:
-        got = pty_mod.open_console_pty(["claude"], "C:\\work", {"TERM": "x"}, 90)
+        got = pty_mod.open_console_pty(["claude"], "C:\\work", {"TERM": "x"}, 90, 50)
     finally:
         pty_mod.IS_WINDOWS = orig
         del sys.modules["winpty"]
     check("Windows では ConPTY を開く",
           isinstance(got, pty_mod.WindowsConsolePty), type(got).__name__)
-    check("行数は仮想 grid の高さ、列数は覚えている幅",
-          spawned.get("dimensions") == (pty_mod.VIRTUAL_ROWS, 90),
+    check("行数は ConPTY に伝える実高さ、列数は覚えている幅",
+          spawned.get("dimensions") == (50, 90),
           str(spawned.get("dimensions")))
     check("起動ディレクトリを渡す", spawned.get("cwd") == "C:\\work",
           str(spawned.get("cwd")))
 
-    got = pty_mod.open_console_pty(["true"], os.getcwd(), dict(os.environ), 90)
+    got = pty_mod.open_console_pty(["true"], os.getcwd(), dict(os.environ), 90, 24)
     check("POSIX では pty.openpty を使う",
           isinstance(got, pty_mod.PosixConsolePty), type(got).__name__)
     if got is not None:
@@ -163,7 +163,7 @@ def test_missing_pywinpty_is_reported_not_raised() -> None:
     pty_mod.IS_WINDOWS = True
     sys.modules["winpty"] = None    # import すると ImportError になる
     try:
-        got = pty_mod.open_console_pty(["claude"], ".", {}, 90)
+        got = pty_mod.open_console_pty(["claude"], ".", {}, 90, 50)
     finally:
         pty_mod.IS_WINDOWS = orig
         del sys.modules["winpty"]
@@ -226,7 +226,7 @@ def test_readme_documents_the_build() -> None:
     """
     root = os.path.join(os.path.dirname(__file__), "..")
     for name, heading, cross in (
-            ("README.md", "## Building a standalone binary",
+            ("README.md", "## Building standalone binaries",
              "does not cross-compile"),
             ("README.ja.md", "## スタンドアロンバイナリのビルド",
              "クロスコンパイルしない")):

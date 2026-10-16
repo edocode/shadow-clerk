@@ -99,6 +99,10 @@ class _DashboardHandlerTalkOps:
             except TalkStartError as e:
                 self._send_json({"status": "error", "message": str(e)})
                 return
+            except Exception as e:  # pw-dump の形が想定外 (KeyError) など。応答を返さずに落とすとダッシュボードに理由が出ない
+                logger.exception("talk: 開始に失敗")
+                self._send_json({"status": "error", "message": f"{type(e).__name__}: {e}"})
+                return
         self._send_json({"status": "ok", "talk": talk.snapshot()})
 
     def _end_talk(self) -> None:

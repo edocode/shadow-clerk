@@ -107,6 +107,7 @@ shadow_clerk = ["skills/**/*.md", "talk_prompts/*.md"]
 dev = [
     "mypy>=1.20.0",
     "pylint>=4.1.2",
+    "pytest>=8.0",
     "types-pyyaml>=6.0.12.20250915",
 ]
 

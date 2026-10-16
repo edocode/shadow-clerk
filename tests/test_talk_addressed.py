@@ -185,6 +185,8 @@ def test_is_addressed_to_claude() -> None:
         "claudeこれやってくれ",
         "Claude まとめてほしい",
         "Claude、ちょっと教えてみて",
+        "クロード、説明して",
+        "クロード、これどう思う？",
     ]
     no = [
         "Claudeにやらせてます",

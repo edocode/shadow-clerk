@@ -84,9 +84,9 @@ MIC_VOICE_INTERVAL_SEC = 0.5  # mic の VAD が声を検出している間、on_
 STOP_MONITOR_GRACE_SEC = 5.0
 
 # "Claude、〇〇して" のような Claude 宛ての依頼・質問を検出する
-# 先頭に Claude があり、依頼（て形）または疑問（?）で終わる
+# 先頭に Claude（日本語 ASR では「クロード」）があり、依頼（て形）または疑問（?）で終わる
 _CLAUDE_REQUEST_RE = re.compile(
-    r'^[Cc]laude[、,。]?\s*.+(?:[てで](?:ください|ほしい|みて|くれ|くれない)?|[?？]|ませんか[?？]?)$'
+    r'^(?:[Cc]laude|クロード)[、,。]?\s*.+(?:[てで](?:ください|ほしい|みて|くれ|くれない)?|[?？]|ませんか[?？]?)$'
 )
 # 進行形・です/ます形で終わる場合は依頼ではない（例: "Claudeにやらせてます"）
 _NON_REQUEST_SUFFIX_RE = re.compile(r'(?:います|ています|てます|ていた|いた|いる|ている)$')
@@ -147,6 +147,7 @@ class TalkDriver:
         self._lines_seen = 0  # talk mode 中に届いた [自分]・[相手] 行の数
         self._recent_lines: deque[TranscriptLine] = deque(maxlen=_HEARD_LINES_MAX)
         self._stopped_at: float = float("-inf")  # stop() を呼んだ時刻（monotonic）
+        self._was_routed = False  # stop() した会話が届け先ありだったか。猶予中の monitor の扱いを決める
 
     def start(self, topic: str, persona: str | None, workdir: str | None = None,
               route: str | None = None) -> None:
@@ -180,6 +181,9 @@ class TalkDriver:
             echo = EchoFilter(tail_sec=_float_setting(config, "talk_echo_tail_sec", 0.3, 0.0, 30.0))
             player.set_on_played(lambda text, s, e: echo.record(SpokenSpan(s, e, text)))
             name = "headless" if config.get("talk_engine") == "headless" else "console"
+            filler_sec = _float_setting(config, "talk_filler_sec", 0.0, 0.0, 600.0)
+            floor_wait_sec = _float_setting(config, "talk_floor_wait_sec", 10.0, 0.0, 60.0)
+            stop_re = stop_pattern(config.get("talk_stop_words"))
             try:
                 if route_obj is not None:
                     route_obj.connect(route, source_port)
@@ -198,9 +202,7 @@ class TalkDriver:
             self._topic, self._persona, self._lang = topic, chosen, lang
             self._language, self._workdir = lang.value, resolved
             self._credit, self._error = backend.credit(), ""
-            self._filler_sec = float(config.get("talk_filler_sec") or 0)
-            self._floor_wait_sec = _float_setting(config, "talk_floor_wait_sec", 10.0, 0.0, 60.0)
-            self._stop_re = stop_pattern(config.get("talk_stop_words"))
+            self._filler_sec, self._floor_wait_sec, self._stop_re = filler_sec, floor_wait_sec, stop_re
             self._active = True  # つなぎは [自分] 行のあとだけ。口火の前に挟むと最初の質問より先に話してしまう
             logger.info("talk: 開始 (engine=%s, topic=%r, persona=%s, language=%s)",
                         name, topic, chosen.name if chosen else "-", lang.value)
@@ -212,6 +214,7 @@ class TalkDriver:
                 return
             self._active = False
             self._stopped_at = time.monotonic()
+            self._was_routed = self._route is not None
             engine, player = self._engine, self._player
             route, sink = self._route, self._sink
             self._engine = self._player = self._route = self._sink = None
@@ -258,36 +261,34 @@ class TalkDriver:
         now = time.monotonic()
         return sorted(s for s, at in list(self._heard.items()) if now - at < SPEAKING_STALE_SEC)
 
+    def _monitor_filtered(self, routed: bool) -> bool:
+        """monitor の文字起こしを routed（届け先あり）/ 非 routed の規則で扱う期間か。
+        talk 中はいまの経路、stop() 後 STOP_MONITOR_GRACE_SEC 秒間は終えた会話の経路で見る
+        （キューに積まれた音声が stop() 後も ASR を通ってくるため）"""
+        if self._active:
+            return (self._route is not None) == routed
+        return self._was_routed == routed and time.monotonic() - self._stopped_at < STOP_MONITOR_GRACE_SEC
+
     def is_suppressed(self, source: str) -> bool:
-        """この source の文字起こしを捨てるか。届け先が無い talk mode の monitor（Claude の声しか来ない）。
-        stop() 後も STOP_MONITOR_GRACE_SEC 秒間は捨てる（キュー残りが ASR を通ってくるため）"""
-        if source != "monitor" or self._route is not None:
-            return False
-        return self._active or time.monotonic() - self._stopped_at < STOP_MONITOR_GRACE_SEC
+        """この source の文字起こしを捨てるか。届け先が無い talk mode の monitor（Claude の声しか来ない）"""
+        return source == "monitor" and self._monitor_filtered(routed=False)
 
     def is_echo(self, source: str, seg_start: float, seg_end: float, text: str) -> bool:
-        """届け先ありの talk mode で、monitor の区間が Claude の読み上げ中（終了後 tail まで）か。text は使わない（時間だけで判定）。
-        stop() 後も STOP_MONITOR_GRACE_SEC 秒間は判定を続ける"""
-        if source != "monitor" or self._route is None:
-            return False
-        if not self._active and time.monotonic() - self._stopped_at >= STOP_MONITOR_GRACE_SEC:
-            return False
-        return self._echo.overlaps(seg_start, seg_end)
+        """届け先ありの talk mode で、monitor の区間が Claude の読み上げ中（終了後 tail まで）か。text は使わない（時間だけで判定）"""
+        return source == "monitor" and self._monitor_filtered(routed=True) and self._echo.overlaps(seg_start, seg_end)
 
     def hides_interim(self, source: str, seg_start: float, seg_end: float) -> bool:
         """中間文字起こしを出さないか。Claude の声が混ざる monitor の区間（確定行は is_echo で別に判定する）"""
-        return self.is_suppressed(source) or (
-            source == "monitor" and self._route is not None
-            and (self._active or time.monotonic() - self._stopped_at < STOP_MONITOR_GRACE_SEC)
-            and self._echo.overlaps(seg_start, seg_end))
+        return self.is_suppressed(source) or self.is_echo(source, seg_start, seg_end, "")
 
     def on_other_line(self, line: TranscriptLine) -> None:
-        """[相手] 行が書かれた。Claude 宛ての依頼・質問なら engine に渡して応答させる"""
+        """[相手] 行が書かれた。届け先ありの会議で Claude 宛ての依頼・質問なら engine に渡して応答させる
+        (届け先なしでは monitor は Claude 自身の声しか来ないので数えるだけ)"""
         with self._lock:
             if not self._active:
                 return
             self._note_line_locked(line)
-            if not _is_addressed_to_claude(line.text):
+            if self._route is None or not _is_addressed_to_claude(line.text):
                 return
             engine = self._engine
             self._arm_filler_locked()
@@ -311,11 +312,11 @@ class TalkDriver:
                 if busy or engine.wants_idle_interrupt:
                     engine.on_interrupt(cut)
                 logger.info("talk: 制止 (busy=%s, cut=%r)", busy, cut)
+            # routed（多人数会議）では Claude 宛ての発言だけ応答する。制止の言葉は常に渡す
+            elif self._route is not None and not _is_addressed_to_claude(line.text):
                 return
-            # routed（多人数会議）では Claude 宛ての発言だけ応答する
-            if self._route is not None and not _is_addressed_to_claude(line.text):
-                return
-            self._arm_filler_locked()
+            else:
+                self._arm_filler_locked()
         engine.on_self_line(line.text)
 
     def api_say(self, text: str, lang: Language | None = None, display: str | None = None) -> dict:

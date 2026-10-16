@@ -323,7 +323,29 @@ def test_echo_with_route() -> None:
         check("mic の中間文字起こしは止めない", not d.hides_interim("mic", now - 2, now))
     finally:
         d.stop()
-    check("talk mode を終えたら中間文字起こしを止めない", not d.hides_interim("monitor", time.time() - 2, time.time()))
+    check("終了直後の猶予中は、読み上げと重なる区間だけ止める（キュー残りの Claude の声）",
+          d.hides_interim("monitor", now - 2, now) and not d.hides_interim("monitor", now + 5, now + 6))
+    check("届け先ありを終えた直後も相手の発言は捨てない", not d.is_suppressed("monitor"))
+    d._stopped_at = float("-inf")
+    check("猶予を過ぎたら中間文字起こしを止めない", not d.hides_interim("monitor", now - 2, now))
+
+
+def test_stop_grace_without_route() -> None:
+    d, _w, _m = _driver()
+    d.start("x", None)
+    check("届け先なしでは monitor を捨てる", d.is_suppressed("monitor"))
+    d.stop()
+    check("終了直後の猶予中も捨てる（キュー残り）", d.is_suppressed("monitor"))
+    d._stopped_at = float("-inf")
+    check("猶予を過ぎたら捨てない", not d.is_suppressed("monitor"))
+
+
+def test_start_with_broken_config_leaves_nothing_running() -> None:
+    d, _w, made = _driver(talk_filler_sec="8s")
+    d.start("x", None)
+    check("壊れた talk_filler_sec でも開始できる（既定にフォールバック）", d.active and d._filler_sec == 0.0,
+          repr(d._filler_sec))
+    d.stop()
     check("talk mode を終えたら判定しない", not d.is_echo("monitor", time.time() - 2, time.time(), "それはいい考えですね"))
 
 
@@ -765,6 +787,8 @@ if __name__ == "__main__":
     test_route_connect_failure()
     test_route_targets()
     test_echo_with_route()
+    test_stop_grace_without_route()
+    test_start_with_broken_config_leaves_nothing_running()
     test_no_route_keeps_suppressing_monitor()
     test_wait_for_floor_with_route()
     test_floor_wait_limit_and_stop()
