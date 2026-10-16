@@ -1,4 +1,5 @@
 """Shadow-clerk daemon: ダッシュボード JavaScript"""
+from __future__ import annotations
 
 from shadow_clerk._daemon_dashboard_js_core import _JS_TEMPLATE_CORE
 from shadow_clerk._daemon_dashboard_js_console_role import _JS_TEMPLATE_CONSOLE_ROLE

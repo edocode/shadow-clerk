@@ -257,7 +257,7 @@ class _DashboardHandlerConfigOps:
         renamed = []
         errors = []
 
-        def _rename(src_name, dst_name):
+        def _rename(src_name: str, dst_name: str) -> None:
             src = os.path.join(output_dir, src_name)
             dst = os.path.join(output_dir, dst_name)
             if os.path.exists(src):
@@ -278,7 +278,7 @@ class _DashboardHandlerConfigOps:
         logger.info("会議リネーム: %s → %s (%d files)", file_param, new_transcript, len(renamed))
         self._send_json({"status": "ok", "new_file": new_transcript, "renamed": len(renamed)})
 
-    def _serve_gcal_events(self):
+    def _serve_gcal_events(self) -> None:
         """GET /api/gcal-events — Google Calendar の直近イベント一覧を返す"""
         monitor = self.__class__.gcal_monitor
         if monitor is None:

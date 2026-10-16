@@ -11,6 +11,7 @@
   _daemon_dashboard.py  - Web ダッシュボード
   _daemon_main.py       - エントリーポイント
 """
+from __future__ import annotations
 
 from shadow_clerk._daemon_constants import *  # noqa: F401, F403
 from shadow_clerk._daemon_config import *  # noqa: F401, F403

@@ -226,7 +226,7 @@ class FileWatcher(threading.Thread):
         self._last_poll_error_at = now
         self._poll_error_suppressed = 0
 
-    def _poll(self):
+    def _poll(self) -> None:
         # Transcript
         t_path = self._recorder.output_path
         key = ("transcript", t_path)

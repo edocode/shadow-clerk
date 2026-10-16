@@ -608,7 +608,7 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         return None
 
     def _vad_thread_for_queue(self, audio_queue: queue.Queue, segmenter: VADSegmenter,
-                              label: str):
+                              label: str) -> None:
         """指定キューからフレームを読み VAD セグメンテーションを行うスレッド"""
         logger.info("VAD スレッド開始: %s", label)
         command_mode_latch = False  # セグメント中に一度でも command_mode なら True を維持

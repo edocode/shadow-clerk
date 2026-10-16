@@ -1,4 +1,5 @@
 """Shadow-clerk daemon: 設定管理"""
+from __future__ import annotations
 
 import logging
 import os
@@ -46,7 +47,7 @@ def get_translation_provider(config: dict) -> str:
         return provider
     return config.get("llm_provider", "claude")
 
-def _builtin_command_descs():
+def _builtin_command_descs() -> list[dict[str, str]]:
     return [
         {"command": "start_meeting", "description": t("vcmd.start_meeting")},
         {"command": "end_meeting", "description": t("vcmd.end_meeting")},

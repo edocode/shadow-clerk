@@ -1,4 +1,5 @@
 """Shadow-clerk daemon: 定数・デフォルト設定"""
+from __future__ import annotations
 
 import os
 import re

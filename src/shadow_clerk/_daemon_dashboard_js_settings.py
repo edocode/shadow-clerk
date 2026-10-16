@@ -4,6 +4,7 @@ panels から切り出したもの。CFG_FIELDS とそのレンダラ・保存�
 **連結順は panels より前。** panels の GL_COL_OPTS が top-level で LANG_OPTS を
 参照するので、後ろに置くと const の死角 (TDZ) に入る。
 """
+from __future__ import annotations
 
 _JS_TEMPLATE_SETTINGS = """\
 const LANG_OPTS=['ja','en','zh','ko','fr','de','es','pt','ru'];

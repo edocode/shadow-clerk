@@ -3,6 +3,7 @@
 core の esc / escAttr / curFile / activeFile / loadT / loadR と、modals の showToast に
 依存するため、連結順は core・modals の後でなければならない。
 """
+from __future__ import annotations
 
 _JS_TEMPLATE_SPEAKERS = r"""
 let _spkFile='';

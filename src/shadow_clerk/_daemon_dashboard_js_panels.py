@@ -1,4 +1,5 @@
 """Shadow-clerk daemon: ダッシュボード JavaScript (part B)"""
+from __future__ import annotations
 
 _JS_TEMPLATE_PANELS = """\
 /* --- 検索 --- */

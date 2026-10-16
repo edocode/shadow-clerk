@@ -1,4 +1,5 @@
 """Shadow-clerk daemon: ダッシュボード CSS"""
+from __future__ import annotations
 
 # CSS content extracted from _HTML_TEMPLATE (between <style> and </style> tags)
 _CSS_TEMPLATE = """\

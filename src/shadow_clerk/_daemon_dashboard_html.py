@@ -1,4 +1,5 @@
 """Shadow-clerk daemon: ダッシュボード HTML テンプレート"""
+from __future__ import annotations
 
 from shadow_clerk._daemon_dashboard_css import _CSS_TEMPLATE
 from shadow_clerk._daemon_dashboard_js import _JS_TEMPLATE

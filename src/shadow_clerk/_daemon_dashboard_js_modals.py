@@ -4,6 +4,7 @@ core から切り出したもの。ここは全てモーダルのイベントハ
 onclick からしか呼ばれない。core の esc / curFile / fileInfo などに
 依存するため、連結順は core の後でなければならない。
 """
+from __future__ import annotations
 
 _JS_TEMPLATE_MODALS = """\
 /* --- Bulk delete modal --- */
