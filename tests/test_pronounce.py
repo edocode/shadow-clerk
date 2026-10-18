@@ -18,7 +18,7 @@ from shadow_clerk.domain.pronunciation import (  # noqa: E402
     FocusPhoneme, OpKind, PhonemeOp, PronounceState, PronunciationTask, WordComparison,
 )
 from shadow_clerk._daemon_pronounce_ipa import normalise  # noqa: E402
-from shadow_clerk._daemon_pronounce import VOWELS, align, is_vowel  # noqa: E402
+from shadow_clerk._daemon_pronounce import CONSONANTS, VOWELS, align, is_vowel  # noqa: E402
 from pronounce_fixtures import (  # noqa: E402
     CARRIER_ACTUAL, CARRIER_EXPECTED, GLASS_EXPECTED, GLASS_TAKES,
     LIGHT_EXPECTED, LIGHT_TAKES, MODEL_INVENTORY,
@@ -115,22 +115,17 @@ def _render(ops: tuple) -> str:
                      OpKind.DEL: f"-{e}", OpKind.INS: f"+{a}"}[k] for k, e, a in ops)
 
 
-# スパイクで母音として観測した記号。実装の表のコピーでは回帰にならないので直書きする
-_SPIKE_VOWELS = {"@", "R", "O", "A", "a", "e", "ɛ", "i", "u", "ʊ", "ʉ", "aɪ", "aʊ", "eɪ", "oʊ"}
-
-
-def _looks_vowel(p: str) -> bool:
-    return p in _SPIKE_VOWELS
-
-
-def test_vowel_table_covers_model_output() -> None:
+def test_class_table_covers_model_output() -> None:
     # 表に無い記号は子音に倒れて WARNING が出る。スパイクで出た記号は全部引けること
-    unknown = {p for p in MODEL_INVENTORY if p not in VOWELS and _looks_vowel(p)}
-    check("スパイクの実出力が母音表で引ける", not unknown, str(sorted(unknown)))
+    unknown = MODEL_INVENTORY - VOWELS - CONSONANTS
+    check("スパイクの実出力が音素クラス表で引ける", not unknown, str(sorted(unknown)))
+    check("母音表と子音表が重なっていない", not (VOWELS & CONSONANTS),
+          str(sorted(VOWELS & CONSONANTS)))
     check("r 性母音クラスは母音", is_vowel("R"))
     check("わたり音は子音", not is_vowel("j") and not is_vowel("w"))
-    check("声門閉鎖は子音", not is_vowel("ʔ"))
     check("二重母音は母音", is_vowel("aɪ"))
+    check("既知の子音では警告を出さない", not is_vowel("s") and not is_vowel("θ"))
+    check("どちらにも無い記号は子音として扱う", not is_vowel("ǁ"))
 
 
 def test_align_shows_epenthesis() -> None:
@@ -182,7 +177,7 @@ if __name__ == "__main__":
     test_normalise_keeps_contrasts()
     test_normalise_order()
     test_normalise_known_limit()
-    test_vowel_table_covers_model_output()
+    test_class_table_covers_model_output()
     test_align_shows_epenthesis()
     test_align_tie_break()
     test_align_no_cross_class_sub()

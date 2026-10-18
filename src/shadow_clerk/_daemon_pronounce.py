@@ -20,18 +20,28 @@ VOWELS: frozenset[str] = frozenset({
     "i", "e", "ɛ", "a", "u", "ʊ", "ʉ", "y", "ø", "œ", "ɤ", "ɯ", "ɘ", "ɞ", "ɵ",
     "aɪ", "aʊ", "ɔɪ", "eɪ", "oʊ", "əʊ", "ɪə", "ɛə", "ʊə",  # 二重母音
 })
+# スパイクでモデルが実際に出した子音。母音表と合わせて「既知の記号」を成す。
+# どちらにも無い記号が来たら、表を広げる必要があるという合図なので WARNING を出す
+CONSONANTS: frozenset[str] = frozenset({
+    "b", "d", "dʒ", "f", "h", "j", "k", "l", "m", "n", "ŋ", "p", "r", "ɹ",
+    "s", "ʃ", "t", "tʃ", "θ", "ð", "v", "w", "z", "ʒ", "ɡ",
+})
 # 結合記号。表に無い記号を基底文字で引き直すときに外す
 _COMBINING = "̩̥̪̝̞̠̃̈"
 
 
 @lru_cache(maxsize=None)
 def is_vowel(symbol: str) -> bool:
-    """母音クラスか。表に無い記号は子音として扱い、1行だけ WARNING を出す"""
+    """母音クラスか。母音表にも子音表にも無い記号は、子音として扱って WARNING を1行出す"""
     if symbol in VOWELS:
         return True
+    if symbol in CONSONANTS:
+        return False
     base = symbol.strip(_COMBINING)
-    if base != symbol and base in VOWELS:
+    if base in VOWELS:
         return True
+    if base in CONSONANTS:
+        return False
     logger.warning("pronounce: 音素クラス表に無い記号 %r を子音として扱います", symbol)
     return False
 
