@@ -22,8 +22,10 @@ _SPLIT: dict[str, tuple[str, ...]] = {
     "ʊɹ": ("ʊ", "ɹ"), "iːɹ": ("iː", "ɹ"), "aɪɚ": ("aɪ", "ɚ"), "aʊɚ": ("aʊ", "ɚ"),
     "əl": ("ə", "l"), "ən": ("ə", "n"), "əm": ("ə", "m"), "ɚɹ": ("ɚ",),
 }
-# 2 除去: 長音・強勢・声調の数字。等価クラス表より前に落とす（ɜː は ɜ→R に当たらない）
-_STRIP = str.maketrans("", "", "ːˈˌ")
+# 2 除去: 長音・強勢・声調の数字。等価クラス表より前に落とす（ɜː は ɜ→R に当たらない）。
+#    強勢は音素に前置されるので、分割表を引く前に落とす（`ˈɔːɹ` がキー `ɔːɹ` と一致しない）
+_PRE_STRIP = str.maketrans("", "", "ˈˌ")
+_STRIP = str.maketrans("", "", "ː")
 _TONE = re.compile(r"\d+$")
 # 3 寄せ: モデルが出す ASCII 異体を IPA に揃える
 _ASCII_VARIANT: dict[str, str] = {"ai": "aɪ", "au": "aʊ", "ei": "eɪ", "oi": "ɔɪ", "ou": "oʊ"}
@@ -42,7 +44,8 @@ def normalise(seq: Sequence[str]) -> tuple[str, ...]:
     """espeak とモデルの表記の揺れを吸収する。適用順は 分割 → 除去 → 寄せ → マージ → 圧縮"""
     out: list[str] = []
     for raw in seq:
-        for part in _SPLIT.get(raw, (raw,)):
+        stressless = raw.translate(_PRE_STRIP)
+        for part in _SPLIT.get(stressless, (stressless,)):
             sym = _TONE.sub("", part.translate(_STRIP))
             if not sym:
                 continue
@@ -89,14 +92,21 @@ def word_key(word: str) -> str:
 
 
 def _phonemizer_backend(language: Language) -> Any:
-    """espeak バックエンドを作る。ホイールで入る espeak-ng を使うのでシステム依存は無い"""
+    """espeak バックエンドを作る。ホイールで入る espeak-ng を使うのでシステム依存は無い。
+
+    キャッシュしないのは、アームが1課題に1回しか起きず、作り直す頻度がそもそも低いから。
+    スレッド間の分離にはならない（set_library() / set_data_path() はクラス属性を書き、
+    espeak 自体もプロセス大域のハンドルを持つので、作り直しても隔離は得られない）
+    """
     import espeakng_loader
     from phonemizer.backend import EspeakBackend
     from phonemizer.backend.espeak.wrapper import EspeakWrapper
 
     EspeakWrapper.set_library(espeakng_loader.get_library_path())
     EspeakWrapper.set_data_path(espeakng_loader.get_data_path())
-    return EspeakBackend(_ESPEAK_LANG[language], with_stress=True)
+    # スパイクの測定は with_stress=False で行った。強勢記号は音素トークンに前置されるので、
+    # True にすると `ˈɔːɹ` が `_SPLIT` のキー `ɔːɹ` と一致せず、分割表が丸ごと死ぬ
+    return EspeakBackend(_ESPEAK_LANG[language], with_stress=False)
 
 
 # v1 は英語のみ。日本語はモデル側の限界で測れない（正規化後 PER 48.79%。英語は 9.10%）。

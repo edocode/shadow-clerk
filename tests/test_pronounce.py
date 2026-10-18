@@ -20,7 +20,9 @@ from shadow_clerk.domain.pronunciation import (  # noqa: E402
 from shadow_clerk._daemon_pronounce_ipa import (  # noqa: E402
     G2PError, PhonemeRecogniser, expected_ipa, has_espeak, has_torch, normalise, split_words,
 )
-from shadow_clerk._daemon_pronounce import CONSONANTS, VOWELS, align, compare, is_vowel  # noqa: E402
+from shadow_clerk._daemon_pronounce import (  # noqa: E402
+    _COMBINING, CONSONANTS, VOWELS, align, compare, is_vowel,
+)
 from pronounce_fixtures import (  # noqa: E402
     CARRIER_ACTUAL, CARRIER_EXPECTED, CARRIER_WORDS, GLASS_EXPECTED, GLASS_TAKES,
     LIGHT_EXPECTED, LIGHT_TAKES, MODEL_INVENTORY,
@@ -281,6 +283,13 @@ def test_compare_empty_actual() -> None:
     check("全部 del になる", all(op.kind is OpKind.DEL for op in comps[0].ops))
 
 
+def _classifiable(symbol: str) -> bool:
+    """is_vowel() が WARNING を出さずに引ける記号か。
+    結合記号つき（button の n̩ など）は基底文字で引けるので、同じ手順で確かめる"""
+    base = symbol.strip(_COMBINING)
+    return bool({symbol, base} & (VOWELS | CONSONANTS))
+
+
 def test_g2p() -> None:
     if not has_espeak():
         print("[SKIP] G2P のテスト（phonemizer-fork が無い）")
@@ -298,6 +307,16 @@ def test_g2p() -> None:
         check("複数語に展開される語を拒否する", False)
     except G2PError:
         check("複数語に展開される語を拒否する", True)
+    # espeak が返す記号が、正規化後に音素クラス表で引けること。
+    # 強勢記号で分割表が死んでいると、ここで ɔɹ ɑɹ ɛɹ … が引けずに落ちる。
+    # MODEL_INVENTORY のテストはモデル側の記号しか見ないので、espeak 側はここで押さえる
+    for word in ("more", "car", "there", "near", "sure", "fire", "corner", "hour", "bottle", "button"):
+        ipa = expected_ipa(word, Language.EN)
+        unknown = [p for p in ipa if not _classifiable(p)]
+        check(f"{word} の期待IPAが音素クラス表で引ける", not unknown, f"{ipa} -> {unknown}")
+    # 分割表が生きている証拠。r 性母音はほぼ必ず強勢を持つので、ここが最初に壊れる
+    check("r 性母音は母音 + ɹ に割れる", expected_ipa("more", Language.EN) == ("m", "O", "ɹ"),
+          repr(expected_ipa("more", Language.EN)))
     # v1 は英語のみ。検証していない言語で confident に聞こえる助言を出さない（設計書 §6.3）
     for lang in (Language.JA, Language.DE, Language.FR):
         try:
