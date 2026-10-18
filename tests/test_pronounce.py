@@ -18,7 +18,7 @@ from shadow_clerk.domain.pronunciation import (  # noqa: E402
     FocusPhoneme, OpKind, PhonemeOp, PronounceState, PronunciationTask, WordComparison,
 )
 from shadow_clerk._daemon_pronounce_ipa import (  # noqa: E402
-    G2PError, PhonemeRecogniser, expected_ipa, has_espeak, has_torch, normalise, split_words,
+    _as_model_pcm, G2PError, PhonemeRecogniser, expected_ipa, has_espeak, has_torch, normalise, split_words,
 )
 from shadow_clerk._daemon_pronounce import (  # noqa: E402
     _COMBINING, CONSONANTS, VOWELS, align, compare, is_vowel,
@@ -326,6 +326,23 @@ def test_g2p() -> None:
             check(f"未対応の言語を拒否する（{lang.value}）", True)
 
 
+def test_pcm_is_coerced_for_the_model() -> None:
+    # 録音は int16 で来る（DTYPE = "int16"）。そのまま特徴抽出に渡すと正規化が float64 に
+    # 昇格し、Input type (double) and bias type (float) でモデルが毎回落ちる（実機で発生した）
+    import numpy as np
+
+    pcm16 = (np.array([0, 16384, -16384, 32767, -32768], dtype=np.int16))
+    out = _as_model_pcm(pcm16)
+    check("int16 は float32 になる", out.dtype == np.float32, str(out.dtype))
+    check("±1.0 の範囲に収まる", float(np.abs(out).max()) <= 1.0, repr(float(np.abs(out).max())))
+    check("文字起こし側と同じ変換", np.allclose(out, pcm16.astype(np.float32) / 32768.0), repr(out))
+    f32 = np.array([0.0, 0.5, -0.5], dtype=np.float32)
+    check("float32 はそのまま", _as_model_pcm(f32).dtype == np.float32 and np.allclose(_as_model_pcm(f32), f32))
+    check("float64 も float32 に落とす",
+          _as_model_pcm(np.array([0.25], dtype=np.float64)).dtype == np.float32)
+    check("タプルでも受ける", _as_model_pcm((0.1, 0.2)).dtype == np.float32)
+
+
 def test_recogniser_is_lazy() -> None:
     # daemon 起動時に torch を import しない。クラスを作るだけでは何も読み込まない
     rec = PhonemeRecogniser("facebook/wav2vec2-xlsr-53-espeak-cv-ft", "cpu", 0)
@@ -340,7 +357,8 @@ def test_recogniser_is_lazy() -> None:
 
 
 if __name__ == "__main__":
-    test_recogniser_is_lazy()  # import 順に依存するので必ず先頭
+    test_recogniser_is_lazy()
+    test_pcm_is_coerced_for_the_model()  # import 順に依存するので必ず先頭
     test_task_parse()
     test_json_shape()
     test_normalise_keeps_contrasts()

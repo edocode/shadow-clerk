@@ -12,6 +12,8 @@ import threading
 import unicodedata
 from typing import Any, Sequence
 
+import numpy as np
+
 from shadow_clerk.domain import Language
 
 logger = logging.getLogger("shadow-clerk")
@@ -137,6 +139,20 @@ def expected_ipa(word: str, language: Language) -> tuple[str, ...]:
 _MODEL_SAMPLE_RATE = 16000
 
 
+def _as_model_pcm(pcm: Any) -> np.ndarray:
+    """モデルに渡す形に揃える。録音は int16 で来るので float32 の ±1.0 に直す。
+
+    int16 のまま特徴抽出に渡すと、ゼロ平均・単位分散の正規化が numpy で float64 に昇格し、
+    `Input type (double) and bias type (float) should be the same` で毎回落ちる（実機で発生）。
+    文字起こし側（`_daemon_transcriber.py`）も同じ変換をしている
+    """
+    arr = np.asarray(pcm)
+    if np.issubdtype(arr.dtype, np.integer):
+        full_scale = float(1 << (8 * arr.dtype.itemsize - 1))
+        return arr.astype(np.float32) / full_scale
+    return arr.astype(np.float32, copy=False)
+
+
 def has_torch() -> bool:
     """音素認識モデルが使えるか。daemon 起動時に torch を import しないよう find_spec で見る"""
     return (importlib.util.find_spec("torch") is not None
@@ -193,7 +209,7 @@ class PhonemeRecogniser:
             raise RuntimeError("pronounce model is not loaded")
         import torch
 
-        inputs = processor(pcm, sampling_rate=_MODEL_SAMPLE_RATE, return_tensors="pt")
+        inputs = processor(_as_model_pcm(pcm), sampling_rate=_MODEL_SAMPLE_RATE, return_tensors="pt")
         with torch.no_grad():
             logits = model(inputs.input_values.to(self._device)).logits
         ids = torch.argmax(logits, dim=-1)
