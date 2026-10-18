@@ -177,6 +177,8 @@ _QUEUE_SIZE = 4
 _TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 # pronounce_idle_unload_sec が 0（解放しない）のときの、キュー待ちの刻み
 _IDLE_POLL_SEC = 60.0
+# ワーカーが例外から復帰するときの小休止。ホットループを避ける
+_WORKER_ERROR_PAUSE_SEC = 1.0
 
 
 class ArmError(Exception):
@@ -209,6 +211,7 @@ class PronounceDriver:
         self._expires = 0.0
         self._attempts: list[Attempt] = []
         self._loading = False
+        self._load_error = ""
         self._worker = threading.Thread(target=self._run, name="pronounce", daemon=True)
         self._worker.start()
 
@@ -261,7 +264,7 @@ class PronounceDriver:
         self._start_loading()
         logger.info("pronounce: アームしました (%d 語)", len(words))
         with self._lock:
-            state = self._state_locked()
+            state = self._state_locked(None)
         return {"status": "ok", "id": arm_id, "state": state.value,
                 "expires_at": _format_time(expires), "expected": expected}
 
@@ -273,19 +276,27 @@ class PronounceDriver:
                 return
             if self._loading:
                 return
+            self._load_error = ""       # 次の POST で再試行できるようにする
             self._loading = True
         threading.Thread(target=self._load, name="pronounce-load", daemon=True).start()
 
     def _load(self) -> None:
+        error = ""
         try:
-            if self._recogniser is None:
-                self._recogniser = self._factory()
-            self._recogniser.load()
+            self._get_recogniser().load()
         except Exception as e:
             logger.warning("pronounce: モデルを読み込めませんでした: %s", e)
-        finally:
-            with self._lock:
-                self._loading = False
+            error = str(e) or type(e).__name__
+        with self._lock:
+            self._load_error = error     # loading を下ろすのと同時に見せる（armed に見える瞬間を作らない）
+            self._loading = False
+
+    def _get_recogniser(self) -> Any:
+        """認識器を1個だけ作る。lock の外で作ると、並行して 1.2GB を取得しに行く窓ができる"""
+        with self._lock:
+            if self._recogniser is None:
+                self._recogniser = self._factory()
+            return self._recogniser
 
     @staticmethod
     def _check_focus(task: PronunciationTask, words: tuple[str, ...],
@@ -310,23 +321,24 @@ class PronounceDriver:
     # --- 状態 -----------------------------------------------------------
 
     def snapshot(self) -> dict:
+        unavailable = self._unavailable()    # 設定と find_spec を読むので lock の外で1回だけ評価する
         with self._lock:
             expired = self._task is not None and self._clock() >= self._expires
             if expired:
                 self._arm_id, self._task, self._words, self._per_word = "", None, (), ()
                 self._expires, self._attempts = 0.0, []
-            state = self._state_locked()
+            state = self._state_locked(unavailable)
             out = {"state": state.value, "pending": self._pending,
                    "expires_at": _format_time(self._expires) if self._task else "",
                    "task": None if self._task is None else dict(self._task.to_json(), id=self._arm_id),
                    "attempts": [a.to_json() for a in self._attempts]}
             if state is PronounceState.UNAVAILABLE:
                 # not_installed なら導入コマンドを、disabled なら設定を案内できるようにする
-                out["reason"] = self._unavailable()
+                out["reason"] = unavailable or "load_failed"
             return out
 
-    def _state_locked(self) -> PronounceState:
-        if self._unavailable() is not None:
+    def _state_locked(self, unavailable: str | None) -> PronounceState:
+        if unavailable is not None or self._load_error:
             return PronounceState.UNAVAILABLE
         if self._loading:
             return PronounceState.LOADING
@@ -347,38 +359,51 @@ class PronounceDriver:
         try:
             self._queue.put_nowait((arm_id, pcm, segment_at, asr_text))
         except queue.Full:
-            # Review Focus 2: 詰まったら捨てる。文字起こしを止めてはいけない
+            # 詰まったら捨てる。文字起こしを止めてはいけない
             with self._lock:
                 self._pending -= 1
             logger.warning("pronounce: 解析が追いつかないのでセグメントを捨てました")
 
     def _run(self) -> None:
+        """解析ワーカー。ここで例外を外に出すとスレッドが死に、pending が二度と減らなくなる。
+        キュー待ちもアイドル解放も try の内側に置く"""
         while True:
             try:
-                item = self._queue.get(timeout=self._idle_unload_sec())
-            except queue.Empty:
-                self._unload_if_idle()   # 一定時間使われなければモデルを解放する（設計書 §9）
-                continue
-            if item is None:
-                return
-            arm_id, pcm, segment_at, asr_text = item
-            try:
-                self._analyse(arm_id, pcm, segment_at, asr_text)
-            except Exception as e:       # どの失敗も文字起こしに波及させない（設計書 §10）
-                logger.warning("pronounce: 解析に失敗しました: %s", e)
-            finally:
-                with self._lock:
-                    self._pending -= 1
+                try:
+                    item = self._queue.get(timeout=self._idle_unload_sec())
+                except queue.Empty:
+                    self._unload_if_idle()   # 一定時間使われなければモデルを解放する（設計書 §9）
+                    continue
+                if item is None:
+                    return
+                arm_id, pcm, segment_at, asr_text = item
+                try:
+                    self._analyse(arm_id, pcm, segment_at, asr_text)
+                except Exception as e:   # どの失敗も文字起こしに波及させない（設計書 §10）
+                    logger.warning("pronounce: 解析に失敗しました: %s", e)
+                finally:
+                    with self._lock:
+                        self._pending -= 1
+            except Exception as e:       # 設定の読み取りやモデル解放での失敗。スレッドは生かす
+                logger.warning("pronounce: ワーカーが例外から復帰します: %s", e)
+                time.sleep(_WORKER_ERROR_PAUSE_SEC)
 
     @staticmethod
-    def _idle_unload_sec() -> float:
-        """この秒数だけキューが空ならモデルを解放する。0 以下なら解放しない"""
-        value = float(load_config().get("pronounce_idle_unload_sec") or 0)
+    def _configured_idle_unload_sec() -> float:
+        """設定値そのもの。0 以下なら「解放しない」の意味"""
+        try:
+            return float(load_config().get("pronounce_idle_unload_sec") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _idle_unload_sec(self) -> float:
+        """キュー待ちのタイムアウト。解放しない設定でも、定期的に目を覚ます"""
+        value = self._configured_idle_unload_sec()
         return value if value > 0 else _IDLE_POLL_SEC
 
     def _unload_if_idle(self) -> None:
         """アイドルでモデルを解放する。import torch 自体のメモリは残る（設計書 §9）"""
-        if float(load_config().get("pronounce_idle_unload_sec") or 0) <= 0:
+        if self._configured_idle_unload_sec() <= 0:
             return
         with self._lock:
             if self._pending or self._loading:
@@ -392,10 +417,9 @@ class PronounceDriver:
                 return                    # 差し替えられた古い解析
             words, per_word = self._words, self._per_word
             focus = self._task.focus if self._task else ()
-        if self._recogniser is None:
-            self._recogniser = self._factory()
-        self._recogniser.load()           # 読み込み済みなら即 return する
-        actual = self._recogniser.actual_ipa(pcm)
+        recogniser = self._get_recogniser()
+        recogniser.load()                 # 読み込み済みなら即 return する
+        actual = recogniser.actual_ipa(pcm)
         attempt = Attempt(_format_time(self._clock()), segment_at, asr_text,
                           compare(words, per_word, actual, focus))
         with self._lock:

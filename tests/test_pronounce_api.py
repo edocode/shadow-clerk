@@ -144,7 +144,7 @@ def test_focus_validation() -> None:
         check("課題文に無い語を拒否する", False)
     except ArmError:
         check("課題文に無い語を拒否する", True)
-    # Review Focus 3: focus が空なのは正当な入力。拒否しない
+    # focus が空なのは正当な入力。拒否しない
     check("focus が空でもアームできる", drv.arm(_task(focus=())).get("state") == "armed")
 
 
@@ -174,14 +174,31 @@ def test_attempts_accumulate() -> None:
 
 
 def test_pending_then_attempt_visible() -> None:
-    # pending が 0 になった時点で attempt は必ず見えていること（設計書 §7.2・§7.4 の前提）
+    # pending が 0 に見えた瞬間に attempt が読めていること（設計書 §7.2・§7.4 の前提）。
+    # これが崩れると、正しく言えた学習者に「もう一度言ってください」と言ってしまう
     drv = _driver()
     drv.arm(_task())
-    drv.offer(("ɹ", "aɪ", "t", "l", "aɪ", "t"), "2026-10-18 10:02:00", "right light")
+    bad: list[dict] = []
+    stop = threading.Event()
+
+    def _watch() -> None:
+        while not stop.is_set():
+            snap = drv.snapshot()
+            if snap["pending"] == 0 and not snap["attempts"]:
+                bad.append(snap)
+            time.sleep(0)
+
+    watcher = threading.Thread(target=_watch, daemon=True)
+    for i in range(20):
+        drv.offer(("ɹ", "aɪ", "t", "l", "aɪ", "t"), f"2026-10-18 10:10:{i:02d}", "right light")
+        if i == 0:
+            _settle(drv)          # 1件目が入ってから観測を始める（最初は attempts が空で当然）
+            watcher.start()
     _settle(drv)
-    snap = drv.snapshot()
-    check("pending が 0 で attempt が見える",
-          snap["pending"] == 0 and len(snap["attempts"]) == 1, repr(snap))
+    stop.set()
+    watcher.join(5.0)
+    check("pending==0 かつ attempts 空の瞬間が無い", not bad, f"{len(bad)} 回観測")
+    check("attempts は最大3件のまま", len(drv.snapshot()["attempts"]) == 3)
 
 
 def test_stale_arm_discarded() -> None:
@@ -192,6 +209,34 @@ def test_stale_arm_discarded() -> None:
     drv.arm(_task())
     _settle(drv)
     check("解除前の解析結果は捨てる", drv.snapshot()["attempts"] == [],
+          repr(drv.snapshot()["attempts"]))
+
+
+def test_stale_arm_discarded_mid_inference() -> None:
+    # 推論の最中に課題が差し替わったら、その結果は捨てる（設計書 §8.3）。
+    # 偽の認識器を推論中に止めて、その間に clear + arm する
+    entered, release = threading.Event(), threading.Event()
+
+    class _Blocking(_FakeRecogniser):
+        def actual_ipa(self, pcm) -> tuple[str, ...]:
+            entered.set()
+            release.wait(5.0)
+            return tuple(pcm)
+
+    rec = _Blocking()
+    drv = PronounceDriver(recogniser_factory=lambda: rec)
+    drv._recogniser = rec                                    # type: ignore[assignment]
+    drv._expected_of = lambda word, lang: {                  # type: ignore[assignment]
+        "light": ("l", "aɪ", "t"), "right": ("ɹ", "aɪ", "t")}[word.lower()]
+    drv._unavailable = lambda: None                          # type: ignore[assignment]
+    drv.arm(_task())
+    drv.offer(("ɹ", "aɪ", "t", "l", "aɪ", "t"), "2026-10-18 10:09:00", "right light")
+    check("推論に入った", entered.wait(5.0))
+    drv.clear()
+    drv.arm(_task())          # 差し替え。推論は古い課題に対して走っている
+    release.set()
+    _settle(drv)
+    check("推論中に差し替えられた結果は捨てる", drv.snapshot()["attempts"] == [],
           repr(drv.snapshot()["attempts"]))
 
 
@@ -214,12 +259,10 @@ def test_ttl() -> None:
 
 
 def test_queue_full_is_dropped() -> None:
-    # Review Focus 2: キューが詰まっても offer は例外を出さない（文字起こしを止めない）
+    # キューが詰まっても offer は例外を出さない（文字起こしを止めない）
     drv = _driver()
     drv.arm(_task())
     import queue as _q
-    drv._queue = _q.Queue(maxsize=0)     # 何も入らないキューに差し替える
-
     class _TinyQueue:
         def put_nowait(self, item) -> None:
             raise _q.Full
@@ -230,7 +273,7 @@ def test_queue_full_is_dropped() -> None:
 
 
 def test_same_segment_at_twice() -> None:
-    # Review Focus 5: VAD が同じ秒に2セグメントを閉じることがある。
+    # VAD が同じ秒に2セグメントを閉じることがある。
     # どちらも正当な試行なので daemon は消さない。スキルは最初に一致したものを使う
     drv = _driver()
     drv.arm(_task())
@@ -244,9 +287,13 @@ def test_same_segment_at_twice() -> None:
 def test_idle_unload() -> None:
     # 設計書 §9: 一定時間使われなければモデルを解放する（import torch のメモリは残る）
     drv = _driver()
-    drv._idle_unload_sec = lambda: 0.05                      # type: ignore[assignment]
     drv.arm(_task())
     drv.offer(("l", "aɪ", "t"), "2026-10-18 10:08:00", "light")
+    _settle(drv)
+    # 解放に追い抜かれないよう、差し替えは解析が終わってから行う
+    drv._configured_idle_unload_sec = lambda: 0.05           # type: ignore[assignment]
+    # ワーカーは既に長いタイムアウトでキュー待ちに入っている。もう1件流して待ち直させる
+    drv.offer(("l", "aɪ", "t"), "2026-10-18 10:08:01", "light")
     _settle(drv)
     check("解析のあとは読み込み済み", drv._recogniser.loaded)
     deadline = time.monotonic() + 5.0
@@ -271,6 +318,48 @@ def test_worker_error_is_contained() -> None:
     check("アームは生きたまま", snap["state"] == "armed")
 
 
+def test_worker_survives_config_error() -> None:
+    # 設定の読み取りで例外が出てもワーカーは死なない（死ぬと pending が永久に減らない）
+    drv = _driver()
+    calls = {"n": 0}
+
+    def _boom() -> float:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ValueError("could not convert string to float: 'abc'")
+        return 60.0
+
+    drv._idle_unload_sec = _boom                             # type: ignore[assignment]
+    drv.arm(_task())
+    time.sleep(0.1)                                          # 1回目のキュー待ちで例外を踏ませる
+    drv.offer(("ɹ", "aɪ", "t", "l", "aɪ", "t"), "2026-10-18 10:11:00", "right light")
+    _settle(drv, timeout=10.0)
+    check("例外のあともワーカーが解析を続ける", len(drv.snapshot()["attempts"]) == 1,
+          repr(drv.snapshot()))
+
+
+def test_load_failure_is_visible() -> None:
+    # ロードに失敗したら unavailable と reason を返す（設計書 §10）。黙って armed のままにしない
+    class _Broken(_FakeRecogniser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.loaded = False
+
+        def load(self) -> None:
+            raise RuntimeError("network is unreachable")
+
+    drv = PronounceDriver(recogniser_factory=_Broken)
+    drv._expected_of = lambda word, lang: ("l", "aɪ", "t")   # type: ignore[assignment]
+    drv._unavailable = lambda: None                          # type: ignore[assignment]
+    drv.arm(_task("light", focus=()))
+    deadline = time.monotonic() + 5.0
+    while drv.snapshot()["state"] == "loading" and time.monotonic() < deadline:
+        time.sleep(0.01)
+    snap = drv.snapshot()
+    check("ロード失敗は unavailable になる", snap["state"] == "unavailable", repr(snap))
+    check("理由を返す", snap.get("reason") == "load_failed", repr(snap))
+
+
 if __name__ == "__main__":
     test_arm_and_clear()
     test_first_post_reports_loading()
@@ -279,10 +368,13 @@ if __name__ == "__main__":
     test_attempts_accumulate()
     test_pending_then_attempt_visible()
     test_stale_arm_discarded()
+    test_stale_arm_discarded_mid_inference()
     test_not_armed_is_ignored()
     test_queue_full_is_dropped()
     test_same_segment_at_twice()
     test_idle_unload()
     test_ttl()
     test_worker_error_is_contained()
+    test_worker_survives_config_error()
+    test_load_failure_is_visible()
     sys.exit(0 if all(results) else 1)
