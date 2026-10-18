@@ -268,6 +268,7 @@ class PronounceDriver:
             self._task, self._words, self._per_word = task, words, per_word
             self._expires = self._clock() + _ARM_TTL_SEC
             self._attempts = []
+            self._fail_streak = 0     # 課題が変われば、前の課題で数えた連続失敗は切れたとみなす
             arm_id, expires = self._arm_id, self._expires
         self._start_loading()
         logger.info("pronounce: アームしました (%d 語)", len(words))
@@ -301,7 +302,8 @@ class PronounceDriver:
             self._loading = False
 
     def _fail(self, error: Exception) -> None:
-        """使えないことを state に出す。_start_loading() が消すので、次の POST で再試行できる"""
+        """使えないことを state に出す。
+        消えるのは、解析が1回でも成功したときと、モデルを読み直す _start_loading() のとき"""
         with self._lock:
             self._load_error = str(error) or type(error).__name__
 
@@ -366,8 +368,10 @@ class PronounceDriver:
     def offer(self, pcm: Any, segment_at: str, asr_text: str) -> None:
         """armed ならワーカーに渡す。文字起こしのクリティカルパスに載るのはここだけ"""
         if len(pcm) > _MAX_SEGMENT_SEC * SAMPLE_RATE:
-            logger.debug("pronounce: 長すぎるセグメント (%.1f秒) は試行ではないので捨てました",
-                         len(pcm) / SAMPLE_RATE)
+            # gate によるドロップと区別が付くよう info で出す。騒音で VAD が開きっぱなしだと
+            # 全セグメントがここで落ち、スキルからは「attempt が来ない」としか見えない
+            logger.info("pronounce: 長すぎるセグメント (%.1f秒) は試行ではないので捨てました",
+                        len(pcm) / SAMPLE_RATE)
             return
         with self._lock:
             if self._task is None or self._clock() >= self._expires:
@@ -454,7 +458,9 @@ class PronounceDriver:
                 self._fail(e)
             raise
         with self._lock:
-            self._fail_streak = 0
+            # 解析が通ったのだから使える。_load_error を残すと、モデルが載ったままなので
+            # _start_loading() は早期 return し、state は unavailable に貼り付いたままになる
+            self._fail_streak, self._load_error = 0, ""
         attempt = Attempt(_format_time(self._clock()), segment_at, asr_text,
                           compare(words, per_word, actual, focus))
         with self._lock:

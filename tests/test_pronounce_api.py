@@ -459,6 +459,60 @@ def test_single_analysis_failure_is_forgiven() -> None:
     check("そのあとの解析は残る", len(snap["attempts"]) == 3, repr(len(snap["attempts"])))
 
 
+def test_recovers_after_transient_failures() -> None:
+    # 解析が3連続で失敗すると unavailable になるが、回復したら armed に戻ること。
+    # 戻らないと、スキルは state を先に見るのでレッスンの残りが黙って旧モードに落ちる
+    class _Flaky(_FakeRecogniser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.fail = True
+
+        def actual_ipa(self, pcm) -> tuple[str, ...]:
+            if self.fail:
+                raise RuntimeError("boom")
+            return tuple(pcm)
+
+    rec = _Flaky()
+    drv = PronounceDriver(recogniser_factory=lambda: rec)
+    drv._recogniser = rec                                    # type: ignore[assignment]
+    drv._expected_of = lambda word, lang: {                  # type: ignore[assignment]
+        "light": ("l", "aɪ", "t"), "right": ("ɹ", "aɪ", "t")}[word.lower()]
+    drv._unavailable = lambda: None                          # type: ignore[assignment]
+    drv.arm(_task())
+    for i in range(3):
+        drv.offer(("l", "aɪ", "t"), f"2026-10-18 12:00:0{i}", "light")
+    _settle(drv)
+    snap = drv.snapshot()
+    check("3連続失敗で unavailable", snap["state"] == "unavailable"
+          and snap.get("reason") == "load_failed", repr(snap))
+    rec.fail = False
+    drv.offer(("ɹ", "aɪ", "t", "l", "aɪ", "t"), "2026-10-18 12:00:09", "right light")
+    _settle(drv)
+    snap = drv.snapshot()
+    check("解析が回復したら armed に戻る", snap["state"] == "armed", repr(snap))
+    check("attempt も読める", len(snap["attempts"]) == 1, repr(len(snap["attempts"])))
+    check("連続失敗カウンタも戻る", drv._fail_streak == 0, repr(drv._fail_streak))
+
+
+def test_fail_streak_resets_on_arm() -> None:
+    # 課題をまたいで連続失敗を数えると、前の課題で2回失敗していた人が
+    # 新しい課題の1回目の失敗で unavailable に落ちる
+    class _AlwaysBroken(_FakeRecogniser):
+        def actual_ipa(self, pcm):
+            raise RuntimeError("inference failed")
+
+    drv = _broken_driver(_AlwaysBroken)
+    drv.arm(_task("light", focus=()))
+    for i in range(2):
+        drv.offer(("l",), f"2026-10-18 12:1{i}:00", "light")
+        _settle(drv)
+    drv.arm(_task("light", focus=()))          # 新しい課題
+    drv.offer(("l",), "2026-10-18 12:13:00", "light")
+    _settle(drv)
+    check("アームし直すと連続失敗は数え直し", drv.snapshot()["state"] == "armed",
+          repr(drv.snapshot()))
+
+
 def test_overlong_segment_is_dropped() -> None:
     # 課題の発話は短い。MAX_SEGMENT_DURATION (30秒) いっぱいの区間は試行ではない
     class _Long:
@@ -622,6 +676,8 @@ if __name__ == "__main__":
     test_repeated_analysis_failure_becomes_unavailable()
     test_single_analysis_failure_is_forgiven()
     test_overlong_segment_is_dropped()
+    test_recovers_after_transient_failures()
+    test_fail_streak_resets_on_arm()
     test_post_pronounce()
     test_post_requires_talk_mode()
     test_post_rejects_with_200()

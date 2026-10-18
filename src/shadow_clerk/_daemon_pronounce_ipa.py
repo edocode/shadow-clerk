@@ -94,7 +94,7 @@ def word_key(word: str) -> str:
 def _phonemizer_backend(language: Language) -> Any:
     """espeak バックエンドを作る。ホイールで入る espeak-ng を使うのでシステム依存は無い。
 
-    キャッシュしないのは、アームが1課題に1回しか起きず、作り直す頻度がそもそも低いから。
+    キャッシュしないのは、呼ばれるのがアームのときだけ（1課題あたり語数回）で、頻度が低いから。
     スレッド間の分離にはならない（set_library() / set_data_path() はクラス属性を書き、
     espeak 自体もプロセス大域のハンドルを持つので、作り直しても隔離は得られない）
     """
