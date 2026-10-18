@@ -217,15 +217,20 @@ curl -s -X POST "http://localhost:8765/api/pronounce" -H 'Content-Type: applicat
 ```
 
 3. 返った `expected` が、その課題文の**正規化後の期待IPA**。`focus` の `phoneme` はここに
-   出てくる記号で書く。`{"status":"error"}` が返り `expected` が付いていたら、
-   その語の正しい記号を見て書き直して送り直す（例: `right` の R は `r` ではなく `ɹ`）。
-   `expected` が付いていない拒否（未対応の言語、talk mode が動いていない、設定が off など）は、
-   記号の書き直しでは直らない。`GET /api/pronounce` の `state` を見て、`unavailable` なら
-   「判定の仕方」の従来モードに切り替える。**記号の書き直しは1回まで。**
-   `state` が `unavailable` でない（`idle` のままなど）拒否は、課題文そのものに原因がある
-   （数字が入っている、未対応の言語、`focus` の語が文に無い等）。`message` を読んで
-   **課題文を作り直してから** POST する。同じ内容での再送は1回までにする
-   拒否は HTTP 200 で返る。`message` を読む（talk mode が動いていないときも `error` になる）
+   出てくる記号で書く。
+
+   **拒否は HTTP 200 で `{"status":"error","message":...}` として返る。** `message` を読んで、
+   次のどれかで対処する。**送り直す前に必ず何かを変える。同じ body の再送は通らない**:
+
+   - **`expected` が付いている** — `focus` の音素がその語の期待IPAに無い。返ってきた記号を見て
+     `focus` を書き直して送り直す（例: `right` の R は `r` ではなく `ɹ`）。書き直しは1回まで。
+     それでも通らなければ、その音素の出題をやめる
+   - **`expected` が無く、`GET /api/pronounce` の `state` が `unavailable`** — 設定が off か
+     未導入。「判定の仕方」の従来モードに切り替える。**送り直さない**
+   - **`expected` が無く、`state` がそれ以外** — 課題文そのものに原因がある（数字が入っている、
+     未対応の言語、`focus` の語が文に無い、talk mode が動いていない等）。`message` に従って
+     **課題文を作り直してから**送り直す。作り直しは1回まで。それでも通らなければ、
+     従来モードに切り替えて練習を続ける
 4. `display` 付きの `/api/say` でお手本を読む（綴りを見せない）
 5. `[自分]` の行が届いたら `GET /api/pronounce` を呼ぶ
 
