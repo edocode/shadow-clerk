@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、会話・発音・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.6.0"
+  version: "1.6.1"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -162,6 +162,8 @@ curl -s "http://localhost:8765/api/pronounce"
   `loading` のとき」を参照）
 - それ以外（`idle` / `armed`）— 「音素フィードバック」で進める。`idle` は「いま課題が無い」の意味で、
   これから POST する前の通常の状態
+- **JSON が返らない**（古い daemon にはこのエンドポイントが無く、404 の HTML が返る）—
+  `unavailable` と同じ扱いで、従来モードで進める。**以後この練習では再度叩かない**
 
 どちらでも共通のルール:
 
