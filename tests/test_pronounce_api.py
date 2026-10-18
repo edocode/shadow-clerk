@@ -173,32 +173,52 @@ def test_attempts_accumulate() -> None:
           repr(len(drv.snapshot()["attempts"])))
 
 
-def test_pending_then_attempt_visible() -> None:
-    # pending が 0 に見えた瞬間に attempt が読めていること（設計書 §7.2・§7.4 の前提）。
-    # これが崩れると、正しく言えた学習者に「もう一度言ってください」と言ってしまう
-    drv = _driver()
+def test_pending_covers_the_append() -> None:
+    # pending は解析の開始から attempt が積まれ終わるまで 1 以上であること。
+    # ここが崩れると、スキルが「解析は来ない」と判断して、正しく言えた文を言い直させる
+    entered, release = threading.Event(), threading.Event()
+
+    class _Blocking(_FakeRecogniser):
+        def actual_ipa(self, pcm) -> tuple[str, ...]:
+            entered.set()
+            release.wait(5.0)
+            return tuple(pcm)
+
+    rec = _Blocking()
+    drv = PronounceDriver(recogniser_factory=lambda: rec)
+    drv._recogniser = rec                                    # type: ignore[assignment]
+    drv._expected_of = lambda word, lang: {                  # type: ignore[assignment]
+        "light": ("l", "aɪ", "t"), "right": ("ɹ", "aɪ", "t")}[word.lower()]
+    drv._unavailable = lambda: None                          # type: ignore[assignment]
     drv.arm(_task())
-    bad: list[dict] = []
-    stop = threading.Event()
-
-    def _watch() -> None:
-        while not stop.is_set():
-            snap = drv.snapshot()
-            if snap["pending"] == 0 and not snap["attempts"]:
-                bad.append(snap)
-            time.sleep(0)
-
-    watcher = threading.Thread(target=_watch, daemon=True)
-    for i in range(20):
-        drv.offer(("ɹ", "aɪ", "t", "l", "aɪ", "t"), f"2026-10-18 10:10:{i:02d}", "right light")
-        if i == 0:
-            _settle(drv)          # 1件目が入ってから観測を始める（最初は attempts が空で当然）
-            watcher.start()
+    drv.offer(("ɹ", "aɪ", "t", "l", "aɪ", "t"), "2026-10-18 10:12:00", "right light")
+    check("推論に入った", entered.wait(5.0))
+    snap = drv.snapshot()
+    check("解析中は pending が 1 以上で attempt はまだ無い",
+          snap["pending"] >= 1 and not snap["attempts"], repr(snap))
+    release.set()
     _settle(drv)
-    stop.set()
-    watcher.join(5.0)
-    check("pending==0 かつ attempts 空の瞬間が無い", not bad, f"{len(bad)} 回観測")
-    check("attempts は最大3件のまま", len(drv.snapshot()["attempts"]) == 3)
+    snap = drv.snapshot()
+    check("終われば pending 0 で attempt が読める",
+          snap["pending"] == 0 and len(snap["attempts"]) == 1, repr(snap))
+
+
+def test_pending_zero_never_precedes_the_attempt() -> None:
+    # 競合が起きうるのは「attempts が空の状態からの1件目」だけなので、毎回 arm し直す。
+    # pending が 0 に見えた最初の瞬間に attempt が読めていること
+    drv = _driver()
+    empty = 0
+    for i in range(50):
+        drv.arm(_task())                 # attempts が空に戻る
+        drv.offer(("ɹ", "aɪ", "t", "l", "aɪ", "t"), f"2026-10-18 10:13:{i:02d}", "right light")
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            snap = drv.snapshot()        # offer が返った時点で pending は 1 以上
+            if snap["pending"] == 0:
+                if not snap["attempts"]:
+                    empty += 1
+                break
+    check("pending==0 を最初に見た瞬間に attempt が読める", empty == 0, f"{empty}/50 回で空だった")
 
 
 def test_stale_arm_discarded() -> None:
@@ -291,7 +311,7 @@ def test_idle_unload() -> None:
     drv.offer(("l", "aɪ", "t"), "2026-10-18 10:08:00", "light")
     _settle(drv)
     # 解放に追い抜かれないよう、差し替えは解析が終わってから行う
-    drv._configured_idle_unload_sec = lambda: 0.05           # type: ignore[assignment]
+    drv._configured_idle_unload_sec = lambda: 0.5            # type: ignore[assignment]
     # ワーカーは既に長いタイムアウトでキュー待ちに入っている。もう1件流して待ち直させる
     drv.offer(("l", "aɪ", "t"), "2026-10-18 10:08:01", "light")
     _settle(drv)
@@ -319,7 +339,8 @@ def test_worker_error_is_contained() -> None:
 
 
 def test_worker_survives_config_error() -> None:
-    # 設定の読み取りで例外が出てもワーカーは死なない（死ぬと pending が永久に減らない）
+    # 設定の読み取りで例外が出てもワーカーは死なない。
+    # 死ぬと pending が永久に減らず、スキルは解析を待ち続ける
     drv = _driver()
     calls = {"n": 0}
 
@@ -327,15 +348,23 @@ def test_worker_survives_config_error() -> None:
         calls["n"] += 1
         if calls["n"] == 1:
             raise ValueError("could not convert string to float: 'abc'")
-        return 60.0
+        return 0.05
 
-    drv._idle_unload_sec = _boom                             # type: ignore[assignment]
     drv.arm(_task())
-    time.sleep(0.1)                                          # 1回目のキュー待ちで例外を踏ませる
-    drv.offer(("ɹ", "aɪ", "t", "l", "aɪ", "t"), "2026-10-18 10:11:00", "right light")
+    drv.offer(("ɹ", "aɪ", "t", "l", "aɪ", "t"), "2026-10-18 10:14:00", "right light")
+    _settle(drv)                          # 1件目を処理させ、ワーカーを待機に戻す
+    check("1件目は入る", len(drv.snapshot()["attempts"]) == 1)
+    drv._idle_unload_sec = _boom          # type: ignore[assignment]
+    drv.offer(("ɹ", "aɪ", "t", "l", "aɪ", "t"), "2026-10-18 10:14:01", "right light")
+    _settle(drv)                          # 2件目を処理 → 次の周回で _boom が例外を出す
+    deadline = time.monotonic() + 10.0
+    while calls["n"] < 2 and time.monotonic() < deadline:
+        time.sleep(0.05)                  # 例外 → 1秒の小休止 → 再度 _idle_unload_sec
+    check("例外のあともワーカーが設定を読み直しに来る", calls["n"] >= 2, repr(calls))
+    drv.offer(("ɹ", "aɪ", "t", "l", "aɪ", "t"), "2026-10-18 10:14:02", "right light")
     _settle(drv, timeout=10.0)
-    check("例外のあともワーカーが解析を続ける", len(drv.snapshot()["attempts"]) == 1,
-          repr(drv.snapshot()))
+    check("例外のあとも解析を続ける", len(drv.snapshot()["attempts"]) == 3,
+          repr(len(drv.snapshot()["attempts"])))
 
 
 def test_load_failure_is_visible() -> None:
@@ -366,7 +395,8 @@ if __name__ == "__main__":
     test_unavailable_reports_reason()
     test_focus_validation()
     test_attempts_accumulate()
-    test_pending_then_attempt_visible()
+    test_pending_covers_the_append()
+    test_pending_zero_never_precedes_the_attempt()
     test_stale_arm_discarded()
     test_stale_arm_discarded_mid_inference()
     test_not_armed_is_ignored()

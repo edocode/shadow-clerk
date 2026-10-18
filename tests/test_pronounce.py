@@ -174,7 +174,7 @@ def test_align_middle_articulation() -> None:
 
 
 def test_align_empty_actual() -> None:
-    # Review Focus 1: 無音・ノイズだけのセグメント。例外を出さず全 del になること
+    # 無音・ノイズだけのセグメント。例外を出さず全 del になること
     ops = align(GLASS_EXPECTED, ())
     check("実測が空なら全部 del",
           [k for k, _, _ in ops] == [OpKind.DEL] * 4, _render(ops))
@@ -275,7 +275,7 @@ def test_compare_word_boundary_duplicate() -> None:
 
 
 def test_compare_empty_actual() -> None:
-    # Review Focus 1: 無音セグメント。例外を出さず actual が空の WordComparison を返す
+    # 無音セグメント。例外を出さず actual が空の WordComparison を返す
     comps = compare(("light",), (LIGHT_EXPECTED,), (), ())
     check("実測が空でも落ちない", len(comps) == 1 and comps[0].actual == (), repr(comps))
     check("全部 del になる", all(op.kind is OpKind.DEL for op in comps[0].ops))
