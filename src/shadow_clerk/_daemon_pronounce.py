@@ -16,6 +16,7 @@ from functools import lru_cache
 from typing import Any, Callable, Sequence
 
 from shadow_clerk._daemon_config import load_config
+from shadow_clerk._daemon_constants import SAMPLE_RATE
 from shadow_clerk._daemon_pronounce_ipa import (
     G2PError, PhonemeRecogniser, expected_ipa, has_espeak, has_torch, split_words, word_key,
 )
@@ -129,8 +130,8 @@ def compare(words: Sequence[str], per_word: Sequence[Sequence[str]],
     focused = _focus_positions(words, per_word, focus)
 
     def word_at(position: int) -> int:
-        if not words:
-            return 0
+        # words が空でないことは呼び手の保証（arm() が語の無い課題文を弾く）。
+        # 空のまま来ると、戻り値をどう作っても下の ops_of[index] が IndexError になる
         return max(0, min(bisect.bisect_right(bounds, min(position, total - 1 if total else 0)) - 1,
                           len(words) - 1))
 
@@ -179,6 +180,12 @@ _TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 _IDLE_POLL_SEC = 60.0
 # ワーカーが例外から復帰するときの小休止。ホットループを避ける
 _WORKER_ERROR_PAUSE_SEC = 1.0
+# ワーカーに渡すセグメントの上限（秒）。課題の発話は短いので、MAX_SEGMENT_DURATION (30秒)
+# いっぱいまで伸びた区間は試行ではない。解析が失敗する一番ありそうな入力でもある
+_MAX_SEGMENT_SEC = 15.0
+# actual_ipa() の連続失敗をいくつ見たら unavailable にするか。
+# 1本の変なセグメントで機能を止めず、恒久的な故障は見えるようにする
+_MAX_ANALYSE_FAILURES = 3
 
 
 class ArmError(Exception):
@@ -212,6 +219,7 @@ class PronounceDriver:
         self._attempts: list[Attempt] = []
         self._loading = False
         self._load_error = ""
+        self._fail_streak = 0   # actual_ipa() の連続失敗数
         self._worker = threading.Thread(target=self._run, name="pronounce", daemon=True)
         self._worker.start()
 
@@ -277,6 +285,7 @@ class PronounceDriver:
             if self._loading:
                 return
             self._load_error = ""       # 次の POST で再試行できるようにする
+            self._fail_streak = 0
             self._loading = True
         threading.Thread(target=self._load, name="pronounce-load", daemon=True).start()
 
@@ -290,6 +299,11 @@ class PronounceDriver:
         with self._lock:
             self._load_error = error     # loading を下ろすのと同時に見せる（armed に見える瞬間を作らない）
             self._loading = False
+
+    def _fail(self, error: Exception) -> None:
+        """使えないことを state に出す。_start_loading() が消すので、次の POST で再試行できる"""
+        with self._lock:
+            self._load_error = str(error) or type(error).__name__
 
     def _get_recogniser(self) -> Any:
         """認識器を1個だけ作る。lock の外で作ると、並行して 1.2GB を取得しに行く窓ができる"""
@@ -351,6 +365,10 @@ class PronounceDriver:
 
     def offer(self, pcm: Any, segment_at: str, asr_text: str) -> None:
         """armed ならワーカーに渡す。文字起こしのクリティカルパスに載るのはここだけ"""
+        if len(pcm) > _MAX_SEGMENT_SEC * SAMPLE_RATE:
+            logger.debug("pronounce: 長すぎるセグメント (%.1f秒) は試行ではないので捨てました",
+                         len(pcm) / SAMPLE_RATE)
+            return
         with self._lock:
             if self._task is None or self._clock() >= self._expires:
                 return
@@ -418,8 +436,25 @@ class PronounceDriver:
             words, per_word = self._words, self._per_word
             focus = self._task.focus if self._task else ()
         recogniser = self._get_recogniser()
-        recogniser.load()                 # 読み込み済みなら即 return する
-        actual = recogniser.actual_ipa(pcm)
+        try:
+            recogniser.load()             # 読み込み済みなら即 return する
+        except Exception as e:
+            # アイドル解放のあとの読み直しはここを通る。ローダースレッドと同じく unavailable に
+            # しないと、state は armed のまま attempt だけが出ず、skill が「もう一度言って」を
+            # 繰り返す（設計書 §10）
+            self._fail(e)
+            raise
+        try:
+            actual = recogniser.actual_ipa(pcm)
+        except Exception as e:
+            with self._lock:
+                self._fail_streak += 1
+                streak = self._fail_streak
+            if streak >= _MAX_ANALYSE_FAILURES:
+                self._fail(e)
+            raise
+        with self._lock:
+            self._fail_streak = 0
         attempt = Attempt(_format_time(self._clock()), segment_at, asr_text,
                           compare(words, per_word, actual, focus))
         with self._lock:

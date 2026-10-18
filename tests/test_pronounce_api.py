@@ -392,6 +392,88 @@ def test_load_failure_is_visible() -> None:
     check("理由を返す", snap.get("reason") == "load_failed", repr(snap))
 
 
+def _broken_driver(recogniser_factory) -> PronounceDriver:
+    drv = PronounceDriver(recogniser_factory=recogniser_factory)
+    drv._expected_of = lambda word, lang: ("l", "aɪ", "t")   # type: ignore[assignment]
+    drv._unavailable = lambda: None                          # type: ignore[assignment]
+    return drv
+
+
+def test_reload_failure_in_worker_is_visible() -> None:
+    # アイドル解放のあとの読み直しは _analyse を通る。ここの失敗を握り潰すと state は armed のまま
+    # attempt だけが出ず、スキルは「もう一度言って」を繰り返す（設計書 §10）
+    class _BreaksOnReload(_FakeRecogniser):
+        def load(self) -> None:
+            raise RuntimeError("cache is corrupt")
+
+    rec = _BreaksOnReload()
+    drv = _broken_driver(lambda: rec)
+    drv._recogniser = rec                            # type: ignore[assignment]
+    drv.arm(_task("light", focus=()))
+    drv.offer(("l", "aɪ", "t"), "2026-10-18 10:20:00", "light")
+    _settle(drv)
+    snap = drv.snapshot()
+    check("ワーカーでのロード失敗も unavailable になる", snap["state"] == "unavailable", repr(snap))
+    check("理由を返す", snap.get("reason") == "load_failed", repr(snap))
+
+
+def test_repeated_analysis_failure_becomes_unavailable() -> None:
+    # 1本の変なセグメントでは止めない。壊れ続けるなら見えるようにする
+    class _AlwaysBroken(_FakeRecogniser):
+        def actual_ipa(self, pcm):
+            raise RuntimeError("inference failed")
+
+    drv = _broken_driver(_AlwaysBroken)
+    drv.arm(_task("light", focus=()))
+    for i in range(2):
+        drv.offer(("l",), f"2026-10-18 10:2{i}:00", "light")
+        _settle(drv)
+    check("2回までは armed のまま", drv.snapshot()["state"] == "armed", repr(drv.snapshot()))
+    drv.offer(("l",), "2026-10-18 10:23:00", "light")
+    _settle(drv)
+    snap = drv.snapshot()
+    check("3回続けて失敗したら unavailable", snap["state"] == "unavailable", repr(snap))
+    check("理由を返す", snap.get("reason") == "load_failed", repr(snap))
+
+
+def test_single_analysis_failure_is_forgiven() -> None:
+    class _FailsOnce(_FakeRecogniser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        def actual_ipa(self, pcm):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("odd segment")
+            return tuple(pcm)
+
+    rec = _FailsOnce()
+    drv = _broken_driver(lambda: rec)
+    drv.arm(_task("light", focus=()))
+    for i in range(4):
+        drv.offer(("l", "aɪ", "t"), f"2026-10-18 10:3{i}:00", "light")
+        _settle(drv)
+    snap = drv.snapshot()
+    check("1回失敗しても止めない", snap["state"] == "armed", repr(snap))
+    check("そのあとの解析は残る", len(snap["attempts"]) == 3, repr(len(snap["attempts"])))
+
+
+def test_overlong_segment_is_dropped() -> None:
+    # 課題の発話は短い。MAX_SEGMENT_DURATION (30秒) いっぱいの区間は試行ではない
+    class _Long:
+        def __len__(self) -> int:
+            return 20 * 16000
+
+    drv = _driver()
+    drv.arm(_task())
+    drv.offer(_Long(), "2026-10-18 10:40:00", "right light")
+    snap = drv.snapshot()
+    check("長すぎるセグメントは pending を増やさない", snap["pending"] == 0, repr(snap))
+    _settle(drv)
+    check("解析にも渡らない", drv.snapshot()["attempts"] == [], repr(drv.snapshot()["attempts"]))
+
+
 from shadow_clerk._daemon_dashboard_ops_talk import _DashboardHandlerTalkOps as Ops  # noqa: E402
 
 
@@ -536,6 +618,10 @@ if __name__ == "__main__":
     test_worker_error_is_contained()
     test_worker_survives_config_error()
     test_load_failure_is_visible()
+    test_reload_failure_in_worker_is_visible()
+    test_repeated_analysis_failure_becomes_unavailable()
+    test_single_analysis_failure_is_forgiven()
+    test_overlong_segment_is_dropped()
     test_post_pronounce()
     test_post_requires_talk_mode()
     test_post_rejects_with_200()
