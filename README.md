@@ -327,6 +327,21 @@ See [docs/google-calendar-setup.md](docs/google-calendar-setup.md) for full setu
 
 Add the following options if you need translation or summarization.
 
+### Optional: Pronunciation feedback
+
+Phoneme-level pronunciation feedback for `clerk-practice` (English only).
+
+```bash
+uv sync --extra pronounce
+```
+
+Downloads a 1.2GB phoneme recognition model on first use. `espeak-ng` ships as a
+wheel (`espeakng-loader`), so no system package is needed. Note that
+`phonemizer-fork` installs under the `phonemizer` import name and conflicts with
+the original `phonemizer` package.
+
+Enable it in Settings → Pronunciation feedback.
+
 ### 3. (Optional) LibreTranslate setup
 
 Local translation without LLM. Install via Docker or pip:

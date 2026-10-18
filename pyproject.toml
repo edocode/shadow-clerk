@@ -88,6 +88,16 @@ diarization = [
     "kaldi-native-fbank>=1.17.0",
 ]
 
+# 音素レベルの発音フィードバック (clerk-practice)。espeak-ng はホイールで入るので sudo は要らない。
+# transformers は固定しない: G2P は phonemizer-fork から直接呼ぶので、
+# Wav2Vec2PhonemeCTCTokenizer.phonemize() の不具合 (huggingface/transformers#45198) に当たらない。
+pronounce = [
+    "transformers>=4.30.0",
+    "torch>=2.0.0",
+    "espeakng-loader>=0.2.4",
+    "phonemizer-fork>=3.3.2",
+]
+
 [project.scripts]
 clerk-daemon = "shadow_clerk.clerk_daemon:main"
 clerk-util = "shadow_clerk.clerk_util:main"

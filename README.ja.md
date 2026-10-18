@@ -326,6 +326,20 @@ clerk-util write-config-value gcal_credentials_file ~/credentials.json
 
 翻訳・要約が必要な場合は以下のオプションを追加する。
 
+### オプション: 発音フィードバック
+
+`clerk-practice` の音素レベルの発音フィードバック (英語のみ)。
+
+```bash
+uv sync --extra pronounce
+```
+
+初回の利用時に 1.2GB の音素認識モデルをダウンロードする。`espeak-ng` はホイール
+(`espeakng-loader`) で入るのでシステムパッケージは要らない。`phonemizer-fork` は
+`phonemizer` と同じ import 名を占有するので、元の `phonemizer` とは同居できない。
+
+設定の「発音フィードバック」で有効にする。
+
 ### 3. (オプション) LibreTranslate のセットアップ
 
 LLM 不要のローカル翻訳。Docker またはpip でインストール:
