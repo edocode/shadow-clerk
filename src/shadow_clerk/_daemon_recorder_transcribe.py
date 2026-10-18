@@ -24,6 +24,7 @@ from shadow_clerk._daemon_vad import VADSegmenter
 from shadow_clerk._daemon_transcriber import Transcriber
 from shadow_clerk._daemon_dashboard import LogBuffer, FileWatcher, DashboardHandler
 from shadow_clerk.domain import Speaker, TranscriptLine
+from shadow_clerk._daemon_pronounce import PronounceDriver
 from shadow_clerk._daemon_talk import TalkDriver
 from shadow_clerk._daemon_voice_sidecar import append_voice
 
@@ -358,6 +359,7 @@ class _RecorderTranscribeMixin:
         logger.info(t("rec.output", path=self.output_path))
 
         self.talk = TalkDriver(self._append_transcript_line)
+        self.pronounce = PronounceDriver()
         self.mic_segmenter = VADSegmenter()
         self.monitor_segmenter = VADSegmenter()
 

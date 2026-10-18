@@ -208,6 +208,7 @@ def test_pending_zero_never_precedes_the_attempt() -> None:
     # pending が 0 に見えた最初の瞬間に attempt が読めていること
     drv = _driver()
     empty = 0
+    observed = 0
     for i in range(50):
         drv.arm(_task())                 # attempts が空に戻る
         drv.offer(("ɹ", "aɪ", "t", "l", "aɪ", "t"), f"2026-10-18 10:13:{i:02d}", "right light")
@@ -215,9 +216,11 @@ def test_pending_zero_never_precedes_the_attempt() -> None:
         while time.monotonic() < deadline:
             snap = drv.snapshot()        # offer が返った時点で pending は 1 以上
             if snap["pending"] == 0:
+                observed += 1
                 if not snap["attempts"]:
                     empty += 1
                 break
+    check("50 回とも pending==0 を観測した", observed == 50, f"observed={observed}")
     check("pending==0 を最初に見た瞬間に attempt が読める", empty == 0, f"{empty}/50 回で空だった")
 
 
@@ -389,6 +392,110 @@ def test_load_failure_is_visible() -> None:
     check("理由を返す", snap.get("reason") == "load_failed", repr(snap))
 
 
+from shadow_clerk._daemon_dashboard_ops_talk import _DashboardHandlerTalkOps as Ops  # noqa: E402
+
+
+class _FakeDriver:
+    def __init__(self, armed: bool = False) -> None:
+        self.calls: list[tuple] = []
+        self.armed = armed
+        self.fail: ArmError | None = None
+
+    def arm(self, task) -> dict:
+        if self.fail is not None:
+            raise self.fail
+        self.calls.append(("arm", task.text, task.language.value,
+                           tuple((f.word, f.phoneme) for f in task.focus)))
+        return {"status": "ok", "id": "abc", "state": "armed", "expires_at": "2026-10-18 10:05:00",
+                "expected": [{"word": "light", "ipa": ["l", "aɪ", "t"]}]}
+
+    def clear(self) -> None:
+        self.calls.append(("clear",))
+
+    def snapshot(self) -> dict:
+        return {"state": "armed" if self.armed else "idle", "pending": 0,
+                "expires_at": "", "task": None, "attempts": []}
+
+
+class _PronounceHandler(Ops):
+    def __init__(self, body: object = None, client: str = "127.0.0.1", talk_active: bool = True) -> None:
+        raw = json.dumps(body if body is not None else {}).encode("utf-8")
+        self.client_address = (client, 12345)
+        self.headers = {"Content-Length": str(len(raw))}
+        self.rfile = io.BytesIO(raw)
+        self.sent: dict = {}
+        self.pronounce = _FakeDriver()
+        self.recorder = type("_Rec", (), {
+            "pronounce": self.pronounce,
+            "talk": type("_T", (), {"active": talk_active})()})()
+
+    def _send_json(self, data: dict) -> None:
+        self.sent = data
+
+
+def test_post_pronounce() -> None:
+    h = _PronounceHandler({"text": "Turn right at the light.", "lang": "en",
+                           "focus": [{"word": "light", "phoneme": "l"}]})
+    h._set_pronounce()
+    check("アームを渡す",
+          h.pronounce.calls == [("arm", "Turn right at the light.", "en", (("light", "l"),))],
+          repr(h.pronounce.calls))
+    check("id と期待IPAを返す",
+          h.sent.get("status") == "ok" and h.sent.get("id") == "abc" and h.sent.get("expected"),
+          repr(h.sent))
+    h = _PronounceHandler({"clear": True})
+    h._set_pronounce()
+    check("clear で解除する", h.pronounce.calls == [("clear",)] and h.sent.get("status") == "ok")
+
+
+def test_post_requires_talk_mode() -> None:
+    h = _PronounceHandler({"text": "Say right again.", "lang": "en", "focus": []}, talk_active=False)
+    h._set_pronounce()
+    check("talk mode が止まっていたら拒否する",
+          h.sent.get("status") == "error" and h.pronounce.calls == [], repr(h.sent))
+    check("理由を返す", "talk mode" in h.sent.get("message", ""), repr(h.sent))
+
+
+def test_post_rejects_with_200() -> None:
+    h = _PronounceHandler({"text": "Say right again.", "lang": "en", "focus": []})
+    h.pronounce.fail = ArmError("focus phoneme 'r' is not in the expected IPA of 'right'",
+                                [{"word": "right", "ipa": ["ɹ", "aɪ", "t"]}])
+    h._set_pronounce()
+    check("拒否も status: error で返す", h.sent.get("status") == "error", repr(h.sent))
+    check("拒否に期待IPAを添える",
+          h.sent.get("expected") == [{"word": "right", "ipa": ["ɹ", "aɪ", "t"]}], repr(h.sent))
+    h = _PronounceHandler({"text": "Say right 3 times.", "lang": "en", "focus": []})
+    h.pronounce.fail = ArmError("text must not contain digits; spell numbers out")
+    h._set_pronounce()
+    check("数字を含む課題文を拒否する", h.sent.get("status") == "error")
+    # 長すぎる課題文は parse の段階で落ちる
+    h = _PronounceHandler({"text": "a " * 400, "lang": "en", "focus": []})
+    h._set_pronounce()
+    check("長すぎる課題文を拒否する",
+          h.sent.get("status") == "error" and h.pronounce.calls == [], repr(h.sent)[:120])
+    h = _PronounceHandler({"text": "Hi.", "lang": "en", "focus": [{"word": "hi"}]})
+    h._set_pronounce()
+    check("不正な focus を拒否する", h.sent.get("status") == "error")
+
+
+def test_get_pronounce() -> None:
+    h = _PronounceHandler()
+    h._serve_pronounce()
+    check("状態を返す", h.sent.get("state") == "idle" and h.sent.get("pending") == 0, repr(h.sent))
+    check("判定・スコアを返さない",
+          not ({"distance", "score", "ok", "passed"} & set(h.sent)), repr(sorted(h.sent)))
+    h = _PronounceHandler(client="10.0.0.5")
+    h._serve_pronounce()
+    check("localhost 以外は拒否する", h.sent.get("status") == "error", repr(h.sent))
+
+
+def test_routes_are_wired() -> None:
+    from shadow_clerk import _daemon_dashboard_base as base
+    src = open(base.__file__, encoding="utf-8").read()
+    check("GET のルートがある", '"/api/pronounce"' in src and "_serve_pronounce()" in src)
+    check("POST のルートがある", "_set_pronounce()" in src)
+
+
 if __name__ == "__main__":
     test_arm_and_clear()
     test_first_post_reports_loading()
@@ -407,4 +514,9 @@ if __name__ == "__main__":
     test_worker_error_is_contained()
     test_worker_survives_config_error()
     test_load_failure_is_visible()
+    test_post_pronounce()
+    test_post_requires_talk_mode()
+    test_post_rejects_with_200()
+    test_get_pronounce()
+    test_routes_are_wired()
     sys.exit(0 if all(results) else 1)
