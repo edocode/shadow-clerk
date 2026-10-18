@@ -312,10 +312,12 @@ def test_recogniser_is_lazy() -> None:
     rec = PhonemeRecogniser("facebook/wav2vec2-xlsr-53-espeak-cv-ft", "cpu", 0)
     check("作っただけでは未ロード", not rec.loaded)
     check("torch を import していない", "torch" not in sys.modules)
-    check("has_torch は import せずに答える", isinstance(has_torch(), bool))
+    check("has_torch は import せずに答える",
+          isinstance(has_torch(), bool) and "torch" not in sys.modules)
     check("未ロードで actual_ipa を呼ぶと RuntimeError", _raises(rec.actual_ipa, None, RuntimeError))
     rec.unload()
     check("未ロードで unload しても落ちない", not rec.loaded)
+    check("ここまで torch を import していない", "torch" not in sys.modules)
 
 
 if __name__ == "__main__":
