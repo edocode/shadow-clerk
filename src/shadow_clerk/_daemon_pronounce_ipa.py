@@ -100,10 +100,6 @@ def expected_ipa(word: str, language: Language) -> tuple[str, ...]:
         raise G2PError("pronounce extra is not installed")
     if language not in _ESPEAK_LANG:
         raise G2PError(f"language {language.value} is not supported")
-    # この espeak は "well-known" を語区切り無しの1語に融合して返す（実測）ので、下の語区切り検査では
-    # 拾えない。融合した列は語への帰属がずれるため、ハイフン語はここで拒否する
-    if "-" in word:
-        raise G2PError(f"hyphenated word {word!r} cannot be attributed to a single word")
     from phonemizer.separator import Separator
 
     backend = _phonemizer_backend(language)

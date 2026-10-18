@@ -220,8 +220,8 @@ def test_compare_marks_focus() -> None:
                     (("ð", "@"), ("k", "A", "t"), ("ð", "@"), ("m", "A", "t")),
                     ("ð", "@", "k", "A", "t", "z", "@", "m", "A", "t"),
                     (FocusPhoneme("the", "ð", index=1),))
-    focused = [(c.word, i) for c in comps for i, op in enumerate(c.ops) if op.focus]
-    check("index で2つめの the を選ぶ", len(focused) == 1 and focused[0][0] == "the", repr(focused))
+    focused = [(wi, i) for wi, c in enumerate(comps) for i, op in enumerate(c.ops) if op.focus]
+    check("index で2つめの the を選ぶ（語位置2の先頭 op）", focused == [(2, 0)], repr(focused))
     check("focus が空なら全部 False",
           not any(op.focus for c in compare(("light",), (LIGHT_EXPECTED,), LIGHT_TAKES[1], ())
                   for op in c.ops))
@@ -257,11 +257,15 @@ def test_g2p() -> None:
     check("light の期待IPA", ipa == ("l", "aɪ", "t"), repr(ipa))
     check("right の期待IPA", expected_ipa("right", Language.EN) == ("ɹ", "aɪ", "t"),
           repr(expected_ipa("right", Language.EN)))
+    # ハイフン語は espeak が融合して1語にする（実測）。語区切りは末尾にしか出ないので通る
+    fused = expected_ipa("well-known", Language.EN)
+    check("ハイフン語は1語として通る", bool(fused) and "|" not in fused, repr(fused))
+    # 語区切りの検査が効くのは、1語が複数語に展開される場合（数字など）
     try:
-        expected_ipa("well-known", Language.EN)
-        check("ハイフン語を拒否する（espeak が2語に割る）", False)
+        expected_ipa("123", Language.EN)
+        check("複数語に展開される語を拒否する", False)
     except G2PError:
-        check("ハイフン語を拒否する（espeak が2語に割る）", True)
+        check("複数語に展開される語を拒否する", True)
     # v1 は英語のみ。検証していない言語で confident に聞こえる助言を出さない（設計書 §6.3）
     for lang in (Language.JA, Language.DE, Language.FR):
         try:
