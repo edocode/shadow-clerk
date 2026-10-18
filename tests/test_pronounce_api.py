@@ -418,10 +418,11 @@ class _FakeDriver:
 
 
 class _PronounceHandler(Ops):
-    def __init__(self, body: object = None, client: str = "127.0.0.1", talk_active: bool = True) -> None:
+    def __init__(self, body: object = None, client: str = "127.0.0.1", talk_active: bool = True,
+                 headers: dict | None = None) -> None:
         raw = json.dumps(body if body is not None else {}).encode("utf-8")
         self.client_address = (client, 12345)
-        self.headers = {"Content-Length": str(len(raw))}
+        self.headers = {"Content-Length": str(len(raw)), **(headers or {})}
         self.rfile = io.BytesIO(raw)
         self.sent: dict = {}
         self.pronounce = _FakeDriver()
@@ -478,6 +479,23 @@ def test_post_rejects_with_200() -> None:
     check("不正な focus を拒否する", h.sent.get("status") == "error")
 
 
+def test_post_rejects_cross_origin() -> None:
+    # 新しい書き込みエンドポイントなので、既存の書き込み API と同じ CSRF 防御が効くこと
+    # （tests/test_console_ops.py の C2 と同じ形）
+    body = {"text": "Say right again.", "lang": "en", "focus": []}
+    h = _PronounceHandler(body, headers={"Host": "localhost:8765", "Origin": "http://evil.example"})
+    h._set_pronounce()
+    check("クロスオリジンの POST を拒否する",
+          h.sent.get("status") == "error" and h.pronounce.calls == [], repr(h.sent))
+    h = _PronounceHandler(body, headers={"Host": "localhost:8765", "Origin": "http://localhost:8765"})
+    h._set_pronounce()
+    check("同一オリジンの POST は通す", h.sent.get("status") == "ok", repr(h.sent))
+    h = _PronounceHandler({"clear": True}, client="10.0.0.5")
+    h._set_pronounce()
+    check("localhost 以外の POST を拒否する",
+          h.sent.get("status") == "error" and h.pronounce.calls == [], repr(h.sent))
+
+
 def test_get_pronounce() -> None:
     h = _PronounceHandler()
     h._serve_pronounce()
@@ -517,6 +535,7 @@ if __name__ == "__main__":
     test_post_pronounce()
     test_post_requires_talk_mode()
     test_post_rejects_with_200()
+    test_post_rejects_cross_origin()
     test_get_pronounce()
     test_routes_are_wired()
     sys.exit(0 if all(results) else 1)
