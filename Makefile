@@ -3,10 +3,16 @@ AUTHOR := Atsushi Kato
 
 .PHONY: license dupcheck mypy test help slides slides-pdf build clean-dist publish publish-test
 
-# tests/ は pytest 形式 (import pytest) と、自前の check() で数えるスクリプト形式が混在する。
+# tests/ は pytest 形式と、自前の check() で数えるスクリプト形式が混在する。
+# スクリプト形式は「__main__ ガードを持つ」か「行頭の sys.exit / raise SystemExit で
+# import 時に自走する」もの。後者を取りこぼすと pytest の収集が SystemExit で落ちる。
+# (grep のパターンに括弧を入れると make が $(shell ...) の終端を見失う)
+# それ以外は pytest に渡す。`import pytest` の有無で分けると、pytest 形式でも
+# pytest を import しないファイルが python 実行に回り、何も実行しないまま PASS になる。
 # watchdog は実デバイスを開くので除く (CLAUDE.md 参照)
-PYTEST_FILES := $(shell grep -l '^import pytest' tests/test_*.py)
-SCRIPT_FILES := $(filter-out $(PYTEST_FILES) tests/test_audio_capture_watchdog.py,$(wildcard tests/test_*.py))
+ALL_TESTS := $(filter-out tests/test_audio_capture_watchdog.py,$(wildcard tests/test_*.py))
+SCRIPT_FILES := $(filter $(shell grep -l '__main__\|^sys\.exit\|^raise SystemExit' tests/test_*.py),$(ALL_TESTS))
+PYTEST_FILES := $(filter-out $(SCRIPT_FILES),$(ALL_TESTS))
 
 license: ## Generate LICENSE file
 	@sed 's/Copyright (c) [0-9]*/Copyright (c) $(YEAR)/' LICENSE > LICENSE.tmp && mv LICENSE.tmp LICENSE

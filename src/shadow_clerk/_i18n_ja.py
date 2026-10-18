@@ -668,4 +668,22 @@ STRINGS_JA: dict[str, str] = {
     "dash.voiceprints_title": "登録済みの人",
     "dash.voiceprints_empty": "まだありません",
     "dash.voiceprint_delete_confirm": "{name} の声紋をすべて削除しますか？",
+
+    # --- clerk-util gui ---
+    "gui.title": "shadow-clerk",
+    "gui.tk_missing": "GUI を開けません。tkinter が入っていません（Linux では python3-tk を入れてください）: {error}",
+    "gui.state_stopped": "停止中",
+    "gui.state_starting": "起動中…",
+    "gui.state_running": "稼働中",
+    "gui.state_stopping": "停止処理中…",
+    "gui.state_failed": "失敗",
+    "gui.pid": "pid {pid}",
+    "gui.start": "開始",
+    "gui.stop": "停止",
+    "gui.restart": "再起動",
+    "gui.open_log": "ログを開く",
+    "gui.start_failed": "起動に失敗しました: {reason}",
+    "gui.start_timeout": "起動を指示してから {sec:.0f} 秒待っても応答がありません。下のログを確認してください",
+    "gui.stop_timeout": "停止を指示してから {sec:.0f} 秒待っても終わりません。下のログを確認してください",
+    "gui.no_log": "（ログがまだありません）",
 }

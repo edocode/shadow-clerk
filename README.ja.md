@@ -543,6 +543,7 @@ custom_commands:
 | `stop` | clerk-daemon を停止（Linux は SIGTERM、Windows は `taskkill`） |
 | `restart [opts]` | clerk-daemon を停止し、終了を待ってからそのオプションで起動する |
 | `recorder-status` | `running` か `stopped` を表示 |
+| `gui [opts]` | デーモンの状態と `daemon.log` の末尾を出しながら、開始・停止・再起動ができる小窓を開く。`clerk-util --gui` でも可 |
 | `command <cmd>` | 動作中の daemon にコマンドを送る: `start_meeting`, `end_meeting`, `translate_start`, `translate_stop` など |
 | `summarize [DATE\|FILE] [--mode full\|update]` | 議事録を生成（既定は `full`）。DATE は `YYYYMMDD` か `YYYYMMDDHHMM[@name]`、FILE は `transcript-*.txt`。省略すると進行中の会議、なければ今日 |
 | `ls` | データディレクトリの一覧（出力先が別ならそちらも） |
@@ -726,6 +727,7 @@ Claude は応答を書いた端から、短い文に区切って話します。�
 clerk-util start -d                                # daemon 起動（バックグラウンド）
 clerk-util stop                                    # daemon 停止
 clerk-util recorder-status                         # 動作状態
+clerk-util gui                                     # 状態の窓を開く（開始/停止/再起動 + ログ）
 clerk-util summarize                               # 進行中の会議（なければ今日）の議事録を生成
 clerk-util summarize --mode update                 # 差分から議事録を更新
 clerk-util summarize 20260425 --mode full          # 日付指定
@@ -855,6 +857,7 @@ gcal_end_buffer_minutes: 1    # 予定終了の N 分後に end_meeting を送�
 
 # --- Dashboard ---
 dashboard_port: 8765          # ダッシュボードのポート。--dashboard-port が優先。clerk-util もこのキーを見てデーモンに繋ぐ
+gui_scale: 0                  # `clerk-util gui` の表示倍率。0 はコンポジタに問い合わせる。小さすぎる/大きすぎるときは 0.5〜4.0 を指定
 
 # --- UI ---
 ui_language: ja               # UI言語 (ja/en) — ダッシュボード・ターミナル出力・LLMプロンプト

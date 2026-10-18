@@ -145,6 +145,7 @@ DEFAULT_CONFIG = {
     "claude_cli_model": "haiku",
     "custom_commands": [],
     "dashboard_port": 8765,  # clerk-daemon の待ち受けと clerk-util の送り先。--dashboard-port が優先
+    "gui_scale": 0,          # clerk-util gui の表示倍率。0 は自動検出
     "initial_prompt": None,
     # 音声デバイス。null = OS のデフォルトに追従。値はデバイス名（番号は不安定）
     "mic_device": None,

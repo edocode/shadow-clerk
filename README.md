@@ -544,6 +544,7 @@ If a voice command doesn't match any built-in or custom command and an LLM is co
 | `stop` | Stop clerk-daemon (SIGTERM on Linux, `taskkill` on Windows) |
 | `restart [opts]` | Stop clerk-daemon, wait for it to exit, then start it with these options |
 | `recorder-status` | Print `running` or `stopped` |
+| `gui [opts]` | Open a small window showing the daemon's state and the tail of `daemon.log`, with start / stop / restart buttons. `clerk-util --gui` works too |
 | `command <cmd>` | Send a command to the running daemon: `start_meeting`, `end_meeting`, `translate_start`, `translate_stop`, ... |
 | `summarize [DATE\|FILE] [--mode full\|update]` | Generate minutes (`full` by default). DATE is `YYYYMMDD` or `YYYYMMDDHHMM[@name]`, FILE a `transcript-*.txt`; without either, the current meeting or today |
 | `ls` | List the data directory (and the output directory if it differs) |
@@ -731,6 +732,7 @@ Three ways to generate minutes: automatically at meeting end, on demand from the
 clerk-util start -d                                # Start daemon (background)
 clerk-util stop                                    # Stop daemon
 clerk-util recorder-status                         # Show running state
+clerk-util gui                                     # Open the status window (start/stop/restart + log)
 clerk-util summarize                               # Generate minutes for the current meeting (or today)
 clerk-util summarize --mode update                 # Update minutes from the transcript diff
 clerk-util summarize 20260425 --mode full          # Specify date
@@ -860,6 +862,7 @@ gcal_end_buffer_minutes: 1    # Send end_meeting this many minutes after it ends
 
 # --- Dashboard ---
 dashboard_port: 8765          # Dashboard port. --dashboard-port overrides it; clerk-util reads this key to reach the daemon
+gui_scale: 0                  # Display scale for `clerk-util gui`. 0 asks the compositor; set 0.5-4.0 if the window comes out too small or too large
 
 # --- UI ---
 ui_language: ja               # UI language (ja/en) — dashboard, terminal output, LLM prompts
