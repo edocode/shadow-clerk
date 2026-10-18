@@ -163,3 +163,16 @@ def test_a_command_that_does_not_exist_is_reported_not_raised() -> None:
     """clerk-daemon が見つからないのは、GUI では traceback ではなくメッセージにする"""
     attempt = spawn_detached(["shadow-clerk-no-such-executable"])
     assert "shadow-clerk-no-such-executable" in _wait_failure(attempt)
+
+
+def test_a_child_that_forks_away_and_exits_zero_is_not_a_failure(tmp_path) -> None:
+    """clerk-daemon -d は二重 fork して親が 0 で抜ける。成功した起動を失敗と呼ばない"""
+    done = tmp_path / "forked"
+    attempt = spawn_detached(
+        [sys.executable, "-c", f"open({str(done)!r}, 'w').close(); raise SystemExit(0)"])
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline and not done.exists():
+        time.sleep(0.05)
+    assert done.exists(), "子プロセスが動かなかった"
+    time.sleep(0.3)  # 終了が poll に見えるまで
+    assert attempt.poll_failure() is None

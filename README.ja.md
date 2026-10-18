@@ -857,6 +857,7 @@ gcal_end_buffer_minutes: 1    # 予定終了の N 分後に end_meeting を送�
 
 # --- Dashboard ---
 dashboard_port: 8765          # ダッシュボードのポート。--dashboard-port が優先。clerk-util もこのキーを見てデーモンに繋ぐ
+gui_scale: 0                  # `clerk-util gui` の表示倍率。0 はコンポジタに問い合わせる。小さすぎる/大きすぎるときは 0.5〜4.0 を指定
 
 # --- UI ---
 ui_language: ja               # UI言語 (ja/en) — ダッシュボード・ターミナル出力・LLMプロンプト

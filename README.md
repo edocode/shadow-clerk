@@ -862,6 +862,7 @@ gcal_end_buffer_minutes: 1    # Send end_meeting this many minutes after it ends
 
 # --- Dashboard ---
 dashboard_port: 8765          # Dashboard port. --dashboard-port overrides it; clerk-util reads this key to reach the daemon
+gui_scale: 0                  # Display scale for `clerk-util gui`. 0 asks the compositor; set 0.5-4.0 if the window comes out too small or too large
 
 # --- UI ---
 ui_language: ja               # UI language (ja/en) — dashboard, terminal output, LLM prompts

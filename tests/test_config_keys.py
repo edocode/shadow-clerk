@@ -54,6 +54,7 @@ PENDING_KEYS: dict[str, str] = {
     "talk_voicevox_url": "not yet in modal",
     "talk_volume": "not yet in modal",
     "dashboard_port": "not yet in modal (CLI --dashboard-port overrides it)",
+    "gui_scale": "not yet in modal (clerk-util gui only, 0 = autodetect)",
 }
 
 # config 読み取りに見えるが config ではない `.get("...")` (理由必須)

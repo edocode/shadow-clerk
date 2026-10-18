@@ -6,12 +6,14 @@ GUI を開かずにテストできるようにする。
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
 from enum import Enum
 
-__all__ = ["DaemonState", "LogTail", "StartAttempt", "resolve_state", "spawn_detached",
+__all__ = ["DaemonState", "LogTail", "StartAttempt", "detect_scale", "resolve_scale",
+           "resolve_state", "spawn_detached",
            "START_TIMEOUT_SEC", "STOP_TIMEOUT_SEC"]
 
 # 起動を指示してから「稼働中」にならなければ失敗と言い切るまでの秒数。
@@ -116,10 +118,16 @@ class StartAttempt:
         self._failure = failure
 
     def poll_failure(self) -> str | None:
-        """子が終了していれば理由を返す。動いていれば None"""
+        """子が失敗して終了していれば理由を返す。動いている間と、正常に抜けた場合は None。
+
+        終了コード 0 は失敗ではない。clerk-daemon -d は二重 fork（Windows は
+        DETACHED_PROCESS で起こし直し）して親が 0 で抜けるので、起動が成功した
+        ときほどこの子は即座にいなくなる。本当に立ち上がらなかった場合は
+        resolve_state のタイムアウトが拾う
+        """
         if self._failure:
             return self._failure
-        if self._proc is None or self._proc.poll() is None:
+        if self._proc is None or self._proc.poll() is None or self._proc.returncode == 0:
             return None
         return self._stderr_text() or f"exit code {self._proc.returncode}"
 
@@ -157,6 +165,63 @@ def spawn_detached(argv: list[str], env: dict[str, str] | None = None) -> StartA
 
 
 # --- GUI 本体（tkinter はここでだけ使う。読み込みも開くときまで遅らせる） ---
+
+# Tk が 1pt = 1/72in と思い込む既定値。これに表示倍率を掛ける
+_TK_BASE_SCALING = 96.0 / 72.0
+# 既定の窓の大きさ（倍率 1.0 のときの論理ピクセル）
+_WIN_W, _WIN_H = 620, 460
+
+
+def detect_scale() -> float:
+    """画面の表示倍率。取れなければ 1.0。
+
+    GNOME の xwayland-native-scaling では X クライアントにネイティブ画素が渡り、
+    Tk は 96dpi だと思い込む。HiDPI では文字も窓も半分の大きさになるので、
+    コンポジタが使っている倍率を聞いて自分で補正する
+    """
+    try:
+        out = subprocess.run(
+            ["gdbus", "call", "--session", "--dest", "org.gnome.Mutter.DisplayConfig",
+             "--object-path", "/org/gnome/Mutter/DisplayConfig",
+             "--method", "org.gnome.Mutter.DisplayConfig.GetCurrentState"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=3, check=False).stdout
+    except (OSError, subprocess.SubprocessError):
+        return 1.0
+    # 論理モニタのタプル先頭: (x, y, scale, transform, primary, [...])
+    scales = [float(m) for m in re.findall(r"\(-?\d+, -?\d+, ([0-9.]+), \d+, (?:true|false), \[\(", out)]
+    return max(scales) if scales else 1.0
+
+
+# Tk が初期化時に作る名前付きフォント。倍率を掛け直す対象
+_NAMED_FONTS = ("TkDefaultFont", "TkTextFont", "TkFixedFont", "TkMenuFont", "TkHeadingFont",
+                "TkCaptionFont", "TkSmallCaptionFont", "TkIconFont", "TkTooltipFont")
+
+
+def scale_named_fonts(tkfont: object, scale: float) -> None:
+    """名前付きフォントの大きさに倍率を掛ける。
+
+    これらは size=-12 のようにピクセルで作られているため `tk scaling` では
+    一切変わらない。窓だけ大きくして文字が据え置きになるのを防ぐ
+    """
+    if scale == 1.0:
+        return
+    for name in _NAMED_FONTS:
+        try:
+            font = tkfont.nametofont(name)  # type: ignore[attr-defined]
+        except Exception:  # そのテーマに無いフォントは飛ばす
+            continue
+        font.configure(size=int(round(font.cget("size") * scale)))  # 負値(px)でも符号は保たれる
+
+
+def resolve_scale(config_value: object, detected: float) -> float:
+    """config の gui_scale を解釈する。範囲外・数値でないものは自動検出に任せる"""
+    try:
+        value = float(config_value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return detected
+    return value if 0.5 <= value <= 4.0 else detected
+
 
 _POLL_UI_MS = 300        # 画面の更新間隔
 _POLL_PROBE_SEC = 0.7    # プロセスと API を見に行く間隔（UI とは別スレッド）
@@ -230,7 +295,9 @@ class _GuiApp:
         import threading
         import time
         import tkinter as tk
+        import tkinter.font as tkfont
         from tkinter import ttk
+        from shadow_clerk._daemon_config import load_config
         from shadow_clerk._daemon_constants import LOG_FILE
         from shadow_clerk.clerk_util import dashboard_port
         from shadow_clerk.i18n import t
@@ -248,11 +315,18 @@ class _GuiApp:
 
         self._root = tk.Tk()
         self._root.title(t("gui.title"))
-        self._root.minsize(520, 320)
+        # HiDPI 補正。これを入れないと分数スケールの画面で文字も窓も半分の大きさで出る
+        scale = resolve_scale(load_config().get("gui_scale"), detect_scale())
+        self._root.tk.call("tk", "scaling", _TK_BASE_SCALING * scale)
+        scale_named_fonts(tkfont, scale)
+        head_font = tkfont.Font(font=tkfont.nametofont("TkDefaultFont"))
+        head_font.configure(size=int(round(head_font.cget("size") * 1.35)), weight="bold")
+        self._root.geometry(f"{int(_WIN_W * scale)}x{int(_WIN_H * scale)}")
+        self._root.minsize(int(480 * scale), int(300 * scale))
 
         head = ttk.Frame(self._root, padding=10)
         head.pack(fill="x")
-        self._state_label = ttk.Label(head, text="", font=("TkDefaultFont", 13, "bold"))
+        self._state_label = ttk.Label(head, text="", font=head_font)
         self._state_label.pack(anchor="w")
         self._message_label = ttk.Label(head, text="", wraplength=600, foreground="#c02020")
         self._message_label.pack(anchor="w", pady=(2, 8))
@@ -269,6 +343,7 @@ class _GuiApp:
         body = ttk.Frame(self._root, padding=(10, 0, 10, 10))
         body.pack(fill="both", expand=True)
         self._log = tk.Text(body, height=14, wrap="none", state="disabled",
+                            font=tkfont.nametofont("TkFixedFont"),
                             background="#101010", foreground="#d0d0d0", insertbackground="#d0d0d0")
         scroll = ttk.Scrollbar(body, orient="vertical", command=self._log.yview)
         self._log.configure(yscrollcommand=scroll.set)
