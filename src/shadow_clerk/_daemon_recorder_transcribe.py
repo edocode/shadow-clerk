@@ -24,6 +24,7 @@ from shadow_clerk._daemon_vad import VADSegmenter
 from shadow_clerk._daemon_transcriber import Transcriber
 from shadow_clerk._daemon_dashboard import LogBuffer, FileWatcher, DashboardHandler
 from shadow_clerk.domain import Speaker, TranscriptLine
+from shadow_clerk._daemon_pronounce import PronounceDriver
 from shadow_clerk._daemon_talk import TalkDriver
 from shadow_clerk._daemon_voice_sidecar import append_voice
 
@@ -162,6 +163,18 @@ class _RecorderTranscribeMixin:
             logger.debug("talk: Claude 自身の声として捨てる: %r", text.strip())
             self._clear_interim(source)
             return last_file_speaker
+        # 発音フィードバック。お手本の読み上げと重なるセグメントは渡さない（設計書 §8.1）。
+        # talk.active も見る: arm は TTL（5分）の間生きるので、talk mode を止めたあとの /api/say は
+        # gate フックの無い使い捨てプレーヤーで鳴り、お手本を学習者の発話として解析してしまう。
+        # ここで止めれば talk mode 外ではワーカーにセグメントが届かない。
+        # ノイズフィルタより前に置く: 相槌として捨てる行も、課題の発話かは Claude が asr_text で判断する。
+        # transcript 行の書き込みより前でもある（skill が行を見て poll するとき pending が増えている）
+        try:
+            if (source == "mic" and self.talk.active
+                    and not self.talk.in_playback(seg_start, seg_start + duration)):
+                self.pronounce.offer(segment, timestamp, text.strip())
+        except Exception as e:   # 文字起こしを止めない（設計書 §10）。条件式の評価も含めて守る
+            logger.warning("pronounce: セグメントを渡せませんでした: %s", e)
         file_speaker = Speaker.from_source(source)
 
         # ノイズフィルタ: 短い感嘆語（「あっ」「ピッ」等）
@@ -358,6 +371,7 @@ class _RecorderTranscribeMixin:
         logger.info(t("rec.output", path=self.output_path))
 
         self.talk = TalkDriver(self._append_transcript_line)
+        self.pronounce = PronounceDriver()
         self.mic_segmenter = VADSegmenter()
         self.monitor_segmenter = VADSegmenter()
 

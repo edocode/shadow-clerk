@@ -102,6 +102,51 @@ def mic_voice_due(last: float, now: float, muted: bool, command_mode: bool) -> b
     return not (muted or command_mode) and now - last >= MIC_VOICE_INTERVAL_SEC
 _HEARD_LINES_MAX = 20  # 待つ間に届いた発言として返す最大行数
 
+class _PlaybackSpan:
+    """読み上げた区間の履歴。マイクの gate に使う。
+
+    開始で開き、実際に鳴り終わった時刻で閉じる。開いている間は、いつ始まったセグメントでも
+    捨てる（長い文の途中で VAD が閉じたセグメントは、終了前に文字起こしスレッドへ届く）。
+
+    1文ごとに開閉するので**履歴として持つ**。1区間だけ保持して上書きすると、文1の最中に
+    始まったセグメントが、文2が始まった後に届いたときに素通りする（お手本を学習者の発話として
+    解析してしまう）。monitor 用の EchoFilter は見積もりで前倒しに記録する別物で、意味を変えない
+    """
+
+    def __init__(self, tail_sec: float = 0.3, keep_sec: float = 60.0) -> None:
+        self._tail = tail_sec
+        self._keep = keep_sec
+        self._lock = threading.Lock()
+        self._spans: list[list[float | None]] = []  # [start, end or None]
+
+    def open(self, start: float) -> None:
+        with self._lock:
+            self._spans.append([start, None])
+            horizon = start - self._keep  # 開いたままの区間は残し、閉じて十分古いものだけ捨てる
+            self._spans = [s for s in self._spans if s[1] is None or s[1] >= horizon]
+
+    def close(self, end: float) -> None:
+        with self._lock:
+            for span in reversed(self._spans):
+                if span[1] is None:
+                    span[1] = end
+                    break
+
+    def covers(self, seg_start: float, seg_end: float) -> bool:
+        """そのセグメントが、いずれかの読み上げ区間（終了後 tail_sec を含む）と重なるか。
+
+        開始だけを見ると、読み上げより前から開いていたセグメントが素通りする。
+        物音や打鍵で VAD が開いたままだと floor 待ち（talk_floor_wait_sec）が切れて
+        お手本が鳴り、セグメントはお手本の音声ごと閉じる。開始は区間より前なので
+        gate を抜け、お手本を学習者の発話として解析してしまう。
+        EchoFilter.overlaps() と同じ重なり判定にする（設計書 §10）
+        """
+        with self._lock:
+            return any(start <= seg_end
+                       and seg_start <= (float("inf") if end is None else end + self._tail)
+                       for start, end in self._spans)
+
+
 class TalkDriver:
     def __init__(self, write_line: Callable[[TranscriptLine], None], *,
                  config_loader: Callable[[], dict] = load_config,
@@ -129,6 +174,7 @@ class TalkDriver:
         self._route: Any = None
         self._sink: Any = None
         self._echo = EchoFilter()
+        self._playback = _PlaybackSpan()
         self._topic = ""
         self._persona: TalkPersona | None = None
         self._lang = Language.JA
@@ -178,8 +224,10 @@ class TalkDriver:
             else:
                 player = self._player_factory(backend, config, self._report_error)
                 player.set_remote(self._speech)  # 練習言語の文はダッシュボードのブラウザで読む（届け先ありでは使わない）
-            echo = EchoFilter(tail_sec=_float_setting(config, "talk_echo_tail_sec", 0.3, 0.0, 30.0))
+            tail_sec = _float_setting(config, "talk_echo_tail_sec", 0.3, 0.0, 30.0)
+            echo = EchoFilter(tail_sec=tail_sec)
             player.set_on_played(lambda text, s, e: echo.record(SpokenSpan(s, e, text)))
+            player.set_on_span(self._playback_span)
             name = "headless" if config.get("talk_engine") == "headless" else "console"
             filler_sec = _float_setting(config, "talk_filler_sec", 0.0, 0.0, 600.0)
             floor_wait_sec = _float_setting(config, "talk_floor_wait_sec", 10.0, 0.0, 60.0)
@@ -199,6 +247,7 @@ class TalkDriver:
                 raise
             self._engine, self._engine_name, self._player = engine, name, player
             self._route, self._sink, self._echo = route_obj, sink, echo
+            self._playback = _PlaybackSpan(tail_sec=tail_sec)
             self._topic, self._persona, self._lang = topic, chosen, lang
             self._language, self._workdir = lang.value, resolved
             self._credit, self._error = backend.credit(), ""
@@ -276,6 +325,16 @@ class TalkDriver:
     def is_echo(self, source: str, seg_start: float, seg_end: float, text: str) -> bool:
         """届け先ありの talk mode で、monitor の区間が Claude の読み上げ中（終了後 tail まで）か。text は使わない（時間だけで判定）"""
         return source == "monitor" and self._monitor_filtered(routed=True) and self._echo.overlaps(seg_start, seg_end)
+
+    def _playback_span(self, start: float, end: float | None) -> None:
+        if end is None:
+            self._playback.open(start)
+        else:
+            self._playback.close(end)
+
+    def in_playback(self, seg_start: float, seg_end: float) -> bool:
+        """そのセグメントが読み上げ区間と重なるか。発音フィードバックの gate（設計書 §8.1、§10）"""
+        return self._playback.covers(seg_start, seg_end)
 
     def hides_interim(self, source: str, seg_start: float, seg_end: float) -> bool:
         """中間文字起こしを出さないか。Claude の声が混ざる monitor の区間（確定行は is_echo で別に判定する）"""
@@ -451,6 +510,10 @@ class TalkDriver:
 
     def _speak_once(self, backend: TtsBackend, config: dict, text: str) -> None:
         player = self._player_factory(backend, config, self._report_error)
+        # 使い捨てプレーヤーでも gate に記録する。「daemon が出す音はすべて読み上げ区間に載る」を
+        # 1か所で保つ。声の試聴（/api/talk-preview）は課題のアーム中にも鳴らせるので、
+        # 記録しないとその音声が学習者の発話として解析される
+        player.set_on_span(self._playback_span)
         player.speak(text)
         threading.Thread(target=player.close, kwargs={"discard_pending": False},
                          name="talk-say", daemon=True).start()

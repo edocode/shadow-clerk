@@ -140,6 +140,7 @@ foreach ($s in @(@("Shadow Clerk", "start -d"), @("Shadow Clerk (stop)", "stop")
 | Claude の声を会議アプリに届ける | Linux + PipeWire（`pw-dump`・`pw-link`・`pw-cat`） | — | — | `talk_route_app` |
 | [話者分離](#オプション-話者分離)（相手側に `[相手A]`, `[相手B]`… を付与、名前付け、声紋） | `diarization` extra | — | — | `speaker_diarization`, `speaker_enrollment` |
 | [Google Calendar](#オプション-google-calendar-連携)（会議の自動開始・終了、参加予定者） | `gcal` extra、OAuth 認証情報 | — | — | `gcal_integration`, `gcal_credentials_file` |
+| [発音フィードバック](#オプション-発音フィードバック)（音素レベル、英語、`clerk-practice` 用） | `pronounce` extra | — | — | `pronounce_enabled` |
 | [ブラウザのスクリーンショット](#ブラウザのスクリーンショット)を transcript に残す | `extension/` の Chrome 拡張 | — | — | — |
 
 **LLM なしで使える最小構成:** 文字起こし + LibreTranslate 翻訳であれば、外部 API や Claude Code は不要。すべてローカルで完結する。
@@ -169,7 +170,8 @@ PyPI からインストール:
 | + Moonshine Voice | `uv tool install "shadow-clerk[moonshine]"` |
 | + Google Calendar | `uv tool install "shadow-clerk[gcal]"` |
 | + 話者分離 | `uv tool install "shadow-clerk[diarization]"` |
-| すべて | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech,moonshine,diarization]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| + 発音フィードバック | `uv tool install "shadow-clerk[pronounce]"` |
+| すべて | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech,moonshine,diarization,pronounce]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 
 > **注意:** `uv tool install` はツールごとに1つの環境を管理します。異なる extras で再インストールする場合は `--force` を付けてください。`--force` なしでは「already installed」と表示され、extra が追加されません。指定した extras のみが含まれ、以前の extras は削除されます。
 
@@ -193,7 +195,8 @@ cd shadow-clerk
 | + Moonshine Voice | `uv sync --extra moonshine` |
 | + Google Calendar | `uv sync --extra gcal` |
 | + 話者分離 | `uv sync --extra diarization` |
-| すべて | `uv sync --extra spell-check --extra gcal --extra reazonspeech --extra moonshine --extra diarization` |
+| + 発音フィードバック | `uv sync --extra pronounce` |
+| すべて | `uv sync --extra spell-check --extra gcal --extra reazonspeech --extra moonshine --extra diarization --extra pronounce` |
 
 **`uv sync` は毎回「環境のあるべき姿のすべて」を決める。extra は累積しない。**
 `uv sync --extra reazonspeech` のあとに `uv sync --extra gcal` を打つと
@@ -325,6 +328,20 @@ clerk-util write-config-value gcal_credentials_file ~/credentials.json
 `credentials.json` の取得方法は [docs/google-calendar-setup.md](docs/google-calendar-setup.md) を参照。
 
 翻訳・要約が必要な場合は以下のオプションを追加する。
+
+### オプション: 発音フィードバック
+
+`clerk-practice` の音素レベルの発音フィードバック (英語のみ)。
+
+```bash
+uv sync --extra pronounce
+```
+
+初回の利用時に 1.2GB の音素認識モデルをダウンロードする。`espeak-ng` はホイール
+(`espeakng-loader`) で入るのでシステムパッケージは要らない。`phonemizer-fork` は
+`phonemizer` と同じ import 名を占有するので、元の `phonemizer` とは同居できない。
+
+設定の「発音フィードバック」で有効にする。
 
 ### 3. (オプション) LibreTranslate のセットアップ
 

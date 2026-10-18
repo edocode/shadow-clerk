@@ -289,6 +289,12 @@ STRINGS_JA: dict[str, str] = {
     "cfg.section.gcal": "Google Calendar 連携",
     "cfg.section.talk": "Claude と会議",
     "cfg.talk_filler_sec": "相槌までの秒数（0 で無効。次の会話から反映）",
+    "cfg.section.pronounce": "発音フィードバック",
+    "cfg.pronounce_enabled": "音素レベルの発音フィードバックを使う (モデル 1.2GB)",
+    "cfg.pronounce_model": "音素認識モデル",
+    "cfg.pronounce_device": "音素認識の実行デバイス",
+    "cfg.pronounce_idle_unload_sec": "モデルを解放するまでの待ち時間 (秒)",
+    "cfg.pronounce_threads": "音素認識のスレッド数 (0 で既定)",
     "cfg.section.ai_console": "AI コンソール",
 
     # --- cfg.* : 設定モーダルフィールド ---

@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、会話・発音・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.4.1"
+  version: "1.6.1"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -150,27 +150,193 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 
 ### 発音
 
-- 判定は音声認識に通るかどうかで行う。届いた `[自分]` の行が言ってもらった文どおりなら通った
-- 音声認識は文脈で補うので、文の中の単語は通りやすい。単語単体や紛らわしい組（light と right、sheep と ship など）で試す
-- 通らなければ、どう聞こえたか（認識結果）と、口の形・舌の位置のコツを母語で短く伝え、もう一度言ってもらう
+判定の仕方は2つある。`GET /api/pronounce` の `state`（`idle` / `armed` / `loading` / `unavailable`）を見て選ぶ。
+
+```
+curl -s "http://localhost:8765/api/pronounce"
+```
+
+- `unavailable`（`reason` に理由が入る）— 音素フィードバックが使えない。下の「音声認識だけで判定する」で、
+  **従来どおり**単語単体で出す
+- `loading` — 初回のモデル取得中。**`unavailable` と同じ扱いで進める**（下の「`state` が
+  `loading` のとき」を参照）
+- それ以外（`idle` / `armed`）— 「音素フィードバック」で進める。`idle` は「いま課題が無い」の意味で、
+  これから POST する前の通常の状態
+- **JSON が返らない**（古い daemon にはこのエンドポイントが無く、404 の HTML が返る）—
+  `unavailable` と同じ扱いで、従来モードで進める。**以後この練習では再度叩かない**
+
+どちらでも共通のルール:
+
 - お手本は `lang` 付きの `/api/say` で聞かせる
-- **お題の単語は綴りを見せない。** 綴りが `[Claude]` 行に出ると、ユーザーは読んでから言えてしまい、認識結果も綴りと並んで
-  判定がゆがむ。`text` に本物の単語、`lang` に言語、`display` にカタカナと意味だけを入れて送る。
+- **お題の綴りを見せない。** 綴りが `[Claude]` 行に出ると、ユーザーは読んでから言えてしまい、認識結果も綴りと並んで
+  判定がゆがむ。`text` に本物の単語・文、`lang` に言語、`display` にカタカナと意味だけを入れて送る。
   ブラウザの声は正しい発音で読み、transcript には「ライト（右）」としか残らない
 
 ```
 curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/json' -d '{"text":"right","lang":"en","display":"ライト（右）"}'
 ```
 
-- 同じ組の次の単語も同様に送る（例: `{"text":"light","lang":"en","display":"ライト（光）"}`）
 - **transcript には、説明の文も含めて、練習する言語の綴りを一切出さない。** `/api/say` の母語の説明（コツ・判定・まとめ）の中でも、
   練習する言語の単語はカタカナで書く（arrival ではなくアライバル）。綴りが見えてよいのは AI分析 タブだけ
-- **言ってもらう単語・文は、声に出す前に、先に Analysis へ書く。** 綴り・意味・`🔊[<lang>] ` の行を `/api/generated`（`append`）で
+- **言ってもらう単語・文は、声に出す前に、先に Analysis へ書く。** 綴り・発音記号・意味・`🔊[<lang>] ` の行を `/api/generated`（`append`）で
   載せてから、`display` 付きで声に出す。ユーザーは綴りを見たいときに AI分析 タブの Analysis で見る。
   1組ずつでなく、これから練習する数語・数文をまとめて先に書いてよい
+
+#### 音声認識だけで判定する（`unavailable` のとき）
+
+- 判定は音声認識に通るかどうかで行う。届いた `[自分]` の行が言ってもらった文どおりなら通った
+- 音声認識は文脈で補うので、文の中の単語は通りやすい。**単語単体**や紛らわしい組（light と right、sheep と ship など）で試す
+- 通らなければ、どう聞こえたか（認識結果）と、口の形・舌の位置のコツを母語で短く伝え、もう一度言ってもらう
+- 同じ組の次の単語も同様に送る（例: `{"text":"light","lang":"en","display":"ライト（光）"}`）
 - ユーザーが言った後、判定してから、Analysis の語・文に結果（○△×）を追記し、**どう聞こえたか（認識結果）と
   口の形・舌の位置のコツは Advice に書く**（Advice は書き直す）。**試した単語は、通ったものも含めて全部 Analysis に残す。**
   transcript にはカタカナしか残らないので、綴りが残るのは Analysis だけ。1組（right と light など）を判定し終えるたびに書く
+
+#### 音素フィードバック
+
+課題文を daemon に預けておくと、ユーザーの発話を音素の列で突き合わせて返してくれる。
+返るのは**素材だけ**で、合否も点数も入っていない。読み解くのはこちら。
+
+**課題の出し方（音声認識だけのときと逆になる）**
+
+- **文かキャリア文にする。裸の単語で出さない。** 単体の発話は語の端が崩れる
+  （語頭の連結が母音で割れ、語末の子音が落ちる）。`Say grass again.` のように埋めると、
+  その端の崩れは戻る（実測で `grass` は 9/15 → 5/5）。
+  ただし**戻るのは端の崩れだけで、その人の調音そのものは戻らない**
+  （同じ実測で `glass` は 7/15 → 0/5 と、むしろ落ちた）。
+  裸の単語が許されるのは**語頭の単独子音**の対立だけ（right / light など）
+- **対立ペアを両方入れる。** `Turn right at the light.` のように1文に両方入れると、
+  その発話自体が比較の基準になり、「R は出ているのに L が出ていない」という相対的な判断ができる
+- **`ɪ/ʌ` の対立（bit / but など）は出さない。** 正規化で同じクラスに潰れるので測れない。
+  `iː/ɪ`、`ɹ/l`、`θ/s`、`b/v` は出してよい
+- 課題文に**数字を書かない**（`three times` のように綴る）
+- 課題文は毎回その場で作る。例文の一覧をリポジトリに持たない
+
+**手順**
+
+1. 課題文を Analysis に先に書く（綴りを見せてよいのは AI分析 タブだけ）
+2. `POST /api/pronounce` で課題を預ける。`focus` は**語ではなく音素**で指定する
+
+```
+curl -s -X POST "http://localhost:8765/api/pronounce" -H 'Content-Type: application/json' -d '{"text":"Turn right at the light.","lang":"en","focus":[{"word":"right","phoneme":"ɹ"},{"word":"light","phoneme":"l"}]}'
+```
+
+3. 返った `expected` が、その課題文の**正規化後の期待IPA**。`focus` の `phoneme` はここに
+   出てくる記号で書く。
+
+   **拒否は HTTP 200 で `{"status":"error","message":...}` として返る。** `message` を読んで、
+   次のどれかで対処する。**送り直す前に必ず何かを変える。同じ body の再送は通らない**:
+
+   - **`expected` が付いている** — `focus` の音素がその語の期待IPAに無い。返ってきた記号を見て
+     `focus` を書き直して送り直す（例: `right` の R は `r` ではなく `ɹ`）。書き直しは1回まで。
+     それでも通らなければ、その音素の出題をやめる
+   - **`expected` が無く、`GET /api/pronounce` の `state` が `unavailable`** — 設定が off か
+     未導入。「判定の仕方」の従来モードに切り替える。**送り直さない**
+   - **`expected` が無く、`state` がそれ以外** — 課題文そのものに原因がある（数字が入っている、
+     未対応の言語、`focus` の語が文に無い、talk mode が動いていない等）。`message` に従って
+     **課題文を作り直してから**送り直す。作り直しは1回まで。それでも通らなければ、
+     従来モードに切り替えて練習を続ける
+4. `display` 付きの `/api/say` でお手本を読む（綴りを見せない）
+5. `[自分]` の行が届いたら `GET /api/pronounce` を呼ぶ
+
+```
+curl -s "http://localhost:8765/api/pronounce"
+```
+
+6. `pending` が 0 より大きければ、**Analysis への書き込みなど次の作業を1つ挟んでから**
+   `GET /api/pronounce` を取り直す（`sleep` は使わない）。2回取り直しても `pending` が
+   0 より大きければ、その発話は**未判定**として扱い、**成否を一切言わない**
+   （「解析に時間がかかっています」と母語で一度だけ伝えてよい）
+7. `attempts`（新しい順、最大3件）の中から、いま見た `[自分]` 行と同じ `segment_at` のものを探す。
+   `asr_text` は音声認識の結果で、`words[].ops` が音素の対応
+
+**`state` が `loading` のとき（初回だけ）**
+
+**初回の POST で `loading` が返るのは通常の動作。** その課題はそのまま ASR 判定で進めてよい
+（すでに文で出していれば文のままでよい。言い直させない）。次の課題から単語単体に戻し、
+`armed` になったら音素フィードバックに切り替える。
+
+初回の利用時は 1.2GB の音素認識モデルを取得する。POST や GET の `state` が `loading`
+のあいだは、解析は返ってこない。
+
+- 母語で一度だけ短く伝える（例:「初回なので発音の解析モデルを取り込んでいます。
+  数分かかることがあります。その間は聞き取りだけで判定しますね」）。毎回言わない
+- **その間は「判定の仕方」の `unavailable` と同じ扱い**にする。音声認識に通るかどうかで
+  判定し、課題も単語単体に戻す
+- 次の課題に移るときに `GET /api/pronounce` の `state` を見直す。`armed` か `idle` に
+  なっていれば音素フィードバックに切り替える
+- **`loading` のあいだ `pending` を待って「もう一度言ってください」を繰り返さない。**
+  これをやると、ダウンロードが終わるまで同じ催促が続く
+
+**読み方**
+
+- **まず `asr_text` が課題文全体を含んでいるか見る。** 一部しか含まないときは発話が途中で切れている。
+  **その attempt では `focus` の所見を言わない**（足りない語が `del` として出るので、
+  「R が出ていない」と誤って言ってしまう）。言えた扱いにもせず、続きの `[自分]` 行と attempt を見る
+- `words[].ops` が語ごとの音素の対応。`kind` は `same`（一致）/ `sub`（置換）/
+  `del`（期待された音が無い）/ `ins`（余計な音が入っている）
+- **`focus: true` の op だけにコメントする。** それ以外は、同じ語の中であってもフロア誤差。
+  ネイティブの連続発話でも、正規化後の音素誤り率は平均 9.1% ある。差分がゼロになることは
+  期待できないので、`focus` 以外の差分を拾わない
+- **対象語だけを見る。発話全体を見ない。** キャリア文ではキャリア語のほうが派手に壊れる
+  （実測で `Say` が `f e`、`again` が `a ɡ i ŋ` になる）。これは発音の問題ではない
+- **この1回の発話の所見として言う。** 「あなたの L は」と傾向で断定しない。
+  同じ人が同じ語を言ってもテイク間で判定が変わる
+- **「何の音になったか」を言い切らない。** 相対的に言う
+  （「R は出ていますが、L が R 寄りになっています」）
+- **調音の助言は定型の範囲に留める。** 音の種類と位置を伝えるのが主。
+  細かい口の形の指示は、確かめられていない
+
+**attempt が見つからないとき**
+
+お手本の回り込みや母語での発言も `[自分]` 行として transcript に残る。`[自分]` 行を見たら、
+まず `GET /api/pronounce` の `state` で分ける。
+
+- **`loading` / `unavailable`** — 音素フィードバックは使わない。「判定の仕方」の従来モードに従う。
+  この節の残りは適用しない
+- **`idle` で、課題を POST したあと `clear` していない** — **アームが期限切れ**。まず同じ課題を
+  POST し直す（これが拒否されたら手順3の拒否の扱いに従う）。そのうえで、その行が
+  **課題文と対応していれば**もう一度言ってもらい、**母語での発言や質問なら**普通の会話として応じる。
+  `expires_at` が近いうちに（母語での質疑が長引く前に）送り直しておくと、ここに来ない
+- **`idle` で、まだ何も POST していない** — 課題が無いので判定しない。普通の会話として応じる
+- **`armed`** — 以下に従う
+
+`armed` のとき:
+
+- `pending` が 0 より大きいときは手順6に従う（取り直しは2回まで）。それでも来なければ**未判定**とし、
+  **成否を一切言わない。** Analysis の `結果` の列は空のままにして、もう一度言ってもらう
+- **`pending` が 0 で、同じ `segment_at` の attempt が無い `[自分]` 行は、試行として扱わない。**
+  「言えました」とも言わない。そのうえで、行の内容で分ける:
+  - **`asr_text` や行の文面が課題文と対応していない**（母語での発言・質問・相槌）→ 試行ではないので
+    **普通の会話として応じる**。もう一度言ってくださいとは言わない。母語の行は
+    「練習する言語の綴りを出さない」規則のためカタカナ混じりに見えることがあるので、意味で判断する
+  - **課題文を言ったはずなのに attempt が無い** → お手本の回り込みなどで解析に渡らなかった。
+    もう一度言ってもらう
+
+**終わったら**
+
+```
+curl -s -X POST "http://localhost:8765/api/pronounce" -H 'Content-Type: application/json' -d '{"clear":true}'
+```
+
+`expires_at` を過ぎると自動で解ける。母語での質疑が長引いて期限が近いときは、同じ課題を送り直す。
+
+**書く**
+
+Analysis の語・文に結果を追記し、Advice を書き直すのは従来どおり。ただし**音素フィードバックのときは
+`結果` の列に ○△× を書かない。** 観測をそのまま書く:
+
+| 単語 | 発音記号 | 意味 | 結果 |
+|---|---|---|---|
+| right | /ɹaɪt/ | 右 | ɹ は出ていた |
+| light | /laɪt/ | 光 | l が ɹ 寄り |
+
+- `focus` の op が `same` なら「出ていた」。`sub` なら「<期待> が <実測> 寄り」。`del` なら「出ていない」
+- **「完璧」「正解」と書かない。** ネイティブの連続発話でも、正規化後の音素誤り率は平均 9.1% ある
+- Advice には**外した音と位置**を書く。音声認識の結果（何と聞こえたか）ではなく、
+  どの音がどう出たかを書く
+- `ins`（余計な音が入った）は「<語> の <位置> に <音> が入っている」と書く
+- 試した語・文は、うまくいったものも含めて全部 Analysis に残す
 
 ### 作文
 
@@ -180,10 +346,13 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 
 ## 4. 書く — Advice と Analysis
 
+> **この節の例は、音声認識だけで判定しているときのもの。** 音素フィードバックが使えるときは、
+> 「発音」節の「書く」に従う（`結果` に ○△× を書かない、口の形の指示を書かない）。
+
 ダッシュボードの AI分析 タブの Advice と Analysis に出る。どちらも Markdown（見出し・箇条書き・表・引用が効く）。
 
 - **Advice と Analysis の使い分け。**
-  - **Analysis は教材と記録**（練習する単語・文の一覧、出題・言えた文・結果）。綴り・意味・`🔊[<lang>] ` の行を置く棚で、
+  - **Analysis は教材と記録**（練習する単語・文の一覧、出題・言えた文・結果）。綴り・発音記号・意味・`🔊[<lang>] ` の行を置く棚で、
     声に出す**前に**先に載せる。消さずに時刻見出しで追記する
   - **Advice は指摘と直し**（どう聞こえたか、自然な言い方、口の形・舌の位置のコツ、今日の重点、次回の課題）。
     いま直すことだけの短いメモにして、毎回まとめ直して上書きする。古い直しは上書きで消えるので、
@@ -199,12 +368,18 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
   （段落・箇条書き・引用）をクリックすると、`<lang>` の発音で読み上げられる（`[<lang>]` は画面には出ない）。
   `[<lang>]` を省くと、そのとき聞き取っている言語で読まれるので、練習の後に開くと日本語の声になる。必ず付ける。
   表の中の 🔊 はクリックできないので、表の外に置く
+- **練習する言語の語・文を書くときは発音記号を併記する。** Analysis と Advice は綴りを見せてよい唯一の場所で、
+  読み方が分からないと復習に使えない。`/ /` で囲んだ辞書式の IPA を書く（英語は米音。daemon の G2P も `en-us`）。
+  **文には対象語の分だけ付ける**（文全体に振ると読めなくなる）。transcript には従来どおり綴りも記号も出さない
+  - **発音フィードバックの `expected` をそのまま貼らない。** あれは内部の照合用で、正規化のクラス記号が混ざる
+    （`more` → `m O ɹ`、`girl` → `ɡ R l`、`cat` → `k A t`、`ship` → `ʃ @ p`）。学習者には読めない。
+    発音記号は自分の知識で辞書式に書く
 - `text` は 20,000 字まで。JSON の文字列なので、改行は `\n`、`"` は `\"` と書く
 
 ### Advice — いまの指摘と直し（毎回まとめ直して上書き）
 
 ```
-curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"advice","mode":"replace","text":"# いまの直し\n\n## 今日の重点\n- 過去のことは過去形で言う\n\n## 直近の直し\n| 言ったこと | 自然な言い方 | ポイント |\n|---|---|---|\n| I go to there yesterday. | I went there yesterday. | 過去は went。there に to は付けない |\n\n## お手本\n- 🔊[en] I went there yesterday.\n\n## 発音のコツ\n- R は舌先をどこにも付けずに奥へ丸める\n"}'
+curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"advice","mode":"replace","text":"# いまの直し\n\n## 今日の重点\n- 過去のことは過去形で言う\n\n## 直近の直し\n| 言ったこと | 自然な言い方 | ポイント |\n|---|---|---|\n| I go to there yesterday. | I went there yesterday. | 過去は went。there に to は付けない |\n\n## お手本\n- 🔊[en] I went there yesterday.\n- went /wɛnt/\n\n## 発音のコツ\n- R は舌先をどこにも付けずに奥へ丸める\n"}'
 ```
 
 - 見出しは「いまの直し」
@@ -212,13 +387,15 @@ curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: applicat
 - **どう聞こえたか** — 直近の発音で、認識結果が違った語と聞こえ方（言ったこと → 聞こえ方）。新しい順に最大5件
 - **直近の直し** — 言ったこと / 自然な言い方 / ポイント の表。新しい順に最大5件。古いものは消す
 - **お手本** — 直した言い方を `🔊[<lang>] ` で始まる箇条書きで
-- **発音のコツ** — いま課題になっている音だけ
+- **発音のコツ** — いま課題になっている音だけ。
+  上の例の「舌先をどこにも付けずに」のような細かい口の形の指示は、**音声認識だけで判定しているとき**のもの。
+  音素フィードバックが使えるときは、音の種類と位置を伝えるに留める（確かめられていないため）
 - **次回の課題** — 終える前に最後に書き直すとき、次回やることを1〜2行で
 
 ### Analysis — 練習する語・文と記録（時刻見出しで追記）
 
 ```
-curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n## 10:15 作文\n\n| お題 | 言えた文 | 結果 |\n|---|---|---|\n| 昨日は雨だったので家にいました | I stayed home because it rained yesterday. | ○ |\n\n次に言ってみる例文:\n\n- 🔊[en] It was raining, so I stayed home.\n"}'
+curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n## 10:15 作文\n\n| お題 | 言えた文 | 結果 |\n|---|---|---|\n| 昨日は雨だったので家にいました | I stayed home because it rained yesterday. | ○ |\n\n次に言ってみる例文:\n\n- 🔊[en] It was raining, so I stayed home.\n- raining /ˈɹeɪnɪŋ/ ・ stayed /steɪd/\n"}'
 ```
 
 - 時刻と練習の形の見出し（`## HH:MM 作文` など）の下に積む。消さない・まとめ直さない
@@ -228,24 +405,28 @@ curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: applicat
 発音は、声に出す前に、これから練習する語・文を先に載せる（結果の列は空にしておく）。
 
 ```
-curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n## 10:20 発音 R と L\n\n| 単語 | 意味 | 結果 |\n|---|---|---|\n| right | 右 |  |\n| light | 光 |  |\n\n- 🔊[en] right\n- 🔊[en] light\n- 🔊[en] Turn right at the light.\n"}'
+curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n## 10:20 発音 R と L\n\n| 単語 | 発音記号 | 意味 | 結果 |\n|---|---|---|---|\n| right | /ɹaɪt/ | 右 |  |\n| light | /laɪt/ | 光 |  |\n\n- 🔊[en] right\n- 🔊[en] light\n- 🔊[en] Turn right at the light.\n- 対象語: right /ɹaɪt/ ・ light /laɪt/\n"}'
 ```
 
 判定したら、結果を追記し（試した語は全部）、聞こえ方とコツは Advice に書く。**Advice に書いた直し（聞こえ方・コツ）は、
 Analysis の結果にも「直し」として添えて残す**（Advice は次の書き直しで消えるので、履歴になるのは Analysis だけ）。
 
+> **次の2つの例は、音声認識だけで判定しているときのもの。** `結果` の ○× も「舌先を付けない。唇を少しすぼめる」のような
+> 細かい口の形の指示も、音素フィードバックが使えるときには書かない（「発音」節の「書く」に従う）。
+
 ```
-curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n### 10:22 結果と直し\n\n| 単語 | 結果 | 聞こえ方 | 直し |\n|---|---|---|---|\n| right | 1回目 ×、2回目 ○ | light | 舌先を付けない。唇を少しすぼめる |\n| light | ○ |  |  |\n"}'
+curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n### 10:22 結果と直し\n\n| 単語 | 発音記号 | 結果 | 聞こえ方 | 直し |\n|---|---|---|---|---|\n| right | /ɹaɪt/ | 1回目 ×、2回目 ○ | light | 舌先を付けない。唇を少しすぼめる |\n| light | /laɪt/ | ○ |  |  |\n"}'
 ```
 
 ```
-curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"advice","mode":"replace","text":"# いまの直し\n\n## 今日の重点\n- right の R は舌先をどこにも付けない\n\n## どう聞こえたか\n| 言ったこと | 聞こえ方 | ポイント |\n|---|---|---|\n| right | light | 舌先を上の歯ぐきに付けない。唇を少しすぼめる |\n\n## 発音のコツ\n- R は舌先をどこにも付けずに奥へ丸める\n\n## 次回の課題\n- right と light の言い分け\n"}'
+curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"advice","mode":"replace","text":"# いまの直し\n\n## 今日の重点\n- right の R は舌先をどこにも付けない\n\n## どう聞こえたか\n| 言ったこと | 発音記号 | 聞こえ方 | ポイント |\n|---|---|---|---|\n| right | /ɹaɪt/ | light /laɪt/ | 舌先を上の歯ぐきに付けない。唇を少しすぼめる |\n\n## 発音のコツ\n- R は舌先をどこにも付けずに奥へ丸める\n\n## 次回の課題\n- right と light の言い分け\n"}'
 ```
+
 
 会話は、やりとりを会話の形で書き、直したい文に自然な言い方を添える。
 
 ```
-curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n## 10:30 会話 週末の話\n\n- **Claude**: What did you do last weekend?\n- **自分**: I go to there yesterday.\n  - 自然な言い方: I went there yesterday.（過去は went。there に to は付けない）\n- **Claude**: Oh, you went there yesterday? What did you do?\n- **自分**: I watched a movie.\n\n- 🔊[en] I went there yesterday.\n"}'
+curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n## 10:30 会話 週末の話\n\n- **Claude**: What did you do last weekend?\n- **自分**: I go to there yesterday.\n  - 自然な言い方: I went there yesterday.（過去は went。there に to は付けない）\n- **Claude**: Oh, you went there yesterday? What did you do?\n- **自分**: I watched a movie.\n\n- 🔊[en] I went there yesterday.\n- went /wɛnt/\n"}'
 ```
 
 ## 5. 終える
@@ -255,6 +436,7 @@ curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: applicat
   終えるかの確認もまとめも母語なので、練習する言語のままだと聞き取りが崩れる
 - 終えるかは**ユーザーに確かめてから**（例:「今日の練習はここまでにしますか？」）。はっきり終えてよいと返事があるまで続ける
   （練習を続けることになったら、練習する言語に切り替え直す）
+- 発音の課題をアームしていたら `{"clear": true}` で解除する（解除し忘れても `expires_at` で自然に解ける）
 - 終えるときは、「今日の練習のまとめ: 」で始まる発話を `lang` なしの `/api/say` で話す。やったこと・できたこと・
   次の課題を1〜3文で入れる。この行が transcript の末尾に残り、次回の提案の手がかりになる
 

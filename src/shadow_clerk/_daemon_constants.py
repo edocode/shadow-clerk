@@ -234,6 +234,12 @@ DEFAULT_CONFIG = {
     # 読み上げ中・生成中にこれを含む発言があれば止める。部分一致なので「まとめて」に当たる
     # 「とめて」のような短いかなは入れない。英数字の語は単語単位で照合
     "talk_stop_words": ["待って", "ストップ", "止めて", "やめて", "stop", "wait", "hold on"],
+    # 発音フィードバック（音素レベル）
+    "pronounce_enabled": False,      # 既定 off。モデルが 1.2GB あるので明示的に有効化させる
+    "pronounce_model": "facebook/wav2vec2-xlsr-53-espeak-cv-ft",
+    "pronounce_device": "cpu",
+    "pronounce_idle_unload_sec": 600,  # この秒数使われなければモデルを解放する
+    "pronounce_threads": 0,          # torch のスレッド上限。0 なら torch の既定にまかせる
 }
 
 # セッションファイル

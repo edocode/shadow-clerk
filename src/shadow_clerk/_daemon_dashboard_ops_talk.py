@@ -4,9 +4,10 @@ from __future__ import annotations
 import logging
 
 from shadow_clerk._daemon_dashboard_base import is_localhost_client, read_local_json_body
+from shadow_clerk._daemon_pronounce import ArmError
 from shadow_clerk._daemon_talk import TalkStartError
 from shadow_clerk._daemon_tts import TtsError
-from shadow_clerk.domain import Language, SpeechTab, TalkVoice
+from shadow_clerk.domain import Language, PronunciationTask, SpeechTab, TalkVoice
 from shadow_clerk.i18n import t
 
 logger = logging.getLogger("shadow-clerk")
@@ -155,3 +156,35 @@ class _DashboardHandlerTalkOps:
             self._send_json({"status": "error", "message": "id must be a short string"})
             return
         self._send_json({"status": "ok", "known": self.recorder.talk.speech_done(uid)})
+
+    def _serve_pronounce(self) -> None:
+        """GET /api/pronounce — アームの状態と直近の解析結果"""
+        if not self._reject_remote():
+            self._send_json(self.recorder.pronounce.snapshot())
+
+    def _set_pronounce(self) -> None:
+        """POST /api/pronounce {text, lang, focus} / {clear: true} — 課題をアームする・解除する"""
+        data = read_local_json_body(self, "pronounce")
+        if data is None:
+            return
+        if data.get("clear"):
+            self.recorder.pronounce.clear()
+            self._send_json({"status": "ok", "state": "idle"})
+            return
+        # お手本の gate は talk mode の読み上げにしか付かない。止まっていたら受け付けない
+        if not self.recorder.talk.active:
+            self._send_json({"status": "error",
+                             "message": "talk mode must be running to arm pronunciation feedback"})
+            return
+        try:
+            task = PronunciationTask.parse(data)
+        except ValueError as e:
+            self._send_json({"status": "error", "message": str(e)})
+            return
+        try:
+            self._send_json(self.recorder.pronounce.arm(task))
+        except ArmError as e:
+            out = {"status": "error", "message": e.message}
+            if e.expected is not None:
+                out["expected"] = e.expected
+            self._send_json(out)

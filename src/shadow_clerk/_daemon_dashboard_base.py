@@ -196,6 +196,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_meeting_history()
         elif path == "/api/watch":
             self._serve_watch()
+        elif path == "/api/pronounce":
+            self._serve_pronounce()
         elif path == "/api/skill-status":
             self._serve_skill_status()
         elif path == "/api/generated":
@@ -301,6 +303,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._write_generated()
         elif path == "/api/say":
             self._say()
+        elif path == "/api/pronounce":
+            self._set_pronounce()
         elif path == "/api/talk-speech/ready":
             self._talk_speech_ready()
         elif path == "/api/talk-speech/done":

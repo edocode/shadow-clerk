@@ -290,6 +290,12 @@ STRINGS_EN: dict[str, str] = {
     "cfg.section.gcal": "Google Calendar Integration",
     "cfg.section.talk": "Talk with Claude",
     "cfg.talk_filler_sec": "Seconds before a filler (0 = off; applies from the next talk)",
+    "cfg.section.pronounce": "Pronunciation feedback",
+    "cfg.pronounce_enabled": "Phoneme-level pronunciation feedback (1.2GB model)",
+    "cfg.pronounce_model": "Phoneme recognition model",
+    "cfg.pronounce_device": "Phoneme recognition device",
+    "cfg.pronounce_idle_unload_sec": "Unload the model after this many idle seconds",
+    "cfg.pronounce_threads": "Phoneme recognition threads (0 for default)",
     "cfg.section.ai_console": "AI Console",
 
     # --- cfg.* ---
