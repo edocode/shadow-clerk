@@ -103,33 +103,40 @@ def mic_voice_due(last: float, now: float, muted: bool, command_mode: bool) -> b
 _HEARD_LINES_MAX = 20  # 待つ間に届いた発言として返す最大行数
 
 class _PlaybackSpan:
-    """いま鳴らしている読み上げの区間。マイクの gate に使う。
+    """読み上げた区間の履歴。マイクの gate に使う。
 
     開始で開き、実際に鳴り終わった時刻で閉じる。開いている間は、いつ始まったセグメントでも
     捨てる（長い文の途中で VAD が閉じたセグメントは、終了前に文字起こしスレッドへ届く）。
-    monitor 用の EchoFilter は見積もりで前倒しに記録する別物で、意味を変えない
+
+    1文ごとに開閉するので**履歴として持つ**。1区間だけ保持して上書きすると、文1の最中に
+    始まったセグメントが、文2が始まった後に届いたときに素通りする（お手本を学習者の発話として
+    解析してしまう）。monitor 用の EchoFilter は見積もりで前倒しに記録する別物で、意味を変えない
     """
 
-    def __init__(self, tail_sec: float = 0.3) -> None:
+    def __init__(self, tail_sec: float = 0.3, keep_sec: float = 60.0) -> None:
         self._tail = tail_sec
+        self._keep = keep_sec
         self._lock = threading.Lock()
-        self._start = 0.0
-        self._end: float | None = None
+        self._spans: list[list[float | None]] = []  # [start, end or None]
 
     def open(self, start: float) -> None:
         with self._lock:
-            self._start, self._end = start, None
+            self._spans.append([start, None])
+            horizon = start - self._keep  # 開いたままの区間は残し、閉じて十分古いものだけ捨てる
+            self._spans = [s for s in self._spans if s[1] is None or s[1] >= horizon]
 
     def close(self, end: float) -> None:
         with self._lock:
-            self._end = end
+            for span in reversed(self._spans):
+                if span[1] is None:
+                    span[1] = end
+                    break
 
     def covers(self, seg_start: float) -> bool:
-        """そのセグメントの開始が読み上げ中（終了後 tail_sec を含む）か"""
+        """そのセグメントの開始が、いずれかの読み上げ区間（終了後 tail_sec を含む）に入るか"""
         with self._lock:
-            if not self._start or seg_start < self._start:
-                return False
-            return self._end is None or seg_start <= self._end + self._tail
+            return any(seg_start >= start and (end is None or seg_start <= end + self._tail)
+                       for start, end in self._spans)
 
 
 class TalkDriver:

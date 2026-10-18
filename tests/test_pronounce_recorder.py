@@ -50,6 +50,32 @@ def test_span_reopens() -> None:
     check("前の区間は残らない", not span.covers(102.0))
 
 
+def test_span_keeps_earlier_sentences() -> None:
+    # お手本は文ごとに open/close される（TtsPlayer が文単位でキューに積むため）。
+    # 文1の最中に VAD が閉じたセグメントは、文字起こしを終えて届く頃には文2が始まっている。
+    # 1区間だけ保持して上書きすると、ここで素通りしてお手本を学習者の発話として解析してしまう
+    span = _PlaybackSpan(tail_sec=0.3)
+    span.open(100.0)
+    span.close(101.0)          # 文1
+    span.open(101.5)           # 文2が鳴り始めた
+    check("文1の最中に始まったセグメントは、文2が始まった後でも捨てる", span.covers(100.5))
+    check("文2の最中も捨てる", span.covers(101.8))
+    span.close(102.4)
+    check("すべて鳴り終わった後に始まったセグメントは残す", not span.covers(102.9))
+    check("文1より前に始まったセグメントは残す", not span.covers(99.5))
+
+
+def test_span_prunes_old_entries() -> None:
+    # 履歴が無限に伸びないこと
+    span = _PlaybackSpan(tail_sec=0.3, keep_sec=1.0)
+    for i in range(50):
+        span.open(1000.0 + i)
+        span.close(1000.3 + i)
+    span.open(2000.0)
+    check("古い区間は捨てる", not span.covers(1000.1), "1000.1 は 1000 秒前の区間")
+    check("直近は残る", span.covers(2000.5))
+
+
 def test_player_opens_and_closes_span() -> None:
     from shadow_clerk._daemon_tts import TtsPlayer
 
@@ -89,5 +115,7 @@ def test_player_opens_and_closes_span() -> None:
 if __name__ == "__main__":
     test_span_open_while_speaking()
     test_span_reopens()
+    test_span_keeps_earlier_sentences()
+    test_span_prunes_old_entries()
     test_player_opens_and_closes_span()
     sys.exit(0 if all(results) else 1)
