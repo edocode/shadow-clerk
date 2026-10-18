@@ -185,6 +185,17 @@ def test_split_words() -> None:
           repr(split_words("It’s fine.")))
     check("引用符・括弧を落とす", split_words('He said "right" (loudly).') ==
           ("He", "said", "right", "loudly"), repr(split_words('He said "right" (loudly).')))
+    check("曲がった単引用符の囲みを落とす",
+          split_words("‘hello’ world") == ("hello", "world"),
+          repr(split_words("‘hello’ world")))
+    check("直の単引用符の囲みも落とす",
+          split_words("'hello' world") == ("hello", "world"),
+          repr(split_words("'hello' world")))
+    check("語中のアポストロフィは残る",
+          split_words("It's fine.") == ("It's", "fine"), repr(split_words("It's fine.")))
+    check("曲がった二重引用符の囲みを落とす",
+          split_words("He said “hi”.") == ("He", "said", "hi"),
+          repr(split_words("He said “hi”.")))
     check("原形のまま返す（小文字化しない）", split_words("Turn")[0] == "Turn")
 
 
