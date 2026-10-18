@@ -5,11 +5,12 @@ daemon が持つのは音韻クラスまで。どの差分が意味を持つか�
 """
 from __future__ import annotations
 
+import bisect
 import logging
 from functools import lru_cache
 from typing import Sequence
 
-from shadow_clerk.domain import OpKind
+from shadow_clerk.domain import FocusPhoneme, OpKind, PhonemeOp, WordComparison
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -97,3 +98,62 @@ def align(expected: Sequence[str], actual: Sequence[str]) -> tuple[tuple[OpKind,
         ops.append((OpKind.INS, "", actual[j]))
         j += 1
     return tuple(ops)
+
+
+def compare(words: Sequence[str], per_word: Sequence[Sequence[str]],
+            actual: Sequence[str], focus: Sequence[FocusPhoneme]) -> tuple[WordComparison, ...]:
+    """語ごとの期待列と発話全体の実測列を突き合わせ、語ごとの対応に切り分ける。
+
+    アライメントは連結した期待列に対して1回だけ掛け、期待側の index で語に帰属させる。
+    ins は直前に消費した期待音素の語に付く。同名の語が複数あっても境界の位置で引くので混ざらない
+    """
+    expected = [p for seq in per_word for p in seq]
+    # bounds[i] = i 語目の期待列が始まる位置。語の長さが 0 でも破綻しないよう右端で引く
+    bounds: list[int] = []
+    total = 0
+    for seq in per_word:
+        bounds.append(total)
+        total += len(seq)
+    focused = _focus_positions(words, per_word, focus)
+
+    def word_at(position: int) -> int:
+        if not words:
+            return 0
+        return max(0, min(bisect.bisect_right(bounds, min(position, total - 1 if total else 0)) - 1,
+                          len(words) - 1))
+
+    ops_of: list[list[PhonemeOp]] = [[] for _ in words]
+    actual_of: list[list[str]] = [[] for _ in words]
+    consumed = 0
+    for kind, exp_sym, act_sym in align(expected, actual):
+        index = word_at(consumed - 1 if kind is OpKind.INS else consumed)
+        ops_of[index].append(
+            PhonemeOp(kind, exp_sym, act_sym, kind is not OpKind.INS and consumed in focused))
+        if act_sym:
+            actual_of[index].append(act_sym)
+        if kind is not OpKind.INS:
+            consumed += 1
+    return tuple(WordComparison(words[i], tuple(per_word[i]), tuple(actual_of[i]), tuple(ops_of[i]))
+                 for i in range(len(words)))
+
+
+def _focus_positions(words: Sequence[str], per_word: Sequence[Sequence[str]],
+                     focus: Sequence[FocusPhoneme]) -> set[int]:
+    """focus が指す音素が、連結した期待列の何番目かを集める。見つからないものは黙って捨てる
+    （POST の時点で検証済み。ここは防御的な処理）"""
+    keys = [w.lower() for w in words]
+    starts: list[int] = []
+    total = 0
+    for seq in per_word:
+        starts.append(total)
+        total += len(seq)
+    out: set[int] = set()
+    for item in focus:
+        hits = [i for i, key in enumerate(keys) if key == item.word.lower()]
+        if item.index >= len(hits):
+            continue
+        at = hits[item.index]
+        inside = [i for i, sym in enumerate(per_word[at]) if sym == item.phoneme]
+        if item.phoneme_index < len(inside):
+            out.add(starts[at] + inside[item.phoneme_index])
+    return out

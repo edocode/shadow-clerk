@@ -17,10 +17,12 @@ from shadow_clerk.domain import Language  # noqa: E402
 from shadow_clerk.domain.pronunciation import (  # noqa: E402
     FocusPhoneme, OpKind, PhonemeOp, PronounceState, PronunciationTask, WordComparison,
 )
-from shadow_clerk._daemon_pronounce_ipa import normalise  # noqa: E402
-from shadow_clerk._daemon_pronounce import CONSONANTS, VOWELS, align, is_vowel  # noqa: E402
+from shadow_clerk._daemon_pronounce_ipa import (  # noqa: E402
+    G2PError, expected_ipa, has_espeak, normalise, split_words,
+)
+from shadow_clerk._daemon_pronounce import CONSONANTS, VOWELS, align, compare, is_vowel  # noqa: E402
 from pronounce_fixtures import (  # noqa: E402
-    CARRIER_ACTUAL, CARRIER_EXPECTED, GLASS_EXPECTED, GLASS_TAKES,
+    CARRIER_ACTUAL, CARRIER_EXPECTED, CARRIER_WORDS, GLASS_EXPECTED, GLASS_TAKES,
     LIGHT_EXPECTED, LIGHT_TAKES, MODEL_INVENTORY,
 )
 
@@ -171,6 +173,104 @@ def test_align_empty_actual() -> None:
     check("両方空なら op も空", align((), ()) == ())
 
 
+def test_split_words() -> None:
+    check("空白で割り、前後の句読点を落とす",
+          split_words("Turn right at the light.") == ("Turn", "right", "at", "the", "light"),
+          repr(split_words("Turn right at the light.")))
+    check("語中のアポストロフィは残す", split_words("It's fine.") == ("It's", "fine"),
+          repr(split_words("It's fine.")))
+    check("語中のハイフンは残す", split_words("A well-known fact.") == ("A", "well-known", "fact"))
+    check("曲がったアポストロフィを NFKC で直す", split_words("It’s fine.")[0] in ("It's", "It’s"),
+          repr(split_words("It’s fine.")))
+    check("引用符・括弧を落とす", split_words('He said "right" (loudly).') ==
+          ("He", "said", "right", "loudly"), repr(split_words('He said "right" (loudly).')))
+    check("原形のまま返す（小文字化しない）", split_words("Turn")[0] == "Turn")
+
+
+def test_compare_attributes_insertion() -> None:
+    # "Say glass again." の実測1本。+@ は ɡ の直後なので glass に付く（Say でも again でもない）
+    per_word = (CARRIER_EXPECTED[0:2], CARRIER_EXPECTED[2:6], CARRIER_EXPECTED[6:10])
+    comps = compare(CARRIER_WORDS, per_word, CARRIER_ACTUAL, ())
+    by_word = {c.word: c for c in comps}
+    check("語の数だけ WordComparison が返る", len(comps) == 3, repr([c.word for c in comps]))
+    glass_ins = [op for op in by_word["glass"].ops if op.kind is OpKind.INS]
+    check("挿入された @ は glass に付く",
+          [op.actual for op in glass_ins] == ["@"], repr([op.to_json() for op in glass_ins]))
+    check("Say に挿入は付かない", not [op for op in by_word["say"].ops if op.kind is OpKind.INS])
+    check("again に挿入は付かない", not [op for op in by_word["again"].ops if op.kind is OpKind.INS])
+    check("glass の実測列が切り出される",
+          by_word["glass"].actual == ("ɡ", "@", "ɹ", "a", "s"), repr(by_word["glass"].actual))
+    check("again は無傷", all(op.kind is OpKind.SAME for op in by_word["again"].ops),
+          repr([op.to_json() for op in by_word["again"].ops]))
+
+
+def test_compare_marks_focus() -> None:
+    per_word = (LIGHT_EXPECTED,)
+    comps = compare(("light",), per_word, LIGHT_TAKES[1], (FocusPhoneme("light", "l"),))
+    ops = comps[0].ops
+    check("focus の音素に当たる op だけ focus=True",
+          [op.focus for op in ops] == [True, False, False], repr([op.to_json() for op in ops]))
+    # 語内に同じ音素が2回あるとき、phoneme_index で何番目かを選ぶ
+    comps = compare(("little",), (("l", "@", "t", "l"),), ("l", "@", "t", "r"),
+                    (FocusPhoneme("little", "l", phoneme_index=1),))
+    marked = [i for i, op in enumerate(comps[0].ops) if op.focus]
+    check("phoneme_index で2つめの l を選ぶ", marked == [3], repr(marked))
+    # 課題文に同じ語が2回出るとき、index で何番目かを選ぶ
+    comps = compare(("the", "cat", "the", "mat"),
+                    (("ð", "@"), ("k", "A", "t"), ("ð", "@"), ("m", "A", "t")),
+                    ("ð", "@", "k", "A", "t", "z", "@", "m", "A", "t"),
+                    (FocusPhoneme("the", "ð", index=1),))
+    focused = [(c.word, i) for c in comps for i, op in enumerate(c.ops) if op.focus]
+    check("index で2つめの the を選ぶ", len(focused) == 1 and focused[0][0] == "the", repr(focused))
+    check("focus が空なら全部 False",
+          not any(op.focus for c in compare(("light",), (LIGHT_EXPECTED,), LIGHT_TAKES[1], ())
+                  for op in c.ops))
+
+
+def test_compare_word_boundary_duplicate() -> None:
+    # 正規化は期待側を語ごとに、実測側を発話全体に掛ける。圧縮の範囲が違うので
+    # 語境界で同じ記号が隣り合うと期待側に s が2つ残り、del が1つ出る（設計書 §4.1-4）。
+    # focus に入らない限り触れないフロア誤差として許容する
+    comps = compare(("glass", "sits"), (("ɡ", "l", "A", "s"), ("s", "@", "t", "s")),
+                    ("ɡ", "l", "A", "s", "@", "t", "s"), ())
+    by_word = {c.word: c for c in comps}
+    dels = [(c.word, op.expected) for c in comps for op in c.ops if op.kind is OpKind.DEL]
+    check("語境界の重複で del が1つだけ出る", dels == [("sits", "s")], repr(dels))
+    check("glass は無傷", all(op.kind is OpKind.SAME for op in by_word["glass"].ops),
+          repr([op.to_json() for op in by_word["glass"].ops]))
+    check("語の帰属が壊れない", by_word["sits"].actual == ("@", "t", "s"),
+          repr(by_word["sits"].actual))
+
+
+def test_compare_empty_actual() -> None:
+    # Review Focus 1: 無音セグメント。例外を出さず actual が空の WordComparison を返す
+    comps = compare(("light",), (LIGHT_EXPECTED,), (), ())
+    check("実測が空でも落ちない", len(comps) == 1 and comps[0].actual == (), repr(comps))
+    check("全部 del になる", all(op.kind is OpKind.DEL for op in comps[0].ops))
+
+
+def test_g2p() -> None:
+    if not has_espeak():
+        print("[SKIP] G2P のテスト（phonemizer-fork が無い）")
+        return
+    ipa = expected_ipa("light", Language.EN)
+    check("light の期待IPA", ipa == ("l", "aɪ", "t"), repr(ipa))
+    check("right の期待IPA", expected_ipa("right", Language.EN) == ("ɹ", "aɪ", "t"),
+          repr(expected_ipa("right", Language.EN)))
+    try:
+        expected_ipa("well-known", Language.EN)
+        check("ハイフン語を拒否する（espeak が2語に割る）", False)
+    except G2PError:
+        check("ハイフン語を拒否する（espeak が2語に割る）", True)
+    # v1 は英語のみ。検証していない言語で confident に聞こえる助言を出さない（設計書 §6.3）
+    for lang in (Language.JA, Language.DE, Language.FR):
+        try:
+            expected_ipa("test", lang)
+            check(f"未対応の言語を拒否する（{lang.value}）", False)
+        except G2PError:
+            check(f"未対応の言語を拒否する（{lang.value}）", True)
+
+
 if __name__ == "__main__":
     test_task_parse()
     test_json_shape()
@@ -183,4 +283,10 @@ if __name__ == "__main__":
     test_align_no_cross_class_sub()
     test_align_middle_articulation()
     test_align_empty_actual()
+    test_split_words()
+    test_compare_attributes_insertion()
+    test_compare_marks_focus()
+    test_compare_word_boundary_duplicate()
+    test_compare_empty_actual()
+    test_g2p()
     sys.exit(0 if all(results) else 1)
