@@ -8,6 +8,7 @@ import os
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ.setdefault("SHADOW_CLERK_DATA_DIR",
                       os.path.join(tempfile.gettempdir(), "shadow-clerk-pronounce-test"))
 os.makedirs(os.environ["SHADOW_CLERK_DATA_DIR"], exist_ok=True)
@@ -17,6 +18,11 @@ from shadow_clerk.domain.pronunciation import (  # noqa: E402
     FocusPhoneme, OpKind, PhonemeOp, PronounceState, PronunciationTask, WordComparison,
 )
 from shadow_clerk._daemon_pronounce_ipa import normalise  # noqa: E402
+from shadow_clerk._daemon_pronounce import VOWELS, align, is_vowel  # noqa: E402
+from pronounce_fixtures import (  # noqa: E402
+    CARRIER_ACTUAL, CARRIER_EXPECTED, GLASS_EXPECTED, GLASS_TAKES,
+    LIGHT_EXPECTED, LIGHT_TAKES, MODEL_INVENTORY,
+)
 
 results: list[bool] = []
 
@@ -81,6 +87,7 @@ def test_normalise_keeps_contrasts() -> None:
     # 非ネイティブ専用の記号。ここに信号が乗っているのでマージしてはいけない（制約3）
     check("r を ɹ にマージしない", normalise(["r"]) != normalise(["ɹ"]))
     check("a を æ にマージしない", normalise(["a"]) != normalise(["æ"]))
+    check("e を他にマージしない", normalise(["e"]) == ("e",))
     check("ɹ を r 性母音にマージしない", normalise(["ɹ"]) != normalise(["ɚ"]))
 
 
@@ -102,10 +109,83 @@ def test_normalise_known_limit() -> None:
           normalise(["b", "ɪ", "t"]) == normalise(["b", "ʌ", "t"]))
 
 
+def _render(ops: tuple) -> str:
+    """ops を人が読める1行にする。テストの失敗時に何が起きたか分かるように"""
+    return " ".join({OpKind.SAME: f"{e}={a}", OpKind.SUB: f"{e}→{a}",
+                     OpKind.DEL: f"-{e}", OpKind.INS: f"+{a}"}[k] for k, e, a in ops)
+
+
+# スパイクで母音として観測した記号。実装の表のコピーでは回帰にならないので直書きする
+_SPIKE_VOWELS = {"@", "R", "O", "A", "a", "e", "ɛ", "i", "u", "ʊ", "ʉ", "aɪ", "aʊ", "eɪ", "oʊ"}
+
+
+def _looks_vowel(p: str) -> bool:
+    return p in _SPIKE_VOWELS
+
+
+def test_vowel_table_covers_model_output() -> None:
+    # 表に無い記号は子音に倒れて WARNING が出る。スパイクで出た記号は全部引けること
+    unknown = {p for p in MODEL_INVENTORY if p not in VOWELS and _looks_vowel(p)}
+    check("スパイクの実出力が母音表で引ける", not unknown, str(sorted(unknown)))
+    check("r 性母音クラスは母音", is_vowel("R"))
+    check("わたり音は子音", not is_vowel("j") and not is_vowel("w"))
+    check("声門閉鎖は子音", not is_vowel("ʔ"))
+    check("二重母音は母音", is_vowel("aɪ"))
+
+
+def test_align_shows_epenthesis() -> None:
+    # 日本語話者の典型。ɡ と l の間に母音が入ったことが ins として出ること
+    ops = align(GLASS_EXPECTED, GLASS_TAKES[0])     # ɡ u ɹ a f s
+    check("母音挿入が ins として出る", _render(ops) == "ɡ=ɡ +u l→ɹ A→a +f s=s", _render(ops))
+    ops = align(GLASS_EXPECTED, GLASS_TAKES[4])     # ɡ u l a θ
+    check("l が残っていれば same になる", _render(ops) == "ɡ=ɡ +u l=l A→a s→θ", _render(ops))
+    ops = align(GLASS_EXPECTED, GLASS_TAKES[3])     # u l a s
+    check("語頭の脱落は del", _render(ops) == "-ɡ +u l=l A→a s=s", _render(ops))
+
+
+def test_align_tie_break() -> None:
+    # クラス制約を入れても同点は残る。same < sub < del < ins の辞書順最小で決める
+    ops = align(GLASS_EXPECTED, GLASS_TAKES[6])     # ɡ @ d r a θ
+    check("同コストは sub を ins より先に置く",
+          _render(ops) == "ɡ=ɡ +@ l→d +r A→a s→θ", _render(ops))
+    check("同じ入力で何度やっても同じ結果", align(GLASS_EXPECTED, GLASS_TAKES[6]) == ops)
+
+
+def test_align_no_cross_class_sub() -> None:
+    # 母音↔子音の置換は演算として持たない。必ず del + ins に割れる
+    for take in GLASS_TAKES + LIGHT_TAKES:
+        expected = GLASS_EXPECTED if take in GLASS_TAKES else LIGHT_EXPECTED
+        bad = [(e, a) for k, e, a in align(expected, take)
+               if k is OpKind.SUB and is_vowel(e) != is_vowel(a)]
+        check(f"クラスをまたぐ sub が出ない（{' '.join(take)}）", not bad, str(bad))
+
+
+def test_align_middle_articulation() -> None:
+    # タップと l が両方出るテイク。素朴なラベルでは表現できないが、op 列なら素直に読める
+    ops = align(LIGHT_EXPECTED, LIGHT_TAKES[0])     # r l aɪ
+    check("r と l が両方見える", _render(ops) == "+r l=l aɪ=aɪ -t", _render(ops))
+
+
+def test_align_empty_actual() -> None:
+    # Review Focus 1: 無音・ノイズだけのセグメント。例外を出さず全 del になること
+    ops = align(GLASS_EXPECTED, ())
+    check("実測が空なら全部 del",
+          [k for k, _, _ in ops] == [OpKind.DEL] * 4, _render(ops))
+    check("期待が空なら全部 ins",
+          [k for k, _, _ in align((), ("a", "b"))] == [OpKind.INS] * 2)
+    check("両方空なら op も空", align((), ()) == ())
+
+
 if __name__ == "__main__":
     test_task_parse()
     test_json_shape()
     test_normalise_keeps_contrasts()
     test_normalise_order()
     test_normalise_known_limit()
+    test_vowel_table_covers_model_output()
+    test_align_shows_epenthesis()
+    test_align_tie_break()
+    test_align_no_cross_class_sub()
+    test_align_middle_articulation()
+    test_align_empty_actual()
     sys.exit(0 if all(results) else 1)
