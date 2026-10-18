@@ -18,7 +18,7 @@ from shadow_clerk.domain.pronunciation import (  # noqa: E402
     FocusPhoneme, OpKind, PhonemeOp, PronounceState, PronunciationTask, WordComparison,
 )
 from shadow_clerk._daemon_pronounce_ipa import (  # noqa: E402
-    G2PError, expected_ipa, has_espeak, normalise, split_words,
+    G2PError, PhonemeRecogniser, expected_ipa, has_espeak, has_torch, normalise, split_words,
 )
 from shadow_clerk._daemon_pronounce import CONSONANTS, VOWELS, align, compare, is_vowel  # noqa: E402
 from pronounce_fixtures import (  # noqa: E402
@@ -32,6 +32,16 @@ results: list[bool] = []
 def check(label: str, ok: bool, detail: str = "") -> None:
     print(f"[{'PASS' if ok else 'FAIL'}] {label} {detail}")
     results.append(ok)
+
+
+def _raises(fn, arg, exc: type[BaseException]) -> bool:
+    try:
+        fn(arg)
+    except exc:
+        return True
+    except Exception:
+        return False
+    return False
 
 
 def test_task_parse() -> None:
@@ -297,7 +307,19 @@ def test_g2p() -> None:
             check(f"未対応の言語を拒否する（{lang.value}）", True)
 
 
+def test_recogniser_is_lazy() -> None:
+    # daemon 起動時に torch を import しない。クラスを作るだけでは何も読み込まない
+    rec = PhonemeRecogniser("facebook/wav2vec2-xlsr-53-espeak-cv-ft", "cpu", 0)
+    check("作っただけでは未ロード", not rec.loaded)
+    check("torch を import していない", "torch" not in sys.modules)
+    check("has_torch は import せずに答える", isinstance(has_torch(), bool))
+    check("未ロードで actual_ipa を呼ぶと RuntimeError", _raises(rec.actual_ipa, None, RuntimeError))
+    rec.unload()
+    check("未ロードで unload しても落ちない", not rec.loaded)
+
+
 if __name__ == "__main__":
+    test_recogniser_is_lazy()  # import 順に依存するので必ず先頭
     test_task_parse()
     test_json_shape()
     test_normalise_keeps_contrasts()

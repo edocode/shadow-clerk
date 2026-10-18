@@ -8,6 +8,7 @@ from __future__ import annotations
 import importlib.util
 import logging
 import re
+import threading
 import unicodedata
 from typing import Any, Sequence
 
@@ -120,3 +121,71 @@ def expected_ipa(word: str, language: Language) -> tuple[str, ...]:
     if _WORD_SEPARATOR in raw.strip().strip(_WORD_SEPARATOR):
         raise G2PError(f"espeak split {word!r} into more than one word: {raw!r}")
     return normalise([p for p in raw.replace(_WORD_SEPARATOR, " ").split(" ") if p])
+
+
+# モデルが期待するサンプリングレート。録音は 16kHz なので変換は要らない
+_MODEL_SAMPLE_RATE = 16000
+
+
+def has_torch() -> bool:
+    """音素認識モデルが使えるか。daemon 起動時に torch を import しないよう find_spec で見る"""
+    return (importlib.util.find_spec("torch") is not None
+            and importlib.util.find_spec("transformers") is not None)
+
+
+class PhonemeRecogniser:
+    """wav2vec2 の音素認識。モデルは最初に使うときだけ読み、アイドルで解放する。
+
+    1.2GB あるので、読み込みは呼び手がワーカースレッドから行う（API スレッドを塞がない）
+    """
+
+    def __init__(self, model: str, device: str, threads: int) -> None:
+        self._model_name = model
+        self._device = device
+        self._threads = threads
+        self._lock = threading.Lock()
+        self._processor: Any = None
+        self._model: Any = None
+
+    @property
+    def loaded(self) -> bool:
+        return self._model is not None
+
+    def load(self) -> None:
+        """モデルを読む。初回は 1.2GB のダウンロードがある。二重に呼んでも1回しか読まない"""
+        with self._lock:
+            if self._model is not None:
+                return
+            import torch
+            from transformers import AutoModelForCTC, AutoProcessor
+
+            if self._threads > 0:
+                torch.set_num_threads(self._threads)
+            logger.info("pronounce: モデルを読み込みます (%s)", self._model_name)
+            processor = AutoProcessor.from_pretrained(self._model_name)
+            model = AutoModelForCTC.from_pretrained(self._model_name).to(self._device).eval()
+            self._processor, self._model = processor, model
+            logger.info("pronounce: モデルの読み込みが終わりました")
+
+    def unload(self) -> None:
+        """アイドルで解放する。import torch 自体のメモリは残る"""
+        with self._lock:
+            if self._model is None:
+                return
+            self._processor = self._model = None
+            logger.info("pronounce: モデルを解放しました")
+
+    def actual_ipa(self, pcm: Any) -> tuple[str, ...]:
+        """16kHz モノラルの float32 PCM から、正規化済みの実測IPAを取る"""
+        with self._lock:
+            processor, model = self._processor, self._model
+        if model is None:
+            raise RuntimeError("pronounce model is not loaded")
+        import torch
+
+        inputs = processor(pcm, sampling_rate=_MODEL_SAMPLE_RATE, return_tensors="pt")
+        with torch.no_grad():
+            logits = model(inputs.input_values.to(self._device)).logits
+        ids = torch.argmax(logits, dim=-1)
+        text = processor.batch_decode(ids)[0]
+        return normalise(text.split())
