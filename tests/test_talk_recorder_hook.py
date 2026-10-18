@@ -38,7 +38,7 @@ class _Talk:
         self.echo_calls.append((source, s, e, text))
         return self.active and self.route and source == "monitor" and "Claude の声" in text
 
-    def in_playback(self, seg_start: float) -> bool:
+    def in_playback(self, seg_start: float, seg_end: float) -> bool:
         return False
 
     def on_self_line(self, line: TranscriptLine) -> None:

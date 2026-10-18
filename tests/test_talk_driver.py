@@ -769,6 +769,20 @@ def test_preview_and_voices() -> None:
     check("話者一覧を返す", d.voices() == [{"id": 3, "name": "テスト（ノーマル）"}])
 
 
+def test_preview_registers_playback_span() -> None:
+    # 試聴は課題のアーム中にも鳴らせる。gate に記録しないと、その音声が
+    # 学習者の発話として発音フィードバックに渡る
+    d, _written, made = _driver()
+    d.preview(TalkVoice(speaker_id=5, speed=1.4), "試しに読みます")
+    on_span = made["player"].on_span
+    check("試聴のプレーヤーにも gate を渡す", on_span is not None)
+    if on_span is not None:
+        on_span(100.0, None)
+        check("試聴中のセグメントは gate で捨てる", d.in_playback(100.5, 101.0))
+        on_span(100.0, 101.0)
+        check("鳴り終われば素通し", not d.in_playback(102.0, 103.0))
+
+
 def test_helpers() -> None:
     check("改行・連続空白を1つに", one_line(" a\n\n b\t c ") == "a b c")
     check("制止の言葉が無ければ None", stop_pattern([]) is None and stop_pattern("x") is None)
@@ -786,6 +800,7 @@ if __name__ == "__main__":
     test_workdir()
     test_engine_name_is_normalized()
     test_preview_and_voices()
+    test_preview_registers_playback_span()
     test_helpers()
     test_route()
     test_route_stop_unblocks_player()

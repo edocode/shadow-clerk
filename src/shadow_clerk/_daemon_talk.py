@@ -132,10 +132,18 @@ class _PlaybackSpan:
                     span[1] = end
                     break
 
-    def covers(self, seg_start: float) -> bool:
-        """そのセグメントの開始が、いずれかの読み上げ区間（終了後 tail_sec を含む）に入るか"""
+    def covers(self, seg_start: float, seg_end: float) -> bool:
+        """そのセグメントが、いずれかの読み上げ区間（終了後 tail_sec を含む）と重なるか。
+
+        開始だけを見ると、読み上げより前から開いていたセグメントが素通りする。
+        物音や打鍵で VAD が開いたままだと floor 待ち（talk_floor_wait_sec）が切れて
+        お手本が鳴り、セグメントはお手本の音声ごと閉じる。開始は区間より前なので
+        gate を抜け、お手本を学習者の発話として解析してしまう。
+        EchoFilter.overlaps() と同じ重なり判定にする（設計書 §10）
+        """
         with self._lock:
-            return any(seg_start >= start and (end is None or seg_start <= end + self._tail)
+            return any(start <= seg_end
+                       and seg_start <= (float("inf") if end is None else end + self._tail)
                        for start, end in self._spans)
 
 
@@ -324,9 +332,9 @@ class TalkDriver:
         else:
             self._playback.close(end)
 
-    def in_playback(self, seg_start: float) -> bool:
-        """そのセグメントが読み上げ中に始まったか。発音フィードバックの gate（設計書 §8.1）"""
-        return self._playback.covers(seg_start)
+    def in_playback(self, seg_start: float, seg_end: float) -> bool:
+        """そのセグメントが読み上げ区間と重なるか。発音フィードバックの gate（設計書 §8.1、§10）"""
+        return self._playback.covers(seg_start, seg_end)
 
     def hides_interim(self, source: str, seg_start: float, seg_end: float) -> bool:
         """中間文字起こしを出さないか。Claude の声が混ざる monitor の区間（確定行は is_echo で別に判定する）"""
@@ -502,6 +510,10 @@ class TalkDriver:
 
     def _speak_once(self, backend: TtsBackend, config: dict, text: str) -> None:
         player = self._player_factory(backend, config, self._report_error)
+        # 使い捨てプレーヤーでも gate に記録する。「daemon が出す音はすべて読み上げ区間に載る」を
+        # 1か所で保つ。声の試聴（/api/talk-preview）は課題のアーム中にも鳴らせるので、
+        # 記録しないとその音声が学習者の発話として解析される
+        player.set_on_span(self._playback_span)
         player.speak(text)
         threading.Thread(target=player.close, kwargs={"discard_pending": False},
                          name="talk-say", daemon=True).start()
