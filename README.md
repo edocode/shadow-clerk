@@ -140,6 +140,7 @@ To start the daemon when you sign in, copy the **Shadow Clerk** shortcut into th
 | Send Claude's voice into a meeting app | Linux with PipeWire (`pw-dump`, `pw-link`, `pw-cat`) | — | — | `talk_route_app` |
 | [Speaker diarization](#optional-speaker-diarization) (`[相手A]`, `[相手B]`… on the remote side, naming, voiceprints) | `diarization` extra | — | — | `speaker_diarization`, `speaker_enrollment` |
 | [Google Calendar](#optional-google-calendar-integration) (auto start/end, expected attendees) | `gcal` extra, OAuth credentials | — | — | `gcal_integration`, `gcal_credentials_file` |
+| [Pronunciation feedback](#optional-pronunciation-feedback) (phoneme-level, English, for `clerk-practice`) | `pronounce` extra | — | — | `pronounce_enabled` |
 | [Browser screenshots](#browser-screenshots) in the transcript | Chrome extension in `extension/` | — | — | — |
 
 **Minimal setup without LLM:** Transcription + LibreTranslate translation requires no external API or Claude Code. Everything runs locally.
@@ -169,7 +170,8 @@ Install from PyPI:
 | + Moonshine Voice | `uv tool install "shadow-clerk[moonshine]"` |
 | + Google Calendar | `uv tool install "shadow-clerk[gcal]"` |
 | + Speaker diarization | `uv tool install "shadow-clerk[diarization]"` |
-| All | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech,moonshine,diarization]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| + Pronunciation feedback | `uv tool install "shadow-clerk[pronounce]"` |
+| All | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech,moonshine,diarization,pronounce]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 
 > **Note:** `uv tool install` maintains a single environment per tool. When reinstalling with different extras, use `--force` — without it, `uv tool install` reports "already installed" and does not add the extra. Only the extras specified in the command are included; previously installed extras are removed.
 
@@ -193,7 +195,8 @@ cd shadow-clerk
 | + Moonshine Voice | `uv sync --extra moonshine` |
 | + Google Calendar | `uv sync --extra gcal` |
 | + Speaker diarization | `uv sync --extra diarization` |
-| All | `uv sync --extra spell-check --extra gcal --extra reazonspeech --extra moonshine --extra diarization` |
+| + Pronunciation feedback | `uv sync --extra pronounce` |
+| All | `uv sync --extra spell-check --extra gcal --extra reazonspeech --extra moonshine --extra diarization --extra pronounce` |
 
 **Each `uv sync` defines the whole environment, and extras do not accumulate.**
 `uv sync --extra gcal` after `uv sync --extra reazonspeech` removes ReazonSpeech
