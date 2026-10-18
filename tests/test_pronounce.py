@@ -16,6 +16,7 @@ from shadow_clerk.domain import Language  # noqa: E402
 from shadow_clerk.domain.pronunciation import (  # noqa: E402
     FocusPhoneme, OpKind, PhonemeOp, PronounceState, PronunciationTask, WordComparison,
 )
+from shadow_clerk._daemon_pronounce_ipa import normalise  # noqa: E402
 
 results: list[bool] = []
 
@@ -71,7 +72,40 @@ def test_json_shape() -> None:
     check("state は Enum", PronounceState.ARMED.value == "armed")
 
 
+def test_normalise_keeps_contrasts() -> None:
+    # 学習者にとって意味のある対立は残す（設計書 §6.1）
+    for a, b, why in (("ɹ", "l", "R と L"), ("iː", "ɪ", "長い i と短い i"),
+                      ("θ", "s", "th と s"), ("b", "v", "b と v")):
+        check(f"{why} をマージしない", normalise([a]) != normalise([b]),
+              f"{normalise([a])} vs {normalise([b])}")
+    # 非ネイティブ専用の記号。ここに信号が乗っているのでマージしてはいけない（制約3）
+    check("r を ɹ にマージしない", normalise(["r"]) != normalise(["ɹ"]))
+    check("a を æ にマージしない", normalise(["a"]) != normalise(["æ"]))
+    check("ɹ を r 性母音にマージしない", normalise(["ɹ"]) != normalise(["ɚ"]))
+
+
+def test_normalise_order() -> None:
+    # 適用順: 分割 → 除去 → 寄せ → マージ → 圧縮。順序を変えると結果が変わる
+    check("長音を先に落としてからマージする（ɜː → R）", normalise(["ɜː"]) == ("R",), repr(normalise(["ɜː"])))
+    check("声調の数字を先に落とす（ɑ5 → O）", normalise(["ɑ5"]) == ("O",), repr(normalise(["ɑ5"])))
+    check("ɑ も O になる", normalise(["ɑ"]) == ("O",))
+    check("ASCII 異体を寄せる（ai → aɪ）", normalise(["ai5"]) == ("aɪ",), repr(normalise(["ai5"])))
+    check("強勢記号を落とす", normalise(["ˈɡ"]) == ("ɡ",), repr(normalise(["ˈɡ"])))
+    check("複合単位を分割する", normalise(["ɔːɹ"]) == ("O", "ɹ"), repr(normalise(["ɔːɹ"])))
+    check("同一記号の連続を圧縮する", normalise(["s", "s", "ɪ", "z"]) == ("s", "@", "z"),
+          repr(normalise(["s", "s", "ɪ", "z"])))
+
+
+def test_normalise_known_limit() -> None:
+    # 既知の制約。ɪ ʌ ə は1つのクラスに潰れるので bit と but は区別できない（設計書 §6.1）
+    check("bit と but は同じになる（既知の制約）",
+          normalise(["b", "ɪ", "t"]) == normalise(["b", "ʌ", "t"]))
+
+
 if __name__ == "__main__":
     test_task_parse()
     test_json_shape()
+    test_normalise_keeps_contrasts()
+    test_normalise_order()
+    test_normalise_known_limit()
     sys.exit(0 if all(results) else 1)
