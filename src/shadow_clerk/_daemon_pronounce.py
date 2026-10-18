@@ -10,6 +10,7 @@ import logging
 from functools import lru_cache
 from typing import Sequence
 
+from shadow_clerk._daemon_pronounce_ipa import word_key
 from shadow_clerk.domain import FocusPhoneme, OpKind, PhonemeOp, WordComparison
 
 logger = logging.getLogger("shadow-clerk")
@@ -141,7 +142,7 @@ def _focus_positions(words: Sequence[str], per_word: Sequence[Sequence[str]],
                      focus: Sequence[FocusPhoneme]) -> set[int]:
     """focus が指す音素が、連結した期待列の何番目かを集める。見つからないものは黙って捨てる
     （POST の時点で検証済み。ここは防御的な処理）"""
-    keys = [w.lower() for w in words]
+    keys = [word_key(w) for w in words]
     starts: list[int] = []
     total = 0
     for seq in per_word:
@@ -149,7 +150,7 @@ def _focus_positions(words: Sequence[str], per_word: Sequence[Sequence[str]],
         total += len(seq)
     out: set[int] = set()
     for item in focus:
-        hits = [i for i, key in enumerate(keys) if key == item.word.lower()]
+        hits = [i for i, key in enumerate(keys) if key == word_key(item.word)]
         if item.index >= len(hits):
             continue
         at = hits[item.index]

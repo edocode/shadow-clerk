@@ -55,6 +55,9 @@ def normalise(seq: Sequence[str]) -> tuple[str, ...]:
 _WORD_SEPARATOR = "|"
 # 課題文から落とす前後の記号。語中のアポストロフィとハイフンは残す
 _EDGE_PUNCT = '.,!?;:"‘’“”()[]{}'
+# 曲がった引用符を直の字体に畳む。NFKC はこれを変換しないので別に持つ（実測）。
+# espeak は両方の字体で同じ音素を返すので、畳んでも読みは変わらない
+_QUOTE_FOLD = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"'})
 
 
 class G2PError(ValueError):
@@ -68,13 +71,19 @@ def has_espeak() -> bool:
 
 
 def split_words(text: str) -> tuple[str, ...]:
-    """課題文を語に割る。NFKC で曲がったアポストロフィを直してから、空白で割り前後の記号を落とす。
+    """課題文を語に割る。全角英数などを NFKC で揃え、曲がった引用符を直の字体に畳んでから、
+    空白で割って前後の記号を落とす。
 
-    返すのは原形。照合に使うキーはこれを小文字化したもの（設計書 §4.1-1、§7.1）
+    返すのは原形。照合に使うキーは word_key() で作る（設計書 §4.1-1、§7.1）
     """
-    normalised = unicodedata.normalize("NFKC", text)
+    normalised = unicodedata.normalize("NFKC", text).translate(_QUOTE_FOLD)
     words = (token.strip(_EDGE_PUNCT) for token in normalised.split())
     return tuple(word for word in words if word)
+
+
+def word_key(word: str) -> str:
+    """`focus[].word` と課題文の語を突き合わせるためのキー。引用符の字体差と大小文字を吸収する"""
+    return unicodedata.normalize("NFKC", word).translate(_QUOTE_FOLD).lower()
 
 
 def _phonemizer_backend(language: Language) -> Any:

@@ -180,7 +180,8 @@ def test_split_words() -> None:
     check("語中のアポストロフィは残す", split_words("It's fine.") == ("It's", "fine"),
           repr(split_words("It's fine.")))
     check("語中のハイフンは残す", split_words("A well-known fact.") == ("A", "well-known", "fact"))
-    check("曲がったアポストロフィを NFKC で直す", split_words("It’s fine.")[0] in ("It's", "It’s"),
+    check("曲がったアポストロフィを直の字体に畳む",
+          split_words("It’s fine.") == ("It's", "fine"),
           repr(split_words("It’s fine.")))
     check("引用符・括弧を落とす", split_words('He said "right" (loudly).') ==
           ("He", "said", "right", "loudly"), repr(split_words('He said "right" (loudly).')))
@@ -222,9 +223,19 @@ def test_compare_marks_focus() -> None:
                     (FocusPhoneme("the", "ð", index=1),))
     focused = [(wi, i) for wi, c in enumerate(comps) for i, op in enumerate(c.ops) if op.focus]
     check("index で2つめの the を選ぶ（語位置2の先頭 op）", focused == [(2, 0)], repr(focused))
+    check("同じ語が2回出ても ops が語ごとに分かれる",
+          [c.word for c in comps] == ["the", "cat", "the", "mat"]
+          and [len(c.ops) for c in comps] == [2, 3, 2, 3],
+          repr([(c.word, len(c.ops)) for c in comps]))
     check("focus が空なら全部 False",
           not any(op.focus for c in compare(("light",), (LIGHT_EXPECTED,), LIGHT_TAKES[1], ())
                   for op in c.ops))
+    # 課題文が曲がったアポストロフィ、focus が直の字体でも一致すること
+    comps = compare(split_words("It’s fine."), (("ɪ", "t", "s"), ("f", "aɪ", "n")),
+                    ("ɪ", "t", "s", "f", "aɪ", "n"), (FocusPhoneme("it's", "t"),))
+    check("引用符の字体が違っても focus が当たる",
+          [(wi, i) for wi, c in enumerate(comps) for i, op in enumerate(c.ops) if op.focus] == [(0, 1)],
+          repr([op.to_json() for c in comps for op in c.ops]))
 
 
 def test_compare_word_boundary_duplicate() -> None:
