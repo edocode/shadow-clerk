@@ -38,6 +38,9 @@ class _Talk:
         self.echo_calls.append((source, s, e, text))
         return self.active and self.route and source == "monitor" and "Claude の声" in text
 
+    def in_playback(self, seg_start: float) -> bool:
+        return False
+
     def on_self_line(self, line: TranscriptLine) -> None:
         self.self_lines.append(line)
 
@@ -55,6 +58,7 @@ class _Rec(_RecorderTranscribeMixin):
                                            "transcribe": staticmethod(lambda seg: said)})()
         self.word_replacer = type("_W", (), {"apply": staticmethod(lambda text, lang: text)})()
         self.talk = talk
+        self.pronounce = type("_P", (), {"offer": staticmethod(lambda *a: None)})()
 
     def _extract_command_body(self, text: str) -> str | None:
         return None

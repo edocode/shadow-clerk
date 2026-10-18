@@ -455,6 +455,10 @@ def test_post_requires_talk_mode() -> None:
     check("talk mode が止まっていたら拒否する",
           h.sent.get("status") == "error" and h.pronounce.calls == [], repr(h.sent))
     check("理由を返す", "talk mode" in h.sent.get("message", ""), repr(h.sent))
+    h = _PronounceHandler({"clear": True}, talk_active=False)
+    h._set_pronounce()
+    check("talk mode が止まっていても clear は通る",
+          h.pronounce.calls == [("clear",)] and h.sent.get("status") == "ok", repr(h.sent))
 
 
 def test_post_rejects_with_200() -> None:
