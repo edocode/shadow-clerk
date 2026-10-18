@@ -651,4 +651,22 @@ STRINGS_EN: dict[str, str] = {
     "dash.voiceprints_title": "Registered people",
     "dash.voiceprints_empty": "None yet",
     "dash.voiceprint_delete_confirm": "Delete all voiceprints of {name}?",
+
+    # --- clerk-util gui ---
+    "gui.title": "shadow-clerk",
+    "gui.tk_missing": "Cannot open the GUI: tkinter is not installed (on Linux install python3-tk): {error}",
+    "gui.state_stopped": "Stopped",
+    "gui.state_starting": "Starting...",
+    "gui.state_running": "Running",
+    "gui.state_stopping": "Stopping...",
+    "gui.state_failed": "Failed",
+    "gui.pid": "pid {pid}",
+    "gui.start": "Start",
+    "gui.stop": "Stop",
+    "gui.restart": "Restart",
+    "gui.open_log": "Open log",
+    "gui.start_failed": "Could not start: {reason}",
+    "gui.start_timeout": "No response {sec:.0f} s after the start was requested. Check the log below",
+    "gui.stop_timeout": "Still running {sec:.0f} s after the stop was requested. Check the log below",
+    "gui.no_log": "(no log yet)",
 }

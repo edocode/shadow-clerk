@@ -17,6 +17,20 @@ from shadow_clerk._transcript_name import TranscriptName
 # 無関係プロセスにマッチしないよう、直後が空白または行末の場合のみマッチさせる
 _PKILL_PATTERN = r"clerk[-_]daemon( |$)"
 
+
+def dashboard_port() -> int:
+    """config.yaml の dashboard_port。clerk-daemon も同じキーを見る"""
+    import yaml
+    try:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+    except Exception:
+        cfg = {}
+    try:
+        return int(cfg.get("dashboard_port") or 8765)
+    except (TypeError, ValueError):
+        return 8765
+
 # config.yaml から output_directory を読む
 OUTPUT_DIR = DATA_DIR
 
@@ -73,13 +87,7 @@ def cmd_command(args: list[str]) -> None:
     if not _is_recorder_running():
         print("error: clerk-daemon is not running", file=sys.stderr)
         sys.exit(1)
-    import yaml
-    try:
-        with open(CONFIG_FILE, encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
-    except Exception:
-        cfg = {}
-    port = cfg.get("dashboard_port", 8765)
+    port = dashboard_port()
     try:
         import urllib.request
         req = urllib.request.Request(
@@ -203,6 +211,26 @@ def cmd_write_config_value(args: list[str]) -> None:
         f.writelines(new_lines)
 
 
+def find_clerk_daemon() -> str:
+    """同じ環境の clerk-daemon の在り処。見つからなければ PATH に委ねる"""
+    names = ("clerk-daemon.exe", "clerk-daemon") if sys.platform == "win32" else ("clerk-daemon",)
+    for base in (pathlib.Path(sys.executable).parent, pathlib.Path(sys.argv[0]).resolve().parent):
+        for name in names:
+            candidate = base / name
+            if candidate.exists():
+                return str(candidate)
+    # PATH フォールバック: shutil.which は Windows で .exe を自動補完
+    return shutil.which("clerk-daemon") or "clerk-daemon"
+
+
+def daemon_env() -> dict[str, str]:
+    """clerk-daemon に渡す環境。encoding 指定漏れがあっても Windows (cp932) で
+    落ちないよう UTF-8 モードにする。利用者が明示した値は尊重する"""
+    env = {**os.environ}
+    env.setdefault("PYTHONUTF8", "1")
+    return env
+
+
 def _exec_clerk_daemon(args: list[str]) -> None:
     """同じ環境の clerk-daemon をフォアグラウンドで起動する。
 
@@ -210,24 +238,8 @@ def _exec_clerk_daemon(args: list[str]) -> None:
     Windows: os.execv は新プロセスを spawn して親が即終了するため見かけ上
     バックグラウンド化する。これを避けるため subprocess.run で待機する。
     """
-    names = ("clerk-daemon.exe", "clerk-daemon") if sys.platform == "win32" else ("clerk-daemon",)
-    exe: str | None = None
-    for base in (pathlib.Path(sys.executable).parent, pathlib.Path(sys.argv[0]).resolve().parent):
-        for name in names:
-            candidate = base / name
-            if candidate.exists():
-                exe = str(candidate)
-                break
-        if exe:
-            break
-    if not exe:
-        # PATH フォールバック: shutil.which は Windows で .exe を自動補完
-        exe = shutil.which("clerk-daemon") or "clerk-daemon"
-
-    # 保険: encoding 指定漏れがあっても Windows (cp932) で落ちないよう、daemon と
-    # その子プロセスを UTF-8 モードで動かす。利用者が明示した値は尊重する
-    env = {**os.environ}
-    env.setdefault("PYTHONUTF8", "1")
+    exe = find_clerk_daemon()
+    env = daemon_env()
     if sys.platform == "win32":
         try:
             result = subprocess.run([exe] + args, check=False, env=env)
@@ -235,6 +247,12 @@ def _exec_clerk_daemon(args: list[str]) -> None:
             sys.exit(130)
         sys.exit(result.returncode)
     os.execve(exe, [exe] + args, env)
+
+
+def cmd_gui(args: list[str]) -> None:
+    """デーモンの状態・ログを見ながら起動/停止/再起動する小さな窓を開く"""
+    from shadow_clerk._util_gui import run_gui
+    run_gui(list(args))
 
 
 def cmd_start(args: list[str]) -> None:
@@ -430,13 +448,7 @@ def cmd_summarize(args: list[str]) -> None:
 
     # 完了通知をダッシュボードに送信
     if result.returncode == 0:
-        import yaml
-        try:
-            with open(CONFIG_FILE, encoding="utf-8") as f:
-                cfg = yaml.safe_load(f) or {}
-        except Exception:
-            cfg = {}
-        port = cfg.get("dashboard_port", 8765)
+        port = dashboard_port()
         try:
             import urllib.request
             req = urllib.request.Request(
@@ -532,6 +544,7 @@ def cmd_help(args: list[str]) -> None:
     print("  start [opts]      clerk-daemon を起動 (exec)")
     print("  stop              clerk-daemon を停止 (SIGTERM)")
     print("  restart [opts]    clerk-daemon を停止→待機→起動 (exec)")
+    print("  gui [opts]        状態・ログを見ながら起動/停止/再起動する窓を開く (--gui も可)")
     print("  run-llm <args...>          llm_client を実行 (exec)")
     print("  summarize [DATE|FILE] [--mode full|update]  議事録を生成")
     print("                             DATE: YYYYMMDD / YYYYMMDDHHMM[@name]、FILE: transcript-*.txt")
@@ -551,6 +564,7 @@ COMMANDS = {
     "recorder-status": cmd_recorder_status,
     "read-config": cmd_read_config,
     "write-config-value": cmd_write_config_value,
+    "gui": cmd_gui,
     "start": cmd_start,
     "stop": cmd_stop,
     "restart": cmd_restart,
@@ -572,6 +586,8 @@ def main() -> None:
 
     subcmd = sys.argv[1]
     rest = sys.argv[2:]
+    if subcmd == "--gui":  # サブコマンド形式だが、覚えやすさのため --gui も通す
+        subcmd, rest = "gui", rest
 
     handler = COMMANDS.get(subcmd)
     if handler is None:
