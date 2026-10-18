@@ -51,9 +51,13 @@ class _Player:
         self.closed = False
         self.on_error = on_error
         self.on_played = None
+        self.on_span = None
 
     def set_on_played(self, fn) -> None:
         self.on_played = fn
+
+    def set_on_span(self, fn) -> None:
+        self.on_span = fn
 
     def set_remote(self, remote) -> None:
         pass

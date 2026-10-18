@@ -148,6 +148,7 @@ class TtsPlayer:
         self._play = play
         self._on_error = on_error
         self._on_played: Callable[[str, float, float], None] | None = None
+        self._on_span: Callable[[float, float | None], None] | None = None
         self._remote: RemoteSpeaker | None = None
         self._texts: queue.Queue[tuple[int, str, Language | None] | None] = queue.Queue()
         # pcm が None の文は合成していない（ブラウザで読む候補）
@@ -169,6 +170,15 @@ class TtsPlayer:
         （再生に失敗した文も記録される）
         """
         self._on_played = fn
+
+    def set_on_span(self, fn: Callable[[float, float | None], None] | None) -> None:
+        """鳴らし始めに fn(start, None)、鳴らし終わりに fn(start, 実終了) を呼ぶ。
+
+        set_on_played は再生の前に「見積もりの終了」を知らせる（monitor のエコー用）。
+        こちらは実際に鳴り終わった時刻を知らせる。マイクの gate は実終了でないと、
+        お手本の直後に答えた試行を捨ててしまう（設計書 §8.1）
+        """
+        self._on_span = fn
 
     def set_remote(self, remote: RemoteSpeaker | None) -> None:
         """lang 付きの文を読む先。渡さなければ lang 付きの文も合成して鳴らす（届け先ありの talk mode）"""
@@ -240,6 +250,8 @@ class TtsPlayer:
                 continue
             self._speaking = text
             should_stop = lambda: self._stale(gen)
+            started = time.time()
+            self._span(started, None)
             try:
                 if pcm is None:
                     if lang is not None and self._speak_remote(text, lang, should_stop):
@@ -251,6 +263,7 @@ class TtsPlayer:
                 logger.warning("talk: 再生に失敗: %s", e)
                 self._on_error(str(e))
             finally:
+                self._span(started, time.time())
                 if self._speaking == text:
                     self._speaking = ""
                 self._add_pending(-1)
@@ -270,6 +283,14 @@ class TtsPlayer:
             notify(text, start, start + duration)
         except Exception as e:  # 通知の失敗で再生を止めない
             logger.warning("talk: 再生の通知に失敗: %s", e)
+
+    def _span(self, start: float, end: float | None) -> None:
+        if (fn := self._on_span) is None:
+            return
+        try:
+            fn(start, end)
+        except Exception as e:  # 通知の失敗で再生を止めない
+            logger.warning("talk: 読み上げ区間の通知に失敗: %s", e)
 
 
 def make_backend(config: dict, voice: TalkVoice | None = None) -> TtsBackend:
