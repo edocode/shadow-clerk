@@ -36,7 +36,6 @@ HIDDEN_KEYS: dict[str, str] = {
 # 本来モーダルにあるべきだが未対応の既存キー。警告のみ (新規キーをここに足さない)
 PENDING_KEYS: dict[str, str] = {
     "auto_summary_via_console": "not yet in modal",
-    "claude_cli_model": "not yet in modal",
     "claude_cli_path": "not yet in modal",
     "gcal_token_file": "not yet in modal",
     "kotoba_whisper_model": "not yet in modal",

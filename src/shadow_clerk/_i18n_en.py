@@ -342,6 +342,8 @@ STRINGS_EN: dict[str, str] = {
     "cfg.custom_commands": "Custom Commands",
     "cfg.ui_language": "UI Language",
     "cfg.translation_provider": "Translation Provider",
+    "cfg.translation_claude_model": "Claude Model for Translation (empty = same as summary)",
+    "cfg.claude_cli_model": "Claude Model (summary, etc.)",
     "cfg.libretranslate_endpoint": "LibreTranslate URL",
     "cfg.libretranslate_api_key": "LibreTranslate API Key",
     "cfg.libretranslate_spell_check": "Spell Check (LibreTranslate)",
@@ -423,6 +425,7 @@ STRINGS_EN: dict[str, str] = {
         "\n"
         "1. Correct speech recognition errors from context, and apply glossary corrections if a reading matches (match top to bottom in order).\n"
         "2. Translate each line into {lang} and return in 'number: translated text' format. Output only the translated lines, no extra explanations.\n"
+        "3. The input may mix languages. Translate every line and phrase that is not in {lang} into {lang}; never leave it in its source language. Lines already in {lang} are output as-is after correcting recognition errors.\n"
         "{hiragana_step}"
     ),
     "llm.correct_system": (

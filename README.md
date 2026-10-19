@@ -392,6 +392,7 @@ If you have Claude Code installed (`claude` on your `$PATH`), shadow-clerk can s
 ```yaml
 llm_provider: claude
 claude_cli_model: haiku   # or sonnet / opus / a full model id
+# translation_claude_model: haiku  # translation only; unset = claude_cli_model
 # claude_cli_path: claude  # full path if not on $PATH
 ```
 
@@ -593,6 +594,7 @@ translation_provider: claude   # Translation by Claude
 llm_provider: claude           # Summary by Claude (default)
 claude_cli_path: claude        # full path if not on PATH
 claude_cli_model: haiku        # haiku / sonnet / opus or a full model id
+translation_claude_model: null # Model for translation only (null = claude_cli_model)
 ```
 
 #### API mode (`translation_provider: api` / `llm_provider: api`)
@@ -849,6 +851,7 @@ llm_provider: claude          # LLM for summary ("claude" or "api")
 translation_provider: null    # Translation provider (null=use llm_provider, "claude", "api", "libretranslate")
 claude_cli_path: claude       # claude command (full path if not on PATH)
 claude_cli_model: haiku       # Model for claude -p (haiku / sonnet / opus / full model id)
+translation_claude_model: null # claude -p model for translation only (null = claude_cli_model)
 api_endpoint: null            # OpenAI Compatible API base URL
 api_model: null               # API model name (gpt-4o, etc.)
 api_key_env: SHADOW_CLERK_API_KEY  # Environment variable name for API key

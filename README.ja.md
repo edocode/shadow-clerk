@@ -390,6 +390,7 @@ Claude Code (`claude` コマンドが `$PATH` 上にある状態) を翻訳・�
 ```yaml
 llm_provider: claude
 claude_cli_model: haiku   # sonnet / opus / モデル ID も指定可
+# translation_claude_model: haiku  # 翻訳だけのモデル。未設定なら claude_cli_model
 # claude_cli_path: claude  # PATH 上にない場合はフルパス
 ```
 
@@ -591,6 +592,7 @@ translation_provider: claude   # 翻訳を Claude で実行
 llm_provider: claude           # 要約を Claude で実行（デフォルト）
 claude_cli_path: claude        # フルパス指定可（PATH 上にない場合）
 claude_cli_model: haiku        # haiku / sonnet / opus または完全なモデル ID
+translation_claude_model: null # 翻訳だけのモデル (null = claude_cli_model)
 ```
 
 #### API モード (`translation_provider: api` / `llm_provider: api`)
@@ -843,6 +845,7 @@ llm_provider: claude          # 要約の LLM ("claude" or "api")
 translation_provider: null    # 翻訳プロバイダ (null=llm_provider を使用, "claude", "api", "libretranslate")
 claude_cli_path: claude       # claude コマンド (PATH 上にない場合はフルパス)
 claude_cli_model: haiku       # claude -p のモデル (haiku / sonnet / opus / モデル ID)
+translation_claude_model: null # 翻訳だけの claude -p のモデル (null = claude_cli_model)
 api_endpoint: null            # OpenAI Compatible API の base URL
 api_model: null               # API モデル名 (gpt-4o, etc.)
 api_key_env: SHADOW_CLERK_API_KEY  # API キーを格納する環境変数名

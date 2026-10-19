@@ -151,21 +151,27 @@ def get_api_client(config: dict) -> tuple[OpenAI, str]:
     return client, model
 
 
+def translation_claude_model(config: dict) -> str:
+    """翻訳用の claude -p モデル。translation_claude_model 未設定なら claude_cli_model に従う。"""
+    return config.get("translation_claude_model") or config.get("claude_cli_model") or "haiku"
+
+
 def call_claude_cli(
     user_content: str,
     system_prompt: str,
     config: dict,
     *,
     timeout: int = 180,
+    model: str | None = None,
 ) -> str:
     """`claude -p` を呼び出してレスポンステキストを返す。
 
     config から `claude_cli_path` (default: "claude") と `claude_cli_model`
-    (default: "haiku") を読み取る。stdout は --output-format json で受け取り、
+    (default: "haiku") を読み取る。`model` を渡すとそちらを優先する。stdout は --output-format json で受け取り、
     `.result` を返す。エラー時は RuntimeError。
     """
     claude_path = config.get("claude_cli_path") or "claude"
-    model = config.get("claude_cli_model") or "haiku"
+    model = model or config.get("claude_cli_model") or "haiku"
     cmd = [
         claude_path, "-p",
         "--tools", "",

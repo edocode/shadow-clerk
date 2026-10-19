@@ -412,13 +412,14 @@ class _RecorderTranslateMixin:
             elif interim_provider == "claude":
                 # claude_cli は遅いが明示指定された場合のみ呼ぶ
                 try:
-                    from shadow_clerk._llm_config import call_claude_cli
+                    from shadow_clerk._llm_config import call_claude_cli, translation_claude_model
                     glossary = load_glossary(lang)
                     system_prompt = nt("llm.translate_system", lang=lang, hiragana_step="")
                     if glossary:
                         system_prompt += "\n" + glossary
                     translated = _extract_interim_line(
-                        call_claude_cli(f"1: {text}", system_prompt, config))
+                        call_claude_cli(f"1: {text}", system_prompt, config,
+                                        model=translation_claude_model(config)))
                     if translated and hasattr(self, "_file_watcher"):
                         self._file_watcher._broadcast("interim_translation", json.dumps(
                             {"source": source, "speaker": speaker, "text": text,

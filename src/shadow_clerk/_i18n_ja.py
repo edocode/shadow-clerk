@@ -341,6 +341,8 @@ STRINGS_JA: dict[str, str] = {
     "cfg.custom_commands": "カスタムコマンド",
     "cfg.ui_language": "UI言語",
     "cfg.translation_provider": "翻訳プロバイダ",
+    "cfg.translation_claude_model": "翻訳の Claude モデル（空=要約と同じ）",
+    "cfg.claude_cli_model": "Claude モデル（要約など）",
     "cfg.libretranslate_endpoint": "LibreTranslate URL",
     "cfg.libretranslate_api_key": "LibreTranslate APIキー",
     "cfg.libretranslate_spell_check": "誤字訂正(LibreTranslate用)",
@@ -424,6 +426,7 @@ STRINGS_JA: dict[str, str] = {
         "2. 音声認識の書き起こしテキストです。明らかな誤認識は文脈から推測して補正してから翻訳してください。\n"
         "3. 用語集にreadingが記載されている場合、音声認識結果にそのreadingと類似する語句があれば、対応する正しい用語に修正してください。上から順に優先的に照合してください。\n"
         "4. 番号とコロンの後の翻訳テキストのみを出力してください。余計な説明は不要です。\n"
+        "5. 複数の言語が混在しています。{lang}以外の行・語句はすべて{lang}に翻訳し、原文の言語のまま残さないでください。すでに{lang}の行は誤認識を補正してそのまま出力してください。\n"
         "{hiragana_step}"
     ),
     "llm.correct_system": (

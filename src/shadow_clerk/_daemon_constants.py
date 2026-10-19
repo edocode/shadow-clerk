@@ -143,6 +143,7 @@ DEFAULT_CONFIG = {
     "api_disable_thinking": False,
     "claude_cli_path": "claude",
     "claude_cli_model": "haiku",
+    "translation_claude_model": None,  # null = claude_cli_model に従う
     "custom_commands": [],
     "dashboard_port": 8765,  # clerk-daemon の待ち受けと clerk-util の送り先。--dashboard-port が優先
     "gui_scale": 0,          # clerk-util gui の表示倍率。0 は自動検出

@@ -11,7 +11,7 @@ import sys
 from shadow_clerk.i18n import t, nt
 from shadow_clerk._llm_config import (
     LlmClientError, load_config, get_api_client, get_translation_provider, resolve_path, call_claude_cli,
-    chat_completion,
+    chat_completion, translation_claude_model,
 )
 from shadow_clerk._llm_glossary import load_glossary, MARKER_RE, TIMESTAMP_RE, _seems_target_language
 
@@ -260,7 +260,7 @@ def translate(args: argparse.Namespace) -> None:
         if provider == "claude":
             logger.info("翻訳実行: provider=claude (cli=%s, model=%s), %d 行",
                         config.get("claude_cli_path") or "claude",
-                        config.get("claude_cli_model") or "haiku",
+                        translation_claude_model(config),
                         len(translatable))
             client = None
             api_model: str | None = None
@@ -288,9 +288,9 @@ def translate(args: argparse.Namespace) -> None:
             except OSError:
                 pass
 
-        # 入力テキストがターゲット言語と同じか判定 → 同言語なら誤変換修正モード
-        sample_text = " ".join(text for _, text in translatable[:10])
-        is_same_lang = _seems_target_language(sample_text, lang)
+        # 全行がターゲット言語なら誤変換修正モード。日英混在で一部でも他言語の行があれば
+        # 翻訳モードにする（修正モードは他言語の行を訳さずそのまま返すため）
+        is_same_lang = all(_seems_target_language(text, lang) for _, text in translatable)
 
         if is_same_lang:
             # 同言語: 誤変換修正に特化したプロンプト
@@ -310,7 +310,8 @@ def translate(args: argparse.Namespace) -> None:
 
         def _llm_call(user_text: str) -> str:
             if provider == "claude":
-                return call_claude_cli(user_text, system_prompt, config)
+                return call_claude_cli(user_text, system_prompt, config,
+                                       model=translation_claude_model(config))
             return chat_completion(
                 client, api_model,
                 [

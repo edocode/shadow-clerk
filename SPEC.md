@@ -52,7 +52,7 @@ clerk-daemon の翻訳ループおよび議事録生成スレッドから `pytho
 
 - **api**: OpenAI Compatible API(Ollama / vLLM / 商用 API 等)
 - **claude**: `claude -p` を subprocess 起動(既存の Claude Code OAuth ログインを利用)
-  - `claude_cli_path`(default `"claude"`)、`claude_cli_model`(default `"haiku"`)で制御
+  - `claude_cli_path`(default `"claude"`)、`claude_cli_model`(default `"haiku"`)で制御。翻訳(中間翻訳含む)は `translation_claude_model` が設定されていればそちらを使う
   - `--output-format json` でレスポンス取得、`is_error` チェック・コスト記録あり
 - **libretranslate**: LibreTranslate ローカル API(翻訳のみ)
 
