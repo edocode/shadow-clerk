@@ -103,3 +103,28 @@ def test_delete_file_removes_transcript() -> None:
     h = _Handler("/api/transcript/delete-file", {"file": "transcript-202610161000@x.txt"})
     h.do_POST()
     assert h.sent["status"] == "ok" and not os.path.exists(p)
+
+
+_PNG = "data:image/png;base64,iVBORw0KGgo="
+
+
+def test_screenshot_from_extension_passes() -> None:
+    h = _Handler("/api/screenshot", {"image": _PNG},
+                 headers={"Host": "127.0.0.1:8765", "Origin": "chrome-extension://abcdefgh",
+                          "Sec-Fetch-Site": "none"})
+    h.do_POST()
+    assert h.sent["status"] == "ok"
+
+
+def test_screenshot_from_web_page_is_rejected() -> None:
+    h = _Handler("/api/screenshot", {"image": _PNG},
+                 headers={"Host": "127.0.0.1:8765", "Origin": "http://evil.example"})
+    h.do_POST()
+    assert h.sent["status"] == "error"
+
+
+def test_extension_origin_is_rejected_elsewhere() -> None:
+    h = _Handler("/api/command", {"command": "mute_mic"},
+                 headers={"Host": "127.0.0.1:8765", "Origin": "chrome-extension://abcdefgh"})
+    h.do_POST()
+    assert h.sent["status"] == "error" and h.recorder.commands == []
