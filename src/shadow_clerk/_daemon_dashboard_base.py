@@ -44,7 +44,7 @@ def is_localhost_client(client_address: tuple | None) -> bool:
     return client in _ALLOWED_CLIENTS
 
 
-def is_same_origin_request(headers: Any) -> bool:
+def is_same_origin_request(headers: Any, allow_extension: bool = False) -> bool:
     """クロスオリジンの POST を弾くための Origin ヘッダ判定。
 
     client_address ベースの localhost 判定は、ユーザー自身が開いた任意の
@@ -60,9 +60,14 @@ def is_same_origin_request(headers: Any) -> bool:
     - Host が無ければ判定できないので保守的に拒否
     - Sec-Fetch-Site があれば same-origin 以外は拒否する
       (対応ブラウザでの多層防御。無ければ何もしない)
+    - allow_extension なら chrome-extension:// も通す。ブラウザ拡張
+      (extension/) は自分のオリジンで POST してくる。ホスト権限を持つ拡張は
+      元々 localhost へ何でも送れるので、通しても守りは下がらない
     """
     origin = headers.get("Origin")
     if origin is None:
+        return True
+    if allow_extension and origin.startswith("chrome-extension://"):
         return True
     host = headers.get("Host")
     if not host:
@@ -75,7 +80,7 @@ def is_same_origin_request(headers: Any) -> bool:
     return True
 
 
-def accept_local_write(handler: Any, label: str) -> bool:
+def accept_local_write(handler: Any, label: str, allow_extension: bool = False) -> bool:
     """書き込み系リクエストを通すか。localhost 以外とクロスオリジンは応答を返して拒否する
 
     client_address ベースの localhost 判定は、ユーザー自身が開いた任意のページからの
@@ -87,7 +92,7 @@ def accept_local_write(handler: Any, label: str) -> bool:
         logger.warning("%s: 拒否 (client=%s)", label, client)
         handler._send_json({"status": "error", "message": f"{label} API is localhost only"})
         return False
-    if not is_same_origin_request(handler.headers):
+    if not is_same_origin_request(handler.headers, allow_extension):
         logger.warning("%s: 拒否 (cross-origin, origin=%s)", label, handler.headers.get("Origin"))
         handler._send_json({"status": "error", "message": "cross-origin request rejected"})
         return False
@@ -239,7 +244,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         # 書き込みはすべて localhost からの same-origin に限る。個々のハンドラに
         # 任せると漏れる (以前は /api/command から custom_exec でシェルまで届いた)
-        if not accept_local_write(self, path):
+        # /api/screenshot はブラウザ拡張が叩くので拡張のオリジンも通す
+        if not accept_local_write(self, path, allow_extension=path == "/api/screenshot"):
             return
         if path == "/api/command":
             self._handle_command()
