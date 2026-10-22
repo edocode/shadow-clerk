@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from dataclasses import replace
 
-from shadow_clerk._daemon_dashboard_ops import _DashboardHandlerOps
+from shadow_clerk._atomic_file import atomic_write_lines
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain.naming_history import NamingRecord
 
@@ -42,7 +42,7 @@ def read_history(transcript_path: str) -> list[NamingRecord]:
 
 
 def _write(path: str, records: list[NamingRecord]) -> None:
-    _DashboardHandlerOps._atomic_write_lines(path, [r.to_json_line() for r in records])
+    atomic_write_lines(path, [r.to_json_line() for r in records], ".naming-")
 
 
 def append_history(transcript_path: str, records: list[NamingRecord]) -> None:

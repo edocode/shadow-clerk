@@ -12,7 +12,7 @@ from dataclasses import replace
 
 import numpy as np
 
-from shadow_clerk._daemon_dashboard_ops import _DashboardHandlerOps
+from shadow_clerk._atomic_file import atomic_write_lines
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain.voiceprint import VoiceEntry
 
@@ -85,7 +85,7 @@ def mark_no_enroll(transcript_path: str, label: str, timestamps: set[str]) -> in
     out, n = _rewritten(lines, lambda e: replace(e, no_enroll=True)
                         if e.timestamp in timestamps and e.label == label and not e.no_enroll else None)
     if n:
-        _DashboardHandlerOps._atomic_write_lines(path, out)
+        atomic_write_lines(path, out, ".voices-")
     return n
 
 

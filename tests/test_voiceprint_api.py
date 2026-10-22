@@ -188,3 +188,21 @@ def test_store_unreadable_refuses_all() -> None:
     assert _read(MTG) == before and _read("transcript-202610091000@週次定例.voices.jsonl") == voices
     with open(_p("voiceprints.json"), encoding="utf-8") as f:
         assert f.read() == "{broken"
+
+
+def test_move_relabels_sidecar_without_transcript_line() -> None:
+    _assign(MTG, {"相手A": "alice"})
+    with open(_p(MTG), "w", encoding="utf-8") as f:  # 行は手で消された・別の名前に直されたが、サイドカーは alice のまま
+        f.write(f"[{A1}] [carol] 来週のリリースの件ですが\n")
+    r = _call("_move_voiceprint_samples", {"name": "alice", "keys": [[MTG, A1]], "to": "bob"})
+    assert (r["status"], r["moved"], r["relabeled_lines"], r["skipped_files"]) == ("ok", 1, 0, 0), r
+    assert [(e.timestamp, e.label) for e in read_voices(_p(MTG))][0] == (A1, "bob")
+    assert "[carol] 来週のリリースの件ですが" in _read(MTG)
+
+
+def test_sidecar_and_history_do_not_import_dashboard() -> None:
+    import subprocess
+    import sys
+    code = ("import sys, shadow_clerk._daemon_voice_sidecar, shadow_clerk._daemon_naming_history;"
+            "sys.exit('shadow_clerk._daemon_dashboard_ops' in sys.modules)")
+    assert subprocess.run([sys.executable, "-c", code], check=False).returncode == 0

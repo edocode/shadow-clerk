@@ -8,11 +8,11 @@ from __future__ import annotations
 import json
 import logging
 import os
-import tempfile
 import threading
 from dataclasses import dataclass, field, replace
 
 from shadow_clerk import DATA_DIR
+from shadow_clerk._atomic_file import atomic_write_json
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_voiceprint_clusters import ClusterKind, cluster_samples, majority_shape
 from shadow_clerk._daemon_constants import DEFAULT_CONFIG
@@ -24,21 +24,6 @@ VOICEPRINTS_FILE = os.path.join(DATA_DIR, "voiceprints.json")
 _MAX_SAMPLES_DEFAULT = DEFAULT_CONFIG["voiceprint_max_samples"]
 _VERSION = 1
 _lock = threading.Lock()
-
-
-def atomic_write_json(path: str, body: dict, prefix: str) -> None:
-    """同じディレクトリの一時ファイルに書いて os.replace する（mkstemp は 0600 で作る）"""
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", prefix=prefix, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(body, f, ensure_ascii=False)
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
 
 
 def _restatus(raw: list[dict]) -> None:

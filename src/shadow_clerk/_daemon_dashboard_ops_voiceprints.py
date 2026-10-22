@@ -11,7 +11,7 @@ from shadow_clerk.i18n import t
 from shadow_clerk._daemon_dashboard_base import read_local_json_body
 from shadow_clerk._daemon_naming_history import NamingHistoryError, read_history
 from shadow_clerk._daemon_speaker_naming import relabel_lines_where
-from shadow_clerk._daemon_voice_sidecar import mark_no_enroll
+from shadow_clerk._daemon_voice_sidecar import mark_no_enroll, read_voices
 from shadow_clerk._daemon_voiceprint_clusters import cluster_samples, majority_shape
 from shadow_clerk._daemon_voiceprint_store import VoiceprintStore, VoiceprintStoreError
 from shadow_clerk.domain.transcript_line import TranscriptLine
@@ -167,7 +167,8 @@ class _DashboardHandlerVoiceprintOps:
                     skipped += 1
                     continue
                 lines = self._read_lines(t_path)
-                if relabel_lines_where(lines, pick_line)[1] == 0:
+                if (relabel_lines_where(lines, pick_line)[1] == 0
+                        and not any(pick_voice(e) for e in read_voices(t_path))):
                     continue
                 try:
                     relabeled += self._apply_relabel(t_path, lines, pick_line, pick_voice)
