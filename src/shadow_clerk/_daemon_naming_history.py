@@ -66,7 +66,7 @@ def mark_undone(transcript_path: str, record_id: str) -> NamingRecord | None:
 
 def split_history(src_transcript: str, dst_transcript: str, start_ts: str, end_ts: str) -> int:
     """時刻範囲 [start_ts, end_ts] の部分を dst の履歴へ移し、移したレコード数を返す。
-    各レコードの lines/added/removed を範囲内と範囲外に分け、範囲内が空でなければ同じ id で dst へ追記する"""
+    各レコードの lines/added/removed/auto_cleared を範囲内と範囲外に分け、範囲内が空でなければ同じ id で dst へ追記する"""
     src_path, dst_path = naming_path(src_transcript), naming_path(dst_transcript)
     records = read_history(src_transcript)
     if src_path is None or dst_path is None or not records:
@@ -75,14 +75,19 @@ def split_history(src_transcript: str, dst_transcript: str, start_ts: str, end_t
     def part(ts: tuple[str, ...], inside: bool) -> tuple[str, ...]:
         return tuple(x for x in ts if (start_ts <= x <= end_ts) == inside)
 
+    fields = ("lines", "added", "removed", "auto_cleared")
+
+    def half(r: NamingRecord, inside: bool) -> NamingRecord:
+        return replace(r, **{f: part(getattr(r, f), inside) for f in fields})
+
+    def filled(r: NamingRecord) -> bool:
+        return any(getattr(r, f) for f in fields)
     moved: list[NamingRecord] = []
     kept: list[NamingRecord] = []
     for r in records:
-        inner = replace(r, lines=part(r.lines, True), added=part(r.added, True), removed=part(r.removed, True))
-        if inner.lines or inner.added or inner.removed:
+        if filled(inner := half(r, True)):
             moved.append(inner)
-        outer = replace(r, lines=part(r.lines, False), added=part(r.added, False), removed=part(r.removed, False))
-        if outer.lines or outer.added or outer.removed or not (inner.lines or inner.added or inner.removed):
+        if filled(outer := half(r, False)) or not filled(inner):
             kept.append(outer)
     if not moved:
         return 0

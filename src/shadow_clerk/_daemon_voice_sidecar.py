@@ -107,6 +107,12 @@ def clear_auto(transcript_path: str, labels: set[str]) -> int:
     return _rewrite_file(transcript_path, lambda e: replace(e, auto=False) if e.auto and e.label in labels else None)
 
 
+def set_auto(transcript_path: str, label: str, timestamps: set[str]) -> int:
+    """(ts ∈ timestamps, label) の行に「識別で付いた」印を戻して書き戻し、戻した件数を返す（確認・名前付けの取り消し）"""
+    return _rewrite_file(transcript_path, lambda e: replace(e, auto=True)
+                         if e.timestamp in timestamps and e.label == label and not e.auto else None)
+
+
 def voice_lines_without_label(path: str, label: str) -> list[str] | None:
     """サイドカー（パス直指定）から label の行を除いた全行。壊れた行は残す。変化が無い・無ければ None"""
     lines = _read_raw(path)

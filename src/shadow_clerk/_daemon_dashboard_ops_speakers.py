@@ -19,7 +19,7 @@ from shadow_clerk._daemon_speaker_naming import (
 )
 from shadow_clerk._daemon_speaker_names import SpeakerNameBook, SpeakerNameBookError
 from shadow_clerk._daemon_voice_sidecar import (
-    clear_auto, read_voices, relabeled_voice_lines_where, voice_lines_without_label, voices_path,
+    clear_auto, read_voices, relabeled_voice_lines_where, set_auto, voice_lines_without_label, voices_path,
 )
 from shadow_clerk._daemon_voiceprint_clusters import voiceprint_number
 from shadow_clerk._daemon_voiceprint_store import StoreChange, VoiceprintStore, VoiceprintStoreError
@@ -187,7 +187,11 @@ class _DashboardHandlerSpeakerOps:
             self._speaker_error("dash.speaker_book_error")
             return
         # 確認: 名前は変えずに、識別で付いた行（auto）を声紋に足す。「alice?」は確認ではなく alice への名前付けで扱う
-        auto_labels = {v.label for v in read_voices(t_path) if v.auto}
+        auto_rows: dict[str, list[str]] = defaultdict(list)  # ラベル → 識別で付いた行のタイムスタンプ
+        for v in read_voices(t_path):
+            if v.auto:
+                auto_rows[v.label].append(v.timestamp)
+        auto_labels = set(auto_rows)
         confirmed = {label for label, a in parsed.items() if a.confirm and a.name.value == label
                      and label in auto_labels and tentative_name(label) is None}
         decided = {label: d for label, a in parsed.items()
@@ -238,13 +242,14 @@ class _DashboardHandlerSpeakerOps:
             parsed_lines = [p for ln in lines if (p := TranscriptLine.parse(ln))]
             message = " ".join(([t("dash.speakers_saved", count=renamed)] if renamed or not cleared else [])
                                + ([t("dash.speakers_auto_confirmed", count=cleared)] if cleared else []))
-            # 確認は行を書き換えないので lines は空。取り消すと足した声紋だけ外れる
+            # 確認は行を書き換えないので lines は空。取り消すと足した声紋が外れ、識別で付いた印が戻る
             relabeled = {label: [p.timestamp for p in parsed_lines if p.speaker_label == label] for label in mapping}
             try:  # 名前付け自体は済んでいる。履歴だけ残せなくても成功として返す
                 append_history(t_path, [
                     NamingRecord.new(label, decided[label].name.value, decided[label].person, relabeled.get(label, []),
-                                     outcome.added.get(label, []), outcome.removed.get(label, []))
-                    for label in [*mapping, *(c for c in sorted(confirmed) if outcome.added.get(c))]])
+                                     outcome.added.get(label, []), outcome.removed.get(label, []),
+                                     auto_rows.get(label, []))
+                    for label in [*mapping, *sorted(confirmed)]])
             except (NamingHistoryError, OSError) as e:
                 logger.error("名前付けの履歴を残せない: %s", e)
                 message += " " + t("dash.naming_history_not_saved")
@@ -427,6 +432,9 @@ class _DashboardHandlerSpeakerOps:
                 restored = self._apply_relabel(
                     t_path, lines, pick_line,
                     lambda e: rec.label if e.timestamp in targets and e.label == rec.name else None) if reverted else 0
+                # 印を戻さないと、後のグループ変更などで確認していない行が声紋に足されてしまう
+                if rec.auto_cleared:
+                    set_auto(t_path, rec.label, set(rec.auto_cleared))
                 mark_undone(t_path, rec.id)
             except (OSError, NamingHistoryError) as e:
                 logger.error("取り消しを書き込めない: %s", e)

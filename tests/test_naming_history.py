@@ -51,3 +51,22 @@ def test_split_history_moves_in_range(tmp_path) -> None:
     assert [(r.id, r.lines, r.added, r.removed) for r in read_history(dst)] == [
         ("in", (inside,), (inside,), ()), ("both", (inside,), (inside,), ())]
     assert split_history(str(tmp_path / "none.txt"), dst, "a", "b") == 0
+
+
+def test_record_round_trips_auto_cleared_and_reads_old_lines() -> None:
+    r = NamingRecord.new("alice", "alice", True, [], ["a"], [], ["a", "b"])
+    assert NamingRecord.parse(r.to_json_line()) == r and r.auto_cleared == ("a", "b")
+    old = ('{"id": "x", "at": "2026-10-09 12:00:00", "label": "相手A", "name": "alice", "person": true,'
+           ' "lines": ["a"], "added": [], "removed": [], "undone": false}')
+    assert NamingRecord.parse(old).auto_cleared == ()
+
+
+def test_split_history_splits_auto_cleared(tmp_path) -> None:
+    src = str(tmp_path / "transcript-20261009.txt")
+    dst = str(tmp_path / "transcript-202610091030@acme.txt")
+    inside, outside = "2026-10-09 11:00:00", "2026-10-09 09:00:00"
+    append_history(src, [NamingRecord("c", "2026-10-09 12:00:00", "alice", "alice", True, (), (), (),
+                                      auto_cleared=(outside, inside))])
+    assert split_history(src, dst, "2026-10-09 10:30:00", "2026-10-09 11:30:00") == 1
+    assert [r.auto_cleared for r in read_history(src)] == [(outside,)]
+    assert [r.auto_cleared for r in read_history(dst)] == [(inside,)]

@@ -380,3 +380,46 @@ def test_renaming_identified_label_enrolls_all_rows() -> None:
     r = _assign({"alice": "bob"})
     assert r["renamed"] == 2 and _keys("bob") == {(MTG, X1), (MTG, X2)}, r
     assert _auto_rows() == [(X1, "bob", False), (X2, "bob", False)]
+
+
+def _auto_count(label: str) -> int:
+    return next(x["auto"] for x in _H_speakers()["labels"] if x["label"] == label)
+
+
+def test_undo_confirm_restores_auto_so_group_change_does_not_enroll() -> None:
+    _identified("alice")
+    _assign({"alice": {"name": "alice", "confirm": True}})
+    u = _undo(_history()[0]["id"])
+    assert u["status"] == "ok", u
+    assert _auto_rows() == [(X1, "alice", True), (X2, "alice", True)] and _auto_count("alice") == 2
+    _assign({"alice": {"name": "alice", "group": "acme"}})
+    assert VoiceprintStore().people() == {}
+
+
+def test_undo_rename_of_identified_rows_restores_auto() -> None:
+    _identified("alice")
+    _assign({"alice": "bob"})
+    u = _undo(_rec_id("alice"))
+    assert u["status"] == "ok" and u["restored_lines"] == 2, u
+    assert _auto_rows() == [(X1, "alice", True), (X2, "alice", True)]
+    _assign({"alice": {"name": "alice", "group": "acme"}})
+    assert VoiceprintStore().people() == {}
+
+
+def test_undo_restores_auto_only_on_rows_still_carrying_original_label() -> None:
+    _identified("alice")
+    _assign({"alice": {"name": "alice", "confirm": True}})
+    confirm_id = _history()[0]["id"]
+    _assign({"alice": "bob"})
+    assert _undo(confirm_id)["status"] == "ok"
+    assert _auto_rows() == [(X1, "bob", False), (X2, "bob", False)]
+
+
+def test_confirm_without_enrollment_is_recorded_and_undoable(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enrollment(monkeypatch, False)
+    _identified("alice")
+    _assign({"alice": {"name": "alice", "confirm": True}})
+    hist = _history()
+    assert [(x["label"], x["name"], x["added"]) for x in hist] == [("alice", "alice", 0)]
+    assert _undo(hist[0]["id"])["status"] == "ok"
+    assert _auto_rows() == [(X1, "alice", True), (X2, "alice", True)]

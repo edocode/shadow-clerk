@@ -11,7 +11,8 @@ from datetime import datetime
 class NamingRecord:
     """名前付け1回分の記録。lines は書き換えた transcript 行のタイムスタンプ、
     added は足したサンプルの recorded_at（source はその transcript 自身）、
-    removed は label が名前付け済みだったとき、その人から外したサンプルの recorded_at"""
+    removed は label が名前付け済みだったとき、その人から外したサンプルの recorded_at、
+    auto_cleared は識別で付いた印（auto）をこの名前付けで外したサイドカー行のタイムスタンプ（取り消しで印を戻す）"""
 
     id: str
     at: str
@@ -22,23 +23,26 @@ class NamingRecord:
     added: tuple[str, ...]
     removed: tuple[str, ...]
     undone: bool = False
+    auto_cleared: tuple[str, ...] = ()
 
     @classmethod
     def new(cls, label: str, name: str, person: bool, lines: list[str] | tuple[str, ...],
-            added: list[str] | tuple[str, ...], removed: list[str] | tuple[str, ...]) -> NamingRecord:
+            added: list[str] | tuple[str, ...], removed: list[str] | tuple[str, ...],
+            auto_cleared: list[str] | tuple[str, ...] = ()) -> NamingRecord:
         return cls(uuid.uuid4().hex, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), label, name, person,
-                   tuple(lines), tuple(added), tuple(removed))
+                   tuple(lines), tuple(added), tuple(removed), auto_cleared=tuple(auto_cleared))
 
     def to_json_line(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False) + "\n"
 
     @classmethod
     def parse(cls, line: str) -> NamingRecord | None:
-        """1行をパースする。壊れた行は None"""
+        """1行をパースする。壊れた行は None。auto_cleared の無い古い行は空とみなす"""
         try:
             d = json.loads(line)
             return cls(str(d["id"]), str(d["at"]), str(d["label"]), str(d["name"]), bool(d["person"]),
                        tuple(map(str, d["lines"])), tuple(map(str, d["added"])),
-                       tuple(map(str, d["removed"])), bool(d.get("undone", False)))
+                       tuple(map(str, d["removed"])), bool(d.get("undone", False)),
+                       tuple(map(str, d.get("auto_cleared", []))))
         except (json.JSONDecodeError, KeyError, TypeError, ValueError, AttributeError):
             return None
