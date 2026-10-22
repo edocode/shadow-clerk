@@ -101,6 +101,20 @@ class _DashboardHandlerSpeakerOps:
         except (SpeakerNameBookError, OSError) as e:
             logger.warning("名前帳に残せない: %s", e)
 
+    def _decide_one(self, raw: object) -> Decision | None:
+        """1件の割り当てを名簿と照らして決める。不正・名簿が読めなければ応答済みにして None"""
+        try:
+            a = parse_assignment(raw)
+        except ValueError:
+            self._speaker_error("dash.speakers_invalid_name")
+            return None
+        try:
+            entries, groups = self._speaker_book(strict=True)
+        except SpeakerNameBookError:
+            self._speaker_error("dash.speaker_book_error")
+            return None
+        return decide_assignment(a, entries, groups)
+
     def _serve_speakers(self) -> None:
         """GET /api/speakers?file= — 名前付けの対象ラベルと名前の候補"""
         params = parse_qs(urlparse(self.path).query)
@@ -235,17 +249,9 @@ class _DashboardHandlerSpeakerOps:
         if any(label in (Speaker.SELF.value, Speaker.CLAUDE.value) for _, label in targets):
             self._speaker_error("dash.speakers_invalid")
             return
-        try:
-            a = parse_assignment({k: data[k] for k in ("name", "group", "person") if k in data})
-        except ValueError:
-            self._speaker_error("dash.speakers_invalid_name")
+        d = self._decide_one({k: data[k] for k in ("name", "group", "person") if k in data})
+        if d is None:
             return
-        try:
-            entries, groups = self._speaker_book(strict=True)
-        except SpeakerNameBookError:
-            self._speaker_error("dash.speaker_book_error")
-            return
-        d = decide_assignment(a, entries, groups)
         pick_line = line_target_picker(targets, d.name.value)
         with self.recorder.transcript_lock:
             lines = self._read_lines(t_path)

@@ -207,3 +207,23 @@ def test_set_status_persists(store) -> None:
     assert store.samples(PersonName("太郎"))[0].status is SampleStatus.NORMAL
     with open(store.path, encoding="utf-8") as f:
         assert "status" not in f.read()
+
+
+def test_remove_samples(store) -> None:
+    store.add({PersonName("太郎"): [_sample(1), _sample(2, "2026-10-09 10:00:01")]})
+    src = "transcript-202610091000.txt"
+    assert store.remove_samples("太郎", {(src, "2026-10-09 10:00:00"), (src, "nope")}) == 1
+    assert [s.recorded_at for s in store.samples(PersonName("太郎"))] == ["2026-10-09 10:00:01"]
+    assert store.remove_samples("次郎", {(src, "2026-10-09 10:00:01")}) == 0
+
+
+def test_move_samples_resets_status(store) -> None:
+    src = "transcript-202610091000.txt"
+    store.add({PersonName("太郎"): [_sample(1), _sample(2, "2026-10-09 10:00:01")]})
+    store.set_status("太郎", {(src, "2026-10-09 10:00:00")}, SampleStatus.KEPT)
+    assert store.move_samples("太郎", PersonName("次郎"), {(src, "2026-10-09 10:00:00"), (src, "nope")}) == 1
+    assert store.people() == {"太郎": 1, "次郎": 1}
+    [moved] = store.samples(PersonName("次郎"))
+    assert moved.key == (src, "2026-10-09 10:00:00") and moved.status is SampleStatus.NORMAL
+    assert store.move_samples("太郎", PersonName("太郎"), {(src, "2026-10-09 10:00:01")}) == 0
+    assert store.people() == {"太郎": 1, "次郎": 1}

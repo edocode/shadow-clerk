@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from dataclasses import dataclass
 from enum import Enum
 
@@ -52,6 +53,14 @@ def _average_linkage(emb: np.ndarray, max_distance: float) -> list[list[int]]:
 def _centroid(emb: np.ndarray, members: list[int]) -> np.ndarray:
     c = emb[members].mean(axis=0)
     return c / max(float(np.linalg.norm(c)), 1e-12)
+
+
+def majority_shape(embeddings: list[np.ndarray]) -> list[int]:
+    """多数派の次元の埋め込みの添字。次元違い（モデル変更・壊れた行）は塊分けに混ぜられない"""
+    if not embeddings:
+        return []
+    shape = Counter(e.shape for e in embeddings).most_common(1)[0][0]
+    return [i for i, e in enumerate(embeddings) if e.shape == shape]
 
 
 def cluster_samples(embeddings: list[np.ndarray]) -> list[SampleCluster]:

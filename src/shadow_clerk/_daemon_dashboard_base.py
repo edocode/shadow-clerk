@@ -237,6 +237,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_speakers()
         elif path == "/api/voiceprints":
             self._serve_voiceprints()
+        elif path == "/api/voiceprints/clusters":
+            self._serve_voiceprint_clusters()
         elif path == "/api/speaker-groups":
             self._serve_speaker_groups()
         elif path == "/api/speaker-roster":
@@ -333,6 +335,12 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._set_speaker_group()
         elif path == "/api/voiceprints/delete":
             self._delete_voiceprint()
+        elif path == "/api/voiceprints/delete-samples":
+            self._delete_voiceprint_samples()
+        elif path == "/api/voiceprints/move":
+            self._move_voiceprint_samples()
+        elif path == "/api/voiceprints/restore":
+            self._restore_voiceprint_samples()
         else:
             self.send_error(404)
 

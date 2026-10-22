@@ -10,12 +10,11 @@ import logging
 import os
 import tempfile
 import threading
-from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from shadow_clerk import DATA_DIR
 from shadow_clerk._daemon_config import load_config
-from shadow_clerk._daemon_voiceprint_clusters import ClusterKind, cluster_samples
+from shadow_clerk._daemon_voiceprint_clusters import ClusterKind, cluster_samples, majority_shape
 from shadow_clerk._daemon_constants import DEFAULT_CONFIG
 from shadow_clerk.domain.voiceprint import PersonName, SampleStatus, VoiceSample
 
@@ -50,9 +49,7 @@ def _restatus(raw: list[dict]) -> None:
             items.append((d, VoiceSample.from_dict(d)))
         except (KeyError, TypeError, ValueError, AttributeError):
             continue
-    if items:  # 次元違い（モデル変更・壊れた行）は多数派の次元だけ塊分けし、残りは触らない
-        shape = Counter(x.embedding.shape for _, x in items).most_common(1)[0][0]
-        items = [it for it in items if it[1].embedding.shape == shape]
+    items = [items[i] for i in majority_shape([s.embedding for _, s in items])]  # 次元違いは触らない
     outliers = {i for c in cluster_samples([s.embedding for _, s in items]) if c.kind is ClusterKind.OUTLIER
                 for i in c.members}
     for i, (d, s) in enumerate(items):
@@ -159,6 +156,19 @@ class VoiceprintStore:
                     _restatus(people[name])
             self._save(people)
         return change
+
+    def remove_samples(self, name: str, keys: set[tuple[str, str]]) -> int:
+        """name のサンプルのうち keys に当たるものを外し、外した件数を返す"""
+        return len(self.update({}, {name: keys}).removed.get(name, ()))
+
+    def move_samples(self, src: str, dst: PersonName, keys: set[tuple[str, str]]) -> int:
+        """src のサンプルのうち keys に当たるものを status を NORMAL に戻して dst へ移し、src から外した件数を返す"""
+        if src == dst.value:
+            return 0
+        picked = [replace(s, status=SampleStatus.NORMAL) for s in self.samples(PersonName(src)) if s.key in keys]
+        if not picked:
+            return 0
+        return len(self.update({dst: picked}, {src: {s.key for s in picked}}).removed.get(src, ()))
 
     def set_status(self, name: str, keys: set[tuple[str, str]], status: SampleStatus) -> int:
         """name のサンプルのうち keys に当たるものの status を変え、変えた件数を返す"""
