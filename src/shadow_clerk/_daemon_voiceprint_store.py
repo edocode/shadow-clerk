@@ -14,14 +14,12 @@ from dataclasses import dataclass, field, replace
 from shadow_clerk import DATA_DIR
 from shadow_clerk._atomic_file import atomic_write_json
 from shadow_clerk._daemon_config import load_config
-from shadow_clerk._daemon_voiceprint_clusters import ClusterKind, cluster_samples, majority_shape
-from shadow_clerk._daemon_constants import DEFAULT_CONFIG
+from shadow_clerk._daemon_voiceprint_clusters import ClusterKind, cluster_samples, majority_shape, voiceprint_number
 from shadow_clerk.domain.voiceprint import PersonName, SampleStatus, VoiceSample
 
 logger = logging.getLogger("shadow-clerk")
 
 VOICEPRINTS_FILE = os.path.join(DATA_DIR, "voiceprints.json")
-_MAX_SAMPLES_DEFAULT = DEFAULT_CONFIG["voiceprint_max_samples"]
 _VERSION = 1
 _lock = threading.Lock()
 
@@ -108,12 +106,15 @@ class VoiceprintStore:
     def update(self, add: dict[PersonName, list[VoiceSample]],
                remove: dict[str, set[tuple[str, str]]]) -> StoreChange:
         """remove の (source, recorded_at) に当たるサンプルを外し、add を足す。1回の読み書きで行う。空になった人は消す。
-        実際に外した・足したキーを返す（既にない・既にある・上限で捨てたものは含めない）"""
-        cap = int(load_config().get("voiceprint_max_samples", _MAX_SAMPLES_DEFAULT))
+        実際に外した・足したキーを返す（既にない・既にある・上限で捨てたものは含めない）。
+        同じ人から外して足し直すキーは外さずに残す（status と上限の順番を保つ）。触った人は除外を判定し直す"""
+        cap = int(voiceprint_number(load_config(), "voiceprint_max_samples"))
         change = StoreChange()
+        readd = {n.value: {s.key for s in samples} for n, samples in add.items()}
         with _lock:
             people = self._load()
             for name, keys in remove.items():
+                keys = keys - readd.get(name, set())
                 kept = []
                 for d in people.get(name, []):
                     if isinstance(d, dict) and (key := (d.get("source"), d.get("recorded_at"))) in keys:
@@ -136,7 +137,7 @@ class VoiceprintStore:
                 people[name.value] = merged = merged[-cap:] if cap > 0 else merged
                 if stored := new & {(d.get("source"), d.get("recorded_at")) for d in merged if isinstance(d, dict)}:
                     change.added[name.value] = stored
-            for name in change.added:
+            for name in {n.value for n in add} | set(change.removed):
                 if name in people:
                     _restatus(people[name])
             self._save(people)

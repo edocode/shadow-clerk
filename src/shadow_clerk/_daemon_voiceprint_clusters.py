@@ -55,6 +55,15 @@ def _centroid(emb: np.ndarray, members: list[int]) -> np.ndarray:
     return c / max(float(np.linalg.norm(c)), 1e-12)
 
 
+def voiceprint_number(cfg: dict, key: str) -> float:
+    """config の数値キー。手で書き換えて数値でなければ既定値（壊れた値で名前付けが全部止まらないように）"""
+    try:
+        return float(cfg.get(key, DEFAULT_CONFIG[key]))
+    except (TypeError, ValueError):
+        logger.warning("config の %s が数値でないので既定値を使う: %r", key, cfg.get(key))
+        return float(DEFAULT_CONFIG[key])
+
+
 def majority_shape(embeddings: list[np.ndarray]) -> list[int]:
     """多数派の次元の埋め込みの添字。次元違い（モデル変更・壊れた行）は塊分けに混ぜられない"""
     if not embeddings:
@@ -65,19 +74,20 @@ def majority_shape(embeddings: list[np.ndarray]) -> list[int]:
 
 def cluster_samples(embeddings: list[np.ndarray]) -> list[SampleCluster]:
     """MAIN を先頭に、残りは件数の多い順。しきい値は config（なければ既定値）から読む"""
-    cfg = {**DEFAULT_CONFIG, **load_config()}
+    cfg = load_config()
     n = len(embeddings)
-    if n < int(cfg["voiceprint_cluster_min_samples"]):
+    if n < voiceprint_number(cfg, "voiceprint_cluster_min_samples"):
         return [SampleCluster(ClusterKind.MAIN, tuple(range(n)), 1.0)] if n else []
     emb = np.asarray(embeddings, dtype=np.float32)
-    groups = _average_linkage(emb, float(cfg["voiceprint_cluster_distance"]))
+    groups = _average_linkage(emb, voiceprint_number(cfg, "voiceprint_cluster_distance"))
     main, main_c = list(groups[0]), _centroid(emb, groups[0])
     out: list[SampleCluster] = []
     for g in groups[1:]:
         sim = float(_centroid(emb, g) @ main_c)
-        if sim >= float(cfg["voiceprint_main_similarity"]):
+        if sim >= voiceprint_number(cfg, "voiceprint_main_similarity"):
             main += g
-        elif len(g) <= int(cfg["voiceprint_outlier_max"]) and len(g) / n <= float(cfg["voiceprint_outlier_ratio"]):
+        elif (len(g) <= voiceprint_number(cfg, "voiceprint_outlier_max")
+              and len(g) / n <= voiceprint_number(cfg, "voiceprint_outlier_ratio")):
             out.append(SampleCluster(ClusterKind.OUTLIER, tuple(g), sim))
         else:
             out.append(SampleCluster(ClusterKind.DIFFERENT, tuple(g), sim))

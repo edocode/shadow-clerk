@@ -62,11 +62,8 @@ def test_defaults() -> None:
         "speaker_diarization": False, "speaker_enrollment": False, "diarization_threshold": 0.70,
         "diarization_min_sec": 1.0, "voiceprint_max_samples": 200}.items()))
     from shadow_clerk._daemon_speaker_diarization import _MIN_SEGMENT_SEC, _SIMILARITY_THRESHOLD_DEFAULT
-    from shadow_clerk._daemon_voiceprint_store import _MAX_SAMPLES_DEFAULT
-    check("モジュール定数は DEFAULT_CONFIG と同じ", (
-        _SIMILARITY_THRESHOLD_DEFAULT, _MIN_SEGMENT_SEC, _MAX_SAMPLES_DEFAULT)
-        == (DEFAULT_CONFIG["diarization_threshold"], DEFAULT_CONFIG["diarization_min_sec"],
-            DEFAULT_CONFIG["voiceprint_max_samples"]))
+    check("モジュール定数は DEFAULT_CONFIG と同じ", (_SIMILARITY_THRESHOLD_DEFAULT, _MIN_SEGMENT_SEC)
+          == (DEFAULT_CONFIG["diarization_threshold"], DEFAULT_CONFIG["diarization_min_sec"]))
 
 
 def test_save() -> None:

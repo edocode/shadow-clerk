@@ -158,14 +158,14 @@ def test_relocate_source_all_and_range(store) -> None:
     assert store.relocate_source(old, new) == 0
 
 
-def _cluster_samples(n_main: int = 40) -> list[VoiceSample]:
+def _cluster_samples(n_main: int = 40, n_far: int = 1) -> list[VoiceSample]:
     rng = np.random.default_rng(0)
     base = rng.normal(size=256)
     base /= np.linalg.norm(base)
     far = rng.normal(size=256)
     far /= np.linalg.norm(far)
     out = []
-    for i, b in enumerate([base] * n_main + [far]):
+    for i, b in enumerate([base] * n_main + [far] * n_far):
         v = b + rng.normal(scale=0.06, size=256)
         out.append(VoiceSample((v / np.linalg.norm(v)).astype(np.float32), f"2026-10-09 10:00:{i:02d}", "t.txt"))
     return out
@@ -227,3 +227,50 @@ def test_move_samples_resets_status(store) -> None:
     assert moved.key == (src, "2026-10-09 10:00:00") and moved.status is SampleStatus.NORMAL
     assert store.move_samples("太郎", PersonName("太郎"), {(src, "2026-10-09 10:00:01")}) == 0
     assert store.people() == {"太郎": 1, "次郎": 1}
+
+
+def _statuses(store: VoiceprintStore, name: str) -> dict[tuple[str, str], SampleStatus]:
+    return {s.key: s.status for s in store.samples(PersonName(name))}
+
+
+def test_remove_restatuses_the_person(store) -> None:
+    samples = _cluster_samples(n_far=2)
+    store.add({PersonName("太郎"): samples})
+    assert set(_statuses(store, "太郎").values()) == {SampleStatus.NORMAL}  # 2/42 は割合を超えるので除外しない
+    store.remove_samples("太郎", {samples[-1].key})
+    assert _statuses(store, "太郎")[samples[-2].key] is SampleStatus.OUTLIER
+
+
+def test_dropping_below_min_samples_clears_outlier(store) -> None:
+    samples = _cluster_samples()
+    store.add({PersonName("太郎"): samples})
+    assert _statuses(store, "太郎")[samples[-1].key] is SampleStatus.OUTLIER
+    store.remove_samples("太郎", {s.key for s in samples[:35]})
+    assert set(_statuses(store, "太郎").values()) == {SampleStatus.NORMAL}
+
+
+def test_move_restatuses_the_source_person(store) -> None:
+    samples = _cluster_samples()
+    store.add({PersonName("太郎"): samples})
+    assert store.move_samples("太郎", PersonName("次郎"), {s.key for s in samples[:35]}) == 35
+    assert set(_statuses(store, "太郎").values()) == {SampleStatus.NORMAL}
+
+
+def test_remove_and_readd_same_person_keeps_status_and_order(store) -> None:
+    samples = [_sample(i, f"2026-10-09 10:00:0{i}") for i in range(3)]
+    store.add({PersonName("太郎"): samples})
+    store.set_status("太郎", {samples[0].key}, SampleStatus.KEPT)
+    change = store.update({PersonName("太郎"): [samples[0]]}, {"太郎": {samples[0].key}})
+    assert change.added == {} and change.removed == {}
+    got = store.samples(PersonName("太郎"))
+    assert [s.key for s in got] == [s.key for s in samples] and got[0].status is SampleStatus.KEPT
+
+
+def test_non_numeric_config_falls_back_to_defaults(store, monkeypatch) -> None:
+    bad = {k: "abc" for k in ("voiceprint_max_samples", "voiceprint_cluster_min_samples", "voiceprint_cluster_distance",
+                              "voiceprint_main_similarity", "voiceprint_outlier_max", "voiceprint_outlier_ratio")}
+    monkeypatch.setattr(store_mod, "load_config", lambda: bad)
+    monkeypatch.setattr(cluster_mod, "load_config", lambda: bad)
+    samples = _cluster_samples()
+    store.update({PersonName("太郎"): samples}, {})
+    assert _statuses(store, "太郎")[samples[-1].key] is SampleStatus.OUTLIER
