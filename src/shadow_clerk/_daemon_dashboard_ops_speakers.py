@@ -5,12 +5,14 @@ import logging
 import os
 from collections import defaultdict
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
 from urllib.parse import parse_qs, urlparse
 
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_constants import DEFAULT_CONFIG
 from shadow_clerk._daemon_dashboard_base import read_attendees, read_local_json_body
+from shadow_clerk._daemon_naming_history import NamingHistoryError, append_history, mark_undone, read_history
 from shadow_clerk._daemon_speaker_naming import (
     Decision, decide_assignment, line_target_picker, parse_assignment, relabel_lines_where, remap_offset,
     summarize_labels,
@@ -21,6 +23,7 @@ from shadow_clerk._daemon_voice_sidecar import (
 )
 from shadow_clerk._daemon_voiceprint_store import VoiceprintStore, VoiceprintStoreError
 from shadow_clerk._transcript_name import TranscriptName
+from shadow_clerk.domain.naming_history import NamingRecord
 from shadow_clerk.domain.transcript_line import TranscriptLine
 from shadow_clerk.domain.speaker import Speaker
 from shadow_clerk.domain.speaker_group import GroupName, SpeakerEntry
@@ -29,8 +32,25 @@ from shadow_clerk.domain.voiceprint import PersonName, VoiceEntry, VoiceSample
 logger = logging.getLogger("shadow-clerk")
 
 
+@dataclass(frozen=True)
+class EnrollOutcome:
+    """_enroll の結果。added: 元のラベル → 足したサンプルの recorded_at、
+    removed: 名前付け済みラベル（人）→ 外した recorded_at、counts: 人 → 足した件数"""
+
+    added: dict[str, list[str]] = field(default_factory=dict)
+    removed: dict[str, list[str]] = field(default_factory=dict)
+    counts: dict[str, int] = field(default_factory=dict)
+
+
+def _enrollable(cfg: dict) -> Callable[[VoiceEntry], bool]:
+    """声紋に足してよい発話か（no_enroll と voiceprint_min_sec より短い発話を除く）"""
+    min_sec = float(cfg.get("voiceprint_min_sec", DEFAULT_CONFIG["voiceprint_min_sec"]))
+    return lambda v: not v.no_enroll and (v.duration is None or v.duration >= min_sec)
+
+
 class _DashboardHandlerSpeakerOps:
-    """GET /api/speakers, POST /api/speakers/assign, GET /api/voiceprints, POST /api/voiceprints/delete"""
+    """GET /api/speakers, POST /api/speakers/assign, POST /api/speakers/undo,
+    GET /api/voiceprints, POST /api/voiceprints/delete"""
 
     def _speaker_error(self, key: str) -> None:
         self._send_json({"status": "error", "message": t(key)})
@@ -102,6 +122,11 @@ class _DashboardHandlerSpeakerOps:
         except VoiceprintStoreError:
             registered = []
         entries, groups = self._speaker_book()
+        try:
+            history = read_history(t_path)
+        except NamingHistoryError as e:
+            logger.warning("名前付けの履歴を読めない: %s", e)
+            history = []
         summaries = summarize_labels(self._read_lines(t_path))
         in_transcript = [s.label for s in summaries if s.named]
         self._send_json({
@@ -116,6 +141,9 @@ class _DashboardHandlerSpeakerOps:
             "active": self._is_active_transcript(t_path),
             "translating": self.recorder.is_translating(t_path),
             "enrollment": bool(load_config().get("speaker_enrollment", False)),
+            "history": [{"id": r.id, "at": r.at, "label": r.label, "name": r.name, "person": r.person,
+                         "lines": len(r.lines), "added": len(r.added), "undone": r.undone}
+                        for r in reversed(history)],
         })
 
     def _assign_speakers(self) -> None:
@@ -155,14 +183,19 @@ class _DashboardHandlerSpeakerOps:
             if self.recorder.is_translating(t_path):
                 self._speaker_error("dash.speakers_translating")
                 return
+            try:  # 読めない履歴に追記すると空とみなして上書きしてしまう
+                read_history(t_path)
+            except NamingHistoryError:
+                self._speaker_error("dash.naming_history_error")
+                return
             summaries = summarize_labels(lines)
             if not set(decided) <= {s.label for s in summaries}:
                 self._speaker_error("dash.speakers_invalid")
                 return
             named = {s.label for s in summaries if s.named}
             # 声紋を先に保存する。ストアが壊れていたら transcript には手を付けずに止める
-            enrolled = self._enroll(t_path, lines, lambda v: decided.get(v.label), named)
-            if enrolled is None:
+            outcome = self._enroll(t_path, lines, lambda v: decided.get(v.label), named)
+            if outcome is None:
                 self._speaker_error("dash.voiceprint_store_error")
                 return
             mapping = {label: d.name for label, d in decided.items() if d.name.value != label}
@@ -175,8 +208,17 @@ class _DashboardHandlerSpeakerOps:
                 logger.error("名前を書き込めない: %s", e)
                 self._speaker_error("dash.speakers_write_error")
                 return
+            parsed_lines = [p for ln in lines if (p := TranscriptLine.parse(ln))]
+            try:  # 名前付け自体は済んでいる。履歴だけ残せなくても成功として返す
+                append_history(t_path, [
+                    NamingRecord.new(label, decided[label].name.value, decided[label].person,
+                                     [p.timestamp for p in parsed_lines if p.speaker_label == label],
+                                     outcome.added.get(label, []), outcome.removed.get(label, []))
+                    for label in mapping])
+            except (NamingHistoryError, OSError) as e:
+                logger.error("名前付けの履歴を残せない: %s", e)
         self._remember(decided.values())
-        self._send_json({"status": "ok", "renamed": renamed, "enrolled": enrolled,
+        self._send_json({"status": "ok", "renamed": renamed, "enrolled": outcome.counts,
                          "has_summary": self._has_summary(t_path),
                          "message": t("dash.speakers_saved", count=renamed)})
 
@@ -223,8 +265,8 @@ class _DashboardHandlerSpeakerOps:
                 self._speaker_error("dash.speakers_invalid")
                 return
             named = {s.label for s in summarize_labels(lines) if s.named}
-            enrolled = self._enroll(t_path, lines, lambda v: d if (v.timestamp, v.label) in targets else None, named)
-            if enrolled is None:
+            outcome = self._enroll(t_path, lines, lambda v: d if (v.timestamp, v.label) in targets else None, named)
+            if outcome is None:
                 self._speaker_error("dash.voiceprint_store_error")
                 return
             try:
@@ -235,38 +277,42 @@ class _DashboardHandlerSpeakerOps:
                 self._speaker_error("dash.speakers_write_error")
                 return
         self._remember([d])
-        self._send_json({"status": "ok", "renamed": renamed, "enrolled": enrolled,
+        self._send_json({"status": "ok", "renamed": renamed, "enrolled": outcome.counts,
                          "has_summary": self._has_summary(t_path),
                          "message": t("dash.speakers_relabel_saved", count=renamed)})
 
     def _enroll(self, t_path: str, lines: list[str], decide: Callable[[VoiceEntry], Decision | None],
-                named: set[str]) -> dict[str, int] | None:
+                named: set[str]) -> EnrollOutcome | None:
         """付け替える行の埋め込みを、元の人から外し、新しいラベルが個人なら足す。ストアを読み書きできなければ None"""
         cfg = load_config()
         if not cfg.get("speaker_enrollment", False):
-            return {}
-        min_sec = float(cfg.get("voiceprint_min_sec", DEFAULT_CONFIG["voiceprint_min_sec"]))
+            return EnrollOutcome()
+        enrollable = _enrollable(cfg)
         source = os.path.basename(t_path)
         # transcript に今もある行の埋め込みだけ（切り出しで移った行や書き換え済みの古い項目を除く）
         present = {(p.timestamp, p.speaker_label) for ln in lines if (p := TranscriptLine.parse(ln))}
         add: dict[PersonName, list[VoiceSample]] = defaultdict(list)
         remove: dict[str, set[tuple[str, str]]] = defaultdict(set)
+        added: dict[str, list[str]] = defaultdict(list)
+        removed: dict[str, list[str]] = defaultdict(list)
         for v in read_voices(t_path):
             d = decide(v)
             if d is None or (v.timestamp, v.label) not in present:
                 continue
             if v.label in named:
                 remove[v.label].add((source, v.timestamp))
-            if d.person and not v.no_enroll and (v.duration is None or v.duration >= min_sec):
+                removed[v.label].append(v.timestamp)
+            if d.person and enrollable(v):
                 add[d.name].append(VoiceSample(v.embedding, v.timestamp, source))
+                added[v.label].append(v.timestamp)
         if not add and not remove:
-            return {}
+            return EnrollOutcome()
         try:
             VoiceprintStore().update(dict(add), dict(remove))
         except (VoiceprintStoreError, OSError) as e:
             logger.error("声紋を保存できない: %s", e)
             return None
-        return {p.value: len(s) for p, s in add.items()}
+        return EnrollOutcome(dict(added), dict(removed), {p.value: len(s) for p, s in add.items()})
 
     def _apply_relabel(self, t_path: str, lines: list[str], pick_line: Callable[[TranscriptLine], str | None],
                        pick_voice: Callable[[VoiceEntry], str | None]) -> int:
@@ -288,6 +334,85 @@ class _DashboardHandlerSpeakerOps:
             self._atomic_write_lines(vp, voice_lines)
         self._reset_watch_offsets([("transcript", t_path)] + [("translation", p) for p in translations], [])
         return renamed
+
+    def _undo_naming(self) -> None:
+        """POST /api/speakers/undo — 名前付け 1 件を取り消す。今も付けた名前のままの行だけ元のラベルに戻し、
+        足した声紋を外し、元の人から外した声紋を戻す（削除ボタンで消された人には戻さない）"""
+        data = read_local_json_body(self, "speakers")
+        if data is None:
+            return
+        t_path = self._speaker_transcript_path(data.get("file"))
+        if t_path is None:
+            self._speaker_error("dash.transcript_not_found")
+            return
+        record_id = data.get("id")
+        if not isinstance(record_id, str) or not record_id:
+            self._speaker_error("dash.speakers_invalid")
+            return
+        try:
+            entries, _ = self._speaker_book(strict=True)
+        except SpeakerNameBookError:
+            self._speaker_error("dash.speaker_book_error")
+            return
+        cfg = load_config()
+        with self.recorder.transcript_lock:
+            if self._is_active_transcript(t_path):
+                self._speaker_error("dash.speakers_active")
+                return
+            if self.recorder.is_translating(t_path):
+                self._speaker_error("dash.speakers_translating")
+                return
+            try:
+                rec = next((r for r in read_history(t_path) if r.id == record_id and not r.undone), None)
+            except NamingHistoryError:
+                self._speaker_error("dash.naming_history_error")
+                return
+            if rec is None:
+                self._speaker_error("dash.speakers_invalid")
+                return
+            store = VoiceprintStore()
+            try:
+                people = store.people()
+            except VoiceprintStoreError:
+                self._speaker_error("dash.voiceprint_store_error")
+                return
+            lines = self._read_lines(t_path)
+            targets = set(rec.lines)
+
+            def pick_line(tl: TranscriptLine) -> str | None:
+                return rec.label if tl.timestamp in targets and tl.speaker_label == rec.name else None
+            reverted = {p.timestamp for ln in lines if (p := TranscriptLine.parse(ln)) and pick_line(p)}
+            source = os.path.basename(t_path)
+            # 名簿にもストアにもいない＝削除ボタンで消された人。明示的に消した生体情報は戻さない
+            entry = entries.get(rec.label)
+            revive = (entry.person if entry else rec.label in people) and cfg.get("speaker_enrollment", False)
+            enrollable = _enrollable(cfg)
+            restore = [VoiceSample(v.embedding, v.timestamp, source) for v in read_voices(t_path)
+                       if revive and v.timestamp in reverted and v.timestamp in rec.removed
+                       and v.label == rec.name and enrollable(v)]
+            remove = {rec.name: {(source, ts) for ts in rec.added}} if rec.added else {}
+            try:
+                removed = store.update({PersonName(rec.label): restore} if restore else {}, remove) \
+                    if remove or restore else 0
+            except (VoiceprintStoreError, OSError) as e:
+                logger.error("声紋を保存できない: %s", e)
+                self._speaker_error("dash.voiceprint_store_error")
+                return
+            try:
+                restored = self._apply_relabel(
+                    t_path, lines, pick_line,
+                    lambda e: rec.label if e.timestamp in targets and e.label == rec.name else None) if reverted else 0
+                mark_undone(t_path, rec.id)
+            except (OSError, NamingHistoryError) as e:
+                logger.error("取り消しを書き込めない: %s", e)
+                self._speaker_error("dash.speakers_write_error")
+                return
+        lost = len(rec.added) - removed
+        message = t("dash.naming_undone", label=rec.label, lines=restored, removed=removed)
+        self._send_json({"status": "ok", "restored_lines": restored, "removed_samples": removed,
+                         "restored_samples": len(restore), "lost_samples": lost,
+                         "has_summary": self._has_summary(t_path),
+                         "message": f"{message} {t('dash.naming_undo_lost', count=lost)}" if lost else message})
 
     def _serve_voiceprints(self) -> None:
         """GET /api/voiceprints — 登録済みの人と件数"""

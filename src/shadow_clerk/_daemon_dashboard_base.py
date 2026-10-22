@@ -325,6 +325,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._save_misheard()
         elif path == "/api/speakers/assign":
             self._assign_speakers()
+        elif path == "/api/speakers/undo":
+            self._undo_naming()
         elif path == "/api/speakers/assign-lines":
             self._assign_lines()
         elif path == "/api/speaker-groups/set":

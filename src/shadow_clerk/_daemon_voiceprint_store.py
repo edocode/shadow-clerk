@@ -91,14 +91,17 @@ class VoiceprintStore:
         self.update(samples_by_person, {})
 
     def update(self, add: dict[PersonName, list[VoiceSample]],
-               remove: dict[str, set[tuple[str, str]]]) -> None:
-        """remove の (source, recorded_at) に当たるサンプルを外し、add を足す。1回の読み書きで行う。空になった人は消す"""
+               remove: dict[str, set[tuple[str, str]]]) -> int:
+        """remove の (source, recorded_at) に当たるサンプルを外し、add を足す。1回の読み書きで行う。空になった人は消す。
+        外せた件数を返す（上限で既に捨てられたものは数えない）"""
         cap = int(load_config().get("voiceprint_max_samples", _MAX_SAMPLES_DEFAULT))
+        removed = 0
         with _lock:
             people = self._load()
             for name, keys in remove.items():
                 kept = [d for d in people.get(name, [])
                         if not (isinstance(d, dict) and (d.get("source"), d.get("recorded_at")) in keys)]
+                removed += len(people.get(name, [])) - len(kept)
                 if kept:
                     people[name] = kept
                 else:
@@ -112,6 +115,7 @@ class VoiceprintStore:
                         merged.append(sample.to_dict())
                 people[name.value] = merged[-cap:] if cap > 0 else merged
             self._save(people)
+        return removed
 
     def relocate_source(self, old: str, new: str, ts_range: tuple[str, str] | None = None) -> int:
         """source が old（かつ ts_range 内の recorded_at）のサンプルの source を new に付け替え、件数を返す"""
