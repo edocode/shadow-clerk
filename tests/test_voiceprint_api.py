@@ -168,6 +168,52 @@ def test_restore_sets_kept() -> None:
     assert status == {(MTG, A1): SampleStatus.KEPT, (MTG, B1): SampleStatus.NORMAL}
 
 
+def _with_outlier() -> tuple[str, list[str]]:
+    """alice に、いつもの声 40 件と遠い 1 件（除外中）を入れる。遠い 1 件の時刻と全時刻を返す"""
+    main = _vec(100)
+    ts = [f"2026-10-10 10:{i // 60:02d}:{i % 60:02d}" for i in range(41)]
+    with open(_p(MTG2), "w", encoding="utf-8") as f:
+        f.writelines(f"[{x}] [alice] 発言{i}\n" for i, x in enumerate(ts))
+    samples = [VoiceSample(_near(main, i), ts[i], MTG2) for i in range(40)] + [VoiceSample(_vec(999), ts[40], MTG2)]
+    VoiceprintStore().add({PersonName("alice"): samples})
+    return ts[40], ts
+
+
+def test_clusters_include_status_and_restored_sample_leaves_outlier() -> None:
+    far, ts = _with_outlier()
+    before = _clusters("alice")["clusters"]
+    assert [(c["kind"], c["count"]) for c in before] == [("main", 40), ("outlier", 1)]
+    assert before[1]["statuses"] == ["outlier"] and set(before[0]["statuses"]) == {"normal"}
+    r = _call("_restore_voiceprint_samples", {"name": "alice", "keys": [[MTG2, far]]})
+    assert r["status"] == "ok" and r["restored"] == 1 and r["message"] == t("dash.vp_restored", count=1), r
+    after = _clusters("alice")["clusters"]
+    assert [(c["kind"], c["count"]) for c in after] == [("main", 41)]  # 戻したサンプルは「いつもの声」に入れて見せる
+    assert dict(zip(map(tuple, after[0]["keys"]), after[0]["statuses"]))[(MTG2, far)] == "kept"
+
+
+def test_delete_samples_restatuses_the_person() -> None:
+    far, ts = _with_outlier()
+    _call("_delete_voiceprint_samples", {"name": "alice", "keys": [[MTG2, x] for x in ts[:35]]})
+    st = {s.key: s.status for s in VoiceprintStore().samples(PersonName("alice"))}
+    assert st[(MTG2, far)] is SampleStatus.NORMAL  # 10 件未満になったので除外しない
+
+
+def test_non_numeric_min_sec_falls_back_to_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    monkeypatch.setattr(sys.modules["shadow_clerk._daemon_dashboard_ops_speakers"], "load_config",
+                        lambda: {"speaker_enrollment": True, "voiceprint_min_sec": "abc"})
+    _assign(MTG, {"相手A": "alice"})
+    assert _keys("alice") == {(MTG, A1)}
+
+
+def test_kept_sample_survives_group_change_on_named_label() -> None:
+    _assign(MTG, {"相手A": "alice", "相手B": "alice"})
+    VoiceprintStore().set_status("alice", {(MTG, A1)}, SampleStatus.KEPT)
+    _assign(MTG, {"alice": {"name": "alice", "group": "acme"}})
+    got = VoiceprintStore().samples(PersonName("alice"))
+    assert [(s.key, s.status) for s in got] == [((MTG, A1), SampleStatus.KEPT), ((MTG, B1), SampleStatus.NORMAL)]
+
+
 def test_invalid_keys_refused() -> None:
     for keys in (None, [], [[MTG]], [[MTG, 1]], "x"):
         assert _call("_delete_voiceprint_samples", {"name": "alice", "keys": keys}) == \

@@ -166,6 +166,55 @@ def test_undo_does_not_revive_deleted_person() -> None:
     assert VoiceprintStore().people() == {}
 
 
+def test_undo_does_not_revive_sample_deleted_from_clusters() -> None:
+    from shadow_clerk._daemon_dashboard_ops_voiceprints import _DashboardHandlerVoiceprintOps
+
+    class _VH(_DashboardHandlerVoiceprintOps, _H):
+        pass
+    _assign({"相手A": "alice"})
+    _assign({"alice": "bob"})
+    h = _VH({"name": "bob", "keys": [[MTG, A1]]})
+    h._delete_voiceprint_samples()
+    assert h.sent["removed"] == 1, h.sent
+    r = _undo(_rec_id("alice"))
+    assert r["status"] == "ok" and r["restored_samples"] == 0 and r["lost_samples"] == 1, r
+    assert VoiceprintStore().people() == {}
+    assert t("dash.naming_undo_lost", count=1) in r["message"]
+
+
+def test_undo_message_mentions_samples_given_back() -> None:
+    _assign({"相手A": "alice"})
+    _assign({"alice": "bob"})
+    r = _undo(_rec_id("alice"))
+    assert t("dash.naming_undo_restored", count=1) in r["message"], r
+
+
+def test_history_error_flag() -> None:
+    _assign({"相手A": "alice"})
+    assert "history_error" not in _H_speakers()
+    with open(_p(HIST), "a", encoding="utf-8") as f:
+        f.write("{broken\n")
+    sent = _H_speakers()
+    assert sent["history"] == [] and sent["history_error"] is True
+
+
+def _H_speakers() -> dict:
+    h = _H(path=f"/api/speakers?file={MTG}")
+    h._serve_speakers()
+    return h.sent
+
+
+def test_assign_warns_when_history_not_saved(monkeypatch: pytest.MonkeyPatch) -> None:
+    from shadow_clerk._daemon_naming_history import NamingHistoryError
+    mod = sys.modules["shadow_clerk._daemon_dashboard_ops_speakers"]
+
+    def fail(*_a: object) -> None:
+        raise NamingHistoryError("x")
+    monkeypatch.setattr(mod, "append_history", fail)
+    r = _assign({"相手A": "alice"})
+    assert t("dash.naming_history_not_saved") in r["message"] and "[alice]" in _read(MTG)
+
+
 def _enrollment(monkeypatch: pytest.MonkeyPatch, on: bool) -> None:
     monkeypatch.setattr(sys.modules["shadow_clerk._daemon_dashboard_ops_speakers"], "load_config",
                         lambda: {"speaker_enrollment": on})

@@ -10,7 +10,6 @@ from urllib.parse import parse_qs, urlparse
 
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_config import load_config
-from shadow_clerk._daemon_constants import DEFAULT_CONFIG
 from shadow_clerk._daemon_dashboard_base import read_attendees, read_local_json_body
 from shadow_clerk._daemon_naming_history import NamingHistoryError, append_history, mark_undone, read_history
 from shadow_clerk._daemon_speaker_naming import (
@@ -21,6 +20,7 @@ from shadow_clerk._daemon_speaker_names import SpeakerNameBook, SpeakerNameBookE
 from shadow_clerk._daemon_voice_sidecar import (
     read_voices, relabeled_voice_lines_where, voice_lines_without_label, voices_path,
 )
+from shadow_clerk._daemon_voiceprint_clusters import voiceprint_number
 from shadow_clerk._daemon_voiceprint_store import StoreChange, VoiceprintStore, VoiceprintStoreError
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain.naming_history import NamingRecord
@@ -130,11 +130,12 @@ class _DashboardHandlerSpeakerOps:
         except VoiceprintStoreError:
             registered = []
         entries, groups = self._speaker_book()
+        history_error = False
         try:
             history = read_history(t_path)
         except NamingHistoryError as e:
             logger.warning("名前付けの履歴を読めない: %s", e)
-            history = []
+            history, history_error = [], True
         summaries = summarize_labels(self._read_lines(t_path))
         in_transcript = [s.label for s in summaries if s.named]
         self._send_json({
@@ -152,6 +153,7 @@ class _DashboardHandlerSpeakerOps:
             "history": [{"id": r.id, "at": r.at, "label": r.label, "name": r.name, "person": r.person,
                          "lines": len(r.lines), "added": len(r.added), "undone": r.undone}
                         for r in reversed(history)],
+            **({"history_error": True} if history_error else {}),
         })
 
     def _assign_speakers(self) -> None:
@@ -217,6 +219,7 @@ class _DashboardHandlerSpeakerOps:
                 self._speaker_error("dash.speakers_write_error")
                 return
             parsed_lines = [p for ln in lines if (p := TranscriptLine.parse(ln))]
+            message = t("dash.speakers_saved", count=renamed)
             try:  # 名前付け自体は済んでいる。履歴だけ残せなくても成功として返す
                 append_history(t_path, [
                     NamingRecord.new(label, decided[label].name.value, decided[label].person,
@@ -225,10 +228,10 @@ class _DashboardHandlerSpeakerOps:
                     for label in mapping])
             except (NamingHistoryError, OSError) as e:
                 logger.error("名前付けの履歴を残せない: %s", e)
+                message += " " + t("dash.naming_history_not_saved")
         self._remember(decided.values())
         self._send_json({"status": "ok", "renamed": renamed, "enrolled": outcome.counts,
-                         "has_summary": self._has_summary(t_path),
-                         "message": t("dash.speakers_saved", count=renamed)})
+                         "has_summary": self._has_summary(t_path), "message": message})
 
     def _assign_lines(self) -> None:
         """POST /api/speakers/assign-lines — 選んだ行だけ別の話者（人・会社名・役割名）に付け替える"""
@@ -287,7 +290,7 @@ class _DashboardHandlerSpeakerOps:
         cfg = load_config()
         if not cfg.get("speaker_enrollment", False):
             return EnrollOutcome()
-        min_sec = float(cfg.get("voiceprint_min_sec", DEFAULT_CONFIG["voiceprint_min_sec"]))
+        min_sec = voiceprint_number(cfg, "voiceprint_min_sec")
         source = os.path.basename(t_path)
         # transcript に今もある行の埋め込みだけ（切り出しで移った行や書き換え済みの古い項目を除く）
         present = {(p.timestamp, p.speaker_label) for ln in lines if (p := TranscriptLine.parse(ln))}
@@ -386,11 +389,12 @@ class _DashboardHandlerSpeakerOps:
                 return rec.label if tl.timestamp in targets and tl.speaker_label == rec.name else None
             reverted = {p.timestamp for ln in lines if (p := TranscriptLine.parse(ln)) and pick_line(p)}
             source = os.path.basename(t_path)
-            # 名簿にもストアにもいない＝削除ボタンで消された人。明示的に消した生体情報は戻さない。
-            # 戻すのは既にあったデータなので speaker_enrollment には関係なく戻す
+            # 名簿にもストアにもいない＝削除ボタンで消された人、noenroll＝塊の「消す」で消したサンプル。
+            # 明示的に消した生体情報は戻さない。戻すのは既にあったデータなので speaker_enrollment には関係なく戻す
             entry = entries.get(rec.label)
             restore = [VoiceSample(v.embedding, v.timestamp, source) for v in read_voices(t_path)
-                       if v.timestamp in reverted and v.timestamp in rec.removed and v.label == rec.name] \
+                       if v.timestamp in reverted and v.timestamp in rec.removed and v.label == rec.name
+                       and not v.no_enroll] \
                 if (entry.person if entry else rec.label in people) else []
             remove = {rec.name: {(source, ts) for ts in rec.added}} if rec.added else {}
             try:
@@ -410,11 +414,13 @@ class _DashboardHandlerSpeakerOps:
                 self._speaker_error("dash.speakers_write_error")
                 return
         removed, lost = len(change.removed.get(rec.name, ())), len(rec.added) - len(change.removed.get(rec.name, ()))
-        message = t("dash.naming_undone", label=rec.label, lines=restored, removed=removed)
+        given_back = len(change.added.get(rec.label, ()))
+        message = " ".join([t("dash.naming_undone", label=rec.label, lines=restored, removed=removed)]
+                           + ([t("dash.naming_undo_restored", count=given_back)] if given_back else [])
+                           + ([t("dash.naming_undo_lost", count=lost)] if lost else []))
         self._send_json({"status": "ok", "restored_lines": restored, "removed_samples": removed,
-                         "restored_samples": len(change.added.get(rec.label, ())), "lost_samples": lost,
-                         "has_summary": self._has_summary(t_path),
-                         "message": f"{message} {t('dash.naming_undo_lost', count=lost)}" if lost else message})
+                         "restored_samples": given_back, "lost_samples": lost,
+                         "has_summary": self._has_summary(t_path), "message": message})
 
     def _serve_voiceprints(self) -> None:
         """GET /api/voiceprints — 登録済みの人と件数"""

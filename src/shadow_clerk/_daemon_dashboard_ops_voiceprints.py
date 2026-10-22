@@ -12,10 +12,10 @@ from shadow_clerk._daemon_dashboard_base import read_local_json_body
 from shadow_clerk._daemon_naming_history import NamingHistoryError, read_history
 from shadow_clerk._daemon_speaker_naming import relabel_lines_where
 from shadow_clerk._daemon_voice_sidecar import mark_no_enroll, read_voices
-from shadow_clerk._daemon_voiceprint_clusters import cluster_samples, majority_shape
+from shadow_clerk._daemon_voiceprint_clusters import ClusterKind, cluster_samples, majority_shape
 from shadow_clerk._daemon_voiceprint_store import VoiceprintStore, VoiceprintStoreError
 from shadow_clerk.domain.transcript_line import TranscriptLine
-from shadow_clerk.domain.voiceprint import PersonName, SampleStatus, VoiceEntry
+from shadow_clerk.domain.voiceprint import PersonName, SampleStatus, VoiceEntry, VoiceSample
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -42,6 +42,23 @@ def _relabel_pickers(timestamps: set[str], old: str, new: str
     """ts ∈ timestamps で今も old のままの transcript 行・サイドカー行だけ new にする"""
     return (lambda tl: new if tl.timestamp in timestamps and tl.speaker_label == old else None,
             lambda e: new if e.timestamp in timestamps and e.label == old else None)
+
+
+def _view_clusters(samples: list[VoiceSample]) -> list[tuple[ClusterKind, float, list[VoiceSample]]]:
+    """塊ごとの (種類, 類似度, サンプル)。人が戻した（KEPT）サンプルは照合に使うので、除外中の塊から
+    「いつもの声」へ移して見せる。空になった除外中の塊は出さない"""
+    out: list[tuple[ClusterKind, float, list[VoiceSample]]] = []
+    kept: list[VoiceSample] = []
+    for c in cluster_samples([s.embedding for s in samples]):
+        members = [samples[i] for i in c.members]
+        if c.kind is ClusterKind.OUTLIER:
+            kept += [s for s in members if s.status is SampleStatus.KEPT]
+            members = [s for s in members if s.status is not SampleStatus.KEPT]
+        if members:
+            out.append((c.kind, c.similarity, members))
+    if kept:
+        out[0][2].extend(kept)  # 先頭は必ず MAIN（KEPT があればサンプルは空でない）
+    return out
 
 
 class _DashboardHandlerVoiceprintOps:
@@ -102,13 +119,12 @@ class _DashboardHandlerVoiceprintOps:
             return texts[base].get(ts, "")
 
         clusters = []
-        for c in cluster_samples([s.embedding for s in samples]):
-            members = [samples[i] for i in c.members]
+        for kind, similarity, members in _view_clusters(samples):
             by_source = _timestamps_by_source([s.key for s in members])
             examples = [text_at(*s.key) for s in members[:_EXAMPLE_KEYS]]
             clusters.append({
-                "kind": c.kind.value, "count": len(members), "similarity": round(c.similarity, 3),
-                "keys": [list(s.key) for s in members],
+                "kind": kind.value, "count": len(members), "similarity": round(similarity, 3),
+                "keys": [list(s.key) for s in members], "statuses": [s.status.value for s in members],
                 "sources": [{"file": f, "count": len(ts), "labels": self._history_labels(f, name.value, ts)}
                             for f, ts in by_source.items()],
                 "example": max(examples, key=len, default=""),
@@ -192,4 +208,4 @@ class _DashboardHandlerVoiceprintOps:
         except (VoiceprintStoreError, OSError):
             self._speaker_error("dash.voiceprint_store_error")
             return
-        self._send_json({"status": "ok", "restored": restored})
+        self._send_json({"status": "ok", "restored": restored, "message": t("dash.vp_restored", count=restored)})

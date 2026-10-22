@@ -31,7 +31,8 @@ const I18N={'dash.speakers_count':'発話 {count} 件','dash.speakers_samples':'
   'dash.summary_started':'STARTED','dash.relabel_count':'{count} 行','speaker.mic':'自分',
   'dash.voiceprints_empty':'EMPTY','dash.delete':'削除','dash.voiceprint_delete_confirm':'{name} を消す？',
   'dash.naming_history_title':'HISTORY','dash.naming_undo':'UNDO','dash.naming_undone_mark':'UNDONE',
-  'dash.naming_undo_confirm':'{label} → {name} を取り消す？','dash.vp_show':'DETAILS'};
+  'dash.naming_undo_confirm':'{label} → {name} を取り消す？','dash.vp_show':'DETAILS',
+  'dash.naming_history_error':'HISTERR'};
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function escAttr(s){return esc(s).replace(/"/g,'&quot;');}
 function el(){return {children:[],_h:'',textContent:'',value:'',disabled:false,dataset:{},
@@ -194,6 +195,9 @@ let groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true,'花�
   await hrows[0].children.find(c=>c.tagName==='BUTTON').onclick();
   out.undoPosted=posted.slice();out.undoToasts=toasts.slice();out.undoLoaded=loaded.slice();out.undoConfirms=confirms.slice();
   out.histAfter=els.spkHistory.children.length;
+  speakersResp={status:'ok',labels:[],suggestions:[],active:false,enrollment:true,history:[],history_error:true};
+  await openSpeakerModal();
+  out.histErr=els.spkHistory.children.map(c=>c.textContent);
   console.log(JSON.stringify(out));
 })();
 """
@@ -284,5 +288,6 @@ check("履歴: 取り消すは確認して file と id を送り、トースト�
       and out["undoLoaded"] == ["T:transcript-202610091000.txt", "R:transcript-202610091000.txt"],
       repr((out["undoConfirms"], out["undoPosted"], out["undoToasts"], out["undoLoaded"])))
 check("履歴: 取り消し後はモーダルを開き直して最新の履歴（空なら何も出さない）", out["histAfter"] == 0, repr(out["histAfter"]))
+check("履歴: 読めないときは空ではなくエラーを出す", out["histErr"] == ["HISTERR"], repr(out["histErr"]))
 check("誰もいなければ空表示", out["peopleNone"] == [0, "EMPTY"], repr(out["peopleNone"]))
 sys.exit(0 if all(results) else 1)

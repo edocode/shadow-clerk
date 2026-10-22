@@ -79,13 +79,14 @@ async function openSpeakerModal(){
     box.appendChild(row);
   }
   document.getElementById('spkSaveBtn').disabled=!d.labels.length||!!(d.active||d.translating);
-  renderNamingHistory(d.history||[]);
+  renderNamingHistory(d.history||[],d.history_error);
   await loadVoiceprints();
   document.getElementById('speakerModal').classList.add('open');
 }
 function _span(text,cls){const s=document.createElement('span');s.textContent=text;if(cls)s.className=cls;return s;}
-function renderNamingHistory(items){
+function renderNamingHistory(items,error){
   const box=document.getElementById('spkHistory');box.innerHTML='';
+  if(error){box.appendChild(_span(I18N['dash.naming_history_error'],'spk-meta'));return;}
   if(!items.length)return;
   const h=document.createElement('div');h.className='spk-sub';h.textContent=I18N['dash.naming_history_title'];box.appendChild(h);
   for(const r of items){
