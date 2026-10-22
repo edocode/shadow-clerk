@@ -173,6 +173,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_files()
         elif path == "/api/transcript":
             self._serve_transcript()
+        elif path == "/api/file":
+            self._serve_raw_file()
         elif path == "/api/translation":
             self._serve_translation()
         elif path == "/api/logs":
@@ -467,6 +469,21 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             pass
         self._send_json({
             "file": os.path.basename(filepath), "lines": lines})
+
+    def _serve_raw_file(self) -> None:
+        """GET /api/file?name= — transcript とその派生ファイルを中身のまま返す（ヘッダのリンク用）"""
+        name = parse_qs(urlparse(self.path).query).get("name", [""])[0]
+        path = os.path.join(self.recorder._output_dir, name)
+        if os.path.basename(name) != name or TranscriptName.owning(name) is None or not os.path.isfile(path):
+            self.send_error(404)
+            return
+        with open(path, "rb") as f:
+            body = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def _serve_translation(self) -> None:
         params = parse_qs(urlparse(self.path).query)

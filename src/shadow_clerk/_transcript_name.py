@@ -83,6 +83,18 @@ class TranscriptName:
         return cls(m.group(1), m.group(2) or None), m.group(3)
 
     @classmethod
+    def owning(cls, filename: str) -> "TranscriptName | None":
+        """transcript・翻訳・summary・advice・analysis のファイル名から元の transcript を引く。
+        どれでもなければ None（同じディレクトリの config.yaml 等を弾くのに使う）"""
+        if tr := cls.parse_translation(filename):
+            return tr[0]
+        prefix, _, rest = filename.partition("-")
+        ext = {"transcript": ".txt", "summary": ".md", "advice": ".md", "analysis": ".md"}.get(prefix)
+        if not ext or not rest.endswith(ext):
+            return None
+        return cls.parse(f"transcript-{rest[:-len(ext)]}.txt")
+
+    @classmethod
     def from_date_str(cls, date_str: str) -> "TranscriptName":
         """日付文字列から TranscriptName を生成。
         date_str は "YYYYMMDD", "YYYYMMDDHHMM", "YYYYMMDDHHMM@name" のいずれか。

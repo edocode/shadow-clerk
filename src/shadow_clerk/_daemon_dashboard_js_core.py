@@ -260,7 +260,7 @@ async function fetchStatus(){
 const es=new EventSource('/api/events');
 es.addEventListener('transcript',e=>{
   const d=JSON.parse(e.data);
-  if(!curFile||curFile===d.file){addLines('tp',d.diff,fmtTranscriptLine);document.getElementById('tf').textContent=d.file;}
+  if(!curFile||curFile===d.file){addLines('tp',d.diff,fmtTranscriptLine);setFileLabel('tf',d.file);}
 });
 es.addEventListener('translation',e=>{
   const d=JSON.parse(e.data);
@@ -269,7 +269,7 @@ es.addEventListener('translation',e=>{
   if(curFile&&!d.file.startsWith(curFile.replace(/\\.txt$/,'-')))return;
   const el=document.getElementById('rp');
   const msg=el.querySelector('.translating-msg');if(msg)msg.remove();
-  addLines('rp',d.diff,fmtLine);document.getElementById('rf').textContent=d.file;
+  addLines('rp',d.diff,fmtLine);setFileLabel('rf',d.file);
 });
 es.addEventListener('advice',e=>{
   try{const d=JSON.parse(e.data);
@@ -307,6 +307,13 @@ function linkifyFiles(root){
     frag.append(n.data.slice(last));n.replaceWith(frag);
   });
 }
+/* ペインのヘッダに出すファイル名。中身をそのまま別タブで開くリンクにする */
+function setFileLabel(id,name){
+  const el=document.getElementById(id);if(!el||el.textContent===(name||''))return;
+  el.textContent='';if(!name)return;
+  const a=document.createElement('a');a.textContent=name;a.target='_blank';a.rel='noopener';
+  a.href='/api/file?name='+encodeURIComponent(name);el.append(a);
+}
 function _fileRefLink(m){
   const a=document.createElement('a');a.textContent=m[0];
   if(!m[1]){a.href='/api/screenshot?file='+encodeURIComponent(m[0]);a.target='_blank';a.rel='noopener';return a;}
@@ -330,7 +337,7 @@ function _renderGenerated(paneId,labelId,d,emptyKey){
     ?'<div class="md-body">'+d.html+'</div>'
     :'<div style="color:var(--muted);font-size:12px;padding:8px">'+esc(I18N[emptyKey]||'')+'</div>';
   decorateSay(el);linkifyFiles(el);
-  const lbl=document.getElementById(labelId);if(lbl)lbl.textContent=d.file||'';
+  setFileLabel(labelId,d.file);
   if(wasBottom)el.scrollTop=el.scrollHeight;
 }
 es.addEventListener('log',e=>{

@@ -24,13 +24,14 @@ def check(label: str, ok: bool, detail: str = "") -> None:
 
 # 正規表現からリンク生成までを切り出して動かす（DOM の走査は実ブラウザで見る）
 _SRC = _JS_TEMPLATE_CORE[_JS_TEMPLATE_CORE.index("const FILE_REF_RE"):_JS_TEMPLATE_CORE.index("function linkifyFiles")]
-_SRC += _JS_TEMPLATE_CORE[_JS_TEMPLATE_CORE.index("function _fileRefLink"):
+_SRC += _JS_TEMPLATE_CORE[_JS_TEMPLATE_CORE.index("function setFileLabel"):
                           _JS_TEMPLATE_CORE.index("/* 下端追従")]
 
 _BODY = r"""
 const calls=[];let curFile='transcript-20261020.txt';
 const fileInfo={'transcript-20261020.txt':{},'transcript-202610201529@ad-hoc.txt':{},'transcript-202609081610@勉強会.txt':{}};
-const document={createElement:()=>({})};
+const label={textContent:'',kids:[],append(a){this.kids.push(a);this.textContent=a.textContent;}};
+const document={createElement:()=>({}),getElementById:id=>id==='sf'?label:null};
 function selectMtgFile(f){calls.push(['sel',f]);}
 function switchSumTab(t){calls.push(['tab',t]);}
 const texts=[
@@ -46,6 +47,9 @@ const out=texts.map(t=>[...t.matchAll(FILE_REF_RE)].map(m=>{
   if(a.onclick)a.onclick({preventDefault(){},stopPropagation(){}});
   return [m[0],a.href,a.target||'',calls.slice()];
 }));
+setFileLabel('sf','summary-202610201529@ad-hoc.md');const first=label.kids.length;
+setFileLabel('sf','summary-202610201529@ad-hoc.md');
+out.push({first,again:label.kids.length,href:label.kids[0].href,target:label.kids[0].target});
 console.log(JSON.stringify(out));
 """
 
@@ -70,6 +74,10 @@ def main() -> None:
           repr(out[2]))
     check("語の途中や transcript の無いファイル名はリンクにしない",
           out[3] == [["summary-20990101.md", None]], repr(out[3]))
+
+    check("ヘッダのファイル名は中身を別タブで開くリンクにし、同じ名前なら作り直さない", out[4] == {
+        "first": 1, "again": 1, "href": "/api/file?name=summary-202610201529%40ad-hoc.md", "target": "_blank"},
+        repr(out[4]))
 
 
 if __name__ == "__main__":
