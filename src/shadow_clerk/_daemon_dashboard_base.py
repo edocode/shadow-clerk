@@ -15,6 +15,7 @@ from shadow_clerk._daemon_log_buffer import _SSE_CLOSE_EVENT
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_summary_regen import regenerate_summary
 from shadow_clerk._daemon_dashboard_html import _HTML_TEMPLATE
+from shadow_clerk._transcript_attendees import read_attendees
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk._markdown import render_markdown
 from shadow_clerk.domain import ConsoleRole
@@ -113,22 +114,6 @@ def read_local_json_body(handler: Any, label: str) -> dict | None:
         handler._send_json({"status": "error", "message": "request body must be a JSON object"})
         return None
     return data
-
-
-def read_attendees(transcript_path: str) -> list[str]:
-    """transcript と同じディレクトリの attendees.json から参加予定者を返す。無ければ空"""
-    tn = TranscriptName.parse(os.path.basename(transcript_path))
-    if tn is None:
-        return []
-    try:
-        with open(os.path.join(os.path.dirname(transcript_path), tn.attendees_filename),
-                  "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return []
-    if not isinstance(data, dict):
-        return []
-    return [a for a in (data.get("attendees") or []) if isinstance(a, str) and a.strip()]
 
 
 def transcript_path_in(output_dir: str, file_param: object) -> str | None:

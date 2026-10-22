@@ -300,3 +300,19 @@ def test_candidate_pools_majority_dimension_and_unreadable(store) -> None:
     os.utime(store.path, ns=(1, os.stat(store.path).st_mtime_ns + 10**9))
     with pytest.raises(VoiceprintStoreError):
         store.candidate_pools()
+
+
+def test_candidate_pools_cache_sees_replaced_file(store) -> None:
+    """mtime・サイズが同じでも別ファイルに置き換わったら読み直す（inode も見る）"""
+    store.add({PersonName("alice"): [_sample(1)]})
+    assert set(store.candidate_pools()) == {"alice"}
+    st = os.stat(store.path)
+    with open(store.path, encoding="utf-8") as f:
+        text = f.read().replace('"alice"', '"carol"')
+    tmp = store.path + ".new"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
+    os.replace(tmp, store.path)
+    assert os.stat(store.path).st_size == st.st_size
+    assert set(store.candidate_pools()) == {"carol"}

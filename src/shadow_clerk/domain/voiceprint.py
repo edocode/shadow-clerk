@@ -94,13 +94,18 @@ class VoiceSample:
 
 @dataclass(frozen=True, eq=False)
 class VoiceEntry:
-    """voices サイドカーの1行: 話者分離が付けたラベルと、その発話の埋め込み・発話秒数"""
+    """voices サイドカーの1行: transcript に書いたラベルと、その発話の埋め込み・発話秒数。
+
+    cluster は話者分離が付けた会議内ラベル（相手A 等）、auto は声紋照合で名前を付けたとき true
+    """
 
     timestamp: str
     label: str
     embedding: np.ndarray
     duration: float | None = None
     no_enroll: bool = False
+    cluster: str | None = None
+    auto: bool = False
 
     def to_json_line(self) -> str:
         d: dict = {"ts": self.timestamp, "label": self.label, "emb": encode_embedding(self.embedding)}
@@ -108,6 +113,10 @@ class VoiceEntry:
             d["dur"] = round(self.duration, 2)
         if self.no_enroll:
             d["noenroll"] = True
+        if self.cluster is not None:
+            d["cluster"] = self.cluster
+        if self.auto:
+            d["auto"] = True
         return json.dumps(d, ensure_ascii=False) + "\n"
 
     @classmethod
@@ -115,8 +124,9 @@ class VoiceEntry:
         """1行をパースする。書きかけ・壊れた行は None"""
         try:
             d = json.loads(line)
-            dur = d.get("dur")
+            dur, cluster = d.get("dur"), d.get("cluster")
             return cls(str(d["ts"]), str(d["label"]), decode_embedding(d["emb"]),
-                       None if dur is None else float(dur), d.get("noenroll") is True)
+                       None if dur is None else float(dur), d.get("noenroll") is True,
+                       cluster if isinstance(cluster, str) else None, d.get("auto") is True)
         except (json.JSONDecodeError, KeyError, TypeError, ValueError, AttributeError):
             return None

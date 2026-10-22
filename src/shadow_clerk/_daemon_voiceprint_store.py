@@ -61,7 +61,7 @@ class VoiceprintStoreError(Exception):
 class VoiceprintStore:
     def __init__(self, path: str | None = None) -> None:
         self.path = path or VOICEPRINTS_FILE
-        self._pools_cache: tuple[tuple[int, int], dict[str, np.ndarray]] | None = None
+        self._pools_cache: tuple[tuple[int, int, int], dict[str, np.ndarray]] | None = None
 
     def _load(self) -> dict[str, list[dict]]:
         try:
@@ -85,12 +85,12 @@ class VoiceprintStore:
         return result
 
     def candidate_pools(self) -> dict[str, np.ndarray]:
-        """人 → (n, D) の埋め込み行列。外れ値を除き多数派の次元だけ、0 件の人は入れない。mtime が変わるまで前回の結果を返す"""
+        """人 → (n, D) の埋め込み行列。外れ値を除き多数派の次元だけ、0 件の人は入れない。mtime・サイズ・inode が変わるまで前回の結果を返す"""
         try:
             st = os.stat(self.path)
-            sig = (st.st_mtime_ns, st.st_size)
+            sig = (st.st_mtime_ns, st.st_size, st.st_ino)
         except FileNotFoundError:
-            sig = (0, 0)
+            sig = (0, 0, 0)
         except OSError as e:
             raise VoiceprintStoreError(f"{self.path}: {e}") from e
         if self._pools_cache and self._pools_cache[0] == sig:

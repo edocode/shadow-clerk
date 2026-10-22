@@ -217,7 +217,10 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         self.word_replacer = GlossaryReplacer()
 
         from shadow_clerk._daemon_speaker_diarization import SpeakerDiarizer
+        from shadow_clerk._daemon_voiceprint_store import VoiceprintStore
         self.diarizer = SpeakerDiarizer()
+        self.voiceprints = VoiceprintStore()  # 録音中の照合用（読み込みは mtime でキャッシュ）
+        self._voiceprint_warned_path: str | None = None
 
         # Push-to-Talk コマンドモード
         self._command_mode = False

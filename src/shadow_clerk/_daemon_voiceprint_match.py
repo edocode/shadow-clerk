@@ -47,12 +47,22 @@ def _score(emb: np.ndarray, pool: np.ndarray) -> float:
     return float(np.sort(sims, axis=1)[:, -k:].mean())
 
 
+def _unit_rows(emb: np.ndarray) -> np.ndarray:
+    """各行を L2 正規化した float32。ゼロ・非有限の行は捨てる"""
+    if emb.ndim != 2:
+        return np.empty((0, 0), dtype=np.float32)
+    norms = np.linalg.norm(emb, axis=1)
+    ok = np.isfinite(norms) & (norms > 1e-8)
+    return (emb[ok] / norms[ok, None]).astype(np.float32)
+
+
 def match_cluster(cluster: list[np.ndarray], pools: dict[str, np.ndarray], attendees: set[str]) -> MatchResult:
     cfg = load_config()
-    if not pools or len(cluster) < voiceprint_number(cfg, "voiceprint_min_utterances"):
+    min_n = max(voiceprint_number(cfg, "voiceprint_min_utterances"), 1)
+    if not pools or len(cluster) < min_n:
         return _NO_MATCH
-    emb = np.asarray([cluster[i] for i in majority_shape(cluster)], dtype=np.float32)
-    if len(emb) < voiceprint_number(cfg, "voiceprint_min_utterances"):
+    emb = _unit_rows(np.asarray([cluster[i] for i in majority_shape(cluster)], dtype=np.float64))
+    if len(emb) < min_n:
         return _NO_MATCH
     scores = sorted(((_score(emb, p), n) for n, p in pools.items() if p.ndim == 2 and p.shape[1] == emb.shape[1]),
                     reverse=True)
@@ -60,8 +70,10 @@ def match_cluster(cluster: list[np.ndarray], pools: dict[str, np.ndarray], atten
         return _NO_MATCH
     score, name = scores[0]
     margin = score - scores[1][0] if len(scores) > 1 else float("inf")
-    extra = 0.0 if name in attendees else voiceprint_number(cfg, "voiceprint_non_attendee_penalty")
-    if score >= voiceprint_number(cfg, "voiceprint_high") + extra and margin >= voiceprint_number(cfg, "voiceprint_margin"):
+    # 負の値は閾値を下げて名前を出しやすくするだけなので 0 で止める
+    extra = 0.0 if name in attendees else max(voiceprint_number(cfg, "voiceprint_non_attendee_penalty"), 0.0)
+    if (score >= voiceprint_number(cfg, "voiceprint_high") + extra
+            and margin >= max(voiceprint_number(cfg, "voiceprint_margin"), 0.0)):
         return MatchResult(Confidence.HIGH, name, score, margin)
     if score >= voiceprint_number(cfg, "voiceprint_low") + extra:
         return MatchResult(Confidence.LOW, name, score, margin)

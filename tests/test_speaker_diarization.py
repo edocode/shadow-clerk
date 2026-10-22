@@ -253,3 +253,22 @@ def test_daemon_main_import_keeps_fork_exit_safe():
                        capture_output=True, text=True, timeout=60)
     assert "ort_imported=False" in r.stdout, r.stdout + r.stderr
     assert "exited" in r.stdout, r.stdout + r.stderr
+
+
+def test_label_numbering_counts_sidecar_clusters(tmp_path):
+    """名前で表示した 相手A を、再起動後に別人へ振り直さない"""
+    from shadow_clerk._daemon_voice_sidecar import append_voice
+    t = tmp_path / "transcript-202610091000.txt"
+    t.write_text("[2026-10-09 10:00:00] [alice] あ\n", encoding="utf-8")
+    append_voice(str(t), "2026-10-09 10:00:00", "alice", _unit(1, 0), cluster="相手A", auto=True)
+    assert max_label_index(str(t)) == 1
+
+
+def test_cluster_embeddings_returns_a_copy(monkeypatch):
+    d = SpeakerDiarizer()
+    _fake(d, monkeypatch, _unit(1, 0))
+    d.identify_speaker(_silence(2.0))
+    got = d.cluster_embeddings("相手A")
+    assert len(got) == 1 and np.allclose(got[0], _unit(1, 0))
+    got.append(_unit(1, 0))
+    assert len(d.cluster_embeddings("相手A")) == 1 and d.cluster_embeddings("相手B") == []

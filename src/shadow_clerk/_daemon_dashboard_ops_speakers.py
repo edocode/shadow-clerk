@@ -10,7 +10,8 @@ from urllib.parse import parse_qs, urlparse
 
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_config import load_config
-from shadow_clerk._daemon_dashboard_base import read_attendees, read_local_json_body
+from shadow_clerk._daemon_dashboard_base import read_local_json_body
+from shadow_clerk._transcript_attendees import read_attendees
 from shadow_clerk._daemon_naming_history import NamingHistoryError, append_history, mark_undone, read_history
 from shadow_clerk._daemon_speaker_naming import (
     Decision, decide_assignment, line_target_picker, parse_assignment, relabel_lines_where, remap_offset,

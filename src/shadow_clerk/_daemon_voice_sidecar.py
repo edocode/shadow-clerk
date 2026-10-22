@@ -26,13 +26,13 @@ def voices_path(transcript_path: str) -> str | None:
 
 
 def append_voice(transcript_path: str, timestamp: str, label: str, embedding: np.ndarray,
-                 duration: float | None = None) -> None:
+                 duration: float | None = None, cluster: str | None = None, auto: bool = False) -> None:
     path = voices_path(transcript_path)
     if path is None:
         return
     try:
         with open(path, "a", encoding="utf-8") as f:
-            f.write(VoiceEntry(timestamp, label, embedding, duration).to_json_line())
+            f.write(VoiceEntry(timestamp, label, embedding, duration, cluster=cluster, auto=auto).to_json_line())
     except OSError as e:
         logger.warning("voices サイドカーに書けない: %s", e)
 
