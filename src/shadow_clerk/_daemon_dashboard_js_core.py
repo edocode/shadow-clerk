@@ -66,7 +66,7 @@ function fmtTranscriptLine(t){
 function addLines(id,text,fmt){
   const el=document.getElementById(id);
   // Windows の transcript ファイルは CRLF で保存されるため、行末の \\r を除去
-  text.split('\\n').forEach(l=>{const s=l.replace(/\\r$/,'');if(s.trim())el.insertAdjacentHTML('beforeend',fmt(s));});
+  text.split('\\n').forEach(l=>{const s=l.replace(/\\r$/,'');if(s.trim()){el.insertAdjacentHTML('beforeend',fmt(s));linkifyFiles(el.lastElementChild);}});
   if(as[id])el.scrollTop=el.scrollHeight;
 }
 /* --- Selection management --- */
@@ -289,6 +289,35 @@ function _sameStem(generated,transcript){
   const t=transcript.replace(/^transcript-/,'').replace(/\\.txt$/,'');
   return g===t;
 }
+/* 本文中の transcript/summary/analysis/advice/shot のファイル名をリンクにする。
+   キャプチャは画像を別タブで開き、それ以外は対応する transcript を選んで
+   summary なら要約タブ、analysis/advice なら AI タブを出す */
+const FILE_REF_RE=/(?<![\\w-])(?:(transcript|summary|analysis|advice)-(\\d{8}(?:\\d{4})?(?:@[^\\s`'"|\\/\\\\<>()（）「」、。,]+?)?)(?:-[a-z]{2})?\\.(?:txt|md)|shot-\\d{8}[^\\s`'"|\\/\\\\<>()（）「」、。,]*?\\.png)/g;
+function linkifyFiles(root){
+  if(!root)return;
+  const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),nodes=[];
+  for(let n=w.nextNode();n;n=w.nextNode())if(!n.parentElement.closest('a')&&n.data.search(FILE_REF_RE)>=0)nodes.push(n);
+  nodes.forEach(n=>{
+    const frag=document.createDocumentFragment();let last=0;
+    for(const m of n.data.matchAll(FILE_REF_RE)){
+      const a=_fileRefLink(m);if(!a)continue;
+      frag.append(n.data.slice(last,m.index),a);last=m.index+m[0].length;
+    }
+    if(!last)return;
+    frag.append(n.data.slice(last));n.replaceWith(frag);
+  });
+}
+function _fileRefLink(m){
+  const a=document.createElement('a');a.textContent=m[0];
+  if(!m[1]){a.href='/api/screenshot?file='+encodeURIComponent(m[0]);a.target='_blank';a.rel='noopener';return a;}
+  // 翻訳 (transcript-…-en.txt) は元の transcript に寄せる
+  const f=[m[1]==='transcript'&&m[0],'transcript-'+m[2]+'.txt'].find(c=>c&&fileInfo[c]);
+  if(!f)return null;
+  a.href='#'+encodeURIComponent(f);
+  a.onclick=e=>{e.preventDefault();e.stopPropagation();if(f!==curFile)selectMtgFile(f);
+    if(m[1]!=='transcript')switchSumTab(m[1]==='summary'?'summary':'ai');};
+  return a;
+}
 /* 下端追従は「行を足したあと」に判定すると scrollHeight が既に伸びていて
    条件が必ず偽になる。更新の前に捕まえておく */
 function nearBottom(el){return el.scrollTop+el.clientHeight>=el.scrollHeight-40;}
@@ -300,7 +329,7 @@ function _renderGenerated(paneId,labelId,d,emptyKey){
   el.innerHTML=(d.html&&d.html.trim())
     ?'<div class="md-body">'+d.html+'</div>'
     :'<div style="color:var(--muted);font-size:12px;padding:8px">'+esc(I18N[emptyKey]||'')+'</div>';
-  decorateSay(el);
+  decorateSay(el);linkifyFiles(el);
   const lbl=document.getElementById(labelId);if(lbl)lbl.textContent=d.file||'';
   if(wasBottom)el.scrollTop=el.scrollHeight;
 }

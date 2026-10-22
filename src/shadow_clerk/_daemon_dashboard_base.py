@@ -167,6 +167,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_sse()
         elif path == "/api/status":
             self._serve_status()
+        elif path == "/api/screenshot":
+            self._serve_screenshot()
         elif path == "/api/files":
             self._serve_files()
         elif path == "/api/transcript":

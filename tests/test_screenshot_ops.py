@@ -147,5 +147,48 @@ h = _FakeHandler({})
 h._save_screenshot()
 check("20. image が無いリクエストを拒否する", h.sent.get("status") == "error")
 
+# --- GET: 保存したキャプチャを返す ---
+
+
+class _GetHandler(Ops):
+    """_serve_screenshot を呼ぶための最小の器"""
+
+    def __init__(self, name: str) -> None:
+        self.path = "/api/screenshot?file=" + __import__("urllib.parse").parse.quote(name)
+        self.wfile = io.BytesIO()
+        self.status = 0
+
+    def send_error(self, code: int, *_: object) -> None:
+        self.status = code
+
+    def send_response(self, code: int, *_: object) -> None:
+        self.status = code
+
+    def send_header(self, *_: object) -> None:
+        pass
+
+    def end_headers(self) -> None:
+        pass
+
+
+with tempfile.TemporaryDirectory() as d:
+    _saved_data_dir = _ops_mod.DATA_DIR
+    _ops_mod.DATA_DIR = d
+    shot = "shot-202609071358@定例-142144.png"
+    with open(os.path.join(d, shot), "wb") as f:
+        f.write(b"\x89PNG")
+    with open(os.path.join(d, "config.yaml"), "w", encoding="utf-8") as f:
+        f.write("a: 1\n")
+    h = _GetHandler(shot)
+    h._serve_screenshot()
+    check("21. 保存したキャプチャを返す", h.status == 200 and h.wfile.getvalue() == b"\x89PNG")
+    for i, bad in enumerate(["config.yaml", "shot-../config.yaml.png", "shot-x/../../a.png",
+                             "shot-none.png", ""], 22):
+        h = _GetHandler(bad)
+        h._serve_screenshot()
+        check(f"{i}. キャプチャ以外・存在しない名前は 404 ({bad!r})",
+              h.status == 404 and not h.wfile.getvalue())
+    _ops_mod.DATA_DIR = _saved_data_dir
+
 print(f"\n=== {sum(results)}/{len(results)} PASS ===")
 raise SystemExit(0 if all(results) else 1)

@@ -139,7 +139,7 @@ async function loadT(file){
   try{const u=file?'/api/transcript?file='+encodeURIComponent(file):'/api/transcript';
   const d=await(await fetch(u)).json();if(g!==_tGen)return;
   const el=document.getElementById('tp');el.innerHTML='';
-  d.lines.forEach(l=>el.insertAdjacentHTML('beforeend',fmtTranscriptLine(l)));
+  d.lines.forEach(l=>el.insertAdjacentHTML('beforeend',fmtTranscriptLine(l)));linkifyFiles(el);
   document.getElementById('tf').textContent=d.file;el.scrollTop=el.scrollHeight;}catch(e){}
 }
 async function loadR(file){
@@ -150,7 +150,7 @@ async function loadR(file){
   if(d.translating&&!d.lines.length){
     el.insertAdjacentHTML('beforeend','<div class="translating-msg">'+esc(I18N['dash.translating'])+'</div>');
   }else{
-    d.lines.forEach(l=>el.insertAdjacentHTML('beforeend',fmtLine(l)));
+    d.lines.forEach(l=>el.insertAdjacentHTML('beforeend',fmtLine(l)));linkifyFiles(el);
   }
   document.getElementById('rf').textContent=d.file;el.scrollTop=el.scrollHeight;}catch(e){}
 }
@@ -275,6 +275,7 @@ async function loadS(file){
       el.innerHTML=attHtml+(sumD.html
         ?'<div class="md-body">'+sumD.html+'</div>'
         :'<div class="summary-body">'+esc(sumD.content)+'</div>');
+      linkifyFiles(el);
     }else{
       el.innerHTML=attHtml+'<div class="summary-empty"><div style="color:var(--muted);margin-bottom:8px">'+esc(I18N['dash.no_summary']||'No summary.')+'</div>'
         +'<button class="pri" onclick="genSummary()">'+esc(I18N['dash.summary']||'Summary')+'</button></div>';
