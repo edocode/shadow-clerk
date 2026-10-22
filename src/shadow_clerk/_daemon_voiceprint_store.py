@@ -113,6 +113,21 @@ class VoiceprintStore:
                 people[name.value] = merged[-cap:] if cap > 0 else merged
             self._save(people)
 
+    def relocate_source(self, old: str, new: str, ts_range: tuple[str, str] | None = None) -> int:
+        """source が old（かつ ts_range 内の recorded_at）のサンプルの source を new に付け替え、件数を返す"""
+        n = 0
+        with _lock:
+            people = self._load()
+            for samples in people.values():
+                for d in samples:
+                    if (isinstance(d, dict) and d.get("source") == old
+                            and (ts_range is None or ts_range[0] <= str(d.get("recorded_at", "")) <= ts_range[1])):
+                        d["source"] = new
+                        n += 1
+            if n:
+                self._save(people)
+        return n
+
     def delete(self, name: str) -> bool:
         with _lock:
             people = self._load()

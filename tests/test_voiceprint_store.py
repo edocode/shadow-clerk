@@ -130,3 +130,16 @@ def test_broken_file_invalid_utf8_is_never_overwritten(store) -> None:
         store.people()
     with open(store.path, "rb") as f:
         assert f.read() == content_bytes
+
+
+def test_relocate_source_all_and_range(store) -> None:
+    old, new = "transcript-202610091000.txt", "transcript-202610091000@acme.txt"
+    mk = lambda seed, ts, src: VoiceSample(_sample(seed).embedding, ts, src)  # noqa: E731
+    store.add({PersonName("太郎"): [mk(1, "2026-10-09 10:00:01", old), mk(2, "2026-10-09 10:00:09", old),
+                                    mk(3, "2026-10-09 10:00:01", "other.txt")]})
+    assert store.relocate_source(old, new, ("2026-10-09 10:00:05", "2026-10-09 10:00:10")) == 1
+    keys = {s.key for s in store.samples(PersonName("太郎"))}
+    assert keys == {(old, "2026-10-09 10:00:01"), (new, "2026-10-09 10:00:09"), ("other.txt", "2026-10-09 10:00:01")}
+    assert store.relocate_source(old, new) == 1
+    assert {s.source for s in store.samples(PersonName("太郎"))} == {new, "other.txt"}
+    assert store.relocate_source(old, new) == 0

@@ -22,6 +22,7 @@ import pytest  # noqa: E402
 from shadow_clerk.i18n import t  # noqa: E402
 from shadow_clerk._daemon_dashboard_ops import _DashboardHandlerOps  # noqa: E402
 from shadow_clerk._daemon_dashboard_ops_meeting import _DashboardHandlerMeetingOps  # noqa: E402
+from shadow_clerk._daemon_dashboard_ops_config import _DashboardHandlerConfigOps  # noqa: E402
 from shadow_clerk._daemon_dashboard_ops_speakers import _DashboardHandlerSpeakerOps  # noqa: E402
 from shadow_clerk._daemon_voice_sidecar import append_voice, read_voices  # noqa: E402
 from shadow_clerk._daemon_speaker_names import SpeakerNameBook  # noqa: E402
@@ -50,7 +51,7 @@ class _Rec:
         return os.path.abspath(path) in self.translating
 
 
-class _H(_DashboardHandlerSpeakerOps, _DashboardHandlerMeetingOps, _DashboardHandlerOps):
+class _H(_DashboardHandlerSpeakerOps, _DashboardHandlerMeetingOps, _DashboardHandlerConfigOps, _DashboardHandlerOps):
     def __init__(self, body: object = None, path: str = "/", rec: _Rec | None = None) -> None:
         raw = json.dumps(body if body is not None else {}).encode("utf-8")
         self.client_address = ("127.0.0.1", 1)
@@ -585,3 +586,63 @@ def test_unknown_label_line_can_be_reassigned() -> None:
     assert h.sent["status"] == "ok" and h.sent["renamed"] == 1, h.sent
     assert "[alice] 短い" in _read(MTG)
     assert VoiceprintStore().people() == {}
+
+
+def _record(path: str, rec) -> None:
+    from shadow_clerk._daemon_naming_history import append_history
+    append_history(path, [rec])
+
+
+def test_rename_keeps_history_and_sources() -> None:
+    from shadow_clerk._daemon_naming_history import read_history
+    from shadow_clerk.domain.naming_history import NamingRecord
+    from shadow_clerk.domain.voiceprint import PersonName, VoiceSample
+    ts = "2026-10-09 10:00:01"
+    _record(_p(MTG), NamingRecord("r1", "2026-10-09 12:00:00", "相手A", "alice", True, (ts,), (ts,), ()))
+    VoiceprintStore().add({PersonName("alice"): [VoiceSample(_vec(1), ts, MTG)]})
+    h = _H({"file": MTG, "name": "acme"})
+    h._rename_meeting()
+    new = "transcript-202610091000@acme.txt"
+    assert h.sent["status"] == "ok" and h.sent["new_file"] == new, h.sent
+    assert [r.id for r in read_history(_p(new))] == ["r1"]
+    assert not os.path.exists(_p("transcript-202610091000@週次定例.naming.jsonl"))
+    assert [s.source for s in VoiceprintStore().samples(PersonName("alice"))] == [new]
+
+
+def test_rename_succeeds_with_broken_store() -> None:
+    with open(_p("voiceprints.json"), "w", encoding="utf-8") as f:
+        f.write("{broken")
+    h = _H({"file": MTG, "name": "acme"})
+    h._rename_meeting()
+    assert h.sent["status"] == "ok", h.sent
+
+
+def test_delete_transcript_removes_history() -> None:
+    from shadow_clerk.domain.naming_history import NamingRecord
+    _record(_p(MTG), NamingRecord("r1", "2026-10-09 12:00:00", "相手A", "alice", True, (), (), ()))
+    hist = _p("transcript-202610091000@週次定例.naming.jsonl")
+    assert os.path.exists(hist)
+    h = _H({"file": MTG})
+    h._delete_transcript_file()
+    assert h.sent["status"] == "ok", h.sent
+    assert not os.path.exists(hist) and not os.path.exists(_p(MTG))
+
+
+def test_extract_meeting_splits_history() -> None:
+    from shadow_clerk._daemon_naming_history import read_history
+    from shadow_clerk.domain.naming_history import NamingRecord
+    from shadow_clerk.domain.voiceprint import PersonName, VoiceSample
+    daily = "transcript-20261009.txt"
+    with open(_p(daily), "w", encoding="utf-8") as f:
+        f.write("[2026-10-09 09:00:00] [alice] 朝\n[2026-10-09 11:00:00] [alice] 昼\n")
+    am, pm = "2026-10-09 09:00:00", "2026-10-09 11:00:00"
+    _record(_p(daily), NamingRecord("r1", "2026-10-09 12:00:00", "相手A", "alice", True, (am, pm), (am, pm), ()))
+    VoiceprintStore().add({PersonName("alice"): [VoiceSample(_vec(1), am, daily), VoiceSample(_vec(2), pm, daily)]})
+    h = _H({"file": daily, "start_ts": "2026-10-09 10:30:00", "end_ts": "2026-10-09 11:30:00",
+            "target": "new", "name": "昼会"})
+    h._extract_meeting()
+    assert h.sent["status"] == "ok", h.sent
+    new = "transcript-202610091030@昼会.txt"
+    assert [r.lines for r in read_history(_p(new))] == [(pm,)]
+    assert [r.lines for r in read_history(_p(daily))] == [(am,)]
+    assert {s.key for s in VoiceprintStore().samples(PersonName("alice"))} == {(daily, am), (new, pm)}

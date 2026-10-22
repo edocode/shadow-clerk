@@ -11,6 +11,7 @@ import yaml
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import GLOSSARY_FILE, CONFIG_PRESETS_FILE, TALK_PRESETS_FILE, DEFAULT_CONFIG
 from shadow_clerk._daemon_config import load_config
+from shadow_clerk._daemon_voiceprint_store import VoiceprintStore, VoiceprintStoreError
 from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name
 
 try:
@@ -278,6 +279,10 @@ class _DashboardHandlerConfigOps:
             return
 
         new_transcript = new_tn.filename
+        try:
+            VoiceprintStore().relocate_source(file_param, new_transcript)
+        except (VoiceprintStoreError, OSError) as e:
+            logger.warning("声紋サンプルの source を付け替えられない: %s", e)
         logger.info("会議リネーム: %s → %s (%d files)", file_param, new_transcript, len(renamed))
         self._send_json({"status": "ok", "new_file": new_transcript, "renamed": len(renamed)})
 

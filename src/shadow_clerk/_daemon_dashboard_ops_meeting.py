@@ -3,6 +3,7 @@
 from __future__ import annotations
 import datetime
 import json
+import logging
 import os
 import re
 from shadow_clerk.i18n import t
@@ -10,7 +11,9 @@ from shadow_clerk._daemon_dashboard_base import transcript_path_in
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name
 from shadow_clerk.domain import MEETING_END_MARKER, TranscriptRewrite, meeting_start_marker
+from shadow_clerk._daemon_naming_history import NamingHistoryError, split_history
 from shadow_clerk._daemon_voice_sidecar import copy_voice_range
+from shadow_clerk._daemon_voiceprint_store import VoiceprintStore, VoiceprintStoreError
 
 
 def _start_marker_at(ts: str) -> str:
@@ -21,8 +24,21 @@ def _start_marker_at(ts: str) -> str:
         return "--- 会議開始 ---\n"
 
 
+logger = logging.getLogger("shadow-clerk")
+
+
 class _DashboardHandlerMeetingOps:
     """会議切り出し・沈黙分割（ミックスイン）"""
+
+    @staticmethod
+    def _move_naming_to(src: str, dst: str, start_ts: str, end_ts: str) -> None:
+        """切り出した範囲の voices・名前付け履歴・声紋サンプルの source を dst へ移す。履歴やストアが読めなくても切り出しは続ける"""
+        copy_voice_range(src, dst, start_ts, end_ts)
+        try:
+            split_history(src, dst, start_ts, end_ts)
+            VoiceprintStore().relocate_source(os.path.basename(src), os.path.basename(dst), (start_ts, end_ts))
+        except (NamingHistoryError, VoiceprintStoreError, OSError) as e:
+            logger.warning("名前付け履歴・声紋サンプルを切り出し先へ移せない: %s", e)
 
     def _extract_meeting(self) -> None:
         """POST /api/transcript/extract-meeting — タイムスタンプ範囲の行を会議ファイルへ移動"""
@@ -84,7 +100,7 @@ class _DashboardHandlerMeetingOps:
                     f.write(_start_marker_at(start_ts))
                     f.writelines(extracted)
                     f.write(MEETING_END_MARKER)
-                copy_voice_range(t_path, meeting_path, start_ts, end_ts)
+                self._move_naming_to(t_path, meeting_path, start_ts, end_ts)
             else:
                 # 既存会議ファイルにマージ
                 meeting_name = os.path.basename(target)
@@ -348,7 +364,7 @@ class _DashboardHandlerMeetingOps:
                     f.writelines(l for _, l in seg)
                     f.write(MEETING_END_MARKER)
                 seg_ts = [m.group(1) for _, l in seg if (m := ts_pattern.match(l))]
-                copy_voice_range(t_path, meeting_path, seg_ts[0], seg_ts[-1])
+                self._move_naming_to(t_path, meeting_path, seg_ts[0], seg_ts[-1])
                 created.append(meeting_name)
 
             # 元ファイルから分割済み行を削除（一時ファイル→rename で安全に書き戻し）
