@@ -274,3 +274,29 @@ def test_non_numeric_config_falls_back_to_defaults(store, monkeypatch) -> None:
     samples = _cluster_samples()
     store.update({PersonName("太郎"): samples}, {})
     assert _statuses(store, "太郎")[samples[-1].key] is SampleStatus.OUTLIER
+
+
+def test_candidate_pools_skip_outliers_and_cache(store) -> None:
+    ok, bad = _sample(1), _sample(2, "2026-10-09 10:00:01")
+    store.add({PersonName("太郎"): [ok, bad], PersonName("次郎"): [_sample(3)]})
+    store.set_status("太郎", {bad.key}, SampleStatus.OUTLIER)
+    store.set_status("次郎", {_sample(3).key}, SampleStatus.OUTLIER)
+    pools = store.candidate_pools()
+    assert set(pools) == {"太郎"} and pools["太郎"].shape == (1, 256)
+    assert float(pools["太郎"][0] @ ok.embedding) > 0.999
+    assert store.candidate_pools() is pools
+    store.add({PersonName("花子"): [_sample(4)]})
+    os.utime(store.path, ns=(1, os.stat(store.path).st_mtime_ns + 10**9))
+    fresh = store.candidate_pools()
+    assert fresh is not pools and set(fresh) == {"太郎", "花子"}
+
+
+def test_candidate_pools_majority_dimension_and_unreadable(store) -> None:
+    odd = VoiceSample(np.ones(8, dtype=np.float32) / np.sqrt(8), "2026-10-09 10:00:09", "t.txt")
+    store.add({PersonName("太郎"): [_sample(1), _sample(2, "2026-10-09 10:00:02"), odd]})
+    assert store.candidate_pools()["太郎"].shape == (2, 256)
+    with open(store.path, "w") as f:
+        f.write("{broken")
+    os.utime(store.path, ns=(1, os.stat(store.path).st_mtime_ns + 10**9))
+    with pytest.raises(VoiceprintStoreError):
+        store.candidate_pools()

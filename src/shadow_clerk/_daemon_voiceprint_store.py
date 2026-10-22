@@ -11,6 +11,8 @@ import os
 import threading
 from dataclasses import dataclass, field, replace
 
+import numpy as np
+
 from shadow_clerk import DATA_DIR
 from shadow_clerk._atomic_file import atomic_write_json
 from shadow_clerk._daemon_config import load_config
@@ -59,6 +61,7 @@ class VoiceprintStoreError(Exception):
 class VoiceprintStore:
     def __init__(self, path: str | None = None) -> None:
         self.path = path or VOICEPRINTS_FILE
+        self._pools_cache: tuple[tuple[int, int], dict[str, np.ndarray]] | None = None
 
     def _load(self) -> dict[str, list[dict]]:
         try:
@@ -80,6 +83,34 @@ class VoiceprintStore:
                 raise VoiceprintStoreError(f"{self.path}: samples for {name} is not a list")
             result[name] = list(samples or [])
         return result
+
+    def candidate_pools(self) -> dict[str, np.ndarray]:
+        """人 → (n, D) の埋め込み行列。外れ値を除き多数派の次元だけ、0 件の人は入れない。mtime が変わるまで前回の結果を返す"""
+        try:
+            st = os.stat(self.path)
+            sig = (st.st_mtime_ns, st.st_size)
+        except FileNotFoundError:
+            sig = (0, 0)
+        except OSError as e:
+            raise VoiceprintStoreError(f"{self.path}: {e}") from e
+        if self._pools_cache and self._pools_cache[0] == sig:
+            return self._pools_cache[1]
+        with _lock:
+            raw = self._load()
+        pools: dict[str, np.ndarray] = {}
+        for name, items in raw.items():
+            embs = []
+            for d in items:
+                try:
+                    s = VoiceSample.from_dict(d)
+                except (KeyError, TypeError, ValueError, AttributeError):
+                    continue
+                if s.status is not SampleStatus.OUTLIER:
+                    embs.append(s.embedding)
+            if embs := [embs[i] for i in majority_shape(embs)]:
+                pools[name] = np.stack(embs).astype(np.float32)
+        self._pools_cache = (sig, pools)
+        return pools
 
     def _save(self, people: dict[str, list[dict]]) -> None:
         atomic_write_json(self.path, {"version": _VERSION, "people": {n: {"samples": s} for n, s in people.items()}},

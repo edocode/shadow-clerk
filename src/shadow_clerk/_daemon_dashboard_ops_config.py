@@ -119,7 +119,9 @@ class _DashboardHandlerConfigOps:
                           ("voiceprint_max_samples", int), ("voiceprint_min_sec", float),
                           ("voiceprint_cluster_min_samples", int), ("voiceprint_cluster_distance", float),
                           ("voiceprint_main_similarity", float), ("voiceprint_outlier_max", int),
-                          ("voiceprint_outlier_ratio", float)):
+                          ("voiceprint_outlier_ratio", float), ("voiceprint_high", float),
+                          ("voiceprint_low", float), ("voiceprint_margin", float),
+                          ("voiceprint_non_attendee_penalty", float), ("voiceprint_min_utterances", int)):
             if key in config:
                 try:
                     config[key] = conv(config[key])
