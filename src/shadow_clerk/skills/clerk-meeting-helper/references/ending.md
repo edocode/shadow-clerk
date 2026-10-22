@@ -61,9 +61,11 @@ tail -3 <transcript>
 
 `GET /api/speaker-roster?file=<transcript のファイル名>` が、transcript の話者とその所属グループを返す。
 
-    {"self_group": "自社", "speakers": [{"label": "太郎", "group": "acme", "self": false, "person": true}, ...]}
+    {"self_group": "自社", "speakers": [{"label": "太郎", "group": "acme", "self": false, "person": true, "tentative": false}, ...]}
 
 - `label` は transcript 上の話者名。**このとおりに使う**。`相手A` のような名前は「名前の分からない話者」
+- `tentative: true`（`太郎?` のような label）は、会議中に声紋から推した**未確定**の名前。その人だと断定して
+  書かない（`太郎?` のまま書くか、「太郎と思われる話者」とする）。所属グループも付かない
 - `self: true` はユーザー本人（`[自分]`）。`self_group` がユーザーの所属
 - `person: false` は会社名・役割名のラベル（例: `acme`、`先方営業`）で、個人ではない
 - グループが2つ以上あるときは、決定事項・要望・宿題を**どのグループのものか明記して**整理する

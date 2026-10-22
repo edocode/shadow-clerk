@@ -8,7 +8,7 @@ from shadow_clerk._daemon_speaker_diarization import label_index
 from shadow_clerk.domain.speaker import Speaker
 from shadow_clerk.domain.speaker_group import GroupName, SpeakerEntry
 from shadow_clerk.domain.transcript_line import TranscriptLine
-from shadow_clerk.domain.voiceprint import PersonName
+from shadow_clerk.domain.voiceprint import PersonName, tentative_name
 
 
 _UNASSIGNED = frozenset({"相手?", Speaker.OTHER.value})
@@ -19,7 +19,16 @@ class LabelSummary:
     label: str
     count: int
     example: str  # 誰だったか思い出せるよう、最長の発話を見せる
-    named: bool = False  # 名前付け済み（相手A 等ではなく人名）
+    named: bool = False  # 名前付け済み（相手A 等ではなく人名）。「alice?」も含む
+
+    @property
+    def suggested(self) -> str | None:
+        """会議中の識別で「alice?」と出たラベルなら、確認用に事前入力する名前 alice"""
+        return tentative_name(self.label)
+
+    @property
+    def tentative(self) -> bool:
+        return self.suggested is not None
 
 
 def summarize_labels(lines: list[str]) -> list[LabelSummary]:
@@ -64,10 +73,12 @@ def line_target_picker(targets: set[tuple[str, str]], new_label: str) -> Callabl
 
 @dataclass(frozen=True)
 class Assignment:
-    """ダッシュボードから来た1件の割り当て。group None は台帳の値を保つ、"" はグループなし"""
+    """ダッシュボードから来た1件の割り当て。group None は台帳の値を保つ、"" はグループなし。
+    confirm: 会議中の識別で付いた行（サイドカーの auto）を、人が確認したとして声紋に足す"""
     name: PersonName
     group: str | None = None
     person: bool | None = None
+    confirm: bool = False
 
 
 def parse_assignment(raw: object) -> Assignment:
@@ -75,12 +86,13 @@ def parse_assignment(raw: object) -> Assignment:
         return Assignment(PersonName(raw))
     if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
         raise ValueError("割り当ての形式が不正")
-    group, person = raw.get("group"), raw.get("person")
-    if (group is not None and not isinstance(group, str)) or (person is not None and not isinstance(person, bool)):
+    group, person, confirm = raw.get("group"), raw.get("person"), raw.get("confirm", False)
+    if ((group is not None and not isinstance(group, str)) or (person is not None and not isinstance(person, bool))
+            or not isinstance(confirm, bool)):
         raise ValueError("割り当ての型が不正")
     if group is not None:
         group = GroupName(group).value if group.strip() else ""
-    return Assignment(PersonName(raw["name"]), group, person)
+    return Assignment(PersonName(raw["name"]), group, person, confirm)
 
 
 @dataclass(frozen=True)

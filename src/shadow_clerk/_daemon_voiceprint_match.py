@@ -11,6 +11,7 @@ import numpy as np
 
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_voiceprint_clusters import majority_shape, voiceprint_number
+from shadow_clerk.domain.voiceprint import TENTATIVE_MARK
 
 _TOP_K = 3
 
@@ -33,7 +34,7 @@ class MatchResult:
             case Confidence.HIGH:
                 return str(self.name)
             case Confidence.LOW:
-                return f"{self.name}?"
+                return f"{self.name}{TENTATIVE_MARK}"
         return cluster_label
 
 

@@ -57,6 +57,19 @@ class PersonName:
         object.__setattr__(self, "value", v)
 
 
+TENTATIVE_MARK = "?"  # 声紋の照合で自信が足りない名前に付ける印（「alice?」）。名前として断定しない
+
+
+def tentative_name(label: str) -> str | None:
+    """「alice?」形式の未確定ラベルなら alice。相手? のような未命名ラベルや名前として不正なものは None"""
+    if not label.endswith(TENTATIVE_MARK):
+        return None
+    try:
+        return PersonName(label[:-len(TENTATIVE_MARK)]).value
+    except ValueError:
+        return None
+
+
 class SampleStatus(str, Enum):
     NORMAL = "normal"
     OUTLIER = "outlier"

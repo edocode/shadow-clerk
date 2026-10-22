@@ -175,3 +175,13 @@ def test_legacy_entry_has_no_cluster() -> None:
     assert e is not None and e.cluster is None and e.auto is False
     line = e.to_json_line()
     assert '"cluster"' not in line and '"auto"' not in line
+
+
+def test_append_after_torn_tail_starts_a_new_line(tmp_path) -> None:
+    t = str(tmp_path / "transcript-202610091000.txt")
+    with open(voices_path(t), "w", encoding="utf-8") as f:
+        f.write('{"ts": "2026-10-09 10:00:00", "label": "相手A", "emb')
+    append_voice(t, "2026-10-09 10:00:01", "相手B", _vec(1))
+    assert [e.label for e in read_voices(t)] == ["相手B"]
+    append_voice(t, "2026-10-09 10:00:02", "相手C", _vec(2))
+    assert [e.label for e in read_voices(t)] == ["相手B", "相手C"]

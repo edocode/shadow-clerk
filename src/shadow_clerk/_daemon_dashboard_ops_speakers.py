@@ -19,7 +19,7 @@ from shadow_clerk._daemon_speaker_naming import (
 )
 from shadow_clerk._daemon_speaker_names import SpeakerNameBook, SpeakerNameBookError
 from shadow_clerk._daemon_voice_sidecar import (
-    read_voices, relabeled_voice_lines_where, voice_lines_without_label, voices_path,
+    clear_auto, read_voices, relabeled_voice_lines_where, voice_lines_without_label, voices_path,
 )
 from shadow_clerk._daemon_voiceprint_clusters import voiceprint_number
 from shadow_clerk._daemon_voiceprint_store import StoreChange, VoiceprintStore, VoiceprintStoreError
@@ -28,7 +28,7 @@ from shadow_clerk.domain.naming_history import NamingRecord
 from shadow_clerk.domain.transcript_line import TranscriptLine
 from shadow_clerk.domain.speaker import Speaker
 from shadow_clerk.domain.speaker_group import GroupName, SpeakerEntry
-from shadow_clerk.domain.voiceprint import PersonName, VoiceEntry, VoiceSample
+from shadow_clerk.domain.voiceprint import PersonName, VoiceEntry, VoiceSample, tentative_name
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -124,8 +124,10 @@ class _DashboardHandlerSpeakerOps:
             self._speaker_error("dash.transcript_not_found")
             return
         samples: dict[str, int] = defaultdict(int)
+        autos: dict[str, int] = defaultdict(int)  # 会議中の識別で付いた、まだ確認されていない行
         for v in read_voices(t_path):
             samples[v.label] += 1
+            autos[v.label] += v.auto
         try:
             registered = list(VoiceprintStore().people())
         except VoiceprintStoreError:
@@ -138,13 +140,16 @@ class _DashboardHandlerSpeakerOps:
             logger.warning("名前付けの履歴を読めない: %s", e)
             history, history_error = [], True
         summaries = summarize_labels(self._read_lines(t_path))
-        in_transcript = [s.label for s in summaries if s.named]
+        in_transcript = [s.label for s in summaries if s.named and not s.tentative]
+        # 「alice?」の行は、事前入力する alice の台帳の値を見せる
+        book = {s.label: entries.get(s.suggested or s.label) for s in summaries}
         self._send_json({
             "status": "ok",
             "labels": [{"label": s.label, "count": s.count, "example": s.example, "named": s.named,
-                        "samples": samples[s.label],
-                        "group": entries[s.label].group if s.label in entries else "",
-                        "person": entries[s.label].person if s.label in entries else True}
+                        "samples": samples[s.label], "tentative": s.tentative, "suggested": s.suggested or "",
+                        "auto": autos[s.label],
+                        "group": e.group if (e := book[s.label]) else "",
+                        "person": e.person if e else True}
                        for s in summaries],
             "suggestions": list(dict.fromkeys(read_attendees(t_path) + in_transcript + sorted(entries) + registered)),
             "groups": sorted(groups),
@@ -181,8 +186,12 @@ class _DashboardHandlerSpeakerOps:
         except SpeakerNameBookError:
             self._speaker_error("dash.speaker_book_error")
             return
+        # 確認: 名前は変えずに、識別で付いた行（auto）を声紋に足す。「alice?」は確認ではなく alice への名前付けで扱う
+        auto_labels = {v.label for v in read_voices(t_path) if v.auto}
+        confirmed = {label for label, a in parsed.items() if a.confirm and a.name.value == label
+                     and label in auto_labels and tentative_name(label) is None}
         decided = {label: d for label, a in parsed.items()
-                   if (d := decide_assignment(a, entries, groups)).changes(label, entries)}
+                   if (d := decide_assignment(a, entries, groups)).changes(label, entries) or label in confirmed}
         if not decided:
             self._speaker_error("dash.speakers_nothing")
             return
@@ -204,29 +213,38 @@ class _DashboardHandlerSpeakerOps:
                 self._speaker_error("dash.speakers_invalid")
                 return
             named = {s.label for s in summaries if s.named}
+            mapping = {label: d.name for label, d in decided.items() if d.name.value != label}
+            changed = {label for label, d in decided.items() if d.changes(label, entries)}
+
+            def pick(v: VoiceEntry) -> Decision | None:
+                # 識別で付いた行は、人が名前を付け直したか確認したときだけ声紋に足す
+                take = (v.label in mapping or v.label in confirmed) if v.auto else v.label in changed
+                return decided.get(v.label) if take else None
             # 声紋を先に保存する。ストアが壊れていたら transcript には手を付けずに止める
-            outcome = self._enroll(t_path, lines, lambda v: decided.get(v.label), named)
+            outcome = self._enroll(t_path, lines, pick, named)
             if outcome is None:
                 self._speaker_error("dash.voiceprint_store_error")
                 return
-            mapping = {label: d.name for label, d in decided.items() if d.name.value != label}
             try:
                 renamed = self._apply_relabel(
                     t_path, lines,
                     lambda tl: mapping[tl.speaker_label].value if tl.speaker_label in mapping else None,
                     lambda e: mapping[e.label].value if e.label in mapping else None) if mapping else 0
+                cleared = clear_auto(t_path, confirmed) if confirmed else 0  # 足せなかった行も確認済みにする
             except OSError as e:
                 logger.error("名前を書き込めない: %s", e)
                 self._speaker_error("dash.speakers_write_error")
                 return
             parsed_lines = [p for ln in lines if (p := TranscriptLine.parse(ln))]
-            message = t("dash.speakers_saved", count=renamed)
+            message = " ".join(([t("dash.speakers_saved", count=renamed)] if renamed or not cleared else [])
+                               + ([t("dash.speakers_auto_confirmed", count=cleared)] if cleared else []))
+            # 確認は行を書き換えないので lines は空。取り消すと足した声紋だけ外れる
+            relabeled = {label: [p.timestamp for p in parsed_lines if p.speaker_label == label] for label in mapping}
             try:  # 名前付け自体は済んでいる。履歴だけ残せなくても成功として返す
                 append_history(t_path, [
-                    NamingRecord.new(label, decided[label].name.value, decided[label].person,
-                                     [p.timestamp for p in parsed_lines if p.speaker_label == label],
+                    NamingRecord.new(label, decided[label].name.value, decided[label].person, relabeled.get(label, []),
                                      outcome.added.get(label, []), outcome.removed.get(label, []))
-                    for label in mapping])
+                    for label in [*mapping, *(c for c in sorted(confirmed) if outcome.added.get(c))]])
             except (NamingHistoryError, OSError) as e:
                 logger.error("名前付けの履歴を残せない: %s", e)
                 message += " " + t("dash.naming_history_not_saved")

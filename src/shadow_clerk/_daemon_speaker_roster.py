@@ -12,6 +12,7 @@ from shadow_clerk._daemon_speaker_names import SpeakerNameBook, SpeakerNameBookE
 from shadow_clerk.domain.speaker import Speaker
 from shadow_clerk.domain.speaker_group import SpeakerEntry
 from shadow_clerk.domain.transcript_line import TranscriptLine
+from shadow_clerk.domain.voiceprint import tentative_name
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -24,9 +25,11 @@ class RosterEntry:
     group: str
     is_self: bool
     person: bool  # 台帳で個人と記録されているか（会社名・役割名のラベルや未登録は False）
+    tentative: bool = False  # 会議中の声紋の照合が推した「alice?」。確認されていないので名前・所属を断定しない
 
     def to_dict(self) -> dict[str, object]:
-        return {"label": self.label, "group": self.group, "self": self.is_self, "person": self.person}
+        return {"label": self.label, "group": self.group, "self": self.is_self, "person": self.person,
+                "tentative": self.tentative}
 
 
 def build_roster(lines: list[str], entries: dict[str, SpeakerEntry], self_group: str) -> list[RosterEntry]:
@@ -39,6 +42,9 @@ def build_roster(lines: list[str], entries: dict[str, SpeakerEntry], self_group:
         if tl.speaker == Speaker.SELF:
             out.setdefault(Speaker.SELF.value, RosterEntry(Speaker.SELF.value, self_group, True, True))
         elif tl.speaker == Speaker.OTHER and tl.speaker_label and tl.speaker_label not in _UNLABELED:
+            if tentative_name(tl.speaker_label) is not None:
+                out.setdefault(tl.speaker_label, RosterEntry(tl.speaker_label, "", False, False, tentative=True))
+                continue
             e = entries.get(tl.speaker_label)
             out.setdefault(tl.speaker_label,
                            RosterEntry(tl.speaker_label, e.group if e else "", False, e.person if e else False))
@@ -52,7 +58,8 @@ def roster_prompt_block(roster: list[RosterEntry], self_group: str) -> str:
         return ""
     unknown = nt("llm.summary_speakers_unknown_group")
     speakers = "\n".join(f"- {e.label}: {e.group or unknown}"
-                         + (nt("llm.summary_speakers_self_mark") if e.is_self else "") for e in roster)
+                         + (nt("llm.summary_speakers_self_mark") if e.is_self else "")
+                         + (nt("llm.summary_speakers_tentative_mark") if e.tentative else "") for e in roster)
     block = nt("llm.summary_speakers_block", speakers=speakers, self_group=self_group or unknown)
     if len(groups) >= 2:
         block += nt("llm.summary_groups_instruction")

@@ -30,9 +30,15 @@ def append_voice(transcript_path: str, timestamp: str, label: str, embedding: np
     path = voices_path(transcript_path)
     if path is None:
         return
+    line = VoiceEntry(timestamp, label, embedding, duration, cluster=cluster, auto=auto).to_json_line()
     try:
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(VoiceEntry(timestamp, label, embedding, duration, cluster=cluster, auto=auto).to_json_line())
+        with open(path, "ab+") as f:
+            # 書きかけで落ちた行（改行なし）に続けて書くと、新しい行まで壊れて読めなくなる
+            if f.seek(0, os.SEEK_END) > 0:
+                f.seek(-1, os.SEEK_END)
+                if f.read(1) != b"\n":
+                    line = "\n" + line
+            f.write(line.encode("utf-8"))
     except OSError as e:
         logger.warning("voices サイドカーに書けない: %s", e)
 
@@ -73,21 +79,32 @@ def relabeled_voice_lines_where(transcript_path: str, pick: Callable[[VoiceEntry
     lines = _read_raw(voices_path(transcript_path))
     if lines is None:
         return None
-    return _rewritten(lines, lambda e: replace(e, label=new) if (new := pick(e)) is not None and new != e.label
-                      else None)[0]
+    # 人が付け直した名前なので、識別で付いた印（auto）も外す
+    return _rewritten(lines, lambda e: replace(e, label=new, auto=False)
+                      if (new := pick(e)) is not None and new != e.label else None)[0]
 
 
-def mark_no_enroll(transcript_path: str, label: str, timestamps: set[str]) -> int:
-    """(ts ∈ timestamps, label) の行に「声紋に使わない」印を付けて書き戻し、印を付けた件数を返す"""
+def _rewrite_file(transcript_path: str, change: Callable[[VoiceEntry], VoiceEntry | None]) -> int:
+    """change が新しい項目を返した行を書き戻し、書き換えた件数を返す"""
     path = voices_path(transcript_path)
     lines = _read_raw(path)
     if path is None or lines is None:
         return 0
-    out, n = _rewritten(lines, lambda e: replace(e, no_enroll=True)
-                        if e.timestamp in timestamps and e.label == label and not e.no_enroll else None)
+    out, n = _rewritten(lines, change)
     if n:
         atomic_write_lines(path, out, ".voices-")
     return n
+
+
+def mark_no_enroll(transcript_path: str, label: str, timestamps: set[str]) -> int:
+    """(ts ∈ timestamps, label) の行に「声紋に使わない」印を付けて書き戻し、印を付けた件数を返す"""
+    return _rewrite_file(transcript_path, lambda e: replace(e, no_enroll=True)
+                         if e.timestamp in timestamps and e.label == label and not e.no_enroll else None)
+
+
+def clear_auto(transcript_path: str, labels: set[str]) -> int:
+    """labels の行の「識別で付いた」印を外して書き戻し、外した件数を返す（会議後に人が確認した）"""
+    return _rewrite_file(transcript_path, lambda e: replace(e, auto=False) if e.auto and e.label in labels else None)
 
 
 def voice_lines_without_label(path: str, label: str) -> list[str] | None:

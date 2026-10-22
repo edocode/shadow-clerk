@@ -106,8 +106,8 @@ def test_roster_endpoint_and_localhost_guard() -> None:
     h._serve_speaker_roster()
     assert h.sent["self_group"] == "自社"
     assert h.sent["speakers"] == [
-        {"label": "太郎", "group": "acme", "self": False, "person": True},
-        {"label": "自分", "group": "自社", "self": True, "person": True},
+        {"label": "太郎", "group": "acme", "self": False, "person": True, "tentative": False},
+        {"label": "自分", "group": "自社", "self": True, "person": True, "tentative": False},
     ]
     h = _H(path=f"/api/speaker-roster?file={MTG}", client="192.0.2.1")
     h._serve_speaker_roster()

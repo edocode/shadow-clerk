@@ -32,7 +32,7 @@ const I18N={'dash.speakers_count':'発話 {count} 件','dash.speakers_samples':'
   'dash.voiceprints_empty':'EMPTY','dash.delete':'削除','dash.voiceprint_delete_confirm':'{name} を消す？',
   'dash.naming_history_title':'HISTORY','dash.naming_undo':'UNDO','dash.naming_undone_mark':'UNDONE',
   'dash.naming_undo_confirm':'{label} → {name} を取り消す？','dash.vp_show':'DETAILS',
-  'dash.naming_history_error':'HISTERR'};
+  'dash.naming_history_error':'HISTERR','dash.speakers_tentative':'TENTATIVE','dash.speakers_auto_confirm':'CONFIRM {count}'};
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function escAttr(s){return esc(s).replace(/"/g,'&quot;');}
 function el(){return {children:[],_h:'',textContent:'',value:'',disabled:false,dataset:{},
@@ -43,10 +43,10 @@ function mk(tag){return Object.assign(el(),{tagName:String(tag).toUpperCase()});
 const els={spkRows:el(),spkInfo:el(),spkSuggest:el(),spkSaveBtn:el(),vpRows:el(),speakerModal:el(),
   rlName:el(),rlGroup:el(),rlPerson:el(),rlInfo:el(),rlSaveBtn:el(),relabelModal:el(),grpSuggest:el(),rlSuggest:el(),
   spkHistory:el()};
-let inputs=[],groupInputs=[],personInputs=[];
+let inputs=[],groupInputs=[],personInputs=[],confirmInputs=[];
 const document={getElementById:id=>els[id],createElement:mk,
   querySelectorAll:q=>q==='#spkRows input[data-label]'?inputs:q==='#spkRows input[data-group-for]'?groupInputs
-    :q==='#spkRows input[data-person-for]'?personInputs:[]};
+    :q==='#spkRows input[data-person-for]'?personInputs:q==='#spkRows input[data-confirm-for]'?confirmInputs:[]};
 let spkGroups={names:{},persons:{},groups:{},self_group:''};
 let curFile='transcript-202610091000.txt',activeFile='';
 const posted=[],toasts=[],loaded=[];
@@ -145,6 +145,7 @@ let groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true,'花�
   out.emptyDisabled=els.spkSaveBtn.disabled;out.emptyVp=els.vpRows.children.length;
   curFile='transcript-202610091000.txt';
   await loadSpeakerGroups();
+  out.tentColor=spColor('太郎?','自分');out.unkTent=spColor('相手?','自分');
   out.selfColor=spColor('自分','自分');out.taroColor=spColor('太郎','自分');out.unknown=spColor('相手A','自分');
   posted.length=0;
   selected=[{dataset:{raw:'[2026-10-09 10:00:05] [相手A] 二行目'}},{dataset:{raw:'[2026-10-09 10:00:06] [自分] 自分'}}];
@@ -198,6 +199,20 @@ let groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true,'花�
   speakersResp={status:'ok',labels:[],suggestions:[],active:false,enrollment:true,history:[],history_error:true};
   await openSpeakerModal();
   out.histErr=els.spkHistory.children.map(c=>c.textContent);
+  speakersResp={status:'ok',labels:[{label:'太郎?',count:2,example:'x',samples:2,named:true,tentative:true,suggested:'太郎',auto:2},
+    {label:'次郎',count:3,example:'y',samples:3,named:true,tentative:false,suggested:'',auto:2},
+    {label:'三郎',count:1,example:'z',samples:1,named:true,tentative:false,suggested:'',auto:0}],
+    suggestions:[],active:false,enrollment:true,history:[]};
+  await openSpeakerModal();out.autoRows=els.spkRows.children.map(r=>r.innerHTML);
+  speakersResp.enrollment=false;await openSpeakerModal();out.autoRowsOff=els.spkRows.children.map(r=>r.innerHTML);
+  groupInputs=[];personInputs=[];
+  inputs=[{dataset:{label:'太郎?',named:'1'},value:'太郎'},{dataset:{label:'次郎',named:'1'},value:''},{dataset:{label:'三郎',named:'1'},value:''}];
+  confirmInputs=[{dataset:{confirmFor:'次郎'},checked:true}];
+  out.confirmMapping=speakerMapping();
+  confirmInputs=[{dataset:{confirmFor:'次郎'},checked:false}];
+  out.unconfirmedMapping=speakerMapping();
+  inputs=[{dataset:{label:'次郎',named:'1'},value:'四郎'}];confirmInputs=[{dataset:{confirmFor:'次郎'},checked:true}];
+  out.renamedConfirm=speakerMapping();
   console.log(JSON.stringify(out));
 })();
 """
@@ -289,5 +304,21 @@ check("履歴: 取り消すは確認して file と id を送り、トースト�
       repr((out["undoConfirms"], out["undoPosted"], out["undoToasts"], out["undoLoaded"])))
 check("履歴: 取り消し後はモーダルを開き直して最新の履歴（空なら何も出さない）", out["histAfter"] == 0, repr(out["histAfter"]))
 check("履歴: 読めないときは空ではなくエラーを出す", out["histErr"] == ["HISTERR"], repr(out["histErr"]))
+check("test_tentative_prefilled: 名前?の行は名前欄に名前を入れ、未確定と出し、確認チェックは出さない",
+      'data-label="太郎?"' in out["autoRows"][0] and 'value="太郎"' in out["autoRows"][0]
+      and "TENTATIVE" in out["autoRows"][0] and "data-confirm-for" not in out["autoRows"][0]
+      and "TENTATIVE" not in out["autoRows"][1], repr(out["autoRows"]))
+check("test_auto_confirm_checkbox_posts_confirm: 自動識別のある名前付け済みの行に確認チェック",
+      'data-confirm-for="次郎"' in out["autoRows"][1] and "CONFIRM 2" in out["autoRows"][1]
+      and ' checked' not in out["autoRows"][1].split('data-confirm-for')[1].split('>')[0]
+      and "data-confirm-for" not in out["autoRows"][2]
+      and all("data-confirm-for" not in h for h in out["autoRowsOff"]), repr((out["autoRows"], out["autoRowsOff"])))
+check("test_auto_confirm_checkbox_posts_confirm: チェックしたら confirm を送り、外したら送らない",
+      out["confirmMapping"] == {"太郎?": {"name": "太郎"}, "次郎": {"name": "次郎", "confirm": True}}
+      and out["unconfirmedMapping"] == {"太郎?": {"name": "太郎"}}
+      and out["renamedConfirm"] == {"次郎": {"name": "四郎"}},
+      repr((out["confirmMapping"], out["unconfirmedMapping"], out["renamedConfirm"])))
+check("test_color_for_tentative_uses_name: 名前?は名前のグループ色、相手?は色なし",
+      out["tentColor"] == "#e57373" and out["unkTent"] == "", repr((out["tentColor"], out["unkTent"])))
 check("誰もいなければ空表示", out["peopleNone"] == [0, "EMPTY"], repr(out["peopleNone"]))
 sys.exit(0 if all(results) else 1)

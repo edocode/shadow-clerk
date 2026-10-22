@@ -40,7 +40,7 @@ def test_build_roster() -> None:
 
 def test_roster_to_dict() -> None:
     assert RosterEntry("太郎", "acme", False, True).to_dict() == \
-        {"label": "太郎", "group": "acme", "self": False, "person": True}
+        {"label": "太郎", "group": "acme", "self": False, "person": True, "tentative": False}
 
 
 def test_prompt_block_empty_without_groups() -> None:
@@ -78,3 +78,12 @@ def test_llm_context_block(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     block = _llm_summarize._load_context_block(str(t), "".join(LINES), {"self_group": "自社"})
     assert "- 太郎: acme" in block and nt("llm.summary_groups_instruction") in block
     assert _llm_summarize._load_context_block(str(t), "".join(LINES), {"self_group": None}).count("- 太郎: acme") == 1
+
+
+def test_roster_treats_tentative_as_unconfirmed() -> None:
+    lines = ["[2026-10-15 10:00:01] [太郎?] たぶん太郎\n", "[2026-10-15 10:00:02] [相手?] うん\n"]
+    roster = build_roster(lines, ENTRIES, "自社")
+    assert roster == [RosterEntry("太郎?", "", False, False, tentative=True)]
+    assert roster[0].to_dict()["tentative"] is True
+    assert "- 太郎?: " + nt("llm.summary_speakers_unknown_group") + nt("llm.summary_speakers_tentative_mark") \
+        in roster_prompt_block(roster, "自社")
