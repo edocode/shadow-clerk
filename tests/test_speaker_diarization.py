@@ -272,3 +272,14 @@ def test_cluster_embeddings_returns_a_copy(monkeypatch):
     assert len(got) == 1 and np.allclose(got[0], _unit(1, 0))
     got.append(_unit(1, 0))
     assert len(d.cluster_embeddings("相手A")) == 1 and d.cluster_embeddings("相手B") == []
+
+
+def test_truncated_sidecar_does_not_break_numbering(tmp_path):
+    """追記中に落ちて行末の多バイト文字が切れたサイドカーでも番号は続きから振る"""
+    from shadow_clerk._daemon_voice_sidecar import append_voice, voices_path
+    t = tmp_path / "transcript-202610091000.txt"
+    t.write_text("[2026-10-09 10:00:00] [alice] あ\n", encoding="utf-8")
+    append_voice(str(t), "2026-10-09 10:00:00", "alice", _unit(1, 0), cluster="相手B", auto=True)
+    with open(voices_path(str(t)), "ab") as f:
+        f.write('{"ts": "2026-10-09 10:00:01", "cluster": "相手'.encode("utf-8")[:-1])
+    assert max_label_index(str(t)) == 2

@@ -137,7 +137,10 @@ def max_label_index(transcript_path: str) -> int:
             labels = [tl.speaker_label for line in f if (tl := TranscriptLine.parse(line)) and tl.speaker_label]
     except OSError:
         labels = []
-    labels += [e.cluster for e in read_voices(transcript_path) if e.cluster]
+    try:  # サイドカーの不具合で bind_output を止めると相手側の行が全部書けなくなる
+        labels += [e.cluster for e in read_voices(transcript_path) if e.cluster]
+    except Exception as e:
+        logger.warning("voices サイドカーの会議内ラベルを読めない: %s", e)
     return max((i for label in labels if (i := label_index(label)) is not None), default=0)
 
 

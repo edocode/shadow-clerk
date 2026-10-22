@@ -41,7 +41,8 @@ def _read_raw(path: str | None) -> list[str] | None:
     if path is None or not os.path.exists(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        # 追記中に落ちて行末の多バイト文字が切れても読めるように。壊れた行は VoiceEntry.parse で落ちる
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
             return f.readlines()
     except OSError as e:
         logger.warning("voices サイドカーを読めない: %s", e)

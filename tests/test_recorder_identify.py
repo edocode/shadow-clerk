@@ -148,3 +148,27 @@ def test_diarization_off_no_identification(rec, cfg) -> None:
     cfg["speaker_diarization"] = False
     rec.say(2)
     assert rec.labels() == [None, None]
+
+
+def test_truncated_sidecar_still_writes_remote_lines(rec, monkeypatch) -> None:
+    """行末の多バイト文字が切れたサイドカーでも bind_output が通り、相手側の行が書ける"""
+    from shadow_clerk._daemon_speaker_diarization import SpeakerDiarizer
+    from shadow_clerk._daemon_voice_sidecar import voices_path
+    with open(voices_path(rec.output_path), "wb") as f:
+        f.write('{"ts": "2026-10-23 09:00:00", "label": "相'.encode("utf-8")[:-1])
+    d = SpeakerDiarizer()
+    monkeypatch.setattr(d, "extract_embedding", lambda a: _near_alice())
+    monkeypatch.setattr(d, "_threshold", lambda: 0.7)
+    monkeypatch.setattr(d, "_min_sec", lambda: 1.0)
+    rec.diarizer = d
+    rec.say(1)
+    assert rec.labels() == ["相手A"]
+
+
+def test_match_error_falls_back_to_cluster_label(rec, monkeypatch) -> None:
+    def boom(label: str) -> list[np.ndarray]:
+        raise RuntimeError("boom")
+    monkeypatch.setattr(rec.diarizer, "cluster_embeddings", boom)
+    rec.say(2)
+    assert rec.labels() == ["相手A", "相手A"]
+    assert [(e.label, e.cluster, e.auto) for e in read_voices(rec.output_path)] == [("相手A", "相手A", False)] * 2
