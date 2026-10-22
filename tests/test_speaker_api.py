@@ -663,3 +663,10 @@ def test_extract_relocates_sources_even_if_history_is_broken() -> None:
     assert h.sent["status"] == "ok", h.sent
     assert {s.key for s in VoiceprintStore().samples(PersonName("alice"))} == \
         {(daily, am), ("transcript-202610091030@昼会.txt", pm)}
+
+
+def test_read_attendees_strips_names() -> None:
+    from shadow_clerk._transcript_attendees import read_attendees
+    with open(_p("transcript-202610091000@週次定例.attendees.json"), "w", encoding="utf-8") as f:
+        json.dump({"attendees": [" alice ", "  ", "bob", 3]}, f)
+    assert read_attendees(_p(MTG)) == ["alice", "bob"]

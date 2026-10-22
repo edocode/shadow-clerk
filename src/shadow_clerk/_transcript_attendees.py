@@ -11,7 +11,7 @@ from shadow_clerk._transcript_name import TranscriptName
 
 
 def read_attendees(transcript_path: str) -> list[str]:
-    """transcript と同じディレクトリの attendees.json から参加予定者を返す。無ければ空"""
+    """transcript と同じディレクトリの attendees.json から参加予定者（前後の空白を落とした名前）を返す。無ければ空"""
     tn = TranscriptName.parse(os.path.basename(transcript_path))
     if tn is None:
         return []
@@ -23,4 +23,4 @@ def read_attendees(transcript_path: str) -> list[str]:
         return []
     if not isinstance(data, dict):
         return []
-    return [a for a in (data.get("attendees") or []) if isinstance(a, str) and a.strip()]
+    return [s for a in (data.get("attendees") or []) if isinstance(a, str) and (s := a.strip())]
