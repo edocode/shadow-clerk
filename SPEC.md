@@ -611,7 +611,7 @@ sequenceDiagram
 | `transcript-YYYYMMDDHHMM@<会議名>.txt` | 会議名付き transcript（Google Calendar 連携、rename 時） |
 | `transcript-*-<lang>.txt` | 翻訳結果ファイル（会議名含む対応: `transcript-YYYYMMDDHHMM@<会議名>-<lang>.txt`） |
 | `transcript-*.voices.jsonl` | 話者分離の埋め込み（1 行 `{ts, label, emb, dur?, noenroll?, cluster?, auto?}`。`speaker_enrollment: true` のとき transcript ごとに保存。名前付けで使う。`dur` は発話秒数（ない既存行は長さ不明として扱う）、`noenroll: true` は「声紋の中身」で消した行で、以後声紋に足さない。`label` は transcript に出した表示ラベル、`cluster` は会議内クラスタのラベル、`auto: true` は会議中の識別で付いた未確認の名前） |
-| `transcript-*.naming.jsonl` | 名前付けの履歴（ラベル 1 件ごとに `{id, at, label, name, person, lines, added, removed, undone}`。取り消しに使う。声のデータは含まない。会議のリネーム・削除・切り出しに追随する） |
+| `transcript-*.naming.jsonl` | 名前付けの履歴（ラベル 1 件ごとに `{id, at, label, name, person, lines, added, removed, undone, auto_cleared}`。取り消しに使う。声のデータは含まない。会議のリネーム・削除・切り出しに追随する） |
 | `speaker_names.json` | 名前帳 v2（名前・グループ・個人区分・グループの色。声紋は含まない。どの会議でも候補に出す。人の削除で消える） |
 | `voiceprints.json` | 人ごとの声紋（名前付け後に追加。1人あたり `voiceprint_max_samples`、既定 200 件）。サンプルごとの `status`: なし＝通常、`outlier`＝自動で照合から除外中、`kept`＝人が「戻す」した（以後自動で除外しない）。`status` のない既存サンプルは通常として読む |
 | `wespeaker_cache/` | 話者分離の wespeaker ResNet34 ONNX モデル（初回利用時にダウンロード） |
@@ -680,7 +680,7 @@ flowchart LR
 
 #### 名前付けの履歴と取り消し
 
-`POST /api/speakers/assign` が名前を変えたラベルごとに 1 件、`transcript-*.naming.jsonl` に記録する。`lines` は書き換えた行の時刻、`added` は足したサンプルの `recorded_at`、`removed` は名前付け済みだった人から外したサンプルの `recorded_at`（どちらも実際にストアが足した・外したものだけ）。「話者を変更」（`assign-lines`）は記録しない。履歴を残せなかったときも名前付けは成功として返し、`message` にその旨を足す。
+`POST /api/speakers/assign` が名前を変えたラベルごとに 1 件、`transcript-*.naming.jsonl` に記録する。`lines` は書き換えた行の時刻、`added` は足したサンプルの `recorded_at`、`removed` は名前付け済みだった人から外したサンプルの `recorded_at`（どちらも実際にストアが足した・外したものだけ）、`auto_cleared` はその名前付けで `auto` を外したサイドカー行の時刻（無い古い行は空とみなす）。「話者を変更」（`assign-lines`）は記録しない。履歴を残せなかったときも名前付けは成功として返し、`message` にその旨を足す。
 
 | エンドポイント | 役割 |
 |---|---|
@@ -720,11 +720,13 @@ flowchart LR
 識別結果は声紋に足さない。会議後の名前付けで確認したときだけ足す。
 
 - `GET /api/speakers` の各ラベルに `tentative`（`名前?` 形式。`相手?` は除く）、`suggested`（`名前?` なら `名前`、それ以外は `""`）、`auto`（サイドカーの `auto` 行数）を付ける。`名前?` は名前の候補（`suggestions`）に出さない。`名前?` の行のグループ・個人区分は `名前` の台帳の値を返す
-- ダッシュボードは `tentative` の行を「未確定」と表示し、名前欄に `suggested` を入れる。保存は通常の名前付け（`alice?` → `alice`）で、付け替えたサイドカー行の `auto` を外す（付け替えは常に `auto` を外す）
+- ダッシュボードは `tentative` の行を「未確定」と表示し、名前欄の placeholder（値ではない）に `suggested` を出し、未チェックの「{name} として確定」（`dash.speakers_tentative_accept`）を付ける。mapping に入れるのはチェックしたとき（`alice?` → `alice`）か名前を入力したときだけで、ほかの行の保存やグループ・個人区分の変更だけでは送らない。保存は通常の名前付けで、付け替えたサイドカー行の `auto` を外す（付け替えは常に `auto` を外す）
 - `auto > 0` の名前付け済みの行（`tentative` を除く）に「自動識別 N 件を確認して声紋に足す」を出す（`speaker_enrollment` が有効なときだけ）。チェックすると mapping の値に `confirm: true` を付ける
-- `POST /api/speakers/assign` は、名前が変わらないラベルの `auto` 行を `confirm` のときだけ声紋に足す（グループ・個人区分だけの変更では足さない）。足す条件は通常の名前付けと同じ（`voiceprint_min_sec` 以上、`noenroll` でない、個人、transcript に行が残っている）。足せなかった行も含めて、そのラベルの `auto` を外す。履歴には `label == name`・`lines` 空・`added`＝実際に足した声紋で 1 件残す（足したものがなければ残さない）。取り消すと足した声紋だけ外れ、`auto` は戻さない。`auto` 行のないラベル・`名前?` のラベルへの `confirm` は無視する
-- 名前を変えるラベルは従来どおり、`auto` 行も含めて新しい名前へ付け替え・登録する
-- 文字起こしの色は `名前?` を `名前` のグループで引く（`spColor`）
+- `POST /api/speakers/assign` は、名前が変わらないラベルの `auto` 行を `confirm` のときだけ声紋に足す（グループ・個人区分だけの変更では足さない）。足す条件は通常の名前付けと同じ（`voiceprint_min_sec` 以上、`noenroll` でない、個人、transcript に行が残っている）。足せなかった行も含めて、そのラベルの `auto` を外す（外せなくても声紋と履歴は残し、`message` に `dash.speakers_auto_not_cleared` を足す）。履歴には `label == name`・`lines` 空・`added`＝実際に足した声紋・`auto_cleared`＝`auto` だった行で 1 件残す（足したものがなくても残す）。取り消すと足した声紋が外れ、`auto_cleared` の行のうち今も `label` のままのものに `auto` を戻す（戻さないと、後のグループ・個人区分の変更で未確認の行が声紋に足される）。`auto` 行のないラベル・`名前?` のラベルへの `confirm` は無視する
+- 名前を変えるラベルは従来どおり、`auto` 行も含めて新しい名前へ付け替え・登録する。履歴の `auto_cleared` にその `auto` 行を残し、取り消しで元のラベルに戻った行に `auto` を戻す
+- `PersonName` は末尾が `?`（`TENTATIVE_MARK`）の名前を受け付けない。`bob?` と名付けた人が未確定の `bob` と読まれないように
+- 文字起こしの色は `名前?` を `名前` のグループで引く（`spColor`）。`?` を外すのは、残りが名前として使えるとき（`相手…`・`自分`・`Claude` でない）だけ（サーバーの `tentative_name` と同じ）
+- 照合用のプール（`candidate_pools`）は、読み直したときに使えないサンプル（壊れた・少数派の次元）を除いた件数を人ごとに 1 回ログに出す。キャッシュの配列は書き込み禁止
 
 #### 声紋の塊
 
