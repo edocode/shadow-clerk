@@ -30,12 +30,12 @@ const CFG_FIELDS=[
   {key:'diarization_threshold',label:I18N['cfg.diarization_threshold'],type:'select',opts:['0.50','0.55','0.60','0.65','0.70','0.75','0.80']},
   {key:'diarization_min_sec',label:I18N['cfg.diarization_min_sec'],type:'select',opts:['1.0','1.5','2.0','2.5','3.0']},
   {key:'voiceprint_max_samples',label:I18N['cfg.voiceprint_max_samples'],type:'number'},
-  {key:'voiceprint_min_sec',label:I18N['cfg.voiceprint_min_sec'],type:'number'},
+  {key:'voiceprint_min_sec',label:I18N['cfg.voiceprint_min_sec'],type:'number',float:true},
   {key:'voiceprint_cluster_min_samples',label:I18N['cfg.voiceprint_cluster_min_samples'],type:'number'},
-  {key:'voiceprint_cluster_distance',label:I18N['cfg.voiceprint_cluster_distance'],type:'number'},
-  {key:'voiceprint_main_similarity',label:I18N['cfg.voiceprint_main_similarity'],type:'number'},
+  {key:'voiceprint_cluster_distance',label:I18N['cfg.voiceprint_cluster_distance'],type:'number',float:true},
+  {key:'voiceprint_main_similarity',label:I18N['cfg.voiceprint_main_similarity'],type:'number',float:true},
   {key:'voiceprint_outlier_max',label:I18N['cfg.voiceprint_outlier_max'],type:'number'},
-  {key:'voiceprint_outlier_ratio',label:I18N['cfg.voiceprint_outlier_ratio'],type:'number'},
+  {key:'voiceprint_outlier_ratio',label:I18N['cfg.voiceprint_outlier_ratio'],type:'number',float:true},
   {key:'self_group',label:I18N['cfg.self_group'],type:'text',ph:I18N['cfg.self_group_ph']},
   {key:'asr_engine',label:I18N['cfg.asr_engine'],type:'select',opts:['whisper','moonshine']},
   {key:'japanese_asr_model',label:I18N['cfg.japanese_asr_model'],type:'select',opts:['default','kotoba-whisper','reazonspeech-k2']},
@@ -265,7 +265,7 @@ async function saveCfg(){
     const el=document.getElementById('cfg_'+f.key);if(!el)return;
     if(f.type==='bool'){d[f.key]=el.value==='true';}
     else if(f.type==='json'){try{d[f.key]=JSON.parse(el.value);}catch(e){d[f.key]=cfgData[f.key];}}
-    else if(f.type==='number'){const n=parseInt(el.value,10);d[f.key]=isNaN(n)?cfgData[f.key]:n;}
+    else if(f.type==='number'){const n=f.float?parseFloat(el.value):parseInt(el.value,10);d[f.key]=isNaN(n)?cfgData[f.key]:n;}
     else if(f.type==='device_select'){
       // CLI 固定中は disabled になっており、送ると null で上書きしてしまうため送らない
       if(el.disabled)return;
@@ -348,7 +348,7 @@ function _collectCfgFormValues(){
     if(f.type==='bool'){d[f.key]=el.value==='true';}
     else if(f.type==='json'){try{d[f.key]=JSON.parse(el.value);}catch(e){}}
     else if(f.type==='device_select'){if(!el.disabled)d[f.key]=el.value||null;}
-    else if(f.type==='select'&&f.num){const n=parseInt(el.value,10);d[f.key]=isNaN(n)?null:n;}
+    else if(f.type==='select'&&f.num){const n=f.float?parseFloat(el.value):parseInt(el.value,10);d[f.key]=isNaN(n)?null:n;}
     else if(f.type==='api_model'){const s=el.querySelector('select');if(s)d[f.key]=s.value||null;}
     else if(f.type==='select'){d[f.key]=el.value===''?null:el.value;}
     else{const v=el.value.trim();d[f.key]=(v===''||v==='null')?null:v;}

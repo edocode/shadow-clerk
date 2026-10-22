@@ -579,6 +579,7 @@ def test_legacy_entry_without_duration_enrolled() -> None:
 def test_unknown_label_line_can_be_reassigned() -> None:
     with open(_p(MTG), "a", encoding="utf-8") as f:
         f.write("[2026-10-09 10:02:00] [相手?] 短い\n")
+    append_voice(_p(MTG), "2026-10-09 10:02:00", "相手?", _vec(30), 0.5)
     h = _H({"file": MTG, "lines": [{"ts": "2026-10-09 10:02:00", "label": "相手?"}], "name": "alice"})
     h._assign_lines()
     assert h.sent["status"] == "ok" and h.sent["renamed"] == 1, h.sent
