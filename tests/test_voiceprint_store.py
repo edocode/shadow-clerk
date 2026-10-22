@@ -1,6 +1,8 @@
 """声紋ストアのテスト"""
 from __future__ import annotations
 
+import json
+import logging
 import os
 import stat
 
@@ -316,3 +318,19 @@ def test_candidate_pools_cache_sees_replaced_file(store) -> None:
     os.replace(tmp, store.path)
     assert os.stat(store.path).st_size == st.st_size
     assert set(store.candidate_pools()) == {"carol"}
+
+
+def test_candidate_pools_log_dropped_once_and_read_only(store, caplog: pytest.LogCaptureFixture) -> None:
+    store.add({PersonName("太郎"): [_sample(1)]})
+    with open(store.path, encoding="utf-8") as f:
+        data = json.load(f)
+    data["people"]["太郎"]["samples"].append({"embedding": "!!"})
+    with open(store.path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    os.utime(store.path, ns=(1, os.stat(store.path).st_mtime_ns + 10**9))
+    with caplog.at_level(logging.WARNING, logger="shadow-clerk"):
+        pools = store.candidate_pools()
+        store.candidate_pools()
+    assert pools["太郎"].shape == (1, 256)
+    assert len([r for r in caplog.records if "太郎" in r.getMessage()]) == 1, caplog.records
+    assert not pools["太郎"].flags.writeable

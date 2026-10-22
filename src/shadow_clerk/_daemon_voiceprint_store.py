@@ -100,15 +100,21 @@ class VoiceprintStore:
         pools: dict[str, np.ndarray] = {}
         for name, items in raw.items():
             embs = []
+            broken = 0
             for d in items:
                 try:
                     s = VoiceSample.from_dict(d)
                 except (KeyError, TypeError, ValueError, AttributeError):
+                    broken += 1
                     continue
                 if s.status is not SampleStatus.OUTLIER:
                     embs.append(s.embedding)
-            if embs := [embs[i] for i in majority_shape(embs)]:
-                pools[name] = np.stack(embs).astype(np.float32)
+            kept = [embs[i] for i in majority_shape(embs)]
+            if dropped := broken + len(embs) - len(kept):  # 読み直したときだけ（キャッシュ中は黙る）
+                logger.warning("声紋の照合に使えないサンプルを除いた: %s %d 件", name, dropped)
+            if kept:
+                pools[name] = np.stack(kept).astype(np.float32)
+                pools[name].setflags(write=False)  # キャッシュを共有するので呼び出し側に書き換えさせない
         self._pools_cache = (sig, pools)
         return pools
 
