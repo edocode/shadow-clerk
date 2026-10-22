@@ -423,3 +423,13 @@ def test_confirm_without_enrollment_is_recorded_and_undoable(monkeypatch: pytest
     assert [(x["label"], x["name"], x["added"]) for x in hist] == [("alice", "alice", 0)]
     assert _undo(hist[0]["id"])["status"] == "ok"
     assert _auto_rows() == [(X1, "alice", True), (X2, "alice", True)]
+
+
+def test_confirm_still_recorded_when_auto_cannot_be_cleared(monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(*_a: object) -> int:
+        raise OSError("disk full")
+    monkeypatch.setattr(sys.modules["shadow_clerk._daemon_dashboard_ops_speakers"], "clear_auto", broken)
+    _identified("alice")
+    r = _assign({"alice": {"name": "alice", "confirm": True}})
+    assert t("dash.speakers_auto_not_cleared") in r["message"] and r["enrolled"] == {"alice": 2}, r
+    assert [(x["label"], x["added"]) for x in _history()] == [("alice", 2)]

@@ -234,14 +234,20 @@ class _DashboardHandlerSpeakerOps:
                     t_path, lines,
                     lambda tl: mapping[tl.speaker_label].value if tl.speaker_label in mapping else None,
                     lambda e: mapping[e.label].value if e.label in mapping else None) if mapping else 0
-                cleared = clear_auto(t_path, confirmed) if confirmed else 0  # 足せなかった行も確認済みにする
             except OSError as e:
                 logger.error("名前を書き込めない: %s", e)
                 self._speaker_error("dash.speakers_write_error")
                 return
+            try:  # 足せなかった行も確認済みにする。声紋と名前は保存済みなので、外せなくても履歴は残す（取り消せるように）
+                cleared, clear_failed = (clear_auto(t_path, confirmed) if confirmed else 0), False
+            except OSError as e:
+                logger.error("識別の印を外せない: %s", e)
+                cleared, clear_failed = 0, True
             parsed_lines = [p for ln in lines if (p := TranscriptLine.parse(ln))]
-            message = " ".join(([t("dash.speakers_saved", count=renamed)] if renamed or not cleared else [])
-                               + ([t("dash.speakers_auto_confirmed", count=cleared)] if cleared else []))
+            message = " ".join(([t("dash.speakers_saved", count=renamed)]
+                                if renamed or not (cleared or clear_failed) else [])
+                               + ([t("dash.speakers_auto_confirmed", count=cleared)] if cleared else [])
+                               + ([t("dash.speakers_auto_not_cleared")] if clear_failed else []))
             # 確認は行を書き換えないので lines は空。取り消すと足した声紋が外れ、識別で付いた印が戻る
             relabeled = {label: [p.timestamp for p in parsed_lines if p.speaker_label == label] for label in mapping}
             try:  # 名前付け自体は済んでいる。履歴だけ残せなくても成功として返す

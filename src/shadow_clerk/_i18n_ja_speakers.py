@@ -55,5 +55,6 @@ STRINGS_JA_SPEAKERS: dict[str, str] = {
     "dash.speakers_tentative_accept": "{name} として確定",
     "dash.speakers_auto_confirm": "自動識別 {count} 件を確認して声紋に足す",
     "dash.speakers_auto_confirmed": "自動識別 {count} 件を確認しました",
+    "dash.speakers_auto_not_cleared": "識別の印を外せませんでした。もう一度確認してください",
     "llm.summary_speakers_tentative_mark": "（声からの推定で未確定。この名前の人と断定しない）",
 }
