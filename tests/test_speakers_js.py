@@ -148,6 +148,7 @@ let groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true,'花�
   curFile='transcript-202610091000.txt';
   await loadSpeakerGroups();
   out.tentColor=spColor('太郎?','自分');out.unkTent=spColor('相手?','自分');
+  out.notTent=[spColor('自分?','自分'),spColor('相手A?','自分'),spColor('Claude?','自分'),spColor('?','自分')];
   out.selfColor=spColor('自分','自分');out.taroColor=spColor('太郎','自分');out.unknown=spColor('相手A','自分');
   posted.length=0;
   selected=[{dataset:{raw:'[2026-10-09 10:00:05] [相手A] 二行目'}},{dataset:{raw:'[2026-10-09 10:00:06] [自分] 自分'}}];
@@ -342,5 +343,7 @@ check("test_auto_confirm_checkbox_posts_confirm: チェックしたら confirm �
       repr((out["confirmMapping"], out["unconfirmedMapping"], out["renamedConfirm"])))
 check("test_color_for_tentative_uses_name: 名前?は名前のグループ色、相手?は色なし",
       out["tentColor"] == "#e57373" and out["unkTent"] == "", repr((out["tentColor"], out["unkTent"])))
+check("test_color_mirrors_server_tentative_rule: 自分?・相手A?・Claude?・? は名前?として扱わない",
+      out["notTent"] == ["", "", "", ""], repr(out["notTent"]))
 check("誰もいなければ空表示", out["peopleNone"] == [0, "EMPTY"], repr(out["peopleNone"]))
 sys.exit(0 if all(results) else 1)

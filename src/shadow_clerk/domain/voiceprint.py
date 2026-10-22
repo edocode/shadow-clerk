@@ -12,6 +12,7 @@ import numpy as np
 from shadow_clerk.domain.speaker import Speaker
 
 _MAX_NAME_LEN = 50
+TENTATIVE_MARK = "?"  # 声紋の照合で自信が足りない名前に付ける印（「alice?」）。名前として断定しない
 
 
 def encode_embedding(embedding: np.ndarray) -> str:
@@ -40,6 +41,7 @@ class PersonName:
 
     `相手` で始まる名前は未命名の会議内ラベルと区別できなくなり、
     `自分` / `Claude` は既存の Speaker と衝突するので受け付けない。
+    `?` で終わる名前は未確定の印（`alice?`）と区別できなくなるので受け付けない。
     """
 
     value: str
@@ -54,10 +56,9 @@ class PersonName:
             raise ValueError("名前に使えない文字がある")
         if v in {s.value for s in Speaker} or v.startswith(Speaker.OTHER.value):
             raise ValueError("既存の話者ラベルと紛らわしい名前")
+        if v.endswith(TENTATIVE_MARK):
+            raise ValueError("未確定の印で終わる名前")
         object.__setattr__(self, "value", v)
-
-
-TENTATIVE_MARK = "?"  # 声紋の照合で自信が足りない名前に付ける印（「alice?」）。名前として断定しない
 
 
 def tentative_name(label: str) -> str | None:

@@ -8,7 +8,9 @@ from __future__ import annotations
 _JS_TEMPLATE_SPEAKERS = r"""
 let _spkFile='';
 function spColor(sp,mic){
-  if(sp.endsWith('?')&&sp!=='相手?')sp=sp.slice(0,-1);  // 識別の「alice?」は alice の色
+  // 識別の「alice?」は alice の色。サーバーの tentative_name と同じく、残りが名前として使えるときだけ
+  const n=sp.endsWith('?')?sp.slice(0,-1).trim():'';
+  if(n&&!n.startsWith('相手')&&n!=='自分'&&n!=='Claude'&&!n.endsWith('?'))sp=n;
   const g=(sp===mic||sp==='自分')?spkGroups.self_group:spkGroups.names[sp];
   const c=g?spkGroups.groups[g]:'';
   return /^#[0-9a-f]{6}$/.test(c||'')?c:'';
