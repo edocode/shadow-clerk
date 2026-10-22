@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from shadow_clerk.domain.voiceprint import (
-    PersonName, VoiceEntry, VoiceSample, decode_embedding, encode_embedding,
+    PersonName, SampleStatus, VoiceEntry, VoiceSample, decode_embedding, encode_embedding,
 )
 
 
@@ -63,3 +63,25 @@ def test_voice_entry_line_roundtrip() -> None:
                                  '{"ts": "x", "label": "相手A", "emb": "@@"}'])
 def test_voice_entry_parse_broken_is_none(bad: str) -> None:
     assert VoiceEntry.parse(bad) is None
+
+
+def test_voice_entry_roundtrip_with_duration() -> None:
+    e = VoiceEntry("2026-10-09 10:00:01", "相手A", _vec(1), duration=3.5, no_enroll=True)
+    back = VoiceEntry.parse(e.to_json_line())
+    assert back is not None and back.duration == 3.5 and back.no_enroll is True
+
+
+def test_voice_entry_legacy_line() -> None:
+    line = VoiceEntry("2026-10-09 10:00:01", "相手A", _vec(1)).to_json_line()
+    assert '"dur"' not in line and '"noenroll"' not in line
+    back = VoiceEntry.parse(line)
+    assert back is not None and back.duration is None and back.no_enroll is False
+
+
+def test_voice_sample_status_roundtrip() -> None:
+    s = VoiceSample(_vec(1), "t", "src", SampleStatus.OUTLIER)
+    assert VoiceSample.from_dict(s.to_dict()).status is SampleStatus.OUTLIER
+    n = VoiceSample(_vec(1), "t", "src")
+    assert "status" not in n.to_dict()
+    assert VoiceSample.from_dict(n.to_dict()).status is SampleStatus.NORMAL
+    assert n.key == ("src", "t")

@@ -5,6 +5,7 @@ import base64
 import binascii
 import json
 from dataclasses import dataclass
+from enum import Enum
 
 import numpy as np
 
@@ -56,6 +57,12 @@ class PersonName:
         object.__setattr__(self, "value", v)
 
 
+class SampleStatus(str, Enum):
+    NORMAL = "normal"
+    OUTLIER = "outlier"
+    KEPT = "kept"  # 人が「戻す」した。自動判定で除外しない
+
+
 @dataclass(frozen=True, eq=False)
 class VoiceSample:
     """声紋ストアに保存する1発話分の埋め込み"""
@@ -63,33 +70,50 @@ class VoiceSample:
     embedding: np.ndarray
     recorded_at: str
     source: str
+    status: SampleStatus = SampleStatus.NORMAL
+
+    @property
+    def key(self) -> tuple[str, str]:
+        return (self.source, self.recorded_at)
 
     def to_dict(self) -> dict[str, str]:
-        return {"emb": encode_embedding(self.embedding), "recorded_at": self.recorded_at,
-                "source": self.source}
+        d = {"emb": encode_embedding(self.embedding), "recorded_at": self.recorded_at,
+             "source": self.source}
+        if self.status is not SampleStatus.NORMAL:
+            d["status"] = self.status.value
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> VoiceSample:
-        return cls(decode_embedding(d["emb"]), str(d.get("recorded_at", "")), str(d.get("source", "")))
+        return cls(decode_embedding(d["emb"]), str(d.get("recorded_at", "")), str(d.get("source", "")),
+                   SampleStatus(d.get("status", SampleStatus.NORMAL.value)))
 
 
 @dataclass(frozen=True, eq=False)
 class VoiceEntry:
-    """voices サイドカーの1行: 話者分離が付けたラベルと、その発話の埋め込み"""
+    """voices サイドカーの1行: 話者分離が付けたラベルと、その発話の埋め込み・発話秒数"""
 
     timestamp: str
     label: str
     embedding: np.ndarray
+    duration: float | None = None
+    no_enroll: bool = False
 
     def to_json_line(self) -> str:
-        return json.dumps({"ts": self.timestamp, "label": self.label,
-                           "emb": encode_embedding(self.embedding)}, ensure_ascii=False) + "\n"
+        d: dict = {"ts": self.timestamp, "label": self.label, "emb": encode_embedding(self.embedding)}
+        if self.duration is not None:
+            d["dur"] = round(self.duration, 2)
+        if self.no_enroll:
+            d["noenroll"] = True
+        return json.dumps(d, ensure_ascii=False) + "\n"
 
     @classmethod
     def parse(cls, line: str) -> VoiceEntry | None:
         """1行をパースする。書きかけ・壊れた行は None"""
         try:
             d = json.loads(line)
-            return cls(str(d["ts"]), str(d["label"]), decode_embedding(d["emb"]))
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            dur = d.get("dur")
+            return cls(str(d["ts"]), str(d["label"]), decode_embedding(d["emb"]),
+                       None if dur is None else float(dur), d.get("noenroll") is True)
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError, AttributeError):
             return None

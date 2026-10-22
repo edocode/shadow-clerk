@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable
+from dataclasses import replace
 
 import numpy as np
 
@@ -23,13 +24,14 @@ def voices_path(transcript_path: str) -> str | None:
     return os.path.join(os.path.dirname(transcript_path), tn.voices_filename) if tn else None
 
 
-def append_voice(transcript_path: str, timestamp: str, label: str, embedding: np.ndarray) -> None:
+def append_voice(transcript_path: str, timestamp: str, label: str, embedding: np.ndarray,
+                 duration: float | None = None) -> None:
     path = voices_path(transcript_path)
     if path is None:
         return
     try:
         with open(path, "a", encoding="utf-8") as f:
-            f.write(VoiceEntry(timestamp, label, embedding).to_json_line())
+            f.write(VoiceEntry(timestamp, label, embedding, duration).to_json_line())
     except OSError as e:
         logger.warning("voices サイドカーに書けない: %s", e)
 
@@ -61,7 +63,7 @@ def relabeled_voice_lines_where(transcript_path: str, pick: Callable[[VoiceEntry
         e = VoiceEntry.parse(line)
         new = pick(e) if e is not None else None
         if e is not None and new is not None and new != e.label:
-            line = VoiceEntry(e.timestamp, new, e.embedding).to_json_line()
+            line = replace(e, label=new).to_json_line()
         out.append(line)
     return out
 
