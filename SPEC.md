@@ -610,7 +610,7 @@ sequenceDiagram
 | `transcript-YYYYMMDDHHMM.txt` | 会議セッション用 transcript |
 | `transcript-YYYYMMDDHHMM@<会議名>.txt` | 会議名付き transcript（Google Calendar 連携、rename 時） |
 | `transcript-*-<lang>.txt` | 翻訳結果ファイル（会議名含む対応: `transcript-YYYYMMDDHHMM@<会議名>-<lang>.txt`） |
-| `transcript-*.voices.jsonl` | 話者分離の埋め込み（1 行 `{ts, label, emb, dur?, noenroll?}`。`speaker_enrollment: true` のとき transcript ごとに保存。名前付けで使う。`dur` は発話秒数（ない既存行は長さ不明として扱う）、`noenroll: true` は「声紋の中身」で消した行で、以後声紋に足さない） |
+| `transcript-*.voices.jsonl` | 話者分離の埋め込み（1 行 `{ts, label, emb, dur?, noenroll?, cluster?, auto?}`。`speaker_enrollment: true` のとき transcript ごとに保存。名前付けで使う。`dur` は発話秒数（ない既存行は長さ不明として扱う）、`noenroll: true` は「声紋の中身」で消した行で、以後声紋に足さない。`label` は transcript に出した表示ラベル、`cluster` は会議内クラスタのラベル、`auto: true` は会議中の識別で付いた未確認の名前） |
 | `transcript-*.naming.jsonl` | 名前付けの履歴（ラベル 1 件ごとに `{id, at, label, name, person, lines, added, removed, undone}`。取り消しに使う。声のデータは含まない。会議のリネーム・削除・切り出しに追随する） |
 | `speaker_names.json` | 名前帳 v2（名前・グループ・個人区分・グループの色。声紋は含まない。どの会議でも候補に出す。人の削除で消える） |
 | `voiceprints.json` | 人ごとの声紋（名前付け後に追加。1人あたり `voiceprint_max_samples`、既定 200 件）。サンプルごとの `status`: なし＝通常、`outlier`＝自動で照合から除外中、`kept`＝人が「戻す」した（以後自動で除外しない）。`status` のない既存サンプルは通常として読む |
@@ -672,7 +672,7 @@ flowchart LR
 | `POST /api/speakers/assign-lines` | `{"file","lines":[{"ts","label"}],"name","group?","person?"}`。時刻とラベルの両方が一致する行だけを付け替える（相手側のみ。`[自分]` `[Claude]` は不可）。transcript・翻訳・voices サイドカーを書き換え、書き換えジャーナルに記録する。`speaker_enrollment` が有効なときだけ声紋のサンプルを移す |
 | `GET /api/speaker-groups` | `{names, persons, groups, self_group}`。ダッシュボードの色分け用。保存後に読み直す |
 | `POST /api/speaker-groups/set` | `{name, group}`。台帳の人のグループだけ変える（`""` で外す） |
-| `GET /api/speaker-roster?file=` | スキル向け（localhost 限定）。transcript の話者 × 台帳 → `{"status":"ok","self_group":str,"speakers":[{label, group, self, person}]}`。clerk-meeting-helper が議事録・分析の前に読む |
+| `GET /api/speaker-roster?file=` | スキル向け（localhost 限定）。transcript の話者 × 台帳 → `{"status":"ok","self_group":str,"speakers":[{label, group, self, person, tentative}]}`。`tentative: true` は会議中の識別の `名前?`（台帳を引かず、グループなし・個人でない扱い。議事録プロンプトでも未確定と明記する）。clerk-meeting-helper が議事録・分析の前に読む |
 
 名前付け・付け替えは、録音中のファイル、翻訳中のファイル、名前帳または声紋ストアが読めないときは断る。
 
@@ -688,6 +688,43 @@ flowchart LR
 | `POST /api/speakers/undo` | `{file, id}`。今も `name` のままの `lines` の行だけ `label` に戻し（transcript・翻訳・voices）、`added` を外し、`removed` を元の人へ戻す（その人が削除済みなら、またサイドカーの行に `noenroll` があれば戻さない）。`{restored_lines, removed_samples, restored_samples, lost_samples, has_summary, message}`。`added` のうち、すでに消えていた・別の人へ移っていた声紋は `lost_samples` に数える |
 
 取り消しは名前付けと同じ条件（録音中・翻訳中・名前帳・声紋ストア・履歴が読めない）で断る。ダッシュボードは名前付けモーダルの「名前付けの履歴」に一覧し、取り消し後は文字起こしを読み直し、議事録があれば再生成を確認する。
+
+#### 会議中の識別（Phase B）
+
+`speaker_diarization` と `speaker_enrollment` の両方が true のとき、相手側の発話が会議内クラスタ（`相手A` 等）に入るたびに、そのクラスタの埋め込みを声紋ストアの全員と照合する（`_daemon_voiceprint_match.match_cluster`）。マイク側は照合しない。
+
+- 候補は声紋が 1 件以上ある人。`status == outlier` のサンプルは使わない。声紋ストアは mtime・サイズ・inode でキャッシュし、読めなければ識別しない
+- スコア: クラスタの各埋め込みについて候補の声紋との類似度の上位 3 件平均を取り、クラスタ内で平均する。マージンは 1 位と 2 位のスコアの差（候補が 1 人なら満たす）
+- 参加者（`attendees.json`）にいない人、または参加者情報のない会議では、HIGH・LOW の閾値に `voiceprint_non_attendee_penalty` を足す
+- クラスタの埋め込みが `voiceprint_min_utterances` 件未満なら判定しない
+
+| 判定 | 条件 | transcript のラベル |
+|---|---|---|
+| HIGH | スコア ≥ `voiceprint_high`（＋上乗せ）かつ マージン ≥ `voiceprint_margin` | `alice` |
+| LOW | スコア ≥ `voiceprint_low`（＋上乗せ） | `alice?` |
+| NONE | それ以外 | `相手A` |
+
+照合はクラスタに発話が入るたびにやり直し、以後の行に反映する（書いた行は書き換えない）。サイドカーには `label`＝表示ラベル、`cluster`＝会議内ラベル、`auto`＝表示ラベル ≠ 会議内ラベル を書く。`max_label_index` はサイドカーの `cluster` も数える。照合で例外が出ても会議内ラベルで書き続ける。
+
+```mermaid
+flowchart LR
+    D[SpeakerDiarizer] -->|相手A + 埋め込み| M[match_cluster]
+    P[(voiceprints.json)] --> M
+    M -->|HIGH / LOW / NONE| L["[alice] / [alice?] / [相手A]"]
+    L --> T[transcript]
+    L -->|label, cluster, auto| V[(voices.jsonl)]
+    V -->|会議後に確認| A[POST /api/speakers/assign]
+    A -->|確認した行だけ| P
+```
+
+識別結果は声紋に足さない。会議後の名前付けで確認したときだけ足す。
+
+- `GET /api/speakers` の各ラベルに `tentative`（`名前?` 形式。`相手?` は除く）、`suggested`（`名前?` なら `名前`、それ以外は `""`）、`auto`（サイドカーの `auto` 行数）を付ける。`名前?` は名前の候補（`suggestions`）に出さない。`名前?` の行のグループ・個人区分は `名前` の台帳の値を返す
+- ダッシュボードは `tentative` の行を「未確定」と表示し、名前欄に `suggested` を入れる。保存は通常の名前付け（`alice?` → `alice`）で、付け替えたサイドカー行の `auto` を外す（付け替えは常に `auto` を外す）
+- `auto > 0` の名前付け済みの行（`tentative` を除く）に「自動識別 N 件を確認して声紋に足す」を出す（`speaker_enrollment` が有効なときだけ）。チェックすると mapping の値に `confirm: true` を付ける
+- `POST /api/speakers/assign` は、名前が変わらないラベルの `auto` 行を `confirm` のときだけ声紋に足す（グループ・個人区分だけの変更では足さない）。足す条件は通常の名前付けと同じ（`voiceprint_min_sec` 以上、`noenroll` でない、個人、transcript に行が残っている）。足せなかった行も含めて、そのラベルの `auto` を外す。履歴には `label == name`・`lines` 空・`added`＝実際に足した声紋で 1 件残す（足したものがなければ残さない）。取り消すと足した声紋だけ外れ、`auto` は戻さない。`auto` 行のないラベル・`名前?` のラベルへの `confirm` は無視する
+- 名前を変えるラベルは従来どおり、`auto` 行も含めて新しい名前へ付け替え・登録する
+- 文字起こしの色は `名前?` を `名前` のグループで引く（`spColor`）
 
 #### 声紋の塊
 
@@ -710,6 +747,11 @@ flowchart LR
 
 | 設定キー | 既定 | 意味 |
 |---|---|---|
+| `voiceprint_high` | 0.60 | 会議中の識別で名前を出すスコア |
+| `voiceprint_low` | 0.50 | 会議中の識別で `名前?` を出すスコア |
+| `voiceprint_margin` | 0.05 | 名前を出すのに要る 1 位と 2 位の差 |
+| `voiceprint_non_attendee_penalty` | 0.05 | 参加者にいない人の閾値への上乗せ |
+| `voiceprint_min_utterances` | 2 | 判定に要る会議内クラスタの発話数 |
 | `voiceprint_min_sec` | 3.0 | これより短い発話は声紋に足さない |
 | `voiceprint_cluster_min_samples` | 10 | これ未満の人は塊に分けず、除外もしない |
 | `voiceprint_cluster_distance` | 0.6 | 平均連結で併合するコサイン距離の上限 |
