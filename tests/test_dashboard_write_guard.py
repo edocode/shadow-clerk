@@ -128,3 +128,47 @@ def test_extension_origin_is_rejected_elsewhere() -> None:
                  headers={"Host": "127.0.0.1:8765", "Origin": "chrome-extension://abcdefgh"})
     h.do_POST()
     assert h.sent["status"] == "error" and h.recorder.commands == []
+
+
+class _RawHandler(_Handler):
+    def __init__(self, name: str) -> None:
+        super().__init__("/api/file?name=" + __import__("urllib.parse").parse.quote(name))
+        self.wfile = io.BytesIO()
+        self.status = 0
+
+    def send_response(self, code: int, *_: object) -> None:
+        self.status = code
+
+    def send_header(self, *_: object) -> None:
+        pass
+
+    def end_headers(self) -> None:
+        pass
+
+
+def test_owning_maps_derived_files_to_their_transcript() -> None:
+    from shadow_clerk._transcript_name import TranscriptName
+    owner = lambda n: (tn := TranscriptName.owning(n)) and tn.filename  # noqa: E731
+    assert owner("transcript-202610201529@ad-hoc.txt") == "transcript-202610201529@ad-hoc.txt"
+    assert owner("transcript-202610201529@ad-hoc-en.txt") == "transcript-202610201529@ad-hoc.txt"
+    assert owner("summary-20261020.md") == "transcript-20261020.txt"
+    assert owner("advice-202610201529@ad-hoc.md") == "transcript-202610201529@ad-hoc.txt"
+    assert owner("analysis-202610201529@ad-hoc.md") == "transcript-202610201529@ad-hoc.txt"
+    for bad in ("config.yaml", "summary-20261020.txt", "minutes-20261020.md", ".env", "summary-x.md"):
+        assert owner(bad) is None, bad
+
+
+def test_raw_file_serves_transcript_and_derived_files() -> None:
+    _write("summary-20261016.md", "# 要約\n")
+    h = _RawHandler("summary-20261016.md")
+    h._serve_raw_file()
+    assert h.status == 200 and h.wfile.getvalue().decode("utf-8") == "# 要約\n"
+
+
+def test_raw_file_refuses_other_files() -> None:
+    _write("config.yaml", "a: 1\n")
+    _write(".env", "API_KEY=xyz\n")
+    for name in ("config.yaml", ".env", f"../{DAILY}", "summary-20990101.md", ""):
+        h = _RawHandler(name)
+        h._serve_raw_file()
+        assert h.errors == [404] and not h.wfile.getvalue(), name

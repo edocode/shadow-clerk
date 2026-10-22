@@ -139,8 +139,8 @@ async function loadT(file){
   try{const u=file?'/api/transcript?file='+encodeURIComponent(file):'/api/transcript';
   const d=await(await fetch(u)).json();if(g!==_tGen)return;
   const el=document.getElementById('tp');el.innerHTML='';
-  d.lines.forEach(l=>el.insertAdjacentHTML('beforeend',fmtTranscriptLine(l)));
-  document.getElementById('tf').textContent=d.file;el.scrollTop=el.scrollHeight;}catch(e){}
+  d.lines.forEach(l=>el.insertAdjacentHTML('beforeend',fmtTranscriptLine(l)));linkifyFiles(el);
+  setFileLabel('tf',d.file);el.scrollTop=el.scrollHeight;}catch(e){}
 }
 async function loadR(file){
   const g=++_rGen;
@@ -150,9 +150,9 @@ async function loadR(file){
   if(d.translating&&!d.lines.length){
     el.insertAdjacentHTML('beforeend','<div class="translating-msg">'+esc(I18N['dash.translating'])+'</div>');
   }else{
-    d.lines.forEach(l=>el.insertAdjacentHTML('beforeend',fmtLine(l)));
+    d.lines.forEach(l=>el.insertAdjacentHTML('beforeend',fmtLine(l)));linkifyFiles(el);
   }
-  document.getElementById('rf').textContent=d.file;el.scrollTop=el.scrollHeight;}catch(e){}
+  setFileLabel('rf',d.file);el.scrollTop=el.scrollHeight;}catch(e){}
 }
 async function loadLogs(){
   try{const d=await(await fetch('/api/logs')).json(),el=document.getElementById('logc');
@@ -266,7 +266,7 @@ async function loadS(file){
       file?fetch('/api/attendees?file='+encodeURIComponent(file)).then(r=>r.json()).catch(()=>({attendees:[]})):Promise.resolve({attendees:[]}),
     ]);
     if(g!==_sGen)return;
-    document.getElementById('sf').textContent=sumD.file||'';
+    setFileLabel('sf',sumD.file);
     _sumMd=sumD.content||'';
     const cp=document.getElementById('btnCopySum');if(cp)cp.style.display=_sumMd?'':'none';
     const attHtml=_renderAttendees(attD.attendees||[]);
@@ -275,6 +275,7 @@ async function loadS(file){
       el.innerHTML=attHtml+(sumD.html
         ?'<div class="md-body">'+sumD.html+'</div>'
         :'<div class="summary-body">'+esc(sumD.content)+'</div>');
+      linkifyFiles(el);
     }else{
       el.innerHTML=attHtml+'<div class="summary-empty"><div style="color:var(--muted);margin-bottom:8px">'+esc(I18N['dash.no_summary']||'No summary.')+'</div>'
         +'<button class="pri" onclick="genSummary()">'+esc(I18N['dash.summary']||'Summary')+'</button></div>';

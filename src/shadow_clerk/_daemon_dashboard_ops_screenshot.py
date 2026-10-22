@@ -6,6 +6,8 @@ import datetime
 import json
 import logging
 import os
+import re
+from urllib.parse import parse_qs, urlparse
 from shadow_clerk import DATA_DIR
 from shadow_clerk._daemon_constants import SESSION_FILE
 from shadow_clerk._daemon_dashboard_base import is_localhost_client
@@ -16,6 +18,8 @@ logger = logging.getLogger("shadow-clerk")
 _DATA_URL_PREFIX = "data:image/png;base64,"
 # 4K のフルスクリーン png でも 12MB は超えないため、それ以上は不正とみなす
 _MAX_IMAGE_BYTES = 12 * 1024 * 1024
+# GET で返すのは保存したキャプチャだけ。区切り文字を含む名前は通さない
+_SHOT_NAME_RE = re.compile(r"shot-[^/\\]+\.png")
 
 
 class _DashboardHandlerScreenshotOps:
@@ -77,6 +81,21 @@ class _DashboardHandlerScreenshotOps:
             "path": path,
             "transcript_appended": appended,
         })
+
+    def _serve_screenshot(self) -> None:
+        """GET /api/screenshot?file=shot-….png — 保存したキャプチャを返す（本文中のリンク用）"""
+        name = parse_qs(urlparse(self.path).query).get("file", [""])[0]
+        path = os.path.join(DATA_DIR, name)
+        if not _SHOT_NAME_RE.fullmatch(name) or not os.path.isfile(path):
+            self.send_error(404)
+            return
+        with open(path, "rb") as f:
+            body = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def _screenshot_target_transcript(self) -> str:
         """キャプチャを書き込む transcript のパス。書ける先が無ければ空文字列
