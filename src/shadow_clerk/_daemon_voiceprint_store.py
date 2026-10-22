@@ -10,6 +10,7 @@ import logging
 import os
 import tempfile
 import threading
+from dataclasses import dataclass, field
 
 from shadow_clerk import DATA_DIR
 from shadow_clerk._daemon_config import load_config
@@ -37,6 +38,14 @@ def atomic_write_json(path: str, body: dict, prefix: str) -> None:
         except OSError:
             pass
         raise
+
+
+@dataclass(frozen=True)
+class StoreChange:
+    """update で実際に外した・足したサンプルのキー（人の名前 → {(source, recorded_at)}）"""
+
+    removed: dict[str, set[tuple[str, str]]] = field(default_factory=dict)
+    added: dict[str, set[tuple[str, str]]] = field(default_factory=dict)
 
 
 class VoiceprintStoreError(Exception):
@@ -91,17 +100,20 @@ class VoiceprintStore:
         self.update(samples_by_person, {})
 
     def update(self, add: dict[PersonName, list[VoiceSample]],
-               remove: dict[str, set[tuple[str, str]]]) -> int:
+               remove: dict[str, set[tuple[str, str]]]) -> StoreChange:
         """remove の (source, recorded_at) に当たるサンプルを外し、add を足す。1回の読み書きで行う。空になった人は消す。
-        外せた件数を返す（上限で既に捨てられたものは数えない）"""
+        実際に外した・足したキーを返す（既にない・既にある・上限で捨てたものは含めない）"""
         cap = int(load_config().get("voiceprint_max_samples", _MAX_SAMPLES_DEFAULT))
-        removed = 0
+        change = StoreChange()
         with _lock:
             people = self._load()
             for name, keys in remove.items():
-                kept = [d for d in people.get(name, [])
-                        if not (isinstance(d, dict) and (d.get("source"), d.get("recorded_at")) in keys)]
-                removed += len(people.get(name, [])) - len(kept)
+                kept = []
+                for d in people.get(name, []):
+                    if isinstance(d, dict) and (key := (d.get("source"), d.get("recorded_at"))) in keys:
+                        change.removed.setdefault(name, set()).add(key)
+                    else:
+                        kept.append(d)
                 if kept:
                     people[name] = kept
                 else:
@@ -109,13 +121,17 @@ class VoiceprintStore:
             for name, samples in add.items():
                 merged = people.get(name.value, [])
                 seen = {(d.get("source"), d.get("recorded_at")) for d in merged if isinstance(d, dict)}
+                new: set[tuple[str, str]] = set()
                 for sample in samples:
-                    if (sample.source, sample.recorded_at) not in seen:
-                        seen.add((sample.source, sample.recorded_at))
+                    if sample.key not in seen:
+                        seen.add(sample.key)
+                        new.add(sample.key)
                         merged.append(sample.to_dict())
-                people[name.value] = merged[-cap:] if cap > 0 else merged
+                people[name.value] = merged = merged[-cap:] if cap > 0 else merged
+                if stored := new & {(d.get("source"), d.get("recorded_at")) for d in merged if isinstance(d, dict)}:
+                    change.added[name.value] = stored
             self._save(people)
-        return removed
+        return change
 
     def relocate_source(self, old: str, new: str, ts_range: tuple[str, str] | None = None) -> int:
         """source が old（かつ ts_range 内の recorded_at）のサンプルの source を new に付け替え、件数を返す"""

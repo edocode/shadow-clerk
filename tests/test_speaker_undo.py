@@ -166,6 +166,41 @@ def test_undo_does_not_revive_deleted_person() -> None:
     assert VoiceprintStore().people() == {}
 
 
+def _enrollment(monkeypatch: pytest.MonkeyPatch, on: bool) -> None:
+    monkeypatch.setattr(sys.modules["shadow_clerk._daemon_dashboard_ops_speakers"], "load_config",
+                        lambda: {"speaker_enrollment": on})
+
+
+def test_undo_does_not_create_samples_the_person_never_had(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enrollment(monkeypatch, False)
+    _assign({"相手A": "alice"})
+    _enrollment(monkeypatch, True)
+    _assign({"alice": "bob"})
+    assert VoiceprintStore().people() == {"bob": 1}
+    r = _undo(_rec_id("alice"))
+    assert r["status"] == "ok" and r["restored_samples"] == 0 and r["removed_samples"] == 1, r
+    assert "[alice] 来週のリリースの件ですが" in _read(MTG) and VoiceprintStore().people() == {}
+
+
+def test_undo_keeps_sample_that_existed_before_naming() -> None:
+    from shadow_clerk.domain.voiceprint import VoiceSample
+    VoiceprintStore().add({PersonName("alice"): [VoiceSample(_vec(0), A1, MTG)]})
+    _assign({"相手A": "alice"})
+    assert _history()[0]["added"] == 0
+    r = _undo(_rec_id("相手A"))
+    assert r["status"] == "ok" and r["removed_samples"] == 0 and r["lost_samples"] == 0, r
+    assert _keys("alice") == {(MTG, A1)}
+
+
+def test_undo_restores_previous_person_even_with_enrollment_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    _assign({"相手A": "alice"})
+    _assign({"alice": "bob"})
+    _enrollment(monkeypatch, False)
+    r = _undo(_rec_id("alice"))
+    assert r["status"] == "ok" and r["restored_samples"] == 1 and r["removed_samples"] == 1, r
+    assert VoiceprintStore().people() == {"alice": 1} and _keys("alice") == {(MTG, A1)}
+
+
 def test_undo_twice_refused() -> None:
     _assign({"相手A": "alice"})
     rec_id = _rec_id("相手A")

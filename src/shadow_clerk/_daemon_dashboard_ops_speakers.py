@@ -21,7 +21,7 @@ from shadow_clerk._daemon_speaker_names import SpeakerNameBook, SpeakerNameBookE
 from shadow_clerk._daemon_voice_sidecar import (
     read_voices, relabeled_voice_lines_where, voice_lines_without_label, voices_path,
 )
-from shadow_clerk._daemon_voiceprint_store import VoiceprintStore, VoiceprintStoreError
+from shadow_clerk._daemon_voiceprint_store import StoreChange, VoiceprintStore, VoiceprintStoreError
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain.naming_history import NamingRecord
 from shadow_clerk.domain.transcript_line import TranscriptLine
@@ -40,12 +40,6 @@ class EnrollOutcome:
     added: dict[str, list[str]] = field(default_factory=dict)
     removed: dict[str, list[str]] = field(default_factory=dict)
     counts: dict[str, int] = field(default_factory=dict)
-
-
-def _enrollable(cfg: dict) -> Callable[[VoiceEntry], bool]:
-    """声紋に足してよい発話か（no_enroll と voiceprint_min_sec より短い発話を除く）"""
-    min_sec = float(cfg.get("voiceprint_min_sec", DEFAULT_CONFIG["voiceprint_min_sec"]))
-    return lambda v: not v.no_enroll and (v.duration is None or v.duration >= min_sec)
 
 
 class _DashboardHandlerSpeakerOps:
@@ -287,32 +281,36 @@ class _DashboardHandlerSpeakerOps:
         cfg = load_config()
         if not cfg.get("speaker_enrollment", False):
             return EnrollOutcome()
-        enrollable = _enrollable(cfg)
+        min_sec = float(cfg.get("voiceprint_min_sec", DEFAULT_CONFIG["voiceprint_min_sec"]))
         source = os.path.basename(t_path)
         # transcript に今もある行の埋め込みだけ（切り出しで移った行や書き換え済みの古い項目を除く）
         present = {(p.timestamp, p.speaker_label) for ln in lines if (p := TranscriptLine.parse(ln))}
         add: dict[PersonName, list[VoiceSample]] = defaultdict(list)
         remove: dict[str, set[tuple[str, str]]] = defaultdict(set)
-        added: dict[str, list[str]] = defaultdict(list)
-        removed: dict[str, list[str]] = defaultdict(list)
+        label_of: dict[tuple[str, tuple[str, str]], str] = {}  # (人, キー) → 元のラベル
         for v in read_voices(t_path):
             d = decide(v)
             if d is None or (v.timestamp, v.label) not in present:
                 continue
             if v.label in named:
                 remove[v.label].add((source, v.timestamp))
-                removed[v.label].append(v.timestamp)
-            if d.person and enrollable(v):
+            if d.person and not v.no_enroll and (v.duration is None or v.duration >= min_sec):
                 add[d.name].append(VoiceSample(v.embedding, v.timestamp, source))
-                added[v.label].append(v.timestamp)
+                label_of[(d.name.value, (source, v.timestamp))] = v.label
         if not add and not remove:
             return EnrollOutcome()
         try:
-            VoiceprintStore().update(dict(add), dict(remove))
+            change = VoiceprintStore().update(dict(add), dict(remove))
         except (VoiceprintStoreError, OSError) as e:
             logger.error("声紋を保存できない: %s", e)
             return None
-        return EnrollOutcome(dict(added), dict(removed), {p.value: len(s) for p, s in add.items()})
+        # 履歴には実際に足した・外したものだけ残す。取り消しが、元々なかった声紋を作ったり、前からあった声紋を消したりしないように
+        added: dict[str, list[str]] = defaultdict(list)
+        for person, keys in change.added.items():
+            for key in sorted(keys):
+                added[label_of[(person, key)]].append(key[1])
+        return EnrollOutcome(dict(added), {label: sorted(ts for _, ts in keys) for label, keys in change.removed.items()},
+                             {p.value: len(s) for p, s in add.items()})
 
     def _apply_relabel(self, t_path: str, lines: list[str], pick_line: Callable[[TranscriptLine], str | None],
                        pick_voice: Callable[[VoiceEntry], str | None]) -> int:
@@ -354,7 +352,6 @@ class _DashboardHandlerSpeakerOps:
         except SpeakerNameBookError:
             self._speaker_error("dash.speaker_book_error")
             return
-        cfg = load_config()
         with self.recorder.transcript_lock:
             if self._is_active_transcript(t_path):
                 self._speaker_error("dash.speakers_active")
@@ -383,17 +380,16 @@ class _DashboardHandlerSpeakerOps:
                 return rec.label if tl.timestamp in targets and tl.speaker_label == rec.name else None
             reverted = {p.timestamp for ln in lines if (p := TranscriptLine.parse(ln)) and pick_line(p)}
             source = os.path.basename(t_path)
-            # 名簿にもストアにもいない＝削除ボタンで消された人。明示的に消した生体情報は戻さない
+            # 名簿にもストアにもいない＝削除ボタンで消された人。明示的に消した生体情報は戻さない。
+            # 戻すのは既にあったデータなので speaker_enrollment には関係なく戻す
             entry = entries.get(rec.label)
-            revive = (entry.person if entry else rec.label in people) and cfg.get("speaker_enrollment", False)
-            enrollable = _enrollable(cfg)
             restore = [VoiceSample(v.embedding, v.timestamp, source) for v in read_voices(t_path)
-                       if revive and v.timestamp in reverted and v.timestamp in rec.removed
-                       and v.label == rec.name and enrollable(v)]
+                       if v.timestamp in reverted and v.timestamp in rec.removed and v.label == rec.name] \
+                if (entry.person if entry else rec.label in people) else []
             remove = {rec.name: {(source, ts) for ts in rec.added}} if rec.added else {}
             try:
-                removed = store.update({PersonName(rec.label): restore} if restore else {}, remove) \
-                    if remove or restore else 0
+                change = store.update({PersonName(rec.label): restore} if restore else {}, remove) \
+                    if remove or restore else StoreChange()
             except (VoiceprintStoreError, OSError) as e:
                 logger.error("声紋を保存できない: %s", e)
                 self._speaker_error("dash.voiceprint_store_error")
@@ -407,10 +403,10 @@ class _DashboardHandlerSpeakerOps:
                 logger.error("取り消しを書き込めない: %s", e)
                 self._speaker_error("dash.speakers_write_error")
                 return
-        lost = len(rec.added) - removed
+        removed, lost = len(change.removed.get(rec.name, ())), len(rec.added) - len(change.removed.get(rec.name, ()))
         message = t("dash.naming_undone", label=rec.label, lines=restored, removed=removed)
         self._send_json({"status": "ok", "restored_lines": restored, "removed_samples": removed,
-                         "restored_samples": len(restore), "lost_samples": lost,
+                         "restored_samples": len(change.added.get(rec.label, ())), "lost_samples": lost,
                          "has_summary": self._has_summary(t_path),
                          "message": f"{message} {t('dash.naming_undo_lost', count=lost)}" if lost else message})
 

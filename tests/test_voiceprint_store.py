@@ -87,6 +87,17 @@ def test_update_remove_only_and_unknown_person(store) -> None:
     assert store.people() == {}
 
 
+def test_update_returns_keys_actually_changed(store, monkeypatch) -> None:
+    monkeypatch.setattr(store_mod, "load_config", lambda: {"voiceprint_max_samples": 2})
+    a, b, c = _sample(1), _sample(2, "2026-10-09 10:00:01"), _sample(3, "2026-10-09 10:00:02")
+    store.add({PersonName("太郎"): [a]})
+    change = store.update({PersonName("太郎"): [a, b, c]}, {"次郎": {a.key}, "三郎": {("x", "y")}})
+    assert change.removed == {}
+    assert change.added == {"太郎": {b.key, c.key}}  # a は既にあり、上限 2 で a が押し出される
+    change = store.update({PersonName("次郎"): [_sample(4, "2026-10-09 10:00:03")]}, {"太郎": {b.key, a.key}})
+    assert change.removed == {"太郎": {b.key}} and set(change.added) == {"次郎"}
+
+
 def test_update_refuses_broken_file(store) -> None:
     with open(store.path, "w", encoding="utf-8") as f:
         f.write("{broken")
