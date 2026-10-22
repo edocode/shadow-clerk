@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlparse
 
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_config import load_config
+from shadow_clerk._daemon_constants import DEFAULT_CONFIG
 from shadow_clerk._daemon_dashboard_base import read_attendees, read_local_json_body
 from shadow_clerk._daemon_speaker_naming import (
     Decision, decide_assignment, line_target_picker, parse_assignment, relabel_lines_where, remap_offset,
@@ -241,8 +242,10 @@ class _DashboardHandlerSpeakerOps:
     def _enroll(self, t_path: str, lines: list[str], decide: Callable[[VoiceEntry], Decision | None],
                 named: set[str]) -> dict[str, int] | None:
         """付け替える行の埋め込みを、元の人から外し、新しいラベルが個人なら足す。ストアを読み書きできなければ None"""
-        if not load_config().get("speaker_enrollment", False):
+        cfg = load_config()
+        if not cfg.get("speaker_enrollment", False):
             return {}
+        min_sec = float(cfg.get("voiceprint_min_sec", DEFAULT_CONFIG["voiceprint_min_sec"]))
         source = os.path.basename(t_path)
         # transcript に今もある行の埋め込みだけ（切り出しで移った行や書き換え済みの古い項目を除く）
         present = {(p.timestamp, p.speaker_label) for ln in lines if (p := TranscriptLine.parse(ln))}
@@ -254,7 +257,7 @@ class _DashboardHandlerSpeakerOps:
                 continue
             if v.label in named:
                 remove[v.label].add((source, v.timestamp))
-            if d.person:
+            if d.person and not v.no_enroll and (v.duration is None or v.duration >= min_sec):
                 add[d.name].append(VoiceSample(v.embedding, v.timestamp, source))
         if not add and not remove:
             return {}

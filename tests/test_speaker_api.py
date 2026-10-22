@@ -536,3 +536,51 @@ def test_assign_lines_with_broken_name_book_writes_nothing() -> None:
     h._assign_lines()
     assert h.sent == {"status": "error", "message": t("dash.speaker_book_error")}, h.sent
     assert {n: _read(n) if os.path.exists(_p(n)) else None for n in names} == before
+
+
+def _add_d_lines(*entries: tuple[str, float | None, bool]) -> None:
+    """相手D の行と声紋を足す（ts, dur, no_enroll）"""
+    from dataclasses import replace
+    for i, (ts, dur, skip) in enumerate(entries):
+        with open(_p(MTG), "a", encoding="utf-8") as f:
+            f.write(f"[2026-10-09 {ts}] [相手D] 発話{i}\n")
+        append_voice(_p(MTG), f"2026-10-09 {ts}", "相手D", _vec(20 + i), dur)
+        if skip:
+            vp = _p(f"{MTG[:-4]}.voices.jsonl")
+            last = read_voices(_p(MTG))[-1]
+            with open(vp, "r", encoding="utf-8") as f:
+                rows = f.readlines()
+            with open(vp, "w", encoding="utf-8") as f:
+                f.writelines(rows[:-1] + [replace(last, no_enroll=True).to_json_line()])
+
+
+def test_short_utterance_named_but_not_enrolled() -> None:
+    _add_d_lines(("10:01:00", 1.0, False), ("10:01:01", 4.0, False))
+    h = _H({"file": MTG, "mapping": {"相手D": "alice"}})
+    h._assign_speakers()
+    assert h.sent["status"] == "ok" and h.sent["enrolled"] == {"alice": 1}, h.sent
+    assert _read(MTG).count("[alice]") == 2
+    assert VoiceprintStore().people() == {"alice": 1}
+
+
+def test_no_enroll_entry_not_enrolled() -> None:
+    _add_d_lines(("10:01:00", 5.0, True), ("10:01:01", 5.0, False))
+    _H({"file": MTG, "mapping": {"相手D": "alice"}})._assign_speakers()
+    assert _read(MTG).count("[alice]") == 2
+    assert VoiceprintStore().people() == {"alice": 1}
+
+
+def test_legacy_entry_without_duration_enrolled() -> None:
+    _add_d_lines(("10:01:00", None, False))
+    _H({"file": MTG, "mapping": {"相手D": "alice"}})._assign_speakers()
+    assert VoiceprintStore().people() == {"alice": 1}
+
+
+def test_unknown_label_line_can_be_reassigned() -> None:
+    with open(_p(MTG), "a", encoding="utf-8") as f:
+        f.write("[2026-10-09 10:02:00] [相手?] 短い\n")
+    h = _H({"file": MTG, "lines": [{"ts": "2026-10-09 10:02:00", "label": "相手?"}], "name": "alice"})
+    h._assign_lines()
+    assert h.sent["status"] == "ok" and h.sent["renamed"] == 1, h.sent
+    assert "[alice] 短い" in _read(MTG)
+    assert VoiceprintStore().people() == {}

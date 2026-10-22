@@ -115,7 +115,10 @@ class _DashboardHandlerConfigOps:
         # 設定モーダルの select は文字列で届く。数値に戻す
         for key, conv in (("whisper_beam_size", int), ("whisper_vad_threshold", float),
                           ("diarization_threshold", float), ("diarization_min_sec", float),
-                          ("voiceprint_max_samples", int)):
+                          ("voiceprint_max_samples", int), ("voiceprint_min_sec", float),
+                          ("voiceprint_cluster_min_samples", int), ("voiceprint_cluster_distance", float),
+                          ("voiceprint_main_similarity", float), ("voiceprint_outlier_max", int),
+                          ("voiceprint_outlier_ratio", float)):
             if key in config:
                 try:
                     config[key] = conv(config[key])
