@@ -85,3 +85,8 @@ def test_voice_sample_status_roundtrip() -> None:
     assert "status" not in n.to_dict()
     assert VoiceSample.from_dict(n.to_dict()).status is SampleStatus.NORMAL
     assert n.key == ("src", "t")
+
+
+def test_voice_sample_unknown_status_falls_back_to_normal() -> None:
+    d = {**VoiceSample(_vec(1), "t", "src").to_dict(), "status": "bogus"}
+    assert VoiceSample.from_dict(d).status is SampleStatus.NORMAL

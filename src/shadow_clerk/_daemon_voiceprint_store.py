@@ -14,8 +14,9 @@ from dataclasses import dataclass, field
 
 from shadow_clerk import DATA_DIR
 from shadow_clerk._daemon_config import load_config
+from shadow_clerk._daemon_voiceprint_clusters import ClusterKind, cluster_samples
 from shadow_clerk._daemon_constants import DEFAULT_CONFIG
-from shadow_clerk.domain.voiceprint import PersonName, VoiceSample
+from shadow_clerk.domain.voiceprint import PersonName, SampleStatus, VoiceSample
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -38,6 +39,25 @@ def atomic_write_json(path: str, body: dict, prefix: str) -> None:
         except OSError:
             pass
         raise
+
+
+def _restatus(raw: list[dict]) -> None:
+    """塊分けして外れ値の塊のサンプルを OUTLIER に、それ以外を NORMAL にする（KEPT と読めないものは触らない）"""
+    items: list[tuple[dict, VoiceSample]] = []
+    for d in raw:
+        try:
+            items.append((d, VoiceSample.from_dict(d)))
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+    outliers = {i for c in cluster_samples([s.embedding for _, s in items]) if c.kind is ClusterKind.OUTLIER
+                for i in c.members}
+    for i, (d, s) in enumerate(items):
+        if s.status is SampleStatus.KEPT:
+            continue
+        if i in outliers:
+            d["status"] = SampleStatus.OUTLIER.value
+        else:
+            d.pop("status", None)
 
 
 @dataclass(frozen=True)
@@ -130,8 +150,27 @@ class VoiceprintStore:
                 people[name.value] = merged = merged[-cap:] if cap > 0 else merged
                 if stored := new & {(d.get("source"), d.get("recorded_at")) for d in merged if isinstance(d, dict)}:
                     change.added[name.value] = stored
+            for name in change.added:
+                if name in people:
+                    _restatus(people[name])
             self._save(people)
         return change
+
+    def set_status(self, name: str, keys: set[tuple[str, str]], status: SampleStatus) -> int:
+        """name のサンプルのうち keys に当たるものの status を変え、変えた件数を返す"""
+        n = 0
+        with _lock:
+            people = self._load()
+            for d in people.get(name, []):
+                if isinstance(d, dict) and (d.get("source"), d.get("recorded_at")) in keys:
+                    if status is SampleStatus.NORMAL:
+                        n += d.pop("status", None) is not None
+                    else:
+                        n += d.get("status") != status.value
+                        d["status"] = status.value
+            if n:
+                self._save(people)
+        return n
 
     def relocate_source(self, old: str, new: str, ts_range: tuple[str, str] | None = None) -> int:
         """source が old（かつ ts_range 内の recorded_at）のサンプルの source を new に付け替え、件数を返す"""

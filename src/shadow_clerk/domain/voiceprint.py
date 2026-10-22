@@ -85,8 +85,11 @@ class VoiceSample:
 
     @classmethod
     def from_dict(cls, d: dict) -> VoiceSample:
-        return cls(decode_embedding(d["emb"]), str(d.get("recorded_at", "")), str(d.get("source", "")),
-                   SampleStatus(d.get("status", SampleStatus.NORMAL.value)))
+        try:
+            status = SampleStatus(d.get("status", SampleStatus.NORMAL.value))
+        except ValueError:  # 未知の status 1件でストア全体を読めなくしない
+            status = SampleStatus.NORMAL
+        return cls(decode_embedding(d["emb"]), str(d.get("recorded_at", "")), str(d.get("source", "")), status)
 
 
 @dataclass(frozen=True, eq=False)

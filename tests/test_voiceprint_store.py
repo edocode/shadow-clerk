@@ -7,9 +7,10 @@ import stat
 import numpy as np
 import pytest
 
+import shadow_clerk._daemon_voiceprint_clusters as cluster_mod
 import shadow_clerk._daemon_voiceprint_store as store_mod
 from shadow_clerk._daemon_voiceprint_store import VoiceprintStore, VoiceprintStoreError
-from shadow_clerk.domain.voiceprint import PersonName, VoiceSample
+from shadow_clerk.domain.voiceprint import PersonName, SampleStatus, VoiceSample
 
 
 def _sample(seed: int, ts: str = "2026-10-09 10:00:00") -> VoiceSample:
@@ -20,6 +21,7 @@ def _sample(seed: int, ts: str = "2026-10-09 10:00:00") -> VoiceSample:
 @pytest.fixture
 def store(tmp_path, monkeypatch) -> VoiceprintStore:
     monkeypatch.setattr(store_mod, "load_config", lambda: {})
+    monkeypatch.setattr(cluster_mod, "load_config", lambda: {})
     return VoiceprintStore(str(tmp_path / "voiceprints.json"))
 
 
@@ -154,3 +156,33 @@ def test_relocate_source_all_and_range(store) -> None:
     assert store.relocate_source(old, new) == 1
     assert {s.source for s in store.samples(PersonName("太郎"))} == {new, "other.txt"}
     assert store.relocate_source(old, new) == 0
+
+
+def _cluster_samples(n_main: int = 40) -> list[VoiceSample]:
+    rng = np.random.default_rng(0)
+    base = rng.normal(size=256)
+    base /= np.linalg.norm(base)
+    far = rng.normal(size=256)
+    far /= np.linalg.norm(far)
+    out = []
+    for i, b in enumerate([base] * n_main + [far]):
+        v = b + rng.normal(scale=0.06, size=256)
+        out.append(VoiceSample((v / np.linalg.norm(v)).astype(np.float32), f"2026-10-09 10:00:{i:02d}", "t.txt"))
+    return out
+
+
+def test_update_marks_outliers_and_keeps_kept(store) -> None:
+    samples = _cluster_samples()
+    far = samples[-1]
+    change = store.update({PersonName("太郎"): samples}, {})
+    assert change.added["太郎"] == {s.key for s in samples}
+    got = {s.key: s.status for s in store.samples(PersonName("太郎"))}
+    assert got[far.key] is SampleStatus.OUTLIER
+    assert {st for k, st in got.items() if k != far.key} == {SampleStatus.NORMAL}
+    assert store.set_status("太郎", {far.key}, SampleStatus.KEPT) == 1
+    store.update({PersonName("太郎"): [_sample(99, "2026-10-09 11:00:00")]}, {})
+    assert {s.key: s.status for s in store.samples(PersonName("太郎"))}[far.key] is SampleStatus.KEPT
+
+
+def test_set_status_unknown_person_or_keys(store) -> None:
+    assert store.set_status("nobody", {("a", "b")}, SampleStatus.KEPT) == 0
