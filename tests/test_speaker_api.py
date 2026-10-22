@@ -646,3 +646,20 @@ def test_extract_meeting_splits_history() -> None:
     assert [r.lines for r in read_history(_p(new))] == [(pm,)]
     assert [r.lines for r in read_history(_p(daily))] == [(am,)]
     assert {s.key for s in VoiceprintStore().samples(PersonName("alice"))} == {(daily, am), (new, pm)}
+
+
+def test_extract_relocates_sources_even_if_history_is_broken() -> None:
+    from shadow_clerk.domain.voiceprint import PersonName, VoiceSample
+    daily = "transcript-20261009.txt"
+    with open(_p(daily), "w", encoding="utf-8") as f:
+        f.write("[2026-10-09 09:00:00] [alice] 朝\n[2026-10-09 11:00:00] [alice] 昼\n")
+    am, pm = "2026-10-09 09:00:00", "2026-10-09 11:00:00"
+    with open(_p("transcript-20261009.naming.jsonl"), "w", encoding="utf-8") as f:
+        f.write("{broken\n")
+    VoiceprintStore().add({PersonName("alice"): [VoiceSample(_vec(1), am, daily), VoiceSample(_vec(2), pm, daily)]})
+    h = _H({"file": daily, "start_ts": "2026-10-09 10:30:00", "end_ts": "2026-10-09 11:30:00",
+            "target": "new", "name": "昼会"})
+    h._extract_meeting()
+    assert h.sent["status"] == "ok", h.sent
+    assert {s.key for s in VoiceprintStore().samples(PersonName("alice"))} == \
+        {(daily, am), ("transcript-202610091030@昼会.txt", pm)}

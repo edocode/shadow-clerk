@@ -36,9 +36,12 @@ class _DashboardHandlerMeetingOps:
         copy_voice_range(src, dst, start_ts, end_ts)
         try:
             split_history(src, dst, start_ts, end_ts)
+        except (NamingHistoryError, OSError) as e:
+            logger.warning("名前付け履歴を切り出し先へ移せない: %s", e)
+        try:
             VoiceprintStore().relocate_source(os.path.basename(src), os.path.basename(dst), (start_ts, end_ts))
-        except (NamingHistoryError, VoiceprintStoreError, OSError) as e:
-            logger.warning("名前付け履歴・声紋サンプルを切り出し先へ移せない: %s", e)
+        except (VoiceprintStoreError, OSError) as e:
+            logger.warning("声紋サンプルの source を付け替えられない: %s", e)
 
     def _extract_meeting(self) -> None:
         """POST /api/transcript/extract-meeting — タイムスタンプ範囲の行を会議ファイルへ移動"""
