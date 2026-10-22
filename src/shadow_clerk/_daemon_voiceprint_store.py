@@ -10,6 +10,7 @@ import logging
 import os
 import tempfile
 import threading
+from collections import Counter
 from dataclasses import dataclass, field
 
 from shadow_clerk import DATA_DIR
@@ -49,6 +50,9 @@ def _restatus(raw: list[dict]) -> None:
             items.append((d, VoiceSample.from_dict(d)))
         except (KeyError, TypeError, ValueError, AttributeError):
             continue
+    if items:  # 次元違い（モデル変更・壊れた行）は多数派の次元だけ塊分けし、残りは触らない
+        shape = Counter(x.embedding.shape for _, x in items).most_common(1)[0][0]
+        items = [it for it in items if it[1].embedding.shape == shape]
     outliers = {i for c in cluster_samples([s.embedding for _, s in items]) if c.kind is ClusterKind.OUTLIER
                 for i in c.members}
     for i, (d, s) in enumerate(items):

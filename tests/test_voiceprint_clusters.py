@@ -71,3 +71,10 @@ def test_remaining_clusters_sorted_by_size(monkeypatch) -> None:
     b = bases(3)
     out = cluster_samples(around(b[0], 40, 1) + around(b[1], 4, 2) + around(b[2], 8, 3))
     assert [len(c.members) for c in out] == [40, 8, 4]
+
+
+def test_count_limit_fails_while_ratio_holds(monkeypatch) -> None:
+    monkeypatch.setattr(cl, "load_config", lambda: {})
+    b = bases(2)
+    out = cluster_samples(around(b[0], 117, 1) + around(b[1], 3, 2))  # 3/120 = 2.5% but 3 > outlier_max
+    assert [c.kind for c in out] == [ClusterKind.MAIN, ClusterKind.DIFFERENT]

@@ -186,3 +186,24 @@ def test_update_marks_outliers_and_keeps_kept(store) -> None:
 
 def test_set_status_unknown_person_or_keys(store) -> None:
     assert store.set_status("nobody", {("a", "b")}, SampleStatus.KEPT) == 0
+
+
+def test_update_with_odd_size_embedding_still_saves(store) -> None:
+    samples = _cluster_samples()
+    odd = VoiceSample(np.ones(128, dtype=np.float32) / np.sqrt(128), "2026-10-09 12:00:00", "t.txt")
+    store.update({PersonName("太郎"): [odd]}, {})
+    change = store.update({PersonName("太郎"): samples}, {})
+    assert change.added["太郎"] == {s.key for s in samples}
+    got = {s.key: s.status for s in store.samples(PersonName("太郎"))}
+    assert got[samples[-1].key] is SampleStatus.OUTLIER and got[odd.key] is SampleStatus.NORMAL
+
+
+def test_set_status_persists(store) -> None:
+    s = _sample(1)
+    store.add({PersonName("太郎"): [s]})
+    assert store.set_status("太郎", {s.key}, SampleStatus.OUTLIER) == 1
+    assert store.samples(PersonName("太郎"))[0].status is SampleStatus.OUTLIER
+    assert store.set_status("太郎", {s.key}, SampleStatus.NORMAL) == 1
+    assert store.samples(PersonName("太郎"))[0].status is SampleStatus.NORMAL
+    with open(store.path, encoding="utf-8") as f:
+        assert "status" not in f.read()
