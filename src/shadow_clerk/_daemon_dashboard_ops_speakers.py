@@ -141,7 +141,7 @@ class _DashboardHandlerSpeakerOps:
             history, history_error = [], True
         summaries = summarize_labels(self._read_lines(t_path))
         in_transcript = [s.label for s in summaries if s.named and not s.tentative]
-        # 「alice?」の行は、事前入力する alice の台帳の値を見せる
+        # 「alice?」の行は、確定したときに付く alice の台帳の値を見せる
         book = {s.label: entries.get(s.suggested or s.label) for s in summaries}
         self._send_json({
             "status": "ok",

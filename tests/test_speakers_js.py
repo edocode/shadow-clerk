@@ -32,7 +32,8 @@ const I18N={'dash.speakers_count':'発話 {count} 件','dash.speakers_samples':'
   'dash.voiceprints_empty':'EMPTY','dash.delete':'削除','dash.voiceprint_delete_confirm':'{name} を消す？',
   'dash.naming_history_title':'HISTORY','dash.naming_undo':'UNDO','dash.naming_undone_mark':'UNDONE',
   'dash.naming_undo_confirm':'{label} → {name} を取り消す？','dash.vp_show':'DETAILS',
-  'dash.naming_history_error':'HISTERR','dash.speakers_tentative':'TENTATIVE','dash.speakers_auto_confirm':'CONFIRM {count}'};
+  'dash.naming_history_error':'HISTERR','dash.speakers_tentative':'TENTATIVE','dash.speakers_auto_confirm':'CONFIRM {count}',
+  'dash.speakers_tentative_accept':'ACCEPT {name}'};
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function escAttr(s){return esc(s).replace(/"/g,'&quot;');}
 function el(){return {children:[],_h:'',textContent:'',value:'',disabled:false,dataset:{},
@@ -43,10 +44,11 @@ function mk(tag){return Object.assign(el(),{tagName:String(tag).toUpperCase()});
 const els={spkRows:el(),spkInfo:el(),spkSuggest:el(),spkSaveBtn:el(),vpRows:el(),speakerModal:el(),
   rlName:el(),rlGroup:el(),rlPerson:el(),rlInfo:el(),rlSaveBtn:el(),relabelModal:el(),grpSuggest:el(),rlSuggest:el(),
   spkHistory:el()};
-let inputs=[],groupInputs=[],personInputs=[],confirmInputs=[];
+let inputs=[],groupInputs=[],personInputs=[],confirmInputs=[],acceptInputs=[];
 const document={getElementById:id=>els[id],createElement:mk,
   querySelectorAll:q=>q==='#spkRows input[data-label]'?inputs:q==='#spkRows input[data-group-for]'?groupInputs
-    :q==='#spkRows input[data-person-for]'?personInputs:q==='#spkRows input[data-confirm-for]'?confirmInputs:[]};
+    :q==='#spkRows input[data-person-for]'?personInputs:q==='#spkRows input[data-confirm-for]'?confirmInputs
+    :q==='#spkRows input[data-accept-for]'?acceptInputs:[]};
 let spkGroups={names:{},persons:{},groups:{},self_group:''};
 let curFile='transcript-202610091000.txt',activeFile='';
 const posted=[],toasts=[],loaded=[];
@@ -206,13 +208,22 @@ let groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true,'花�
   await openSpeakerModal();out.autoRows=els.spkRows.children.map(r=>r.innerHTML);
   speakersResp.enrollment=false;await openSpeakerModal();out.autoRowsOff=els.spkRows.children.map(r=>r.innerHTML);
   groupInputs=[];personInputs=[];
-  inputs=[{dataset:{label:'太郎?',named:'1'},value:'太郎'},{dataset:{label:'次郎',named:'1'},value:''},{dataset:{label:'三郎',named:'1'},value:''}];
+  inputs=[{dataset:{label:'太郎?',named:'1',suggested:'太郎'},value:''},{dataset:{label:'次郎',named:'1'},value:''},{dataset:{label:'三郎',named:'1'},value:''}];
+  acceptInputs=[{dataset:{acceptFor:'太郎?'},checked:true}];
   confirmInputs=[{dataset:{confirmFor:'次郎'},checked:true}];
   out.confirmMapping=speakerMapping();
   confirmInputs=[{dataset:{confirmFor:'次郎'},checked:false}];
   out.unconfirmedMapping=speakerMapping();
   inputs=[{dataset:{label:'次郎',named:'1'},value:'四郎'}];confirmInputs=[{dataset:{confirmFor:'次郎'},checked:true}];
   out.renamedConfirm=speakerMapping();
+  confirmInputs=[];
+  inputs=[{dataset:{label:'太郎?',named:'1',suggested:'太郎'},value:''},{dataset:{label:'相手A',named:'0'},value:'次郎'}];
+  personInputs=[{dataset:{personFor:'太郎?',orig:'1',touched:'1'},checked:true}];
+  acceptInputs=[{dataset:{acceptFor:'太郎?'},checked:false}];
+  out.tentUntouched=speakerMapping();
+  personInputs=[];acceptInputs[0].checked=true;out.tentAccepted=speakerMapping();
+  acceptInputs[0].checked=false;inputs[0].value=' 花子 ';out.tentTyped=speakerMapping();
+  acceptInputs[0].checked=true;out.tentTypedAccepted=speakerMapping();
   console.log(JSON.stringify(out));
 })();
 """
@@ -304,10 +315,21 @@ check("履歴: 取り消すは確認して file と id を送り、トースト�
       repr((out["undoConfirms"], out["undoPosted"], out["undoToasts"], out["undoLoaded"])))
 check("履歴: 取り消し後はモーダルを開き直して最新の履歴（空なら何も出さない）", out["histAfter"] == 0, repr(out["histAfter"]))
 check("履歴: 読めないときは空ではなくエラーを出す", out["histErr"] == ["HISTERR"], repr(out["histErr"]))
-check("test_tentative_prefilled: 名前?の行は名前欄に名前を入れ、未確定と出し、確認チェックは出さない",
-      'data-label="太郎?"' in out["autoRows"][0] and 'value="太郎"' in out["autoRows"][0]
+check("test_tentative_placeholder: 名前?の行は名前を placeholder に出し（値は空）、未確定と出し、確認チェックは出さない",
+      'data-label="太郎?"' in out["autoRows"][0] and 'placeholder="太郎"' in out["autoRows"][0]
+      and 'data-suggested="太郎"' in out["autoRows"][0] and 'value="太郎"' not in out["autoRows"][0]
       and "TENTATIVE" in out["autoRows"][0] and "data-confirm-for" not in out["autoRows"][0]
       and "TENTATIVE" not in out["autoRows"][1], repr(out["autoRows"]))
+check("test_tentative_accept_checkbox: 名前?の行に未チェックの「名前として確定」、ほかの行には出さない",
+      'data-accept-for="太郎?"' in out["autoRows"][0] and "ACCEPT 太郎" in out["autoRows"][0]
+      and ' checked' not in out["autoRows"][0].split('data-accept-for')[1].split('>')[0]
+      and all("data-accept-for" not in h for h in out["autoRows"][1:]), repr(out["autoRows"]))
+check("test_tentative_sent_only_when_accepted: 触らずに保存したら名前?の行は送らず、チェックで送り、入力した名前はそのまま送る",
+      out["tentUntouched"] == {"相手A": {"name": "次郎"}}
+      and out["tentAccepted"] == {"太郎?": {"name": "太郎"}, "相手A": {"name": "次郎"}}
+      and out["tentTyped"] == {"太郎?": {"name": "花子"}, "相手A": {"name": "次郎"}}
+      and out["tentTypedAccepted"] == out["tentTyped"],
+      repr((out["tentUntouched"], out["tentAccepted"], out["tentTyped"], out["tentTypedAccepted"])))
 check("test_auto_confirm_checkbox_posts_confirm: 自動識別のある名前付け済みの行に確認チェック",
       'data-confirm-for="次郎"' in out["autoRows"][1] and "CONFIRM 2" in out["autoRows"][1]
       and ' checked' not in out["autoRows"][1].split('data-confirm-for')[1].split('>')[0]
