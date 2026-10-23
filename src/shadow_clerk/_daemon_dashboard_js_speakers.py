@@ -224,12 +224,13 @@ async function openRelabelModal(){
   _rlFile=curFile||activeFile;
   _rlItems=getSelectedLines().map(_rlParse).filter(Boolean);
   const info=document.getElementById('rlInfo'),n=_rlItems.length;
-  info.textContent=I18N['dash.relabel_count'].replace('{count}',n);
+  info.textContent='';
   document.getElementById('rlName').value='';document.getElementById('rlGroup').value='';
   document.getElementById('rlPerson').checked=true;document.getElementById('rlGroup').hidden=true;
   document.getElementById('rlGroup').dataset.touched='';document.getElementById('rlPerson').dataset.touched='';
   document.getElementById('rlScopeLinesText').textContent=I18N[n===1?'dash.relabel_scope_one':n===2?'dash.relabel_scope_two':'dash.relabel_scope_lines'];
-  document.getElementById('rlScopeRangeOpt').hidden=n!==2;document.getElementById('rlScopeLabelOpt').hidden=!_rlLabels().length;
+  document.getElementById('rlScopeRangeOpt').hidden=new Set(_rlItems.map(i=>i.ts+'\u0000'+i.label)).size!==2;
+  document.getElementById('rlScopeLabelOpt').hidden=!_rlLabels().length;
   document.getElementById('rlScopeLines').checked=true;
   document.getElementById('rlScopeRange').checked=false;document.getElementById('rlScopeLabel').checked=false;
   updateRlTarget();

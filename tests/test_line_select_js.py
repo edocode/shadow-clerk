@@ -46,8 +46,8 @@ console.log(JSON.stringify(out));
 
 
 def main() -> None:
-    check("行のチェックボックスはクリックで onLnCbClick を呼ぶ",
-          'class="ln-cb" onclick="onLnCbClick(event)"' in _JS_TEMPLATE_CORE and 'class="ln-cb" onchange' not in _JS_TEMPLATE_CORE)
+    check("行のチェックボックスはクリックで onLnCbClick を呼び、Shift＋押下でテキスト選択を広げない",
+          'class="ln-cb" onmousedown="if(event.shiftKey)event.preventDefault()" onclick="onLnCbClick(event)"' in _JS_TEMPLATE_CORE and 'class="ln-cb" onchange' not in _JS_TEMPLATE_CORE)
     r = subprocess.run(["node", "-e", _SRC + _BODY], capture_output=True, text=True, timeout=30)
     if r.returncode != 0:
         check("node で実行できる", False, r.stderr[-500:])

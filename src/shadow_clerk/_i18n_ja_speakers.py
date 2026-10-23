@@ -29,7 +29,6 @@ STRINGS_JA_SPEAKERS: dict[str, str] = {
     "dash.person_enroll": "個人（声紋に登録）",
     "dash.relabel_title": "選んだ行の話者を変更",
     "dash.relabel_name_ph": "名前・会社名・役割名",
-    "dash.relabel_count": "選んだ相手側の行: {count} 行",
     "dash.relabel_scope_one": "この行だけ",
     "dash.relabel_scope_two": "この 2 行だけ",
     "dash.relabel_scope_lines": "選んだ行だけ",

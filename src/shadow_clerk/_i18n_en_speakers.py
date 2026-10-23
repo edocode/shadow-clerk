@@ -29,7 +29,6 @@ STRINGS_EN_SPEAKERS: dict[str, str] = {
     "dash.person_enroll": "Person (enroll voiceprint)",
     "dash.relabel_title": "Change the speaker of the selected lines",
     "dash.relabel_name_ph": "Name, company or role",
-    "dash.relabel_count": "Selected lines from other speakers: {count}",
     "dash.relabel_scope_one": "This line only",
     "dash.relabel_scope_two": "These 2 lines only",
     "dash.relabel_scope_lines": "Selected lines only",
