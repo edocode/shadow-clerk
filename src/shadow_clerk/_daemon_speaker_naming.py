@@ -71,6 +71,17 @@ def line_target_picker(targets: set[tuple[str, str]], new_label: str) -> Callabl
     return pick
 
 
+def range_targets(lines: list[str], ends: set[tuple[str, str]]) -> set[tuple[str, str]] | None:
+    """2 行 ends（時刻, ラベル）の時刻の間（両端を含む）にある相手側の行を、話者を問わず targets の形で返す。
+    ends が 2 行でないか、どちらかが相手側の行として無ければ None"""
+    remote = {(tl.timestamp, tl.speaker_label or Speaker.OTHER.value)
+              for ln in lines if (tl := TranscriptLine.parse(ln)) and tl.speaker == Speaker.OTHER}
+    if len(ends) != 2 or not ends <= remote:
+        return None
+    lo, hi = min(ts for ts, _ in ends), max(ts for ts, _ in ends)
+    return {p for p in remote if lo <= p[0] <= hi}
+
+
 @dataclass(frozen=True)
 class Assignment:
     """ダッシュボードから来た1件の割り当て。group None は台帳の値を保つ、"" はグループなし。
