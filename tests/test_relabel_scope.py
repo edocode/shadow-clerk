@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from test_speaker_api import MTG, TR, _H, _p, _read, isolated, meeting  # noqa: F401
 from shadow_clerk.i18n import t
+from shadow_clerk._daemon_voice_sidecar import read_voices
 
 UNK, A2 = "2026-10-09 10:00:05", "2026-10-09 10:00:06"
 
@@ -20,12 +21,15 @@ def _range(lines: list[dict], **extra: object) -> dict:
 
 def test_range_relabels_every_remote_line_between() -> None:
     _more_lines()
+    with open(_p(TR), "a", encoding="utf-8") as f:
+        f.write("[2026-10-09 10:00:02] [相手B] The material is shared\n")
     r = _range([{"ts": UNK, "label": "相手?"}, {"ts": "2026-10-09 10:00:02", "label": "相手B"}])
     assert r["status"] == "ok" and r["renamed"] == 3, r
     body = _read(MTG)
     assert "[bob] 資料は共有済みです" in body and "[bob] それでお願いします" in body and "[bob] うん" in body
     assert "[相手A] 来週のリリースの件ですが" in body and "[相手A] もう一行" in body and "[自分] 了解です" in body
-    assert "[相手A] About next week's release" in _read(TR)
+    assert "[相手A] About next week's release" in _read(TR) and "[bob] The material is shared" in _read(TR)
+    assert [(e.timestamp[-2:], e.label) for e in read_voices(_p(MTG))] == [("01", "相手A"), ("02", "bob"), ("03", "bob")]
 
 
 def test_range_needs_exactly_two_lines() -> None:
