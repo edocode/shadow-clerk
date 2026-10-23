@@ -669,7 +669,7 @@ flowchart LR
 | エンドポイント | 役割 |
 |---|---|
 | `POST /api/speakers/assign` | ラベルへ名前・グループ・`person` を付ける（声紋は `person` かつ `speaker_enrollment` のときだけ） |
-| `POST /api/speakers/assign-lines` | `{"file","lines":[{"ts","label"}],"name","group?","person?"}`。時刻とラベルの両方が一致する行だけを付け替える（相手側のみ。`[自分]` `[Claude]` は不可）。transcript・翻訳・voices サイドカーを書き換え、書き換えジャーナルに記録する。`speaker_enrollment` が有効なときだけ声紋のサンプルを移す |
+| `POST /api/speakers/assign-lines` | `{"file","lines":[{"ts","label"}],"name","group?","person?","scope?"}`。`scope` が `"lines"`（既定）なら時刻とラベルの両方が一致する行だけを付け替える（相手側のみ。`[自分]` `[Claude]` は不可）。`"range"` なら `lines` はちょうど 2 行（どちらも相手側の行として存在すること。違えば `dash.speakers_invalid`）で、その時刻の間（両端を含む）にある相手側の行を話者を問わずすべて付け替える（`[相手?]` を含み、`[自分]` `[Claude]` は除く）。ダッシュボードの「この話者の行を全部」は、選んだ行のラベルを `assign` で名前付けし、`[相手?]` / `[相手]` の選択行だけ続けてこの API（`lines`）に送る。transcript・翻訳・voices サイドカーを書き換え、書き換えジャーナルに記録する。`speaker_enrollment` が有効なときだけ声紋のサンプルを移す |
 | `GET /api/speaker-groups` | `{names, persons, groups, self_group}`。ダッシュボードの色分け用。保存後に読み直す |
 | `POST /api/speaker-groups/set` | `{name, group}`。台帳の人のグループだけ変える（`""` で外す） |
 | `GET /api/speaker-roster?file=` | スキル向け（localhost 限定）。transcript の話者 × 台帳 → `{"status":"ok","self_group":str,"speakers":[{label, group, self, person, tentative}]}`。`tentative: true` は会議中の識別の `名前?`（台帳を引かず、グループなし・個人でない扱い。議事録プロンプトでも未確定と明記する）。clerk-meeting-helper が議事録・分析の前に読む |
