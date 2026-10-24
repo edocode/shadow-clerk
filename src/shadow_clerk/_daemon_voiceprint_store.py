@@ -8,35 +8,48 @@ from __future__ import annotations
 import json
 import logging
 import os
-import tempfile
 import threading
+from dataclasses import dataclass, field, replace
 
 from shadow_clerk import DATA_DIR
+from shadow_clerk._atomic_file import atomic_write_json
 from shadow_clerk._daemon_config import load_config
-from shadow_clerk._daemon_constants import DEFAULT_CONFIG
-from shadow_clerk.domain.voiceprint import PersonName, VoiceSample
+from shadow_clerk._daemon_voiceprint_clusters import ClusterKind, cluster_samples, majority_shape, voiceprint_number
+from shadow_clerk.domain.voiceprint import PersonName, SampleStatus, VoiceSample
 
 logger = logging.getLogger("shadow-clerk")
 
 VOICEPRINTS_FILE = os.path.join(DATA_DIR, "voiceprints.json")
-_MAX_SAMPLES_DEFAULT = DEFAULT_CONFIG["voiceprint_max_samples"]
 _VERSION = 1
 _lock = threading.Lock()
 
 
-def atomic_write_json(path: str, body: dict, prefix: str) -> None:
-    """同じディレクトリの一時ファイルに書いて os.replace する（mkstemp は 0600 で作る）"""
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", prefix=prefix, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(body, f, ensure_ascii=False)
-        os.replace(tmp, path)
-    except BaseException:
+def _restatus(raw: list[dict]) -> None:
+    """塊分けして外れ値の塊のサンプルを OUTLIER に、それ以外を NORMAL にする（KEPT と読めないものは触らない）"""
+    items: list[tuple[dict, VoiceSample]] = []
+    for d in raw:
         try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+            items.append((d, VoiceSample.from_dict(d)))
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+    items = [items[i] for i in majority_shape([s.embedding for _, s in items])]  # 次元違いは触らない
+    outliers = {i for c in cluster_samples([s.embedding for _, s in items]) if c.kind is ClusterKind.OUTLIER
+                for i in c.members}
+    for i, (d, s) in enumerate(items):
+        if s.status is SampleStatus.KEPT:
+            continue
+        if i in outliers:
+            d["status"] = SampleStatus.OUTLIER.value
+        else:
+            d.pop("status", None)
+
+
+@dataclass(frozen=True)
+class StoreChange:
+    """update で実際に外した・足したサンプルのキー（人の名前 → {(source, recorded_at)}）"""
+
+    removed: dict[str, set[tuple[str, str]]] = field(default_factory=dict)
+    added: dict[str, set[tuple[str, str]]] = field(default_factory=dict)
 
 
 class VoiceprintStoreError(Exception):
@@ -91,14 +104,23 @@ class VoiceprintStore:
         self.update(samples_by_person, {})
 
     def update(self, add: dict[PersonName, list[VoiceSample]],
-               remove: dict[str, set[tuple[str, str]]]) -> None:
-        """remove の (source, recorded_at) に当たるサンプルを外し、add を足す。1回の読み書きで行う。空になった人は消す"""
-        cap = int(load_config().get("voiceprint_max_samples", _MAX_SAMPLES_DEFAULT))
+               remove: dict[str, set[tuple[str, str]]]) -> StoreChange:
+        """remove の (source, recorded_at) に当たるサンプルを外し、add を足す。1回の読み書きで行う。空になった人は消す。
+        実際に外した・足したキーを返す（既にない・既にある・上限で捨てたものは含めない）。
+        同じ人から外して足し直すキーは外さずに残す（status と上限の順番を保つ）。触った人は除外を判定し直す"""
+        cap = int(voiceprint_number(load_config(), "voiceprint_max_samples"))
+        change = StoreChange()
+        readd = {n.value: {s.key for s in samples} for n, samples in add.items()}
         with _lock:
             people = self._load()
             for name, keys in remove.items():
-                kept = [d for d in people.get(name, [])
-                        if not (isinstance(d, dict) and (d.get("source"), d.get("recorded_at")) in keys)]
+                keys = keys - readd.get(name, set())
+                kept = []
+                for d in people.get(name, []):
+                    if isinstance(d, dict) and (key := (d.get("source"), d.get("recorded_at"))) in keys:
+                        change.removed.setdefault(name, set()).add(key)
+                    else:
+                        kept.append(d)
                 if kept:
                     people[name] = kept
                 else:
@@ -106,12 +128,64 @@ class VoiceprintStore:
             for name, samples in add.items():
                 merged = people.get(name.value, [])
                 seen = {(d.get("source"), d.get("recorded_at")) for d in merged if isinstance(d, dict)}
+                new: set[tuple[str, str]] = set()
                 for sample in samples:
-                    if (sample.source, sample.recorded_at) not in seen:
-                        seen.add((sample.source, sample.recorded_at))
+                    if sample.key not in seen:
+                        seen.add(sample.key)
+                        new.add(sample.key)
                         merged.append(sample.to_dict())
-                people[name.value] = merged[-cap:] if cap > 0 else merged
+                people[name.value] = merged = merged[-cap:] if cap > 0 else merged
+                if stored := new & {(d.get("source"), d.get("recorded_at")) for d in merged if isinstance(d, dict)}:
+                    change.added[name.value] = stored
+            for name in {n.value for n in add} | set(change.removed):
+                if name in people:
+                    _restatus(people[name])
             self._save(people)
+        return change
+
+    def remove_samples(self, name: str, keys: set[tuple[str, str]]) -> int:
+        """name のサンプルのうち keys に当たるものを外し、外した件数を返す"""
+        return len(self.update({}, {name: keys}).removed.get(name, ()))
+
+    def move_samples(self, src: str, dst: PersonName, keys: set[tuple[str, str]]) -> int:
+        """src のサンプルのうち keys に当たるものを status を NORMAL に戻して dst へ移し、src から外した件数を返す"""
+        if src == dst.value:
+            return 0
+        picked = [replace(s, status=SampleStatus.NORMAL) for s in self.samples(PersonName(src)) if s.key in keys]
+        if not picked:
+            return 0
+        return len(self.update({dst: picked}, {src: {s.key for s in picked}}).removed.get(src, ()))
+
+    def set_status(self, name: str, keys: set[tuple[str, str]], status: SampleStatus) -> int:
+        """name のサンプルのうち keys に当たるものの status を変え、変えた件数を返す"""
+        n = 0
+        with _lock:
+            people = self._load()
+            for d in people.get(name, []):
+                if isinstance(d, dict) and (d.get("source"), d.get("recorded_at")) in keys:
+                    if status is SampleStatus.NORMAL:
+                        n += d.pop("status", None) is not None
+                    else:
+                        n += d.get("status") != status.value
+                        d["status"] = status.value
+            if n:
+                self._save(people)
+        return n
+
+    def relocate_source(self, old: str, new: str, ts_range: tuple[str, str] | None = None) -> int:
+        """source が old（かつ ts_range 内の recorded_at）のサンプルの source を new に付け替え、件数を返す"""
+        n = 0
+        with _lock:
+            people = self._load()
+            for samples in people.values():
+                for d in samples:
+                    if (isinstance(d, dict) and d.get("source") == old
+                            and (ts_range is None or ts_range[0] <= str(d.get("recorded_at", "")) <= ts_range[1])):
+                        d["source"] = new
+                        n += 1
+            if n:
+                self._save(people)
+        return n
 
     def delete(self, name: str) -> bool:
         with _lock:

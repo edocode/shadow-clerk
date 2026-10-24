@@ -7,9 +7,9 @@ import json
 import logging
 import os
 import re
-import tempfile
 import threading
 from shadow_clerk.i18n import t
+from shadow_clerk._atomic_file import atomic_write_lines
 from shadow_clerk._daemon_dashboard_base import transcript_path_in
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_constants import SESSION_FILE
@@ -106,7 +106,7 @@ class _DashboardHandlerOps:
                 if f != base and f.startswith(tn.stem + "-") and f.endswith(".txt"):
                     related.append(f)
             for name in (tn.summary_filename, tn.advice_filename,
-                         tn.analysis_filename, tn.voices_filename):
+                         tn.analysis_filename, tn.voices_filename, tn.naming_filename):
                 if name in all_files:
                     related.append(name)
         offset_name = base + ".translate_offset"
@@ -276,23 +276,7 @@ class _DashboardHandlerOps:
 
     @staticmethod
     def _atomic_write_lines(path: str, lines: list[str]) -> None:
-        """一時ファイル → os.replace でアトミックに書き戻す。
-
-        `open(path, "w")` の直接書き戻しは truncate 中の読み取りで
-        空/途中のファイルが見えるため使用しない。
-        """
-        tmp_fd, tmp_path = tempfile.mkstemp(
-            dir=os.path.dirname(path), prefix=".transcript-", suffix=".tmp")
-        try:
-            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-                f.writelines(lines)
-            os.replace(tmp_path, path)
-        except BaseException:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+        atomic_write_lines(path, lines, ".transcript-")
 
     @classmethod
     def _remove_lines_from_file(cls, path: str, raw_lines: list[str]) -> tuple[list[int], list[str]]:

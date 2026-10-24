@@ -8,9 +8,11 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable
+from dataclasses import replace
 
 import numpy as np
 
+from shadow_clerk._atomic_file import atomic_write_lines
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain.voiceprint import VoiceEntry
 
@@ -23,13 +25,14 @@ def voices_path(transcript_path: str) -> str | None:
     return os.path.join(os.path.dirname(transcript_path), tn.voices_filename) if tn else None
 
 
-def append_voice(transcript_path: str, timestamp: str, label: str, embedding: np.ndarray) -> None:
+def append_voice(transcript_path: str, timestamp: str, label: str, embedding: np.ndarray,
+                 duration: float | None = None) -> None:
     path = voices_path(transcript_path)
     if path is None:
         return
     try:
         with open(path, "a", encoding="utf-8") as f:
-            f.write(VoiceEntry(timestamp, label, embedding).to_json_line())
+            f.write(VoiceEntry(timestamp, label, embedding, duration).to_json_line())
     except OSError as e:
         logger.warning("voices サイドカーに書けない: %s", e)
 
@@ -51,19 +54,39 @@ def read_voices(transcript_path: str) -> list[VoiceEntry]:
     return [e for line in lines if (e := VoiceEntry.parse(line)) is not None]
 
 
+def _rewritten(lines: list[str], change: Callable[[VoiceEntry], VoiceEntry | None]) -> tuple[list[str], int]:
+    """change が新しい項目を返した行を書き換えた全行と、書き換えた行数。壊れた行はそのまま残す"""
+    out: list[str] = []
+    n = 0
+    for line in lines:
+        e = VoiceEntry.parse(line)
+        if e is not None and (new := change(e)) is not None:
+            line = new.to_json_line()
+            n += 1
+        out.append(line)
+    return out, n
+
+
 def relabeled_voice_lines_where(transcript_path: str, pick: Callable[[VoiceEntry], str | None]) -> list[str] | None:
     """pick が新しいラベルを返した行を書き換えた全行。壊れた行はそのまま残す。サイドカーが無ければ None"""
     lines = _read_raw(voices_path(transcript_path))
     if lines is None:
         return None
-    out: list[str] = []
-    for line in lines:
-        e = VoiceEntry.parse(line)
-        new = pick(e) if e is not None else None
-        if e is not None and new is not None and new != e.label:
-            line = VoiceEntry(e.timestamp, new, e.embedding).to_json_line()
-        out.append(line)
-    return out
+    return _rewritten(lines, lambda e: replace(e, label=new) if (new := pick(e)) is not None and new != e.label
+                      else None)[0]
+
+
+def mark_no_enroll(transcript_path: str, label: str, timestamps: set[str]) -> int:
+    """(ts ∈ timestamps, label) の行に「声紋に使わない」印を付けて書き戻し、印を付けた件数を返す"""
+    path = voices_path(transcript_path)
+    lines = _read_raw(path)
+    if path is None or lines is None:
+        return 0
+    out, n = _rewritten(lines, lambda e: replace(e, no_enroll=True)
+                        if e.timestamp in timestamps and e.label == label and not e.no_enroll else None)
+    if n:
+        atomic_write_lines(path, out, ".voices-")
+    return n
 
 
 def voice_lines_without_label(path: str, label: str) -> list[str] | None:

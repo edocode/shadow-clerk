@@ -62,11 +62,8 @@ def test_defaults() -> None:
         "speaker_diarization": False, "speaker_enrollment": False, "diarization_threshold": 0.70,
         "diarization_min_sec": 1.0, "voiceprint_max_samples": 200}.items()))
     from shadow_clerk._daemon_speaker_diarization import _MIN_SEGMENT_SEC, _SIMILARITY_THRESHOLD_DEFAULT
-    from shadow_clerk._daemon_voiceprint_store import _MAX_SAMPLES_DEFAULT
-    check("モジュール定数は DEFAULT_CONFIG と同じ", (
-        _SIMILARITY_THRESHOLD_DEFAULT, _MIN_SEGMENT_SEC, _MAX_SAMPLES_DEFAULT)
-        == (DEFAULT_CONFIG["diarization_threshold"], DEFAULT_CONFIG["diarization_min_sec"],
-            DEFAULT_CONFIG["voiceprint_max_samples"]))
+    check("モジュール定数は DEFAULT_CONFIG と同じ", (_SIMILARITY_THRESHOLD_DEFAULT, _MIN_SEGMENT_SEC)
+          == (DEFAULT_CONFIG["diarization_threshold"], DEFAULT_CONFIG["diarization_min_sec"]))
 
 
 def test_save() -> None:
@@ -106,16 +103,17 @@ function fetchApiModels(){} const location={reload(){}};
 TAIL = r"""
 (async()=>{
   CFG={speaker_diarization:false,speaker_enrollment:true,diarization_threshold:0.62,
-       diarization_min_sec:1.0,voiceprint_max_samples:200};
+       diarization_min_sec:1.0,voiceprint_max_samples:200,voiceprint_outlier_ratio:0.03};
   await openCfg();
   const th=els['cfg_diarization_threshold'];
   const out={fields:['speaker_diarization','speaker_enrollment','diarization_threshold','diarization_min_sec',
     'voiceprint_max_samples'].map(k=>!!els['cfg_'+k]),
     thOpts:th.children.map(o=>o.value),thVal:th.value};
   els['cfg_voiceprint_max_samples'].value='150';
+  els['cfg_voiceprint_outlier_ratio'].value='0.05';
   await saveCfg();
   out.posted={e:posted.speaker_enrollment,d:posted.speaker_diarization,t:posted.diarization_threshold,
-    m:posted.diarization_min_sec,n:posted.voiceprint_max_samples};
+    m:posted.diarization_min_sec,n:posted.voiceprint_max_samples,r:posted.voiceprint_outlier_ratio};
   console.log(JSON.stringify(out));
 })();
 """
@@ -145,6 +143,7 @@ def test_js() -> None:
     p = o["posted"]
     check("送信値: bool と number、select は文字列", p["e"] is True and p["d"] is False and p["n"] == 150
           and p["t"] == "0.62" and p["m"] == "1.0", repr(p))
+    check("小数の number 欄は小数のまま送る", p["r"] == 0.05, repr(p))
 
 
 if __name__ == "__main__":

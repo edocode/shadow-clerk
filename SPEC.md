@@ -610,9 +610,10 @@ sequenceDiagram
 | `transcript-YYYYMMDDHHMM.txt` | 会議セッション用 transcript |
 | `transcript-YYYYMMDDHHMM@<会議名>.txt` | 会議名付き transcript（Google Calendar 連携、rename 時） |
 | `transcript-*-<lang>.txt` | 翻訳結果ファイル（会議名含む対応: `transcript-YYYYMMDDHHMM@<会議名>-<lang>.txt`） |
-| `transcript-*.voices.jsonl` | 話者分離の埋め込み（ラベル+ベクトル。`speaker_enrollment: true` のとき transcript ごとに保存。名前付けで使う） |
+| `transcript-*.voices.jsonl` | 話者分離の埋め込み（1 行 `{ts, label, emb, dur?, noenroll?}`。`speaker_enrollment: true` のとき transcript ごとに保存。名前付けで使う。`dur` は発話秒数（ない既存行は長さ不明として扱う）、`noenroll: true` は「声紋の中身」で消した行で、以後声紋に足さない） |
+| `transcript-*.naming.jsonl` | 名前付けの履歴（ラベル 1 件ごとに `{id, at, label, name, person, lines, added, removed, undone}`。取り消しに使う。声のデータは含まない。会議のリネーム・削除・切り出しに追随する） |
 | `speaker_names.json` | 名前帳 v2（名前・グループ・個人区分・グループの色。声紋は含まない。どの会議でも候補に出す。人の削除で消える） |
-| `voiceprints.json` | 人ごとの声紋（名前付け後に追加。1人あたり `voiceprint_max_samples`、既定 200 件） |
+| `voiceprints.json` | 人ごとの声紋（名前付け後に追加。1人あたり `voiceprint_max_samples`、既定 200 件）。サンプルごとの `status`: なし＝通常、`outlier`＝自動で照合から除外中、`kept`＝人が「戻す」した（以後自動で除外しない）。`status` のない既存サンプルは通常として読む |
 | `wespeaker_cache/` | 話者分離の wespeaker ResNet34 ONNX モデル（初回利用時にダウンロード） |
 | `summary-YYYYMMDD.md` | 議事録（日次 transcript に対応） |
 | `summary-YYYYMMDDHHMM[@<会議名>].md` | 会議セッション用議事録 |
@@ -674,6 +675,47 @@ flowchart LR
 | `GET /api/speaker-roster?file=` | スキル向け（localhost 限定）。transcript の話者 × 台帳 → `{"status":"ok","self_group":str,"speakers":[{label, group, self, person}]}`。clerk-meeting-helper が議事録・分析の前に読む |
 
 名前付け・付け替えは、録音中のファイル、翻訳中のファイル、名前帳または声紋ストアが読めないときは断る。
+
+`voiceprint_min_sec`（既定 3.0 秒）より短い発話は、名前付け・付け替えで人に紐づけても声紋に足さない（文字起こしのラベルは書き換える）。`dur` のない既存行は従来どおり足す。`[相手?]` 行も付け替えられるが、埋め込みがないので声紋には入らない。
+
+#### 名前付けの履歴と取り消し
+
+`POST /api/speakers/assign` が名前を変えたラベルごとに 1 件、`transcript-*.naming.jsonl` に記録する。`lines` は書き換えた行の時刻、`added` は足したサンプルの `recorded_at`、`removed` は名前付け済みだった人から外したサンプルの `recorded_at`（どちらも実際にストアが足した・外したものだけ）。「話者を変更」（`assign-lines`）は記録しない。履歴を残せなかったときも名前付けは成功として返し、`message` にその旨を足す。
+
+| エンドポイント | 役割 |
+|---|---|
+| `GET /api/speakers?file=` | 既存の応答に `history: [{id, at, label, name, person, lines, added, undone}]`（新しい順。`lines`・`added` は件数）を加える。履歴が読めなければ空にして `history_error: true` を付ける（ダッシュボードは履歴の欄にエラーを出す） |
+| `POST /api/speakers/undo` | `{file, id}`。今も `name` のままの `lines` の行だけ `label` に戻し（transcript・翻訳・voices）、`added` を外し、`removed` を元の人へ戻す（その人が削除済みなら、またサイドカーの行に `noenroll` があれば戻さない）。`{restored_lines, removed_samples, restored_samples, lost_samples, has_summary, message}`。`added` のうち、すでに消えていた・別の人へ移っていた声紋は `lost_samples` に数える |
+
+取り消しは名前付けと同じ条件（録音中・翻訳中・名前帳・声紋ストア・履歴が読めない）で断る。ダッシュボードは名前付けモーダルの「名前付けの履歴」に一覧し、取り消し後は文字起こしを読み直し、議事録があれば再生成を確認する。
+
+#### 声紋の塊
+
+「登録済みの人」の「声紋の中身」で、その人のサンプルを平均連結の階層クラスタリング（コサイン距離）で塊に分ける。埋め込みの次元が混ざっていれば多数派の次元だけを使う。
+
+| 種類 | 条件 | 照合 | 操作 |
+|---|---|---|---|
+| `main`（いつもの声） | 一番大きい塊と、その重心との類似度が `voiceprint_main_similarity` 以上の塊 | 使う | なし |
+| `different`（いつもと違う声） | それ以外 | 使う | 消す・別の人へ移す |
+| `outlier`（除外中） | `voiceprint_outlier_max` 件以下かつ全体の `voiceprint_outlier_ratio` 以下 | 使わない | 戻す |
+
+サンプルが `voiceprint_cluster_min_samples` 件未満の人は塊に分けず、除外もしない。併合の上限は `voiceprint_cluster_distance`。除外の判定は、声紋ストアがその人のサンプルを足す・外すたび（名前付け・取り消し・消す・移す・上限での切り捨て）にやり直し、`status` に書く（`kept` は触らない）。同じ呼び出しで同じ人から外して足し直すサンプル（名前付け済みラベルのグループ・個人区分だけの変更）は外さずに残し、`status` と上限の順番を保つ。`voiceprint_*` の数値キーが数値でなければ既定値を使う。
+
+| エンドポイント | 役割 |
+|---|---|
+| `GET /api/voiceprints/clusters?name=` | `{clusters: [{kind, count, similarity, keys: [[source, recorded_at]], statuses, sources: [{file, count, labels}], example}]}`。`statuses` は `keys` と同じ順の保存済み `status`（`normal`/`outlier`/`kept`）。`kept` のサンプルは照合に使うので、`outlier` の塊から外して `main` に入れる。`labels` は履歴から分かる元のラベル、`example` はその時刻の transcript 行の本文 |
+| `POST /api/voiceprints/delete-samples` | `{name, keys}`。ストアからだけ消し、サイドカーの該当行に `noenroll` を付ける。文字起こしは書き換えない |
+| `POST /api/voiceprints/move` | `{name, keys, to}`。サンプルを `to`（個人のみ）へ移し、今も `name` のままの該当行を書き換える。録音中・翻訳中の会議は書き換えずに `skipped_files` に数える |
+| `POST /api/voiceprints/restore` | `{name, keys}`。`status` を `kept` にする。`{restored, message}` |
+
+| 設定キー | 既定 | 意味 |
+|---|---|---|
+| `voiceprint_min_sec` | 3.0 | これより短い発話は声紋に足さない |
+| `voiceprint_cluster_min_samples` | 10 | これ未満の人は塊に分けず、除外もしない |
+| `voiceprint_cluster_distance` | 0.6 | 平均連結で併合するコサイン距離の上限 |
+| `voiceprint_main_similarity` | 0.5 | 主の塊との重心類似度がこれ以上なら「いつもの声」 |
+| `voiceprint_outlier_max` | 2 | 除外中になる塊の最大件数 |
+| `voiceprint_outlier_ratio` | 0.03 | 除外中になる塊の、全体に対する最大割合（件数・割合の両方を満たすこと） |
 
 #### 議事録の再生成
 

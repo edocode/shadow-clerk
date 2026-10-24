@@ -12,7 +12,7 @@ import os
 import threading
 
 from shadow_clerk import DATA_DIR
-from shadow_clerk._daemon_voiceprint_store import atomic_write_json
+from shadow_clerk._atomic_file import atomic_write_json
 from shadow_clerk.domain.speaker_group import GroupName, SpeakerEntry, is_color, next_group_color
 from shadow_clerk.domain.voiceprint import PersonName
 

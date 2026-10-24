@@ -52,7 +52,7 @@ function _fillOptions(id,values){
 async function openSpeakerModal(){
   _spkFile=curFile||activeFile;
   const box=document.getElementById('spkRows'),info=document.getElementById('spkInfo');
-  box.innerHTML='';info.textContent='';
+  box.innerHTML='';info.textContent='';document.getElementById('spkHistory').innerHTML='';
   if(!_spkFile){
     info.textContent=I18N['dash.speakers_none'];document.getElementById('spkSaveBtn').disabled=true;
     await loadVoiceprints();document.getElementById('speakerModal').classList.add('open');return;
@@ -79,8 +79,44 @@ async function openSpeakerModal(){
     box.appendChild(row);
   }
   document.getElementById('spkSaveBtn').disabled=!d.labels.length||!!(d.active||d.translating);
+  renderNamingHistory(d.history||[],d.history_error);
   await loadVoiceprints();
   document.getElementById('speakerModal').classList.add('open');
+}
+function _span(text,cls){const s=document.createElement('span');s.textContent=text;if(cls)s.className=cls;return s;}
+function renderNamingHistory(items,error){
+  const box=document.getElementById('spkHistory');box.innerHTML='';
+  if(error){box.appendChild(_span(I18N['dash.naming_history_error'],'spk-meta'));return;}
+  if(!items.length)return;
+  const h=document.createElement('div');h.className='spk-sub';h.textContent=I18N['dash.naming_history_title'];box.appendChild(h);
+  for(const r of items){
+    const row=document.createElement('div');row.className='spk-row';
+    row.appendChild(_span(r.at,'spk-meta'));
+    row.appendChild(_span(r.label+' → '+r.name));
+    row.appendChild(_span(I18N['dash.speakers_count'].replace('{count}',r.lines)
+      +(r.added?' / '+I18N['dash.speakers_samples'].replace('{count}',r.added):''),'spk-meta'));
+    if(r.undone)row.appendChild(_span(I18N['dash.naming_undone_mark'],'spk-meta'));
+    else{
+      const b=document.createElement('button');b.textContent=I18N['dash.naming_undo'];
+      b.onclick=()=>undoNaming(r);row.appendChild(b);
+    }
+    box.appendChild(row);
+  }
+}
+async function undoNaming(r){
+  if(!confirm(I18N['dash.naming_undo_confirm'].replace('{label}',r.label).replace('{name}',r.name)))return;
+  const f=_spkFile,d=await _postJSON('/api/speakers/undo',{file:f,id:r.id});
+  if(!d)return;
+  showToast(d.message);loadT(f);loadR(f);await loadSpeakerGroups();
+  if(d.has_summary)await regenSummaryFor(f);
+  await openSpeakerModal();
+}
+async function _postJSON(url,body){
+  let d;
+  try{d=await(await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();}
+  catch(e){alert(String(e));return null;}
+  if(d.status!=='ok'){alert(d.message||'error');return null;}
+  return d;
 }
 function closeSpeakerModal(){document.getElementById('speakerModal').classList.remove('open');}
 function speakerMapping(){
@@ -102,14 +138,12 @@ function speakerMapping(){
 async function saveSpeakers(){
   const mapping=speakerMapping();
   if(!Object.keys(mapping).length)return;
-  let d;
-  try{d=await(await fetch('/api/speakers/assign',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({file:_spkFile,mapping})})).json();}catch(e){alert(String(e));return;}
-  if(d.status!=='ok'){alert(d.message||'error');return;}
+  const d=await _postJSON('/api/speakers/assign',{file:_spkFile,mapping});
+  if(!d)return;
   closeSpeakerModal();showToast(d.message);loadT(_spkFile);loadR(_spkFile);await loadSpeakerGroups();
   if(d.has_summary)await regenSummaryFor(_spkFile);
 }
-async function loadVoiceprints(){
+async function loadVoiceprints(openName){
   const box=document.getElementById('vpRows');box.innerHTML='';
   let d,gd=null;
   try{d=await(await fetch('/api/voiceprints')).json();}catch(e){box.textContent=String(e);return;}
@@ -124,7 +158,7 @@ async function loadVoiceprints(){
   const names=Object.keys(counts).sort();
   if(!names.length){box.textContent=I18N['dash.voiceprints_empty'];return;}
   for(const n of names){
-    const row=document.createElement('div');row.className='spk-row';
+    const row=document.createElement('div');row.className='spk-row vp-person';
     const label=document.createElement('span');label.textContent=n+' ('+counts[n]+')';
     row.appendChild(label);
     if(book){
@@ -136,23 +170,17 @@ async function loadVoiceprints(){
     }
     const del=document.createElement('button');del.className='dan';del.textContent=I18N['dash.delete'];
     del.onclick=()=>deleteVoiceprint(n);
-    row.appendChild(del);box.appendChild(row);
+    const clusters=document.createElement('div');clusters.className='vp-clusters';
+    row.appendChild(del);row.appendChild(vpShowButton(n,clusters));row.appendChild(clusters);box.appendChild(row);
+    if(n===openName)await toggleVoiceprintClusters(n,clusters);
   }
 }
 async function deleteVoiceprint(name){
   if(!confirm(I18N['dash.voiceprint_delete_confirm'].replace('{name}',name)))return;
-  let d;
-  try{d=await(await fetch('/api/voiceprints/delete',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name})})).json();}catch(e){alert(String(e));return;}
-  if(d.status!=='ok'){alert(d.message||'error');return;}
-  await loadVoiceprints();
+  if(await _postJSON('/api/voiceprints/delete',{name}))await loadVoiceprints();
 }
 async function setPersonGroup(name,group){
-  let d;
-  try{d=await(await fetch('/api/speaker-groups/set',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name,group})})).json();}catch(e){alert(String(e));return;}
-  if(d.status!=='ok'){alert(d.message||'error');return;}
-  await loadSpeakerGroups();
+  if(await _postJSON('/api/speaker-groups/set',{name,group}))await loadSpeakerGroups();
 }
 let _rlFile='',_rlItems=[];
 async function openRelabelModal(){
@@ -181,10 +209,8 @@ async function saveRelabel(){
   const body={file:_rlFile,lines:_rlItems,name},gi=document.getElementById('rlGroup'),pi=document.getElementById('rlPerson');
   if(gi.dataset.touched==='1'&&!pi.checked)body.group=gi.value.trim();
   if(pi.dataset.touched==='1')body.person=!!pi.checked;
-  let d;
-  try{d=await(await fetch('/api/speakers/assign-lines',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(body)})).json();}catch(e){alert(String(e));return;}
-  if(d.status!=='ok'){alert(d.message||'error');return;}
+  const d=await _postJSON('/api/speakers/assign-lines',body);
+  if(!d)return;
   closeRelabelModal();deselectAll();showToast(d.message);loadT(_rlFile);loadR(_rlFile);await loadSpeakerGroups();
   if(d.has_summary)await regenSummaryFor(_rlFile);
 }

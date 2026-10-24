@@ -164,6 +164,12 @@ DEFAULT_CONFIG = {
     "diarization_threshold": 0.70,  # コサイン類似度
     "diarization_min_sec": 1.0,     # 識別する発話の最短秒数
     "voiceprint_max_samples": 200,  # 1人あたりの声紋の保存件数
+    "voiceprint_min_sec": 3.0,  # これより短い発話は声紋に足さない
+    "voiceprint_cluster_min_samples": 10,  # これ未満の人は塊に分けず、除外もしない
+    "voiceprint_cluster_distance": 0.6,  # 平均連結で併合するコサイン距離の上限
+    "voiceprint_main_similarity": 0.5,  # 主の塊との重心類似度がこれ以上なら「いつもの声」
+    "voiceprint_outlier_max": 2,  # 除外中になる塊の最大件数
+    "voiceprint_outlier_ratio": 0.03,  # 除外中になる塊の、全体に対する最大割合
     "self_group": "",
     "interim_transcription": False,
     "interim_translation": True,  # interim_transcription の出力を翻訳して dashboard に流す

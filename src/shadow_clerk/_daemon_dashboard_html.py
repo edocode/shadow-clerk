@@ -420,6 +420,7 @@ _HTML_TEMPLATE = (
     "      <datalist id=\"spkSuggest\"></datalist>\n"
     "      <datalist id=\"grpSuggest\"></datalist>\n"
     "      <div id=\"spkRows\"></div>\n"
+    "      <div id=\"spkHistory\" style=\"font-size:12px\"></div>\n"
     "      <div style=\"font-size:12px;margin:14px 0 4px;font-weight:bold\">{{i18n:dash.voiceprints_title}}</div>\n"
     "      <div id=\"vpRows\" style=\"font-size:12px\"></div>\n"
     "    </div>\n"

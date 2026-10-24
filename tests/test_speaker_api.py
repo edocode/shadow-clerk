@@ -22,6 +22,7 @@ import pytest  # noqa: E402
 from shadow_clerk.i18n import t  # noqa: E402
 from shadow_clerk._daemon_dashboard_ops import _DashboardHandlerOps  # noqa: E402
 from shadow_clerk._daemon_dashboard_ops_meeting import _DashboardHandlerMeetingOps  # noqa: E402
+from shadow_clerk._daemon_dashboard_ops_config import _DashboardHandlerConfigOps  # noqa: E402
 from shadow_clerk._daemon_dashboard_ops_speakers import _DashboardHandlerSpeakerOps  # noqa: E402
 from shadow_clerk._daemon_voice_sidecar import append_voice, read_voices  # noqa: E402
 from shadow_clerk._daemon_speaker_names import SpeakerNameBook  # noqa: E402
@@ -50,7 +51,7 @@ class _Rec:
         return os.path.abspath(path) in self.translating
 
 
-class _H(_DashboardHandlerSpeakerOps, _DashboardHandlerMeetingOps, _DashboardHandlerOps):
+class _H(_DashboardHandlerSpeakerOps, _DashboardHandlerMeetingOps, _DashboardHandlerConfigOps, _DashboardHandlerOps):
     def __init__(self, body: object = None, path: str = "/", rec: _Rec | None = None) -> None:
         raw = json.dumps(body if body is not None else {}).encode("utf-8")
         self.client_address = ("127.0.0.1", 1)
@@ -536,3 +537,129 @@ def test_assign_lines_with_broken_name_book_writes_nothing() -> None:
     h._assign_lines()
     assert h.sent == {"status": "error", "message": t("dash.speaker_book_error")}, h.sent
     assert {n: _read(n) if os.path.exists(_p(n)) else None for n in names} == before
+
+
+def _add_d_lines(*entries: tuple[str, float | None, bool]) -> None:
+    """相手D の行と声紋を足す（ts, dur, no_enroll）"""
+    from dataclasses import replace
+    for i, (ts, dur, skip) in enumerate(entries):
+        with open(_p(MTG), "a", encoding="utf-8") as f:
+            f.write(f"[2026-10-09 {ts}] [相手D] 発話{i}\n")
+        append_voice(_p(MTG), f"2026-10-09 {ts}", "相手D", _vec(20 + i), dur)
+        if skip:
+            vp = _p(f"{MTG[:-4]}.voices.jsonl")
+            last = read_voices(_p(MTG))[-1]
+            with open(vp, "r", encoding="utf-8") as f:
+                rows = f.readlines()
+            with open(vp, "w", encoding="utf-8") as f:
+                f.writelines(rows[:-1] + [replace(last, no_enroll=True).to_json_line()])
+
+
+def test_short_utterance_named_but_not_enrolled() -> None:
+    _add_d_lines(("10:01:00", 1.0, False), ("10:01:01", 4.0, False))
+    h = _H({"file": MTG, "mapping": {"相手D": "alice"}})
+    h._assign_speakers()
+    assert h.sent["status"] == "ok" and h.sent["enrolled"] == {"alice": 1}, h.sent
+    assert _read(MTG).count("[alice]") == 2
+    assert VoiceprintStore().people() == {"alice": 1}
+
+
+def test_no_enroll_entry_not_enrolled() -> None:
+    _add_d_lines(("10:01:00", 5.0, True), ("10:01:01", 5.0, False))
+    _H({"file": MTG, "mapping": {"相手D": "alice"}})._assign_speakers()
+    assert _read(MTG).count("[alice]") == 2
+    assert VoiceprintStore().people() == {"alice": 1}
+
+
+def test_legacy_entry_without_duration_enrolled() -> None:
+    _add_d_lines(("10:01:00", None, False))
+    _H({"file": MTG, "mapping": {"相手D": "alice"}})._assign_speakers()
+    assert VoiceprintStore().people() == {"alice": 1}
+
+
+def test_unknown_label_line_can_be_reassigned() -> None:
+    with open(_p(MTG), "a", encoding="utf-8") as f:
+        f.write("[2026-10-09 10:02:00] [相手?] 短い\n")
+    append_voice(_p(MTG), "2026-10-09 10:02:00", "相手?", _vec(30), 0.5)
+    h = _H({"file": MTG, "lines": [{"ts": "2026-10-09 10:02:00", "label": "相手?"}], "name": "alice"})
+    h._assign_lines()
+    assert h.sent["status"] == "ok" and h.sent["renamed"] == 1, h.sent
+    assert "[alice] 短い" in _read(MTG)
+    assert VoiceprintStore().people() == {}
+
+
+def _record(path: str, rec) -> None:
+    from shadow_clerk._daemon_naming_history import append_history
+    append_history(path, [rec])
+
+
+def test_rename_keeps_history_and_sources() -> None:
+    from shadow_clerk._daemon_naming_history import read_history
+    from shadow_clerk.domain.naming_history import NamingRecord
+    from shadow_clerk.domain.voiceprint import PersonName, VoiceSample
+    ts = "2026-10-09 10:00:01"
+    _record(_p(MTG), NamingRecord("r1", "2026-10-09 12:00:00", "相手A", "alice", True, (ts,), (ts,), ()))
+    VoiceprintStore().add({PersonName("alice"): [VoiceSample(_vec(1), ts, MTG)]})
+    h = _H({"file": MTG, "name": "acme"})
+    h._rename_meeting()
+    new = "transcript-202610091000@acme.txt"
+    assert h.sent["status"] == "ok" and h.sent["new_file"] == new, h.sent
+    assert [r.id for r in read_history(_p(new))] == ["r1"]
+    assert not os.path.exists(_p("transcript-202610091000@週次定例.naming.jsonl"))
+    assert [s.source for s in VoiceprintStore().samples(PersonName("alice"))] == [new]
+
+
+def test_rename_succeeds_with_broken_store() -> None:
+    with open(_p("voiceprints.json"), "w", encoding="utf-8") as f:
+        f.write("{broken")
+    h = _H({"file": MTG, "name": "acme"})
+    h._rename_meeting()
+    assert h.sent["status"] == "ok", h.sent
+
+
+def test_delete_transcript_removes_history() -> None:
+    from shadow_clerk.domain.naming_history import NamingRecord
+    _record(_p(MTG), NamingRecord("r1", "2026-10-09 12:00:00", "相手A", "alice", True, (), (), ()))
+    hist = _p("transcript-202610091000@週次定例.naming.jsonl")
+    assert os.path.exists(hist)
+    h = _H({"file": MTG})
+    h._delete_transcript_file()
+    assert h.sent["status"] == "ok", h.sent
+    assert not os.path.exists(hist) and not os.path.exists(_p(MTG))
+
+
+def test_extract_meeting_splits_history() -> None:
+    from shadow_clerk._daemon_naming_history import read_history
+    from shadow_clerk.domain.naming_history import NamingRecord
+    from shadow_clerk.domain.voiceprint import PersonName, VoiceSample
+    daily = "transcript-20261009.txt"
+    with open(_p(daily), "w", encoding="utf-8") as f:
+        f.write("[2026-10-09 09:00:00] [alice] 朝\n[2026-10-09 11:00:00] [alice] 昼\n")
+    am, pm = "2026-10-09 09:00:00", "2026-10-09 11:00:00"
+    _record(_p(daily), NamingRecord("r1", "2026-10-09 12:00:00", "相手A", "alice", True, (am, pm), (am, pm), ()))
+    VoiceprintStore().add({PersonName("alice"): [VoiceSample(_vec(1), am, daily), VoiceSample(_vec(2), pm, daily)]})
+    h = _H({"file": daily, "start_ts": "2026-10-09 10:30:00", "end_ts": "2026-10-09 11:30:00",
+            "target": "new", "name": "昼会"})
+    h._extract_meeting()
+    assert h.sent["status"] == "ok", h.sent
+    new = "transcript-202610091030@昼会.txt"
+    assert [r.lines for r in read_history(_p(new))] == [(pm,)]
+    assert [r.lines for r in read_history(_p(daily))] == [(am,)]
+    assert {s.key for s in VoiceprintStore().samples(PersonName("alice"))} == {(daily, am), (new, pm)}
+
+
+def test_extract_relocates_sources_even_if_history_is_broken() -> None:
+    from shadow_clerk.domain.voiceprint import PersonName, VoiceSample
+    daily = "transcript-20261009.txt"
+    with open(_p(daily), "w", encoding="utf-8") as f:
+        f.write("[2026-10-09 09:00:00] [alice] 朝\n[2026-10-09 11:00:00] [alice] 昼\n")
+    am, pm = "2026-10-09 09:00:00", "2026-10-09 11:00:00"
+    with open(_p("transcript-20261009.naming.jsonl"), "w", encoding="utf-8") as f:
+        f.write("{broken\n")
+    VoiceprintStore().add({PersonName("alice"): [VoiceSample(_vec(1), am, daily), VoiceSample(_vec(2), pm, daily)]})
+    h = _H({"file": daily, "start_ts": "2026-10-09 10:30:00", "end_ts": "2026-10-09 11:30:00",
+            "target": "new", "name": "昼会"})
+    h._extract_meeting()
+    assert h.sent["status"] == "ok", h.sent
+    assert {s.key for s in VoiceprintStore().samples(PersonName("alice"))} == \
+        {(daily, am), ("transcript-202610091030@昼会.txt", pm)}

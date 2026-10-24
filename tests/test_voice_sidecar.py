@@ -152,3 +152,9 @@ def test_relabel_where(tmp_path) -> None:
     append_voice(t, "2026-10-09 10:00:02", "相手A", _vec(2))
     lines = relabeled_voice_lines_where(t, lambda e: "太郎" if e.timestamp.endswith("02") else None)
     assert '"label": "相手A"' in lines[0] and '"label": "太郎"' in lines[1]
+
+
+def test_append_voice_writes_duration(tmp_path) -> None:
+    t = str(tmp_path / "transcript-202610091000.txt")
+    append_voice(t, "2026-10-09 10:00:01", "相手A", _vec(1), duration=2.5)
+    assert read_voices(t)[0].duration == 2.5

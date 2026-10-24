@@ -8,6 +8,8 @@ import yaml
 from shadow_clerk import CONFIG_FILE
 from shadow_clerk._i18n_ja import STRINGS_JA
 from shadow_clerk._i18n_en import STRINGS_EN
+from shadow_clerk._i18n_ja_speakers import STRINGS_JA_SPEAKERS
+from shadow_clerk._i18n_en_speakers import STRINGS_EN_SPEAKERS
 
 _current_lang = "ja"
 
@@ -68,6 +70,6 @@ def t_all() -> dict:
 
 
 STRINGS = {
-    "ja": STRINGS_JA,
-    "en": STRINGS_EN,
+    "ja": {**STRINGS_JA, **STRINGS_JA_SPEAKERS},
+    "en": {**STRINGS_EN, **STRINGS_EN_SPEAKERS},
 }

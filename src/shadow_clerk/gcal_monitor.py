@@ -17,7 +17,7 @@ from typing import Any
 
 from shadow_clerk import DATA_DIR
 from shadow_clerk._daemon_constants import SESSION_FILE
-from shadow_clerk._daemon_voiceprint_store import atomic_write_json
+from shadow_clerk._atomic_file import atomic_write_json
 from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name as _sanitize_name
 
 logger = logging.getLogger("shadow-clerk.gcal")

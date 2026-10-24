@@ -22,23 +22,29 @@ if shutil.which("node") is None:
     sys.exit(0)
 
 from shadow_clerk._daemon_dashboard_js_speakers import _JS_TEMPLATE_SPEAKERS  # noqa: E402
+from shadow_clerk._daemon_dashboard_js_voiceprints import _JS_TEMPLATE_VOICEPRINTS  # noqa: E402
 
 HARNESS = r"""
 const I18N={'dash.speakers_count':'発話 {count} 件','dash.speakers_samples':'声紋 {count} 件',
   'dash.speakers_none':'NONE','dash.speakers_active':'ACTIVE','dash.speakers_translating':'TRANSLATING','dash.speakers_enrollment_off':'OFF',
   'dash.group_label':'グループ','dash.person_enroll':'個人','dash.summary_regen_after_naming':'再生成する？',
   'dash.summary_started':'STARTED','dash.relabel_count':'{count} 行','speaker.mic':'自分',
-  'dash.voiceprints_empty':'EMPTY','dash.delete':'削除','dash.voiceprint_delete_confirm':'{name} を消す？'};
+  'dash.voiceprints_empty':'EMPTY','dash.delete':'削除','dash.voiceprint_delete_confirm':'{name} を消す？',
+  'dash.naming_history_title':'HISTORY','dash.naming_undo':'UNDO','dash.naming_undone_mark':'UNDONE',
+  'dash.naming_undo_confirm':'{label} → {name} を取り消す？','dash.vp_show':'DETAILS',
+  'dash.naming_history_error':'HISTERR'};
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function escAttr(s){return esc(s).replace(/"/g,'&quot;');}
 function el(){return {children:[],_h:'',textContent:'',value:'',disabled:false,dataset:{},
   get innerHTML(){return this._h;},set innerHTML(v){this._h=v;this.children=[];},
   classList:{open:false,add(){this.open=true;},remove(){this.open=false;}},
   appendChild(c){this.children.push(c);},setAttribute(k,v){this[k]=v;}};}
+function mk(tag){return Object.assign(el(),{tagName:String(tag).toUpperCase()});}
 const els={spkRows:el(),spkInfo:el(),spkSuggest:el(),spkSaveBtn:el(),vpRows:el(),speakerModal:el(),
-  rlName:el(),rlGroup:el(),rlPerson:el(),rlInfo:el(),rlSaveBtn:el(),relabelModal:el(),grpSuggest:el(),rlSuggest:el()};
+  rlName:el(),rlGroup:el(),rlPerson:el(),rlInfo:el(),rlSaveBtn:el(),relabelModal:el(),grpSuggest:el(),rlSuggest:el(),
+  spkHistory:el()};
 let inputs=[],groupInputs=[],personInputs=[];
-const document={getElementById:id=>els[id],createElement:()=>el(),
+const document={getElementById:id=>els[id],createElement:mk,
   querySelectorAll:q=>q==='#spkRows input[data-label]'?inputs:q==='#spkRows input[data-group-for]'?groupInputs
     :q==='#spkRows input[data-person-for]'?personInputs:[]};
 let spkGroups={names:{},persons:{},groups:{},self_group:''};
@@ -54,10 +60,10 @@ async function fetch(url,opt){
     :url.startsWith('/api/speakers')?speakersResp:vpResp};}
 function showToast(m){toasts.push(m);}
 function loadT(f){loaded.push('T:'+f);}function loadR(f){loaded.push('R:'+f);}
-function alert(m){alerts.push(m);}function confirm(){return true;}
+function alert(m){alerts.push(m);}const confirms=[];function confirm(m){confirms.push(m);return true;}
 let selected=[];function getSelectedLines(){return selected;}function deselectAll(){selected=[];}
 let groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true,'花子':false},groups:{acme:'#e57373','自社':'#64b5f6'},self_group:'自社'};
-""" + _JS_TEMPLATE_SPEAKERS + r"""
+""" + _JS_TEMPLATE_SPEAKERS + _JS_TEMPLATE_VOICEPRINTS + r"""
 (async()=>{
   const out={};
   speakersResp={status:'ok',labels:[{label:'相手A',count:2,example:'<b>やあ</b>',samples:2}],
@@ -174,6 +180,24 @@ let groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true,'花�
   vpResp={status:'ok',people:[]};
   groupsResp={status:'ok',names:{},persons:{'花子':false},groups:{},self_group:''};
   await loadVoiceprints();out.peopleNone=[els.vpRows.children.length,els.vpRows.textContent];
+  selected=[{dataset:{raw:'[2026-10-09 10:00:07] [相手?] うん'}},{dataset:{raw:'[2026-10-09 10:00:08] [Claude] はい'}}];
+  await openRelabelModal();out.rlUnknown=_rlItems;
+  posted.length=0;toasts.length=0;loaded.length=0;confirms.length=0;
+  speakersResp={status:'ok',labels:[{label:'相手A',count:1,example:'x',samples:0}],suggestions:[],active:false,enrollment:true,
+    history:[{id:'h2',at:'2026-10-09 11:00:00',label:'相手B',name:'太郎',person:true,lines:3,added:2,undone:false},
+             {id:'h1',at:'2026-10-09 10:59:00',label:'相手A',name:'acme',person:false,lines:1,added:0,undone:true}]};
+  await openSpeakerModal();
+  const hrows=els.spkHistory.children.filter(r=>(r.className||'').includes('spk-row'));
+  const txt=r=>r.children.map(c=>c.textContent).join('|');
+  out.hist=hrows.map(r=>[txt(r),r.children.filter(c=>c.tagName==='BUTTON').length]);
+  out.histTitle=els.spkHistory.children[0].textContent;
+  speakersResp={status:'ok',labels:[],suggestions:[],active:false,enrollment:true,history:[]};
+  await hrows[0].children.find(c=>c.tagName==='BUTTON').onclick();
+  out.undoPosted=posted.slice();out.undoToasts=toasts.slice();out.undoLoaded=loaded.slice();out.undoConfirms=confirms.slice();
+  out.histAfter=els.spkHistory.children.length;
+  speakersResp={status:'ok',labels:[],suggestions:[],active:false,enrollment:true,history:[],history_error:true};
+  await openSpeakerModal();
+  out.histErr=els.spkHistory.children.map(c=>c.textContent);
   console.log(JSON.stringify(out));
 })();
 """
@@ -244,11 +268,26 @@ check("付け替え: チェックの切り替えでグループ欄が出入り�
 check("保存後に議事録の再生成を確認して頼む", out["regenPosted"] == {"url": "/api/summary",
       "body": {"file": "transcript-202610091000.txt"}}, repr(out["regenPosted"]))
 check("登録済みの人: 名簿の個人（声紋0件も）と声紋のある人を名前順に出し、個人でないラベルは出さない",
-      out["people"] == [["三郎 (0)", 3, ""], ["太郎 (3)", 3, "acme"], ["次郎 (1)", 3, ""]]
+      out["people"] == [["三郎 (0)", 5, ""], ["太郎 (3)", 5, "acme"], ["次郎 (1)", 5, ""]]
       and out["grpSuggest"] == ["acme"], repr((out["people"], out["grpSuggest"])))
 check("登録済みの人: グループ欄の変更で speaker-groups/set を送る",
       out["vpSet"] == {"url": "/api/speaker-groups/set", "body": {"name": "太郎", "group": "globex"}}, repr(out["vpSet"]))
 check("名簿を読めなくても声紋のある人は出し、グループ欄なし・alert なし",
-      out["peopleErr"] == [["太郎 (3)", 2], ["次郎 (1)", 2]] and out["peopleErrAlerts"] == [], repr((out["peopleErr"], out["peopleErrAlerts"])))
+      out["peopleErr"] == [["太郎 (3)", 4], ["次郎 (1)", 4]] and out["peopleErrAlerts"] == [], repr((out["peopleErr"], out["peopleErrAlerts"])))
+check("付け替え: 不明な話者（相手?）の行も対象にし、Claude の行は除く",
+      out["rlUnknown"] == [{"ts": "2026-10-09 10:00:07", "label": "相手?"}], repr(out["rlUnknown"]))
+check("履歴: 見出しと行を出し、未取り消しの行にだけ取り消すボタン",
+      out["histTitle"] == "HISTORY" and [b for _, b in out["hist"]] == [1, 0]
+      and "2026-10-09 11:00:00" in out["hist"][0][0] and "相手B → 太郎" in out["hist"][0][0]
+      and "発話 3 件" in out["hist"][0][0] and "声紋 2 件" in out["hist"][0][0]
+      and "UNDONE" in out["hist"][1][0] and "相手A → acme" in out["hist"][1][0], repr(out["hist"]))
+check("履歴: 取り消すは確認して file と id を送り、トースト・再読み込み・議事録の再生成",
+      out["undoConfirms"][0] == "相手B → 太郎 を取り消す？"
+      and out["undoPosted"][0] == {"url": "/api/speakers/undo", "body": {"file": "transcript-202610091000.txt", "id": "h2"}}
+      and out["undoPosted"][1]["url"] == "/api/summary" and out["undoToasts"][0] == "2 行に名前を付けました"
+      and out["undoLoaded"] == ["T:transcript-202610091000.txt", "R:transcript-202610091000.txt"],
+      repr((out["undoConfirms"], out["undoPosted"], out["undoToasts"], out["undoLoaded"])))
+check("履歴: 取り消し後はモーダルを開き直して最新の履歴（空なら何も出さない）", out["histAfter"] == 0, repr(out["histAfter"]))
+check("履歴: 読めないときは空ではなくエラーを出す", out["histErr"] == ["HISTERR"], repr(out["histErr"]))
 check("誰もいなければ空表示", out["peopleNone"] == [0, "EMPTY"], repr(out["peopleNone"]))
 sys.exit(0 if all(results) else 1)

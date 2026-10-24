@@ -285,6 +285,12 @@ The wespeaker ResNet34 ONNX model is downloaded on first use into `wespeaker_cac
 # config.yaml (or the dashboard settings modal)
 speaker_enrollment: true      # default false (requires speaker_diarization: true)
 voiceprint_max_samples: 200   # per person (default 200)
+voiceprint_min_sec: 3.0       # shorter utterances are never added to voiceprints (default 3.0)
+voiceprint_cluster_min_samples: 10  # people with fewer samples are not split into clusters (default 10)
+voiceprint_cluster_distance: 0.6    # average-linkage cosine distance for merging clusters (default 0.6)
+voiceprint_main_similarity: 0.5     # a cluster this similar to the main one counts as the usual voice (default 0.5)
+voiceprint_outlier_max: 2           # largest cluster that can be excluded automatically (default 2)
+voiceprint_outlier_ratio: 0.03      # ... and its largest share of the person's samples (default 0.03)
 ```
 
 - With `speaker_enrollment: true`, the diarization embeddings are saved per transcript in `transcript-*.voices.jsonl`.
@@ -297,11 +303,18 @@ voiceprint_max_samples: 200   # per person (default 200)
 - Minutes (both the LLM method and the AI assistant method) receive a "speakers and groups" block (added only when at least one group or `self_group` exists). With two or more groups they are asked to organize requests, agreements and action items by group. The `clerk-meeting-helper` skill (1.1.0) reads it from `GET /api/speaker-roster`.
 - After saving names or groups, if the meeting has minutes the dashboard asks whether to regenerate them. If the meeting has AI-assistant output (advice or analysis files), the assistant rebuilds them (started first if needed, with an LLM fallback); otherwise the LLM does. While a different meeting is in progress the LLM is always used, so the live assistant is not interrupted.
 - Already-named speakers stay in the list and can be renamed (for a typo, say); their voiceprints from that meeting move to the new name.
+- Utterances shorter than `voiceprint_min_sec` still get the name in the transcript, but are not added to the voiceprint (short replies such as "yes" make unreliable voiceprints). `[相手?]` lines (too short to identify) can be named with 👤 the same way; they never had an embedding. The utterance length is stored as `dur` in `*.voices.jsonl`; older rows without it are treated as long enough.
+- **Undoing a naming:** each label naming is recorded in the meeting's `transcript-*.naming.jsonl`, listed newest first under "Naming history" in the naming modal (when, `label → name`, lines and voiceprints). "Undo" puts the original label back on the lines that still carry that name (lines moved to someone else later are left alone), removes the voiceprints that naming added and gives back the voiceprints it took from a previously named person (unless that person was deleted, or the voiceprint was deleted with "Delete" in the clusters view). Voiceprints that naming added but that are already gone (dropped by `voiceprint_max_samples`, deleted) or moved to someone else are left alone; the result says how many. The history is kept only for namings made with this version; it follows the meeting when it is renamed or deleted.
+- **Reviewing a person's voiceprints:** "Details" next to a registered person splits their voiceprints into clusters (people with fewer than `voiceprint_cluster_min_samples` samples are shown as one cluster). Each cluster shows its kind, number of samples, the meetings (and original labels when the history knows them) and an example utterance:
+  - **Usual voice** — the main cluster. No action.
+  - **Different voice** — far from the main cluster: another person mixed in, or the same person on a different line or device. It is still used; you decide. "Delete" removes those samples from the voiceprint store only (the transcript keeps the name; the sidecar rows get `noenroll` so they are not enrolled again). "Move to…" moves them to another person (with name suggestions) and renames the matching transcript lines that still carry the old name; meetings being recorded or translated are not rewritten and are counted in the result.
+  - **Excluded (laughter etc.)** — a tiny, distant cluster (at most `voiceprint_outlier_max` samples and `voiceprint_outlier_ratio` of the person's total) is excluded from matching automatically. "Restore" brings it back, and it is never excluded automatically again.
+  The exclusion is stored per sample as `status` in `voiceprints.json` and is recomputed whenever samples are added to or removed from that person (naming, undo, delete, move). A restored sample is shown under the usual voice.
 - Naming and line reassignment are refused for the file being recorded, a file being translated, and when the name book or voiceprint store is unreadable. The file currently being recorded cannot be named (rewriting it would break the live AI-assistant stream's read offsets). Wait until the meeting ends; for the daily file, wait until the date changes or extract it as a meeting with ⏱ first. A file whose translation is running (one-shot or the continuous loop) cannot be named until it finishes.
 - Merging lines into an existing meeting can mix two different speakers under the same label; name such a file carefully (or extract into a new meeting instead).
 - Showing names during a meeting is not implemented yet (planned).
 
-**Privacy:** voiceprints are biometric data. They stay inside the data directory and are never passed to an LLM. Audio is not stored. Deleting a person from the dashboard removes their stored voiceprints and every embedding named after them in the per-meeting `*.voices.jsonl` files; deleting `voiceprints.json` and all `*.voices.jsonl` files erases everything.
+**Privacy:** voiceprints are biometric data. They stay inside the data directory and are never passed to an LLM. Audio is not stored. Deleting a person from the dashboard removes their stored voiceprints and every embedding named after them in the per-meeting `*.voices.jsonl` files; deleting `voiceprints.json` and all `*.voices.jsonl` files erases everything. `*.naming.jsonl` holds only labels, names and timestamps, no voice data.
 
 ### Optional: Google Calendar integration
 
@@ -965,6 +978,7 @@ shadow-clerk/                          # Repository
   speaker_names.json                   # Names, groups and colors of speakers (no voice data)
   voiceprints.json                     # Voiceprints (speaker_enrollment, after naming)
   transcript-YYYYMMDDHHMM@Title.voices.jsonl  # Speaker diarization embeddings (speaker_enrollment)
+  transcript-YYYYMMDDHHMM@Title.naming.jsonl  # Naming history of the meeting (for undo)
 ```
 
 ## Troubleshooting

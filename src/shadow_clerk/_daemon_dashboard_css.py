@@ -89,6 +89,15 @@ main {
 .modal-body .spk-row input.spk-group { flex:none; width:110px; }
 .modal-body .spk-person input[type=checkbox] { width:auto; margin:0 2px 0 0; }
 .spk-person { flex:none; font-size:11px; color:var(--muted); white-space:nowrap; }
+.spk-sub { font-size:12px; margin:14px 0 4px; font-weight:bold; }
+.vp-person { flex-wrap:wrap; }
+.vp-clusters { flex-basis:100%; padding-left:16px; }
+.vp-clusters:empty { display:none; }
+.spk-row.vp-different { background:rgba(255,180,0,.12); }
+.spk-row.vp-outlier { opacity:.65; }
+.vp-kind { flex:none; width:150px; }
+.vp-hint { display:block; font-size:10px; color:var(--muted); }
+.vp-sources { flex:none; max-width:260px; color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
 .spk-row .spk-example { flex:1; min-width:0; color:var(--muted); overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
 /* 末尾の説明文は折り返す。折り返さないとモーダルが横にはみ出してスクロールバーが出る */
 .extract-option .eo-label:last-child { white-space:normal; min-width:0; }

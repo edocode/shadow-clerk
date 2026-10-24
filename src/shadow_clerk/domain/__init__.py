@@ -15,7 +15,8 @@ from shadow_clerk.domain.console_role import ConsoleRole
 from shadow_clerk.domain.talk_route import RouteTarget
 from shadow_clerk.domain.talk_echo import EchoFilter, SpokenSpan
 from shadow_clerk.domain.talk_speech import SpeechTab, estimate_speech_sec
-from shadow_clerk.domain.voiceprint import PersonName, VoiceEntry, VoiceSample
+from shadow_clerk.domain.voiceprint import PersonName, SampleStatus, VoiceEntry, VoiceSample
+from shadow_clerk.domain.naming_history import NamingRecord
 from shadow_clerk.domain.transcript_rewrite import TranscriptRewrite, TranscriptRewriteJournal
 from shadow_clerk.domain.pronunciation import (
     Attempt, FocusPhoneme, OpKind, PhonemeOp, PronounceState, PronunciationTask, WordComparison,
@@ -43,6 +44,8 @@ __all__ = [
     "PersonName",
     "VoiceEntry",
     "VoiceSample",
+    "SampleStatus",
+    "NamingRecord",
     "TranscriptRewrite",
     "TranscriptRewriteJournal",
     "Attempt",
