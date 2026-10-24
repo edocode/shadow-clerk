@@ -10,6 +10,7 @@ import threading
 from typing import Any, Callable
 
 from shadow_clerk._daemon_talk_engine import TalkContext, TalkStartError
+from shadow_clerk._daemon_talk_prompt import persona_prompt
 from shadow_clerk.domain import ConsoleRole
 from shadow_clerk.domain.ai_assistant import AiAssistantConfig
 from shadow_clerk.i18n import t
@@ -52,14 +53,19 @@ class ConsoleEngine:
             argv += ["--model", model]
         else:
             model = ""
+        # skill が読む /api/talk-mode の JSON だけだと、長い規則に埋もれ、文脈の要約で消える。
+        # headless と同じくシステムプロンプトに置く。ai_assistant_args が自分で付けていればそちらを優先する
+        persona = persona_prompt(ctx.persona) if ctx.persona and "--append-system-prompt" not in argv else ""
+        if persona:
+            argv += ["--append-system-prompt", persona]
         console = self._console_factory()
-        if console.is_running() and (console.workdir != ctx.workdir or console.model != model):
-            # 別のリポジトリで動いている Claude を使い回すと、Read や編集の基準がずれる。モデルも起動時に決まる
-            logger.info("talk: 作業ディレクトリかモデルが違うため talk コンソールを起動し直します (%s/%s -> %s/%s)",
-                        console.workdir, console.model, ctx.workdir, model)
+        if console.is_running() and (console.workdir, console.model, console.persona) != (ctx.workdir, model, persona):
+            # 別のリポジトリで動いている Claude を使い回すと、Read や編集の基準がずれる。モデルとペルソナも起動時に決まる
+            logger.info("talk: 作業ディレクトリ・モデル・ペルソナのどれかが違うため talk コンソールを起動し直します"
+                        " (%s/%s -> %s/%s)", console.workdir, console.model, ctx.workdir, model)
             console.stop()
         ok, _started = console.start_if_stopped(argv, ctx.workdir)
-        console.model = model
+        console.model, console.persona = model, persona
         if not ok:
             raise TalkStartError(t("talk.console_start_failed"))
         console.send_after_ready(f"/{TALK_SKILL_NAME}\r")

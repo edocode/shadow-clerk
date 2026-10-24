@@ -8,7 +8,7 @@ import time
 
 from shadow_clerk._daemon_talk_console import ConsoleEngine
 from shadow_clerk._daemon_talk_engine import TalkContext, TalkStartError
-from shadow_clerk.domain import Language
+from shadow_clerk.domain import Language, TalkPersona
 
 results: list[bool] = []
 
@@ -24,6 +24,7 @@ class _Console:
         self.running = False
         self.workdir = ""
         self.model = ""
+        self.persona = ""
         self.started: list[tuple[list[str], str]] = []
         self.sent: list[str] = []
         self.stopped = False
@@ -46,8 +47,9 @@ class _Console:
         self.running = False
 
 
-def _ctx(ended: list[str], workdir: str = "/tmp/talk-work", **cfg: str) -> TalkContext:
-    return TalkContext("x", None, Language.JA, workdir,
+def _ctx(ended: list[str], workdir: str = "/tmp/talk-work", persona: TalkPersona | None = None,
+         **cfg: str) -> TalkContext:
+    return TalkContext("x", persona, Language.JA, workdir,
                        {"ai_assistant_command": "claude", "ai_assistant_args": "", **cfg},
                        lambda _t: None, ended.append)
 
@@ -96,6 +98,32 @@ def test_model() -> None:
     check("talk_model が空なら --model を付けない", con.started[0][0] == ["claude"], repr(con.started))
 
 
+def test_persona() -> None:
+    def engine(con: _Console) -> ConsoleEngine:
+        return ConsoleEngine(console_factory=lambda: con, skill_check=lambda: True, poll_sec=0.05)
+
+    funny = TalkPersona("funny", "ダジャレを言う")
+    con = _Console()
+    engine(con).start(_ctx([], persona=funny))
+    check("ペルソナを --append-system-prompt で渡す",
+          con.started[0][0] == ["claude", "--append-system-prompt", "## Persona\n\nダジャレを言う"], repr(con.started))
+    check("起動したペルソナを覚える", con.persona == "## Persona\n\nダジャレを言う")
+    con.running = True
+    con.started = []
+    engine(con).start(_ctx([], persona=funny))
+    check("同じペルソナならそのまま使う", not con.stopped and con.started == [])
+    engine(con).start(_ctx([], persona=TalkPersona("calm", "落ち着いて話す")))
+    check("別のペルソナで動いていれば起動し直す",
+          con.stopped and con.started[0][0][-1] == "## Persona\n\n落ち着いて話す", repr(con.started))
+    con = _Console()
+    engine(con).start(_ctx([], persona=funny, ai_assistant_args="--append-system-prompt mine"))
+    check("args に --append-system-prompt があればそちらを優先",
+          con.started[0][0] == ["claude", "--append-system-prompt", "mine"] and con.persona == "", repr(con.started))
+    con = _Console()
+    engine(con).start(_ctx([]))
+    check("ペルソナが無ければ付けない", con.started[0][0] == ["claude"], repr(con.started))
+
+
 def test_start_failures() -> None:
     con = _Console()
     try:
@@ -142,6 +170,7 @@ def test_interrupt() -> None:
 if __name__ == "__main__":
     test_start()
     test_model()
+    test_persona()
     test_start_failures()
     test_console_exit()
     test_interrupt()
