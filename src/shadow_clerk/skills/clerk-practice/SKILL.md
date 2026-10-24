@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、会話・発音・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.6.2"
+  version: "1.7.0"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -24,7 +24,8 @@ shadow-clerk の場所は環境変数 `SHADOW_CLERK_URL`（`http://localhost:<po
   `clerk-talk` の「聞く」のとおり張る）。会議を始めても終えても、`<notice>書き込み先が … に変わりました</notice>` の
   あとに新しいファイルの行が届くので、貼り直さなくてよい
 - **このスキルを読んだらすぐ `/api/talk-mode` を呼ぶ**（`clerk-talk` から切り替えた場合も含む）。
-  `persona_instructions` があれば、それがあなたの性格・応答の仕方。**日本語で話すとき**（説明・フィードバック・雑談）にその性格を出す。練習する言語で話すときは性格よりも正確さを優先し、ユーモアは抑える。
+  `persona_instructions` があれば、それがあなたの性格・応答の仕方。説明・フィードバック・雑談・練習する言語での会話のどれでも、その性格で話す。
+  ただし、指摘の正確性は重要視する（性格に合わせて、間違いを見逃したり、事実と違う判定を言ったりしない）。
   `language` はユーザーの母語（ふつうは `ja`）。説明はこの言語で話す
 
 ```
@@ -127,6 +128,7 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 ### 会話
 
 - やさしく短い文で話す。相手の様子を見て少しずつ難しくする
+- **会話の間も音素解析を best effort で掛けておく**（下の「会話中の音素解析」）
 - **文法・発音の間違いは必ず指摘する。** 間違いを見つけたら会話の流れを一度止め、正しい言い方を母語で短く説明し、
   もう一度言うよう促す（例: ユーザーが「I go to there yesterday.」と言ったら
   「"went" を使って "I went there yesterday." と言ってみてください」と伝え、言い直してもらう）
@@ -135,6 +137,30 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 - **やりとりを Analysis に書く。** 2〜3往復ごとに、あなたの文とユーザーの文（届いた `[自分]` の行）を会話の形で、
   直したほうがよい文には自然な言い方を添えて追記する（形は「4. 書く」の会話の例）。transcript には直しが残らないので、
   あとで読み返せるのはここだけ
+
+#### 会話中の音素解析
+
+会話では言う文が先に決まらないので、課題文なしで預ける（`free`）。daemon は発話ごとに、その文字起こし（`asr_text`）を
+期待文にして音素を突き合わせる。**おまけの情報**として扱い、会話を止めてまで待たない。
+
+- 会話を始めるとき、`GET /api/pronounce` の `state` が `idle` / `armed` なら預ける（`unavailable` や JSON が返らないときは何もしない）
+
+```
+curl -s -X POST "http://localhost:8765/api/pronounce" -H 'Content-Type: application/json' -d '{"free":true,"lang":"en"}'
+```
+
+- 発話のたびに期限が延びるので、会話が続く間は送り直さなくてよい。発音の課題文を預けると置き換わるので、
+  会話に戻るときにまた `free` を送る
+- `[自分]` の行が届いたら、返事を考えるついでに `GET /api/pronounce` を1回だけ見る。同じ `segment_at` の attempt が
+  無ければ（`pending` 中も含めて）その発話は見送る。取り直さない
+- **拾うのは日本語話者が崩しやすい対立だけ**: `θ` が `s` / `f` 寄り、`ð` が `z` / `d` 寄り、`ɹ` と `l` の入れ替わり、`v` が `b` 寄り、
+  `f` が `h` 寄り。それ以外の差分は、自由発話ではフロア誤差（`focus` が無いので、全部の op が対象外の扱い）
+- **期待文が文字起こしなので、崩れた音がそのまま別の語として認識されると差分は出ない**（thick が sick と認識されると、
+  期待文も sick になる）。文脈から見て `asr_text` の語が対立の相方にすり替わっているとき（スープの話なのに sick）は、
+  それ自体を所見として扱ってよい
+- 指摘は**1ターンに1つまで**、文法の直しのあとに短く添える（例:「それと、シックの頭が、エス寄りでした」）。言い直しは求めない。
+  同じ音が2回以上続けて崩れたら、会話の切れ目で「発音」の練習に誘ってよい
+- 拾った所見は、会話の Analysis の該当の文に「発音: thick の θ が s 寄り」のように添える
 
 ### `[画面]` 行が来たら
 
@@ -156,8 +182,7 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 curl -s "http://localhost:8765/api/pronounce"
 ```
 
-- `unavailable`（`reason` に理由が入る）— 音素フィードバックが使えない。下の「音声認識だけで判定する」で、
-  **従来どおり**単語単体で出す
+- `unavailable`（`reason` に理由が入る）— 音素フィードバックが使えない。下の「音声認識だけで判定する」で進める
 - `loading` — モデルの読み込み中。**従来モードに落とさず、読み込みを待ってから課題を出す**
   （下の「`state` が `loading` のとき」を参照）
 - それ以外（`idle` / `armed`）— 「音素フィードバック」で進める。`idle` は「いま課題が無い」の意味で、
@@ -168,12 +193,16 @@ curl -s "http://localhost:8765/api/pronounce"
 どちらでも共通のルール:
 
 - お手本は `lang` 付きの `/api/say` で聞かせる
+- **単語単体で出さない。** 単語だけの発話は音声認識も音素解析も外しやすい（`Thick.`、`Sick.`、`Thick, sick.` のような
+  単語の並べ方も同じ）。**ごく短くても文として成り立つもの**にする（`It's thick.`、`I'm sick.`、`Turn right.`）
+- **長くしすぎない。** 一息で言える 2〜6 語に収める。途中で間が空くと発話が2つに割れ、解析に一部しか渡らない
+- **対象の語を発話の頭に置かない**（できる範囲で）。文頭の子音は欠けやすい
 - **お題の綴りを見せない。** 綴りが `[Claude]` 行に出ると、ユーザーは読んでから言えてしまい、認識結果も綴りと並んで
   判定がゆがむ。`text` に本物の単語・文、`lang` に言語、`display` にカタカナと意味だけを入れて送る。
   ブラウザの声は正しい発音で読み、transcript には「ライト（右）」としか残らない
 
 ```
-curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/json' -d '{"text":"right","lang":"en","display":"ライト（右）"}'
+curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/json' -d '{"text":"Turn right.","lang":"en","display":"ターン ライト（右に曲がって）"}'
 ```
 
 - **transcript には、説明の文も含めて、練習する言語の綴りを一切出さない。** `/api/say` の母語の説明（コツ・判定・まとめ）の中でも、
@@ -185,9 +214,10 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 #### 音声認識だけで判定する（`unavailable` のとき）
 
 - 判定は音声認識に通るかどうかで行う。届いた `[自分]` の行が言ってもらった文どおりなら通った
-- 音声認識は文脈で補うので、文の中の単語は通りやすい。**単語単体**や紛らわしい組（light と right、sheep と ship など）で試す
+- 音声認識は文脈で補うので、**対立の組のどちらの語でも自然に成り立つ短い文**にする（`It's light.` と `It's right.`、
+  `It's thick.` と `It's sick.`）。文脈で片方に決まる文（`Turn on the light.`）だと、崩れても補われて通ってしまう
 - 通らなければ、どう聞こえたか（認識結果）と、口の形・舌の位置のコツを母語で短く伝え、もう一度言ってもらう
-- 同じ組の次の単語も同様に送る（例: `{"text":"light","lang":"en","display":"ライト（光）"}`）
+- 同じ組の次の文も同様に送る（例: `{"text":"It's light.","lang":"en","display":"イッツ ライト（軽い）"}`）
 - ユーザーが言った後、判定してから、Analysis の語・文に結果（○△×）を追記し、**どう聞こえたか（認識結果）と
   口の形・舌の位置のコツは Advice に書く**（Advice は書き直す）。**試した単語は、通ったものも含めて全部 Analysis に残す。**
   transcript にはカタカナしか残らないので、綴りが残るのは Analysis だけ。1組（right と light など）を判定し終えるたびに書く
@@ -204,7 +234,7 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
   その端の崩れは戻る（実測で `grass` は 9/15 → 5/5）。
   ただし**戻るのは端の崩れだけで、その人の調音そのものは戻らない**
   （同じ実測で `glass` は 7/15 → 0/5 と、むしろ落ちた）。
-  裸の単語が許されるのは**語頭の単独子音**の対立だけ（right / light など）
+  単語単体はどの対立でも出さない（上の「共通のルール」）
 - **対立ペアを両方入れる。** `Turn right at the light.` のように1文に両方入れると、
   その発話自体が比較の基準になり、「R は出ているのに L が出ていない」という相対的な判断ができる
 - **`ɪ/ʌ` の対立（bit / but など）は出さない。** 正規化で同じクラスに潰れるので測れない。

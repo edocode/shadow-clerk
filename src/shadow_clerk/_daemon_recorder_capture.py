@@ -653,7 +653,7 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
             if segment is not None:
                 ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 self.transcribe_queue.put((segment, ts, label, command_mode_latch,
-                                           timestamp - len(segment) / SAMPLE_RATE))
+                                           segmenter.voice_onset(segment, timestamp)))
                 command_mode_latch = False  # 次のセグメント用にリセット
                 if label == "mic":
                     self._command_mode_release_time = 0.0  # 猶予タイマーもクリア
@@ -689,4 +689,4 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         if segment is not None:
             ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.transcribe_queue.put((segment, ts, label, command_mode_latch,
-                                       time.time() - len(segment) / SAMPLE_RATE))
+                                       segmenter.voice_onset(segment, time.time())))

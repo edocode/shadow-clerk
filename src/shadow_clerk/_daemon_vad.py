@@ -1,12 +1,13 @@
 """Shadow-clerk daemon: VAD セグメンテーション"""
 from __future__ import annotations
 import logging
+from collections import deque
 import numpy as np
 import webrtcvad
 from shadow_clerk._daemon_constants import (
     VAD_MODE, SAMPLE_RATE, SPEECH_FRAMES_THRESHOLD, SILENCE_FRAMES_THRESHOLD,
     MIN_SEGMENT_DURATION, MAX_SEGMENT_DURATION, INTERIM_MAX_DURATION,
-    FRAME_DURATION_MS,
+    FRAME_DURATION_MS, VAD_PRE_ROLL_FRAMES,
 )
 
 logger = logging.getLogger("shadow-clerk")
@@ -17,6 +18,7 @@ class VADSegmenter:
 
     def __init__(self) -> None:
         self.vad = webrtcvad.Vad(VAD_MODE)
+        self.last_pre_roll_sec = 0.0
         self.reset()
 
     def reset(self) -> None:
@@ -25,6 +27,8 @@ class VADSegmenter:
         self.silence_frame_count = 0
         self.current_segment: list[np.ndarray] = []
         self.segment_start_time: float | None = None
+        self.pre_roll: deque[np.ndarray] = deque(maxlen=VAD_PRE_ROLL_FRAMES)
+        self.pre_roll_frames = 0  # current_segment の頭のうちプリロールのフレーム数
 
     def process_frame(self, frame: np.ndarray, timestamp: float) -> np.ndarray | None:
         """
@@ -37,16 +41,22 @@ class VADSegmenter:
         if not self.in_speech:
             if is_speech:
                 self.speech_frame_count += 1
-                self.current_segment.append(frame)
                 if self.segment_start_time is None:
                     self.segment_start_time = timestamp
+                    self.current_segment = list(self.pre_roll)
+                    self.pre_roll_frames = len(self.pre_roll)
+                    self.pre_roll.clear()
+                self.current_segment.append(frame)
                 if self.speech_frame_count >= SPEECH_FRAMES_THRESHOLD:
                     self.in_speech = True
                     self.silence_frame_count = 0
                     logger.debug("発話検出 @ %.1f", timestamp)
             else:
+                # 検出に届かなかった音声も捨てずにプリロールへ戻す（弱い子音の途切れで頭を失わない）
+                self.pre_roll.extend(self.current_segment)
+                self.pre_roll.append(frame)
                 self.speech_frame_count = 0
-                self.current_segment.clear()
+                self.current_segment = []
                 self.segment_start_time = None
         else:
             self.current_segment.append(frame)
@@ -69,13 +79,14 @@ class VADSegmenter:
         return None
 
     def _finalize_segment(self) -> np.ndarray | None:
-        """セグメントを確定して返す"""
+        """セグメントを確定して返す。直前のプリロールの秒数は last_pre_roll_sec に残す"""
         if not self.current_segment:
             self.reset()
             return None
 
         segment = np.concatenate(self.current_segment)
         duration = len(segment) / SAMPLE_RATE
+        self.last_pre_roll_sec = self.pre_roll_frames * FRAME_DURATION_MS / 1000.0
 
         self.reset()
 
@@ -84,6 +95,11 @@ class VADSegmenter:
             return None
 
         return segment
+
+    def voice_onset(self, segment: np.ndarray, end: float) -> float:
+        """確定したセグメントの、プリロールを除いた声の開始時刻。
+        読み上げとの重なり判定に使う。プリロールの分で重なって捨てられないように"""
+        return end - len(segment) / SAMPLE_RATE + self.last_pre_roll_sec
 
     def get_interim_segment(self) -> np.ndarray | None:
         """発話中の蓄積音声のコピーを返す（読み取り専用、segmentation に影響しない）

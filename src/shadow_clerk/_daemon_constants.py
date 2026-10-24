@@ -34,6 +34,9 @@ FRAME_SIZE = int(SAMPLE_RATE * FRAME_DURATION_MS / 1000)  # 480 samples
 VAD_MODE = 3  # 0-3, 3が最も積極的に音声検出
 SPEECH_FRAMES_THRESHOLD = 10  # 発話検出に必要な連続フレーム数 (~300ms)
 SILENCE_FRAMES_THRESHOLD = 30  # 無音検出に必要な連続フレーム数 (~900ms)
+# 発話検出より前に保持して頭に付けるフレーム数 (~300ms)。webrtcvad は θ s f のような
+# 息だけの弱い子音を非音声とみなすので、無いと文頭の子音が切り落とされる
+VAD_PRE_ROLL_FRAMES = 10
 MIN_SEGMENT_DURATION = 0.5  # 最小セグメント長(秒)
 MAX_SEGMENT_DURATION = 30.0  # 最大セグメント長(秒)
 INTERIM_MAX_DURATION = 10.0  # interim 転写に渡す直近音声の最大長(秒)

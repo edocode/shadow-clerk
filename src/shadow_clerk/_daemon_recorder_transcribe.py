@@ -189,9 +189,13 @@ class _RecorderTranscribeMixin:
         # ノイズフィルタより前に置く: 相槌として捨てる行も、課題の発話かは Claude が asr_text で判断する。
         # transcript 行の書き込みより前でもある（skill が行を見て poll するとき pending が増えている）
         try:
-            if (source == "mic" and self.talk.active
-                    and not self.talk.in_playback(seg_start, seg_start + duration)):
-                self.pronounce.offer(segment, timestamp, text.strip())
+            if source == "mic" and self.talk.active:
+                if not self.talk.in_playback(seg_start, seg_start + duration):
+                    self.pronounce.offer(segment, timestamp, text.strip())
+                else:
+                    # skill からは「attempt が来ない」としか見えないので、捨てた事実を残す
+                    logger.info("pronounce: 読み上げと重なるセグメント (%.1f秒) は渡しません: %r",
+                                duration, text.strip())
         except Exception as e:   # 文字起こしを止めない（設計書 §10）。条件式の評価も含めて守る
             logger.warning("pronounce: セグメントを渡せませんでした: %s", e)
         file_speaker = Speaker.from_source(source)
