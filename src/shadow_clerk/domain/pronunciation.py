@@ -135,7 +135,8 @@ class Attempt:
     segment_at: str          # transcript の行と突き合わせる鍵。YYYY-MM-DD HH:MM:SS
     asr_text: str            # 同じセグメントの文字起こし。課題の発話かを Claude が判断する
     words: tuple[WordComparison, ...]
+    trimmed: bool = False    # 読み上げと重なる部分を切り落とした。境目の語は欠けていることがある
 
     def to_json(self) -> dict:
         return {"at": self.at, "segment_at": self.segment_at, "asr_text": self.asr_text,
-                "words": [w.to_json() for w in self.words]}
+                "words": [w.to_json() for w in self.words], "trimmed": self.trimmed}

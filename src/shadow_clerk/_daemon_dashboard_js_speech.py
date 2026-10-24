@@ -60,24 +60,25 @@ function initSpeech(src){
   setInterval(speechReady,30000);
 }
 /* --- AI分析 の 🔊 の例文: クリックで読む。言語は行頭の 🔊[en] で決める。
-   無ければいま聞き取っている言語（練習の前後は ja / auto に戻っているので、かな・漢字の無い文は en とみなす） --- */
-const SAY_TAG=/^🔊\s*(?:\[([a-z]{2,3})\]\s*)?/u;
+   無ければいま聞き取っている言語（練習の前後は ja / auto に戻っているので、かな・漢字の無い文は en とみなす）。
+   🔊[en|I see a cheap ship.] 問題1 は「問題1」とだけ見せて | の後ろを読む（聞き取りの出題。綴りを見せない） --- */
+const SAY_TAG=/^🔊\s*(?:\[([a-z]{2,3})(?:\|([^\]]+))?\]\s*)?/u;
 function sayLang(text,tag){
   if(tag)return tag;
   const s=document.getElementById('langSel');const v=s&&s.value!=='auto'?s.value:'';
   return (!v||v==='ja')&&!/[\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Han}]/u.test(text)?'en':v;
 }
-/* 表示からは [en] を消す。先頭のテキストノードにある */
+/* 表示からは [en] と [en|読む文] を消す。先頭のテキストノードにある */
 function _dropSayTag(el){
   const w=document.createTreeWalker(el,NodeFilter.SHOW_TEXT);
-  for(let n=w.nextNode();n;n=w.nextNode()){if(n.nodeValue.trim()){n.nodeValue=n.nodeValue.replace(/\[[a-z]{2,3}\]\s*/,' ');return;}}
+  for(let n=w.nextNode();n;n=w.nextNode()){if(n.nodeValue.trim()){n.nodeValue=n.nodeValue.replace(/\[[a-z]{2,3}(?:\|[^\]]*)?\]\s*/,' ');return;}}
 }
 function decorateSay(root){
   if(!root||!speechOk())return;
   /* 引用の中の段落のように入れ子で両方当たるので、タグを消す前に全部読み取る */
   const hits=[...root.querySelectorAll('p,li,blockquote')].map(el=>{
     const t=String(el.textContent||'').trim(),m=t.match(SAY_TAG);
-    return m&&{el,text:t.slice(m[0].length),tag:m[1]};
+    return m&&{el,text:m[2]||t.slice(m[0].length),tag:m[1]};
   }).filter(Boolean);
   hits.forEach(({el,text,tag})=>{
     if(tag)_dropSayTag(el);

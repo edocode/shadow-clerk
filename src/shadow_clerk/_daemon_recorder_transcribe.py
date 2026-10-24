@@ -15,7 +15,7 @@ from typing import Any
 
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import (
-    SAMPLE_RATE, SESSION_FILE, SHUTDOWN_JOIN_BUDGET_SEC,
+    PRONOUNCE_MIN_CLEAR_SEC, SAMPLE_RATE, SESSION_FILE, SHUTDOWN_JOIN_BUDGET_SEC,
     _HAS_PYNPUT, _HAS_EVDEV,
 )
 from shadow_clerk._daemon_config import load_config
@@ -115,8 +115,9 @@ class _RecorderTranscribeMixin:
 
     def _process_transcribe_item(self, segment: Any, timestamp: str, seg_start: float, source: str,
                                  command_mode: bool, display_labels: dict[str, str],
-                                 last_file_speaker: Speaker | None) -> Speaker | None:
-        """キューから取り出した1セグメントを文字起こし・書き込みし、更新後の直前話者を返す"""
+                                 last_file_speaker: Speaker | None, pre_roll: float = 0.0) -> Speaker | None:
+        """キューから取り出した1セグメントを文字起こし・書き込みし、更新後の直前話者を返す。
+        seg_start は声の開始。音声はその pre_roll 秒前から始まる"""
         # ミュート中のソースと、talk mode が捨てるソース（Claude の声）はスキップ（コマンドモード中は除く）
         is_muted = ((source == "mic" and self.mute_mic) or (source == "monitor" and self.mute_monitor)
                     or self.talk.is_suppressed(source))
@@ -188,14 +189,22 @@ class _RecorderTranscribeMixin:
         # ここで止めれば talk mode 外ではワーカーにセグメントが届かない。
         # ノイズフィルタより前に置く: 相槌として捨てる行も、課題の発話かは Claude が asr_text で判断する。
         # transcript 行の書き込みより前でもある（skill が行を見て poll するとき pending が増えている）
+        # 重なる部分だけを切り落とし、残りが短すぎるときだけ捨てる（_PlaybackSpan.clear_part）
         try:
             if source == "mic" and self.talk.active:
-                if not self.talk.in_playback(seg_start, seg_start + duration):
-                    self.pronounce.offer(segment, timestamp, text.strip())
+                audio = (seg_start - pre_roll, seg_start - pre_roll + duration)
+                lo, hi = clear = self.talk.clear_part(*audio)
+                if not (trimmed := clear != audio) or hi - lo >= PRONOUNCE_MIN_CLEAR_SEC:
+                    if trimmed:
+                        logger.info("pronounce: 読み上げと重なる %.1f秒を除き、%.1f秒を渡します: %r",
+                                    duration - (hi - lo), hi - lo, text.strip())
+                    self.pronounce.offer(segment[round((lo - audio[0]) * SAMPLE_RATE):
+                                                 round((hi - audio[0]) * SAMPLE_RATE)],
+                                         timestamp, text.strip(), trimmed=trimmed)
                 else:
                     # skill からは「attempt が来ない」としか見えないので、捨てた事実を残す
-                    logger.info("pronounce: 読み上げと重なるセグメント (%.1f秒) は渡しません: %r",
-                                duration, text.strip())
+                    logger.info("pronounce: 読み上げと重なるセグメント (%.1f秒、重ならない部分 %.1f秒) は渡しません: %r",
+                                duration, hi - lo, text.strip())
         except Exception as e:   # 文字起こしを止めない（設計書 §10）。条件式の評価も含めて守る
             logger.warning("pronounce: セグメントを渡せませんでした: %s", e)
         file_speaker = Speaker.from_source(source)
@@ -253,12 +262,12 @@ class _RecorderTranscribeMixin:
 
         while not self.stop_event.is_set():
             try:
-                segment, timestamp, source, command_mode, seg_start = self.transcribe_queue.get(timeout=1.0)
+                segment, timestamp, source, command_mode, seg_start, pre_roll = self.transcribe_queue.get(timeout=1.0)
             except queue.Empty:
                 continue
             try:
                 last_file_speaker = self._process_transcribe_item(
-                    segment, timestamp, seg_start, source, command_mode, display_labels, last_file_speaker)
+                    segment, timestamp, seg_start, source, command_mode, display_labels, last_file_speaker, pre_roll)
             except Exception:
                 # ここでスレッドが死ぬと以降の文字起こしが無言で全停止するため、
                 # セグメント単位でエラーを記録して継続する
@@ -268,7 +277,7 @@ class _RecorderTranscribeMixin:
         # キュー残りを処理（VAD スレッドの flush がまだ put していない可能性があるため猶予付き）
         while True:
             try:
-                segment, timestamp, source, _, seg_start = self.transcribe_queue.get(timeout=2.0)
+                segment, timestamp, source, _, seg_start, _ = self.transcribe_queue.get(timeout=2.0)
             except queue.Empty:
                 break
             if self.talk.is_suppressed(source):

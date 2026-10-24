@@ -105,8 +105,8 @@ _HEARD_LINES_MAX = 20  # 待つ間に届いた発言として返す最大行数
 class _PlaybackSpan:
     """読み上げた区間の履歴。マイクの gate に使う。
 
-    開始で開き、実際に鳴り終わった時刻で閉じる。開いている間は、いつ始まったセグメントでも
-    捨てる（長い文の途中で VAD が閉じたセグメントは、終了前に文字起こしスレッドへ届く）。
+    開始で開き、実際に鳴り終わった時刻で閉じる。開いている間は、開始より後をすべて読み上げとみなす
+    （長い文の途中で VAD が閉じたセグメントは、終了前に文字起こしスレッドへ届く）。
 
     1文ごとに開閉するので**履歴として持つ**。1区間だけ保持して上書きすると、文1の最中に
     始まったセグメントが、文2が始まった後に届いたときに素通りする（お手本を学習者の発話として
@@ -132,19 +132,25 @@ class _PlaybackSpan:
                     span[1] = end
                     break
 
-    def covers(self, seg_start: float, seg_end: float) -> bool:
-        """そのセグメントが、いずれかの読み上げ区間（終了後 tail_sec を含む）と重なるか。
+    def clear_part(self, seg_start: float, seg_end: float) -> tuple[float, float]:
+        """セグメントのうち、どの読み上げ区間（終了後 tail_sec を含む）とも重ならない最長の部分。
 
-        開始だけを見ると、読み上げより前から開いていたセグメントが素通りする。
-        物音や打鍵で VAD が開いたままだと floor 待ち（talk_floor_wait_sec）が切れて
-        お手本が鳴り、セグメントはお手本の音声ごと閉じる。開始は区間より前なので
-        gate を抜け、お手本を学習者の発話として解析してしまう。
-        EchoFilter.overlaps() と同じ重なり判定にする（設計書 §10）
+        重なるセグメントを丸ごと捨てると、学習者の試行が届かない。マイクは読み上げも拾うので、
+        お手本の直後に言い始めると、お手本の残響と試行が1つのセグメントにつながる。
+        重なった部分だけを切り落とす。開いたままの区間（鳴っている途中）はその先をすべて覆う。
+        物音で VAD が先に開き、お手本がセグメントの中で鳴った場合も、重なりで判定するので素通りしない（設計書 §10）
         """
         with self._lock:
-            return any(start <= seg_end
-                       and seg_start <= (float("inf") if end is None else end + self._tail)
-                       for start, end in self._spans)
+            blocked = sorted((start, float("inf") if end is None else end + self._tail)
+                             for start, end in self._spans)
+        best, cur = (seg_start, seg_start), seg_start
+        for start, end in blocked:
+            if min(start, seg_end) - cur > best[1] - best[0]:
+                best = (cur, min(start, seg_end))
+            cur = max(cur, end)
+        if seg_end - cur > best[1] - best[0]:
+            best = (cur, seg_end)
+        return best
 
 
 class TalkDriver:
@@ -332,9 +338,9 @@ class TalkDriver:
         else:
             self._playback.close(end)
 
-    def in_playback(self, seg_start: float, seg_end: float) -> bool:
-        """そのセグメントが読み上げ区間と重なるか。発音フィードバックの gate（設計書 §8.1、§10）"""
-        return self._playback.covers(seg_start, seg_end)
+    def clear_part(self, seg_start: float, seg_end: float) -> tuple[float, float]:
+        """セグメントのうち読み上げ区間と重ならない最長の部分。発音フィードバックの gate（設計書 §8.1、§10）"""
+        return self._playback.clear_part(seg_start, seg_end)
 
     def hides_interim(self, source: str, seg_start: float, seg_end: float) -> bool:
         """中間文字起こしを出さないか。Claude の声が混ざる monitor の区間（確定行は is_echo で別に判定する）"""

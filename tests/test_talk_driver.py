@@ -778,9 +778,9 @@ def test_preview_registers_playback_span() -> None:
     check("試聴のプレーヤーにも gate を渡す", on_span is not None)
     if on_span is not None:
         on_span(100.0, None)
-        check("試聴中のセグメントは gate で捨てる", d.in_playback(100.5, 101.0))
+        check("試聴中のセグメントは gate で捨てる", d.clear_part(100.5, 101.0) == (100.5, 100.5))
         on_span(100.0, 101.0)
-        check("鳴り終われば素通し", not d.in_playback(102.0, 103.0))
+        check("鳴り終われば素通し", d.clear_part(102.0, 103.0) == (102.0, 103.0))
 
 
 def test_helpers() -> None:

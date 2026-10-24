@@ -37,6 +37,8 @@ SILENCE_FRAMES_THRESHOLD = 30  # 無音検出に必要な連続フレーム数 (
 # 発話検出より前に保持して頭に付けるフレーム数 (~300ms)。webrtcvad は θ s f のような
 # 息だけの弱い子音を非音声とみなすので、無いと文頭の子音が切り落とされる
 VAD_PRE_ROLL_FRAMES = 10
+# 読み上げと重なる部分を除いたあと、発音の解析に渡す最短の長さ(秒)。末尾の無音 (~0.9秒) + 短い文 (~0.5秒)
+PRONOUNCE_MIN_CLEAR_SEC = SILENCE_FRAMES_THRESHOLD * FRAME_DURATION_MS / 1000 + 0.5
 MIN_SEGMENT_DURATION = 0.5  # 最小セグメント長(秒)
 MAX_SEGMENT_DURATION = 30.0  # 最大セグメント長(秒)
 INTERIM_MAX_DURATION = 10.0  # interim 転写に渡す直近音声の最大長(秒)

@@ -371,8 +371,9 @@ class PronounceDriver:
 
     # --- 解析 -----------------------------------------------------------
 
-    def offer(self, pcm: Any, segment_at: str, asr_text: str) -> None:
-        """armed ならワーカーに渡す。文字起こしのクリティカルパスに載るのはここだけ"""
+    def offer(self, pcm: Any, segment_at: str, asr_text: str, trimmed: bool = False) -> None:
+        """armed ならワーカーに渡す。文字起こしのクリティカルパスに載るのはここだけ。
+        trimmed は読み上げと重なる部分を切り落としたセグメント（attempt に載せて skill に知らせる）"""
         if len(pcm) > _MAX_SEGMENT_SEC * SAMPLE_RATE:
             # gate によるドロップと区別が付くよう info で出す。騒音で VAD が開きっぱなしだと
             # 全セグメントがここで落ち、スキルからは「attempt が来ない」としか見えない
@@ -387,7 +388,7 @@ class PronounceDriver:
             arm_id = self._arm_id
             self._pending += 1
         try:
-            self._queue.put_nowait((arm_id, pcm, segment_at, asr_text))
+            self._queue.put_nowait((arm_id, pcm, segment_at, asr_text, trimmed))
         except queue.Full:
             # 詰まったら捨てる。文字起こしを止めてはいけない
             with self._lock:
@@ -406,9 +407,9 @@ class PronounceDriver:
                     continue
                 if item is None:
                     return
-                arm_id, pcm, segment_at, asr_text = item
+                arm_id, pcm, segment_at, asr_text, trimmed = item
                 try:
-                    self._analyse(arm_id, pcm, segment_at, asr_text)
+                    self._analyse(arm_id, pcm, segment_at, asr_text, trimmed)
                 except Exception as e:   # どの失敗も文字起こしに波及させない（設計書 §10）
                     logger.warning("pronounce: 解析に失敗しました: %s", e)
                 finally:
@@ -441,7 +442,7 @@ class PronounceDriver:
         if self._recogniser is not None and self._recogniser.loaded:
             self._recogniser.unload()
 
-    def _analyse(self, arm_id: str, pcm: Any, segment_at: str, asr_text: str) -> None:
+    def _analyse(self, arm_id: str, pcm: Any, segment_at: str, asr_text: str, trimmed: bool = False) -> None:
         with self._lock:
             if arm_id != self._arm_id:
                 return                    # 差し替えられた古い解析
@@ -475,7 +476,7 @@ class PronounceDriver:
             # _start_loading() は早期 return し、state は unavailable に貼り付いたままになる
             self._fail_streak, self._load_error = 0, ""
         attempt = Attempt(_format_time(self._clock()), segment_at, asr_text,
-                          compare(words, per_word, actual, focus))
+                          compare(words, per_word, actual, focus), trimmed)
         with self._lock:
             if arm_id != self._arm_id:
                 return

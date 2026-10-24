@@ -40,6 +40,25 @@ def test_say_marks_and_speaks() -> None:
     check("入れ子（引用の中の段落）で二度読まない", out["stopped"] == 2, repr(out))
 
 
+HIDDEN = r"""
+const out={};
+const node={nodeValue:'🔊[en|I see a cheap ship.] 問題1'};
+globalThis.NodeFilter={SHOW_TEXT:4};document.createTreeWalker=()=>{let done=false;return {nextNode:()=>done?null:(done=true,node)};};
+const el={textContent:node.nodeValue,title:'',onclick:null,classList:{list:[],add(c){this.list.push(c);}}};
+decorateSay({querySelectorAll:()=>[el]});
+el.onclick({stopPropagation(){}});
+out.shown=node.nodeValue;out.spoken=spoken.map(u=>({text:u.text,lang:u.lang}));
+console.log(JSON.stringify(out));
+"""
+
+
+def test_hidden_text() -> None:
+    # 聞き取りの出題は綴りを見せない。画面は「🔊 問題1」、クリックで | の後ろを読む
+    out = run(stubs(), HIDDEN)
+    check("[en|読む文] は画面から消える", out["shown"] == "🔊 問題1", repr(out))
+    check("| の後ろの文を [en] で読む", out["spoken"] == [{"text": "I see a cheap ship.", "lang": "en"}], repr(out))
+
+
 def test_no_speech_synthesis() -> None:
     out = run(stubs(speech=False), PANE)
     check("speechSynthesis が無ければ .say を付けない", out["classes"] == [[], [], []] and out["spoken"] == [], repr(out))
@@ -55,6 +74,7 @@ def test_render_calls_decorate() -> None:
 
 if __name__ == "__main__":
     test_say_marks_and_speaks()
+    test_hidden_text()
     test_no_speech_synthesis()
     test_render_calls_decorate()
     sys.exit(0 if all(results) else 1)
