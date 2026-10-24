@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、発音・会話・ヒアリング・実践会話を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.8.0"
+  version: "1.8.1"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -89,7 +89,8 @@ curl -s "http://localhost:8765/api/meeting-history?meeting=英語練習&count=3&
 ## 3. 練習する
 
 - **練習が実際に始まるとき**、「では、始めましょう」のように一言かけてから、聞き取る言語を練習する言語に切り替える。
-  切り替えを一言知らせてから呼ぶ（例:「聞き取りを英語にしますね」）
+  切り替えを一言知らせてから呼ぶ（例:「聞き取りを英語にしますね」）。**ヒアリングでは切り替えない**（答えは母語なので、
+  聞き取りは元の言語のままにする）
 
 ```
 curl -s -X POST "http://localhost:8765/api/language" -H 'Content-Type: application/json' -d '{"language":"en"}'
@@ -393,6 +394,7 @@ Analysis の語・文に結果を追記し、Advice を書き直すのは従来�
 ### ヒアリング
 
 - 練習する言語の文を1文ずつ読み、意味を母語で答えてもらう。聞き取れないと言われたら、同じ文をゆっくり読み直す
+- 聞き取る言語は元の言語のまま（`/api/language` を呼ばない）。答えも「もう一度」も母語で届く
 - **出題では文の綴りもカタカナも見せない。** 見えると、聞かずに読めてしまう。`/api/say` の `display` は問題番号だけにする
 
 ```
