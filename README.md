@@ -138,7 +138,7 @@ To start the daemon when you sign in, copy the **Shadow Clerk** shortcut into th
 | [AI Console](#ai-console) (meeting assistant) | Claude Code or Codex CLI, skill from `clerk-util install-skill` | — | — | `auto_analyze`, `ai_assistant_command` |
 | [Talk with Claude](#talk-with-claude) | Claude Code CLI, a running VOICEVOX engine | — | — | `talk_*` |
 | Send Claude's voice into a meeting app | Linux with PipeWire (`pw-dump`, `pw-link`, `pw-cat`) | — | — | `talk_route_app` |
-| [Speaker diarization](#optional-speaker-diarization) (`[相手A]`, `[相手B]`… on the remote side, naming, voiceprints) | `diarization` extra | — | — | `speaker_diarization`, `speaker_enrollment` |
+| [Speaker diarization](#optional-speaker-diarization) (`[相手A]`, `[相手B]`… on the remote side, naming, voiceprints, names during the meeting) | `diarization` extra | — | — | `speaker_diarization`, `speaker_enrollment` |
 | [Google Calendar](#optional-google-calendar-integration) (auto start/end, expected attendees) | `gcal` extra, OAuth credentials | — | — | `gcal_integration`, `gcal_credentials_file` |
 | [Pronunciation feedback](#optional-pronunciation-feedback) (phoneme-level, English, for `clerk-practice`) | `pronounce` extra | — | — | `pronounce_enabled` |
 | [Browser screenshots](#browser-screenshots) in the transcript | Chrome extension in `extension/` | — | — | — |
@@ -300,7 +300,7 @@ voiceprint_outlier_ratio: 0.03      # ... and its largest share of the person's 
 - A person's **group** (a company or organization) is an attribute of the person, set once in the "Registered people" list at the bottom of the naming modal (everyone in the name book plus everyone with voiceprints; edit the group field there). Untick "Person (enroll voiceprint)" in the naming or change-speaker modal to treat a label as a company or role name (for example `acme`, `先方営業`): only then does a group field appear there, and the label gets a group and a color but never enrolls a voiceprint. Group and person status change only when you edit them; otherwise the stored values are kept.
 - Select transcript lines and press 👤 ("change speaker") to reassign **only those lines** to another speaker (same name, group and person options). Only remote-side lines can be reassigned, not `[自分]` or `[Claude]`.
 - Speakers are colored by group in the transcript. Set `self_group` ("your own group" in the settings modal) and `[自分]` takes that group's color; each group gets an automatic, persistent color.
-- Minutes (both the LLM method and the AI assistant method) receive a "speakers and groups" block (added only when at least one group or `self_group` exists). With two or more groups they are asked to organize requests, agreements and action items by group. The `clerk-meeting-helper` skill (1.1.0) reads it from `GET /api/speaker-roster`.
+- Minutes (both the LLM method and the AI assistant method) receive a "speakers and groups" block (added only when at least one group or `self_group` exists). With two or more groups they are asked to organize requests, agreements and action items by group. The `clerk-meeting-helper` skill (1.1.1) reads it from `GET /api/speaker-roster`.
 - After saving names or groups, if the meeting has minutes the dashboard asks whether to regenerate them. If the meeting has AI-assistant output (advice or analysis files), the assistant rebuilds them (started first if needed, with an LLM fallback); otherwise the LLM does. While a different meeting is in progress the LLM is always used, so the live assistant is not interrupted.
 - Already-named speakers stay in the list and can be renamed (for a typo, say); their voiceprints from that meeting move to the new name.
 - Utterances shorter than `voiceprint_min_sec` still get the name in the transcript, but are not added to the voiceprint (short replies such as "yes" make unreliable voiceprints). `[相手?]` lines (too short to identify) can be named with 👤 the same way; they never had an embedding. The utterance length is stored as `dur` in `*.voices.jsonl`; older rows without it are treated as long enough.
@@ -312,7 +312,32 @@ voiceprint_outlier_ratio: 0.03      # ... and its largest share of the person's 
   The exclusion is stored per sample as `status` in `voiceprints.json` and is recomputed whenever samples are added to or removed from that person (naming, undo, delete, move). A restored sample is shown under the usual voice.
 - Naming and line reassignment are refused for the file being recorded, a file being translated, and when the name book or voiceprint store is unreadable. The file currently being recorded cannot be named (rewriting it would break the live AI-assistant stream's read offsets). Wait until the meeting ends; for the daily file, wait until the date changes or extract it as a meeting with ⏱ first. A file whose translation is running (one-shot or the continuous loop) cannot be named until it finishes.
 - Merging lines into an existing meeting can mix two different speakers under the same label; name such a file carefully (or extract into a new meeting instead).
-- Showing names during a meeting is not implemented yet (planned).
+
+#### Identifying speakers during the meeting
+
+```yaml
+# config.yaml (or the dashboard settings modal)
+voiceprint_high: 0.60                  # score for a confident name (default 0.60)
+voiceprint_low: 0.50                   # score for a tentative "name?" (default 0.50)
+voiceprint_margin: 0.05                # a confident name must beat the runner-up by this much (default 0.05)
+voiceprint_non_attendee_penalty: 0.05  # added to both scores for people not in the meeting's attendees (default 0.05)
+voiceprint_min_utterances: 2           # a label needs this many utterances before any name is shown (default 2)
+```
+
+- With both `speaker_diarization` and `speaker_enrollment` on, each remote-side label (`相手A`…) is matched against the registered voiceprints while recording (samples excluded as outliers are not used). The mic side is never matched; it stays `[自分]`.
+- The result has three levels, and a wrong name is avoided rather than a right one maximized:
+  - **Confident** — score ≥ `voiceprint_high` and ahead of the runner-up by `voiceprint_margin`: the line is written as `[alice]`.
+  - **Tentative** — score ≥ `voiceprint_low`: `[alice?]`.
+  - **None** — the meeting label stays, `[相手A]`.
+  People not in the meeting's attendee list (or every candidate, when the meeting has none) need `voiceprint_non_attendee_penalty` more on both scores. No name is shown until the label has `voiceprint_min_utterances` utterances.
+- The match is redone each time the label gets a new utterance and applies to the following lines; lines already written are not rewritten. If the voiceprint store cannot be read, no name is shown and recording goes on.
+- In the transcript, `[alice?]` takes `alice`'s group color. Minutes and `GET /api/speaker-roster` treat `alice?` as unconfirmed (`tentative: true`, no group); the LLM is told not to state it is that person.
+- **Identified names never enter the voiceprints by themselves.** They are added only when you confirm them in the naming modal after the meeting:
+  - An `alice?` label is listed as "Unconfirmed", with `alice` shown greyed out in the name field and an unticked "Confirm as alice" box. The row is saved only when you tick the box or type a name; saving other rows leaves it alone. Then it is named like any other label (`alice?` → `alice`), its voiceprints are added and it is recorded in the history, so it can be undone.
+  - A confident `[alice]` shares the label of `alice` named by hand. When some of its lines were identified during the meeting, the row shows "Confirm N identified lines and add to voiceprints". Tick it and save to add those lines to `alice`'s voiceprints. The transcript is not changed; the history entry has no lines and only the added voiceprints, so undo removes just those and marks the lines as identified-but-unconfirmed again. Saving only the group or person flag of such a label does not add the identified lines.
+  - Giving the label another name works as usual: all its lines, identified ones included, move to that name and its voiceprints. Undoing it marks the identified lines that went back to the label as unconfirmed again.
+  - Names cannot end in `?`, so a real name is never mistaken for a tentative one.
+- In `*.voices.jsonl`, `label` is the label shown in the transcript (`alice`, `alice?` or `相手A`), `cluster` is the meeting label it was grouped under, and `auto: true` marks a name that came from identification and has not been confirmed yet. Naming or confirming clears `auto`; undoing that naming sets it again. After a restart on the same file, numbering also counts `cluster`, so a `相手A` shown as `alice` is not reused for someone else. Older rows without these fields work as before.
 
 **Privacy:** voiceprints are biometric data. They stay inside the data directory and are never passed to an LLM. Audio is not stored. Deleting a person from the dashboard removes their stored voiceprints and every embedding named after them in the per-meeting `*.voices.jsonl` files; deleting `voiceprints.json` and all `*.voices.jsonl` files erases everything. `*.naming.jsonl` holds only labels, names and timestamps, no voice data.
 

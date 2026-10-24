@@ -94,7 +94,10 @@ def test_parse_assignment() -> None:
     assert parse_assignment({"name": "acme", "group": " acme ", "person": False}) == \
         Assignment(PersonName("acme"), "acme", False)
     assert parse_assignment({"name": "太郎", "group": ""}).group == ""
+    assert parse_assignment({"name": "太郎", "confirm": True}).confirm is True
+    assert parse_assignment({"name": "太郎"}).confirm is False
     for bad in [3, {"group": "acme"}, {"name": "太郎", "group": 1}, {"name": "太郎", "person": "no"},
+                {"name": "太郎", "confirm": "yes"},
                 {"name": "太郎", "group": "[x]"}, {"name": "自分"}]:
         with pytest.raises(ValueError):
             parse_assignment(bad)
@@ -116,3 +119,12 @@ def test_decision_changes() -> None:
     assert not d.changes("太郎", entries)
     assert d.changes("相手A", entries)
     assert Decision(PersonName("太郎"), "自社", True).changes("太郎", entries)
+
+
+def test_tentative_label() -> None:
+    from shadow_clerk.domain.voiceprint import tentative_name
+    assert [tentative_name(x) for x in ("alice?", "alice", "相手?", "相手A?", "?", "自分?")] == \
+        ["alice", None, None, None, None, None]
+    got = summarize_labels(["[2026-10-09 10:00:01] [alice?] たぶん\n", "[2026-10-09 10:00:02] [alice] 確か\n"])
+    assert [(s.label, s.named, s.tentative, s.suggested) for s in got] == \
+        [("alice", True, False, None), ("alice?", True, True, "alice")]

@@ -8,6 +8,9 @@ from __future__ import annotations
 _JS_TEMPLATE_SPEAKERS = r"""
 let _spkFile='';
 function spColor(sp,mic){
+  // 識別の「alice?」は alice の色。サーバーの tentative_name と同じく、残りが名前として使えるときだけ
+  const n=sp.endsWith('?')?sp.slice(0,-1).trim():'';
+  if(n&&!n.startsWith('相手')&&n!=='自分'&&n!=='Claude'&&!n.endsWith('?'))sp=n;
   const g=(sp===mic||sp==='自分')?spkGroups.self_group:spkGroups.names[sp];
   const c=g?spkGroups.groups[g]:'';
   return /^#[0-9a-f]{6}$/.test(c||'')?c:'';
@@ -68,13 +71,20 @@ async function openSpeakerModal(){
     const row=document.createElement('div');row.className='spk-row';
     row.innerHTML='<span class="spk-label">'+esc(l.label)+'</span>'
       +'<span class="spk-meta">'+esc(I18N['dash.speakers_count'].replace('{count}',l.count))
-      +(d.enrollment?' / '+esc(I18N['dash.speakers_samples'].replace('{count}',l.samples)):'')+'</span>'
+      +(d.enrollment?' / '+esc(I18N['dash.speakers_samples'].replace('{count}',l.samples)):'')
+      +(l.tentative?' / '+esc(I18N['dash.speakers_tentative']):'')+'</span>'
       +'<input type="text" list="spkSuggest" oninput="onSpkNameInput(this)" data-label="'+escAttr(l.label)+'"'
-      +' data-named="'+(l.named?'1':'0')+'"'+(l.named?' placeholder="'+escAttr(l.label)+'"':'')+'>'
+      +' data-named="'+(l.named?'1':'0')+'"'
+      +(l.tentative?' data-suggested="'+escAttr(l.suggested)+'" placeholder="'+escAttr(l.suggested)+'"'
+        :l.named?' placeholder="'+escAttr(l.label)+'"':'')+'>'
       +'<input type="text" class="spk-group" list="grpSuggest" data-group-for="'+escAttr(l.label)+'"'
       +(l.person===false?'':' hidden')+' oninput="this.dataset.touched=\'1\'" data-orig="'+escAttr(l.group||'')+'" value="'+escAttr(l.group||'')+'" placeholder="'+escAttr(I18N['dash.group_label'])+'">'
       +'<label class="spk-person"><input type="checkbox" onchange="onSpkPersonChange(this)" data-person-for="'+escAttr(l.label)+'"'
       +' data-orig="'+(l.person===false?'0':'1')+'"'+(l.person===false?'':' checked')+'>'+esc(I18N['dash.person_enroll'])+'</label>'
+      +(l.tentative?'<label class="spk-person"><input type="checkbox" data-accept-for="'+escAttr(l.label)+'">'
+        +esc(I18N['dash.speakers_tentative_accept'].replace('{name}',l.suggested))+'</label>':'')
+      +(d.enrollment&&l.auto>0&&l.named&&!l.tentative?'<label class="spk-person"><input type="checkbox" data-confirm-for="'
+        +escAttr(l.label)+'">'+esc(I18N['dash.speakers_auto_confirm'].replace('{count}',l.auto))+'</label>':'')
       +'<span class="spk-example" title="'+escAttr(l.example)+'">'+esc(l.example)+'</span>';
     box.appendChild(row);
   }
@@ -120,17 +130,21 @@ async function _postJSON(url,body){
 }
 function closeSpeakerModal(){document.getElementById('speakerModal').classList.remove('open');}
 function speakerMapping(){
-  const g={},p={},m={};
+  const g={},p={},c={},a={},m={};
   for(const i of document.querySelectorAll('#spkRows input[data-group-for]'))g[i.dataset.groupFor]=i;
   for(const i of document.querySelectorAll('#spkRows input[data-person-for]'))p[i.dataset.personFor]=i;
+  for(const i of document.querySelectorAll('#spkRows input[data-confirm-for]'))c[i.dataset.confirmFor]=i;
+  for(const i of document.querySelectorAll('#spkRows input[data-accept-for]'))a[i.dataset.acceptFor]=i;
   for(const i of document.querySelectorAll('#spkRows input[data-label]')){
-    const label=i.dataset.label,named=i.dataset.named==='1';
-    const name=i.value.trim()||(named?label:'');
+    const label=i.dataset.label,named=i.dataset.named==='1',tent=i.dataset.suggested||'';
+    // 「alice?」は入力したか「alice として確定」にチェックしたときだけ送る（送ると声紋に足される）
+    const name=i.value.trim()||(tent?(a[label]&&a[label].checked?tent:''):named?label:'');
     if(!name)continue;
     const gi=g[label],pi=p[label];
     const e={name};
     if(gi&&gi.dataset.touched==='1'&&!(pi&&pi.checked))e.group=gi.value.trim();
     if(pi&&pi.dataset.touched==='1')e.person=!!pi.checked;
+    if(name===label&&c[label]&&c[label].checked)e.confirm=true;
     if(name!==label||Object.keys(e).length>1)m[label]=e;
   }
   return m;

@@ -290,3 +290,146 @@ def test_undo_refused_while_active_or_translating() -> None:
     rec.translating.add(_p(MTG))
     assert _undo(rec_id, rec=rec) == {"status": "error", "message": t("dash.speakers_translating")}
     assert _read(MTG) == before and VoiceprintStore().people() == {"alice": 1}
+
+
+X1, X2, X3 = "2026-10-09 10:00:07", "2026-10-09 10:00:08", "2026-10-09 10:00:09"
+
+
+def _identified(label: str, stamps: tuple[str, ...] = (X1, X2)) -> None:
+    """会議中の識別で label と表示された 相手D の行を足す"""
+    with open(_p(MTG), "a", encoding="utf-8") as f:
+        f.writelines(f"[{ts}] [{label}] 識別された行 {i}\n" for i, ts in enumerate(stamps))
+    for i, ts in enumerate(stamps):
+        append_voice(_p(MTG), ts, label, _vec(20 + i), cluster="相手D", auto=True)
+
+
+def _auto_rows() -> list[tuple[str, str, bool]]:
+    return [(e.timestamp, e.label, e.auto) for e in read_voices(_p(MTG)) if e.cluster == "相手D"]
+
+
+def test_serve_speakers_marks_tentative_and_auto() -> None:
+    _identified("alice", (X1,))
+    _identified("alice?", (X2, X3))
+    sent = _H_speakers()
+    got = {x["label"]: (x["named"], x["tentative"], x["auto"], x["suggested"]) for x in sent["labels"]}
+    assert got == {"相手A": (False, False, 0, ""), "相手B": (False, False, 0, ""), "相手C": (False, False, 0, ""),
+                   "alice": (True, False, 1, ""), "alice?": (True, True, 2, "alice")}
+    assert "alice?" not in sent["suggestions"] and "alice" in sent["suggestions"]
+
+
+def test_auto_rows_not_enrolled_without_confirm() -> None:
+    _identified("alice")
+    r = _assign({"alice": {"name": "alice", "group": "acme"}})
+    assert r["renamed"] == 0 and VoiceprintStore().people() == {}
+    assert _auto_rows() == [(X1, "alice", True), (X2, "alice", True)]
+    assert _history() == []
+
+
+def test_confirm_auto_rows_enrolls_and_records_history() -> None:
+    from shadow_clerk.domain.voiceprint import VoiceSample
+    VoiceprintStore().add({PersonName("alice"): [VoiceSample(_vec(9), "x", "other.txt")]})
+    _identified("alice")
+    r = _assign({"alice": {"name": "alice", "confirm": True}})
+    assert r["renamed"] == 0 and r["message"] == t("dash.speakers_auto_confirmed", count=2), r
+    assert _keys("alice") == {("other.txt", "x"), (MTG, X1), (MTG, X2)}
+    assert _auto_rows() == [(X1, "alice", False), (X2, "alice", False)]
+    hist = _history()
+    assert [(x["label"], x["name"], x["lines"], x["added"]) for x in hist] == [("alice", "alice", 0, 2)]
+    before = _read(MTG)
+    u = _undo(hist[0]["id"])
+    assert u["status"] == "ok" and u["restored_lines"] == 0 and u["removed_samples"] == 2, u
+    assert _keys("alice") == {("other.txt", "x")} and _read(MTG) == before
+    assert [e.label for e in read_voices(_p(MTG)) if e.cluster == "相手D"] == ["alice", "alice"]
+
+
+def test_confirm_clears_auto_on_rows_that_cannot_be_enrolled() -> None:
+    _identified("alice")
+    with open(_p(MTG), encoding="utf-8") as f:
+        body = f.read()
+    with open(_p(MTG), "w", encoding="utf-8") as f:
+        f.write(body.replace(f"[{X2}] [alice]", f"[{X2}] [bob]"))  # X2 は transcript に残っていない
+    r = _assign({"alice": {"name": "alice", "confirm": True}})
+    assert _keys("alice") == {(MTG, X1)} and r["enrolled"] == {"alice": 1}, r
+    assert [a for _, _, a in _auto_rows()] == [False, False]
+
+
+def test_confirm_on_label_without_auto_rows_is_nothing() -> None:
+    _assign({"相手A": "alice"})
+    h = _H({"file": MTG, "mapping": {"alice": {"name": "alice", "confirm": True}}})
+    h._assign_speakers()
+    assert h.sent == {"status": "error", "message": t("dash.speakers_nothing")}
+    assert len(_history()) == 1
+
+
+def test_confirm_tentative_then_undo() -> None:
+    _identified("alice?")
+    r = _assign({"alice?": "alice"})
+    assert r["renamed"] == 2, r
+    assert "[alice] 識別された行 0" in _read(MTG) and "[alice?]" not in _read(MTG)
+    assert _keys("alice") == {(MTG, X1), (MTG, X2)}
+    assert _auto_rows() == [(X1, "alice", False), (X2, "alice", False)]
+    u = _undo(_rec_id("alice?"))
+    assert u["status"] == "ok" and u["restored_lines"] == 2 and u["removed_samples"] == 2, u
+    assert "[alice?] 識別された行 0" in _read(MTG) and "[alice?] 識別された行 1" in _read(MTG)
+    assert VoiceprintStore().people() == {}
+    assert [e.label for e in read_voices(_p(MTG)) if e.cluster == "相手D"] == ["alice?", "alice?"]
+
+
+def test_renaming_identified_label_enrolls_all_rows() -> None:
+    _identified("alice")
+    r = _assign({"alice": "bob"})
+    assert r["renamed"] == 2 and _keys("bob") == {(MTG, X1), (MTG, X2)}, r
+    assert _auto_rows() == [(X1, "bob", False), (X2, "bob", False)]
+
+
+def _auto_count(label: str) -> int:
+    return next(x["auto"] for x in _H_speakers()["labels"] if x["label"] == label)
+
+
+def test_undo_confirm_restores_auto_so_group_change_does_not_enroll() -> None:
+    _identified("alice")
+    _assign({"alice": {"name": "alice", "confirm": True}})
+    u = _undo(_history()[0]["id"])
+    assert u["status"] == "ok", u
+    assert _auto_rows() == [(X1, "alice", True), (X2, "alice", True)] and _auto_count("alice") == 2
+    _assign({"alice": {"name": "alice", "group": "acme"}})
+    assert VoiceprintStore().people() == {}
+
+
+def test_undo_rename_of_identified_rows_restores_auto() -> None:
+    _identified("alice")
+    _assign({"alice": "bob"})
+    u = _undo(_rec_id("alice"))
+    assert u["status"] == "ok" and u["restored_lines"] == 2, u
+    assert _auto_rows() == [(X1, "alice", True), (X2, "alice", True)]
+    _assign({"alice": {"name": "alice", "group": "acme"}})
+    assert VoiceprintStore().people() == {}
+
+
+def test_undo_restores_auto_only_on_rows_still_carrying_original_label() -> None:
+    _identified("alice")
+    _assign({"alice": {"name": "alice", "confirm": True}})
+    confirm_id = _history()[0]["id"]
+    _assign({"alice": "bob"})
+    assert _undo(confirm_id)["status"] == "ok"
+    assert _auto_rows() == [(X1, "bob", False), (X2, "bob", False)]
+
+
+def test_confirm_without_enrollment_is_recorded_and_undoable(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enrollment(monkeypatch, False)
+    _identified("alice")
+    _assign({"alice": {"name": "alice", "confirm": True}})
+    hist = _history()
+    assert [(x["label"], x["name"], x["added"]) for x in hist] == [("alice", "alice", 0)]
+    assert _undo(hist[0]["id"])["status"] == "ok"
+    assert _auto_rows() == [(X1, "alice", True), (X2, "alice", True)]
+
+
+def test_confirm_still_recorded_when_auto_cannot_be_cleared(monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(*_a: object) -> int:
+        raise OSError("disk full")
+    monkeypatch.setattr(sys.modules["shadow_clerk._daemon_dashboard_ops_speakers"], "clear_auto", broken)
+    _identified("alice")
+    r = _assign({"alice": {"name": "alice", "confirm": True}})
+    assert t("dash.speakers_auto_not_cleared") in r["message"] and r["enrolled"] == {"alice": 2}, r
+    assert [(x["label"], x["added"]) for x in _history()] == [("alice", 2)]

@@ -18,6 +18,7 @@ import numpy as np
 from shadow_clerk import DATA_DIR
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_constants import DEFAULT_CONFIG
+from shadow_clerk._daemon_voice_sidecar import read_voices
 from shadow_clerk.domain.transcript_line import TranscriptLine
 
 logger = logging.getLogger("shadow-clerk")
@@ -127,15 +128,20 @@ def label_index(label: str) -> int | None:
 
 
 def max_label_index(transcript_path: str) -> int:
-    """transcript に既にある会議内ラベルの最大番号。ファイルが無ければ 0"""
+    """transcript とサイドカーの cluster に既にある会議内ラベルの最大番号。どちらも無ければ 0。
+
+    声紋照合で名前を表示した行は transcript に 相手A が残らないので、サイドカーの cluster も見る
+    """
     try:
         with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
+            labels = [tl.speaker_label for line in f if (tl := TranscriptLine.parse(line)) and tl.speaker_label]
     except OSError:
-        return 0
-    return max((i for line in lines
-                if (tl := TranscriptLine.parse(line)) and tl.speaker_label
-                and (i := label_index(tl.speaker_label)) is not None), default=0)
+        labels = []
+    try:  # サイドカーの不具合で bind_output を止めると相手側の行が全部書けなくなる
+        labels += [e.cluster for e in read_voices(transcript_path) if e.cluster]
+    except Exception as e:
+        logger.warning("voices サイドカーの会議内ラベルを読めない: %s", e)
+    return max((i for label in labels if (i := label_index(label)) is not None), default=0)
 
 
 class SpeakerDiarizer:
@@ -237,6 +243,11 @@ class SpeakerDiarizer:
             self._session_speakers.clear()
             self._next_idx = next_idx
             self._bound_path = transcript_path
+
+    def cluster_embeddings(self, label: str) -> list[np.ndarray]:
+        """会議内クラスタの埋め込みのコピー（文字起こしスレッドから読むので session_lock の中で写す）"""
+        with self._session_lock:
+            return [e.copy() for e in self._session_speakers.get(label, [])]
 
     def identify_speaker(self, audio: np.ndarray) -> tuple[str, np.ndarray] | None:
         """音声セグメントから (会議内ラベル, 埋め込み) を返す。分離不能・短すぎる場合は None。"""

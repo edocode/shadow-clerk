@@ -1,6 +1,8 @@
 """声紋ストアのテスト"""
 from __future__ import annotations
 
+import json
+import logging
 import os
 import stat
 
@@ -274,3 +276,61 @@ def test_non_numeric_config_falls_back_to_defaults(store, monkeypatch) -> None:
     samples = _cluster_samples()
     store.update({PersonName("太郎"): samples}, {})
     assert _statuses(store, "太郎")[samples[-1].key] is SampleStatus.OUTLIER
+
+
+def test_candidate_pools_skip_outliers_and_cache(store) -> None:
+    ok, bad = _sample(1), _sample(2, "2026-10-09 10:00:01")
+    store.add({PersonName("太郎"): [ok, bad], PersonName("次郎"): [_sample(3)]})
+    store.set_status("太郎", {bad.key}, SampleStatus.OUTLIER)
+    store.set_status("次郎", {_sample(3).key}, SampleStatus.OUTLIER)
+    pools = store.candidate_pools()
+    assert set(pools) == {"太郎"} and pools["太郎"].shape == (1, 256)
+    assert float(pools["太郎"][0] @ ok.embedding) > 0.999
+    assert store.candidate_pools() is pools
+    store.add({PersonName("花子"): [_sample(4)]})
+    os.utime(store.path, ns=(1, os.stat(store.path).st_mtime_ns + 10**9))
+    fresh = store.candidate_pools()
+    assert fresh is not pools and set(fresh) == {"太郎", "花子"}
+
+
+def test_candidate_pools_majority_dimension_and_unreadable(store) -> None:
+    odd = VoiceSample(np.ones(8, dtype=np.float32) / np.sqrt(8), "2026-10-09 10:00:09", "t.txt")
+    store.add({PersonName("太郎"): [_sample(1), _sample(2, "2026-10-09 10:00:02"), odd]})
+    assert store.candidate_pools()["太郎"].shape == (2, 256)
+    with open(store.path, "w") as f:
+        f.write("{broken")
+    os.utime(store.path, ns=(1, os.stat(store.path).st_mtime_ns + 10**9))
+    with pytest.raises(VoiceprintStoreError):
+        store.candidate_pools()
+
+
+def test_candidate_pools_cache_sees_replaced_file(store) -> None:
+    """mtime・サイズが同じでも別ファイルに置き換わったら読み直す（inode も見る）"""
+    store.add({PersonName("alice"): [_sample(1)]})
+    assert set(store.candidate_pools()) == {"alice"}
+    st = os.stat(store.path)
+    with open(store.path, encoding="utf-8") as f:
+        text = f.read().replace('"alice"', '"carol"')
+    tmp = store.path + ".new"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
+    os.replace(tmp, store.path)
+    assert os.stat(store.path).st_size == st.st_size
+    assert set(store.candidate_pools()) == {"carol"}
+
+
+def test_candidate_pools_log_dropped_once_and_read_only(store, caplog: pytest.LogCaptureFixture) -> None:
+    store.add({PersonName("太郎"): [_sample(1)]})
+    with open(store.path, encoding="utf-8") as f:
+        data = json.load(f)
+    data["people"]["太郎"]["samples"].append({"embedding": "!!"})
+    with open(store.path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    os.utime(store.path, ns=(1, os.stat(store.path).st_mtime_ns + 10**9))
+    with caplog.at_level(logging.WARNING, logger="shadow-clerk"):
+        pools = store.candidate_pools()
+        store.candidate_pools()
+    assert pools["太郎"].shape == (1, 256)
+    assert len([r for r in caplog.records if "太郎" in r.getMessage()]) == 1, caplog.records
+    assert not pools["太郎"].flags.writeable

@@ -51,4 +51,10 @@ STRINGS_EN_SPEAKERS: dict[str, str] = {
     "dash.vp_show": "Details",
     "dash.vp_move_apply": "Move",
     "dash.vp_delete_confirm": "Delete {count} voiceprints of {name}?",
+    "dash.speakers_tentative": "Unconfirmed",
+    "dash.speakers_tentative_accept": "Confirm as {name}",
+    "dash.speakers_auto_confirm": "Confirm {count} identified lines and add to voiceprints",
+    "dash.speakers_auto_confirmed": "Confirmed {count} identified lines",
+    "dash.speakers_auto_not_cleared": "Could not clear the identified mark. Please confirm again",
+    "llm.summary_speakers_tentative_mark": " (guessed from the voice, unconfirmed; do not state it is this person)",
 }

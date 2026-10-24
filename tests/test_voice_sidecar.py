@@ -158,3 +158,30 @@ def test_append_voice_writes_duration(tmp_path) -> None:
     t = str(tmp_path / "transcript-202610091000.txt")
     append_voice(t, "2026-10-09 10:00:01", "相手A", _vec(1), duration=2.5)
     assert read_voices(t)[0].duration == 2.5
+
+
+def test_voice_entry_cluster_auto_roundtrip(tmp_path) -> None:
+    t = str(tmp_path / "transcript-202610091000.txt")
+    append_voice(t, "2026-10-09 10:00:01", "alice", _vec(1), 1.5, cluster="相手A", auto=True)
+    append_voice(t, "2026-10-09 10:00:02", "相手A", _vec(2), 1.0, cluster="相手A")
+    a, b = read_voices(t)
+    assert (a.label, a.cluster, a.auto) == ("alice", "相手A", True)
+    assert (b.label, b.cluster, b.auto) == ("相手A", "相手A", False)
+    assert '"auto"' not in b.to_json_line()
+
+
+def test_legacy_entry_has_no_cluster() -> None:
+    e = VoiceEntry.parse(VoiceEntry("2026-10-09 10:00:01", "相手A", _vec(1)).to_json_line())
+    assert e is not None and e.cluster is None and e.auto is False
+    line = e.to_json_line()
+    assert '"cluster"' not in line and '"auto"' not in line
+
+
+def test_append_after_torn_tail_starts_a_new_line(tmp_path) -> None:
+    t = str(tmp_path / "transcript-202610091000.txt")
+    with open(voices_path(t), "w", encoding="utf-8") as f:
+        f.write('{"ts": "2026-10-09 10:00:00", "label": "相手A", "emb')
+    append_voice(t, "2026-10-09 10:00:01", "相手B", _vec(1))
+    assert [e.label for e in read_voices(t)] == ["相手B"]
+    append_voice(t, "2026-10-09 10:00:02", "相手C", _vec(2))
+    assert [e.label for e in read_voices(t)] == ["相手B", "相手C"]

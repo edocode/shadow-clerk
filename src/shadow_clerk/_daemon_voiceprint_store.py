@@ -11,6 +11,8 @@ import os
 import threading
 from dataclasses import dataclass, field, replace
 
+import numpy as np
+
 from shadow_clerk import DATA_DIR
 from shadow_clerk._atomic_file import atomic_write_json
 from shadow_clerk._daemon_config import load_config
@@ -59,6 +61,7 @@ class VoiceprintStoreError(Exception):
 class VoiceprintStore:
     def __init__(self, path: str | None = None) -> None:
         self.path = path or VOICEPRINTS_FILE
+        self._pools_cache: tuple[tuple[int, int, int], dict[str, np.ndarray]] | None = None
 
     def _load(self) -> dict[str, list[dict]]:
         try:
@@ -80,6 +83,40 @@ class VoiceprintStore:
                 raise VoiceprintStoreError(f"{self.path}: samples for {name} is not a list")
             result[name] = list(samples or [])
         return result
+
+    def candidate_pools(self) -> dict[str, np.ndarray]:
+        """人 → (n, D) の埋め込み行列。外れ値を除き多数派の次元だけ、0 件の人は入れない。mtime・サイズ・inode が変わるまで前回の結果を返す"""
+        try:
+            st = os.stat(self.path)
+            sig = (st.st_mtime_ns, st.st_size, st.st_ino)
+        except FileNotFoundError:
+            sig = (0, 0, 0)
+        except OSError as e:
+            raise VoiceprintStoreError(f"{self.path}: {e}") from e
+        if self._pools_cache and self._pools_cache[0] == sig:
+            return self._pools_cache[1]
+        with _lock:
+            raw = self._load()
+        pools: dict[str, np.ndarray] = {}
+        for name, items in raw.items():
+            embs = []
+            broken = 0
+            for d in items:
+                try:
+                    s = VoiceSample.from_dict(d)
+                except (KeyError, TypeError, ValueError, AttributeError):
+                    broken += 1
+                    continue
+                if s.status is not SampleStatus.OUTLIER:
+                    embs.append(s.embedding)
+            kept = [embs[i] for i in majority_shape(embs)]
+            if dropped := broken + len(embs) - len(kept):  # 読み直したときだけ（キャッシュ中は黙る）
+                logger.warning("声紋の照合に使えないサンプルを除いた: %s %d 件", name, dropped)
+            if kept:
+                pools[name] = np.stack(kept).astype(np.float32)
+                pools[name].setflags(write=False)  # キャッシュを共有するので呼び出し側に書き換えさせない
+        self._pools_cache = (sig, pools)
+        return pools
 
     def _save(self, people: dict[str, list[dict]]) -> None:
         atomic_write_json(self.path, {"version": _VERSION, "people": {n: {"samples": s} for n, s in people.items()}},

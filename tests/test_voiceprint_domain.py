@@ -36,7 +36,7 @@ def test_person_name_is_hashable_and_equal_by_value() -> None:
 
 
 @pytest.mark.parametrize("bad", ["", "   ", "[太郎]", "太]郎", "自分", "相手", "相手A", "相手方",
-                                 "Claude", "a\nb", "x" * 51])
+                                 "Claude", "a\nb", "x" * 51, "bob?", " bob? "])
 def test_person_name_rejects(bad: str) -> None:
     with pytest.raises(ValueError):
         PersonName(bad)

@@ -169,6 +169,11 @@ DEFAULT_CONFIG = {
     "voiceprint_cluster_distance": 0.6,  # 平均連結で併合するコサイン距離の上限
     "voiceprint_main_similarity": 0.5,  # 主の塊との重心類似度がこれ以上なら「いつもの声」
     "voiceprint_outlier_max": 2,  # 除外中になる塊の最大件数
+    "voiceprint_high": 0.60,  # 会議内クラスタをこのスコア以上（かつマージン以上）で名前と断定する
+    "voiceprint_low": 0.50,  # このスコア以上なら「名前?」（未確定）
+    "voiceprint_margin": 0.05,  # 断定に必要な 1 位と 2 位のスコア差
+    "voiceprint_non_attendee_penalty": 0.05,  # 参加者外の人に当てるとき閾値に足す値
+    "voiceprint_min_utterances": 2,  # クラスタの発話がこれ未満なら名前を出さない
     "voiceprint_outlier_ratio": 0.03,  # 除外中になる塊の、全体に対する最大割合
     "self_group": "",
     "interim_transcription": False,

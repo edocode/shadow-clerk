@@ -27,6 +27,8 @@ from shadow_clerk.domain import Speaker, TranscriptLine
 from shadow_clerk._daemon_pronounce import PronounceDriver
 from shadow_clerk._daemon_talk import TalkDriver
 from shadow_clerk._daemon_voice_sidecar import append_voice
+from shadow_clerk._daemon_voiceprint_match import match_cluster
+from shadow_clerk._transcript_attendees import read_attendees
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -59,10 +61,27 @@ class _RecorderTranscribeMixin:
                 f.write(tl.format())
                 f.flush()
 
-    def _append_voice(self, timestamp: str, label: str, embedding: Any, duration: float | None = None) -> None:
+    def _append_voice(self, timestamp: str, label: str, embedding: Any, duration: float | None = None,
+                      cluster: str | None = None, auto: bool = False) -> None:
         """声紋サイドカーに追記する。名前付け・声紋削除の書き換えと同じ transcript_lock で直列化する"""
         with self.transcript_lock:
-            append_voice(self.output_path, timestamp, label, embedding, duration)
+            append_voice(self.output_path, timestamp, label, embedding, duration, cluster=cluster, auto=auto)
+
+    def _resolve_display_label(self, cluster_label: str) -> tuple[str, bool]:
+        """会議内クラスタを声紋と照合した (表示ラベル, 名前が付いたか)。
+
+        クラスタに発話が入るたびに照合し直す。声紋ストアが読めない等の失敗では識別せず
+        会議内ラベルのまま返し、warning は transcript（会議）ごとに 1 回だけ出す
+        """
+        try:
+            label = match_cluster(self.diarizer.cluster_embeddings(cluster_label), self.voiceprints.candidate_pools(),
+                                  set(read_attendees(self.output_path))).display_label(cluster_label)
+        except Exception as e:
+            if self._voiceprint_warned_path != self.output_path:
+                self._voiceprint_warned_path = self.output_path
+                logger.warning("声紋照合できないので会議内ラベルのまま書く: %s", e)
+            return cluster_label, False
+        return label, label != cluster_label
 
     @staticmethod
     def _is_noise_text(text: str) -> bool:
@@ -196,9 +215,12 @@ class _RecorderTranscribeMixin:
             if result is None:
                 speaker_label = "相手?"
             else:
-                speaker_label, embedding = result
+                cluster_label, embedding = result
+                speaker_label = cluster_label
                 if load_config().get("speaker_enrollment", False):
-                    self._append_voice(timestamp, speaker_label, embedding, len(segment) / SAMPLE_RATE)
+                    speaker_label, auto = self._resolve_display_label(cluster_label)
+                    self._append_voice(timestamp, speaker_label, embedding, len(segment) / SAMPLE_RATE,
+                                       cluster=cluster_label, auto=auto)
         tl = TranscriptLine(timestamp=timestamp, speaker=file_speaker, text=text,
                             speaker_label=speaker_label)
         self._append_transcript_line(tl)
