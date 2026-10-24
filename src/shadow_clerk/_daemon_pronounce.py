@@ -252,6 +252,8 @@ class PronounceDriver:
         """課題を受け付ける。拒否は ArmError（呼び手が status: error にする）"""
         if (reason := self._unavailable()) is not None:
             raise ArmError(reason)
+        if task.free:
+            return self._commit(task, (), (), [])
         words = split_words(task.text)
         if not words:
             raise ArmError("text has no words")
@@ -262,7 +264,11 @@ class PronounceDriver:
         except G2PError as e:
             raise ArmError(str(e)) from e
         self._check_focus(task, words, per_word)
-        expected = [{"word": w, "ipa": list(ipa)} for w, ipa in zip(words, per_word)]
+        return self._commit(task, words, per_word,
+                            [{"word": w, "ipa": list(ipa)} for w, ipa in zip(words, per_word)])
+
+    def _commit(self, task: PronunciationTask, words: tuple[str, ...],
+                per_word: tuple[tuple[str, ...], ...], expected: list[dict]) -> dict:
         with self._lock:
             self._arm_id = uuid.uuid4().hex
             self._task, self._words, self._per_word = task, words, per_word
@@ -271,7 +277,7 @@ class PronounceDriver:
             self._fail_streak = 0     # 課題が変われば、前の課題で数えた連続失敗は切れたとみなす
             arm_id, expires = self._arm_id, self._expires
         self._start_loading()
-        logger.info("pronounce: アームしました (%d 語)", len(words))
+        logger.info("pronounce: アームしました (%s)", "自由発話" if task.free else f"{len(words)} 語")
         with self._lock:
             state = self._state_locked(None)
         return {"status": "ok", "id": arm_id, "state": state.value,
@@ -376,6 +382,8 @@ class PronounceDriver:
         with self._lock:
             if self._task is None or self._clock() >= self._expires:
                 return
+            if self._task.free:     # 会話は続く限り解かない。最後の発話から TTL で切れる
+                self._expires = self._clock() + _ARM_TTL_SEC
             arm_id = self._arm_id
             self._pending += 1
         try:
@@ -439,6 +447,11 @@ class PronounceDriver:
                 return                    # 差し替えられた古い解析
             words, per_word = self._words, self._per_word
             focus = self._task.focus if self._task else ()
+            free_lang = self._task.language if self._task and self._task.free else None
+        if free_lang is not None:
+            if (free := self._free_expected(asr_text, free_lang)) is None:
+                return
+            words, per_word = free
         recogniser = self._get_recogniser()
         try:
             recogniser.load()             # 読み込み済みなら即 return する
@@ -469,6 +482,20 @@ class PronounceDriver:
             # 積んでから pending を減らす。逆だと pending==0 で attempt が見えない瞬間ができる
             self._attempts.insert(0, attempt)
             del self._attempts[_MAX_ATTEMPTS:]
+
+
+    def _free_expected(self, asr_text: str, language: Language
+                       ) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]] | None:
+        """自由発話の期待列。文字起こしをそのまま期待文にする。
+        数字（読みが決まらない）を含む・G2P が通らない発話は解析しない"""
+        words = split_words(asr_text)
+        if not words or any(ch.isdigit() for ch in asr_text):
+            return None
+        try:
+            return words, tuple(self._expected_of(w, language) for w in words)
+        except G2PError as e:
+            logger.debug("pronounce: 自由発話を音素化できないので飛ばします: %s", e)
+            return None
 
 
 def _format_time(epoch: float) -> str:

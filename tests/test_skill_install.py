@@ -241,7 +241,7 @@ def test_practice_skill() -> None:
     for needle in ('/api/meeting"', '"analyze":false', '/api/language"', '/api/mute"', '`previous`',
                    '/api/meeting-history?meeting=', "tail=15", '/api/generated"', '"kind":"advice","mode":"replace"',
                    '"kind":"analysis","mode":"append"', '"lang":"en"', "🔊 ", "今日の練習のまとめ: ", '/api/talk-end"',
-                   '"display":"ライト（右）"'):
+                   '"display":"ターン ライト（右に曲がって）"'):
         check(f"clerk-practice が {needle} を使う", needle in body)
     check("clerk-talk が clerk-practice に切り替える", "/clerk-practice" in talk_body)
     check("clerk-talk が /api/say の lang を知っている", '"lang":"en"' in talk_body)

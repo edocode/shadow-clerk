@@ -48,23 +48,32 @@ class FocusPhoneme:
 
 @dataclass(frozen=True)
 class PronunciationTask:
+    """free は課題文を持たない自由発話（会話の練習）。発話ごとに、その文字起こしを期待文にする"""
     text: str
     language: Language
     focus: tuple[FocusPhoneme, ...]
+    free: bool = False
 
     @classmethod
     def parse(cls, raw: object) -> PronunciationTask:
         """POST /api/pronounce の body。不正なら ValueError（呼び手が status: error にする）"""
         if not isinstance(raw, dict):
             raise ValueError("body must be an object")
+        free = raw.get("free", False)
+        if not isinstance(free, bool):
+            raise ValueError("free must be a boolean")
+        lang = raw.get("lang")
+        if not isinstance(lang, str) or lang not in {x.value for x in Language}:
+            raise ValueError("lang must be a known language code")
+        if free:
+            if raw.get("text") or raw.get("focus"):
+                raise ValueError("free takes neither text nor focus")
+            return cls("", Language(lang), (), True)
         text = raw.get("text")
         if not isinstance(text, str) or not text.strip():
             raise ValueError("text must be a non-empty string")
         if len(text) > _MAX_TEXT_CHARS:
             raise ValueError(f"text must be at most {_MAX_TEXT_CHARS} characters")
-        lang = raw.get("lang")
-        if not isinstance(lang, str) or lang not in {x.value for x in Language}:
-            raise ValueError("lang must be a known language code")
         focus_raw = raw.get("focus", [])
         if not isinstance(focus_raw, list) or len(focus_raw) > _MAX_FOCUS:
             raise ValueError(f"focus must be a list of at most {_MAX_FOCUS} entries")
@@ -72,7 +81,7 @@ class PronunciationTask:
 
     def to_json(self) -> dict:
         return {"text": self.text, "lang": self.language.value,
-                "focus": [f.to_json() for f in self.focus]}
+                "focus": [f.to_json() for f in self.focus], "free": self.free}
 
 
 def _parse_focus(raw: object) -> FocusPhoneme:
