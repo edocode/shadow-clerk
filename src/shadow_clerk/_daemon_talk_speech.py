@@ -69,7 +69,8 @@ class BrowserSpeech:
         try:
             send("talk_speak", json.dumps({"id": uid, "tab": tab.tab, "text": text, "lang": lang.value},
                                           ensure_ascii=False))
-            deadline = self._clock() + estimate_speech_sec(text) + self._grace
+            sent, estimate = self._clock(), estimate_speech_sec(text)
+            deadline = sent + estimate + self._grace
             while not ev.wait(_POLL_SEC):
                 if should_stop():
                     send("talk_speak_cancel", json.dumps({"id": uid, "tab": tab.tab}))
@@ -79,6 +80,9 @@ class BrowserSpeech:
                                    "タブが名乗り直すまで VOICEVOX で読みます", tab.tab)
                     self._forget(tab)
                     break
+            else:
+                # 発音の gate はここまでを読み上げ区間とみなす。done が遅れると試行の頭が切り落とされる
+                logger.info("talk: ブラウザの読み上げ %.1f秒 (見積もり %.1f秒): %r", self._clock() - sent, estimate, text)
             return True
         finally:
             with self._lock:

@@ -67,6 +67,17 @@ def test_analyses_against_asr_text() -> None:
     check("focus は付かない", not any(op["focus"] for w in attempts[0]["words"] for op in w["ops"]))
 
 
+def test_trimmed_reaches_attempt() -> None:
+    now = [1000.0]
+    drv = _driver(now)
+    drv.arm(_free())
+    drv.offer(("s", "u", "p"), "2026-10-24 15:00:00", "soup", trimmed=True)
+    drv.offer(("s", "u", "p"), "2026-10-24 15:00:05", "soup")
+    _settle(drv)
+    got = [a["trimmed"] for a in drv.snapshot()["attempts"]]
+    check("切り落としたセグメントは attempt に trimmed が付く", got == [False, True], repr(got))
+
+
 def test_skips_unreadable() -> None:
     now = [1000.0]
     drv = _driver(now)
@@ -96,6 +107,7 @@ def test_ttl_extends_on_speech() -> None:
 if __name__ == "__main__":
     test_parse()
     test_analyses_against_asr_text()
+    test_trimmed_reaches_attempt()
     test_skips_unreadable()
     test_ttl_extends_on_speech()
     print(f"\n=== {sum(results)}/{len(results)} PASS ===")
