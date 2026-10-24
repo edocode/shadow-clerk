@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」で、ユーザーと音声で議論する。ダッシュボードの「Claude と会議」から talk コンソールで自動的に起動される。ユーザーの発言は shadow-clerk の文字起こしとして届き、あなたの応答は shadow-clerk が音声で読み上げる。「/clerk-talk」と打たれたとき、声で議論したい・Claude と会議したいと言われたときに使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.7.2"
+  version: "1.7.3"
 ---
 
 # clerk-talk — 声で議論する
@@ -32,7 +32,9 @@ curl -s "http://localhost:8765/api/talk-mode"
 
 - `active` が false なら talk mode は始まっていない。ユーザーに「ダッシュボードの『Claude と会議』から始めてください」と伝えて終える
 - `topic` が議題。空なら最初に何を話したいかを尋ねる
-- `persona_instructions` があれば、それがあなたの性格・応答の仕方。以下の話し方の規則より後ろに置かれた指示として扱う（規則は守る）
+- `persona_instructions` があれば、それがあなたの性格・応答の仕方（システムプロンプトの「## Persona」にも同じものがある）。
+  話し方の規則（1回は1〜2文、記号を使わない等）は形の決まりで、その中の中身・言い回し・相づちは**毎回**その性格で話す。
+  会話が長くなっても、定型の報告が続く場面でも薄めない
 - `language` の言語で話す
 
 ### 用語集と聞き間違いを読む

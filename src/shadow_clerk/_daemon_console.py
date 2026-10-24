@@ -84,7 +84,7 @@ class ConsoleSession:
 
     def __init__(self, role: ConsoleRole = ConsoleRole.ASSISTANT) -> None:
         self.role = role
-        self.workdir = self.model = ""  # model: talk コンソールが --model で起動したモデル（空なら既定）
+        self.workdir = self.model = self.persona = ""  # model / persona: talk コンソールの起動時の --model と ペルソナ
         self.screen = pyte.Screen(DEFAULT_COLS, VIRTUAL_ROWS)
         self.screen.set_mode(pyte.modes.LNM)
         self._stream = pyte.Stream(self.screen)

@@ -55,11 +55,16 @@ def resolve_talk_language(requested: str, backend: TtsBackend) -> Language:
     return backend.DEFAULT_LANGUAGE
 
 
+def persona_prompt(persona: TalkPersona) -> str:
+    """システムプロンプトに足すペルソナの節。headless と console で同じ形にする"""
+    return f"## Persona\n\n{persona.instructions}"
+
+
 def build_system_prompt(lang: Language, persona: TalkPersona | None, topic: str) -> str:
     with open(os.path.join(_PROMPT_DIR, f"{lang.value}.md"), encoding="utf-8") as f:
         parts = [f.read().strip()]
     if persona is not None:
-        parts.append(f"## Persona\n\n{persona.instructions}")
+        parts.append(persona_prompt(persona))
     if topic.strip():
         parts.append(f"## Topic\n\n{topic.strip()}")
     return "\n\n".join(parts)
