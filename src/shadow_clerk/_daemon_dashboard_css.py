@@ -82,6 +82,7 @@ main {
 .extract-option { display:flex; align-items:center; gap:8px; padding:8px 0; cursor:pointer; font-size:13px; text-align:left; color:var(--text); }
 .extract-option input[type=radio] { width:auto !important; margin:0; flex-shrink:0; }
 .extract-option .eo-label { white-space:nowrap; }
+.extract-option[hidden] { display:none; }
 .spk-row { display:flex; align-items:center; gap:8px; padding:4px 0; font-size:13px; }
 .spk-row .spk-label { flex:none; width:64px; font-weight:bold; }
 .spk-row .spk-meta { flex:none; width:150px; color:var(--muted); font-size:11px; }

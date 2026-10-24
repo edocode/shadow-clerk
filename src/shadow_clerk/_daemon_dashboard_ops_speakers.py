@@ -14,8 +14,8 @@ from shadow_clerk._daemon_dashboard_base import read_local_json_body
 from shadow_clerk._transcript_attendees import read_attendees
 from shadow_clerk._daemon_naming_history import NamingHistoryError, append_history, mark_undone, read_history
 from shadow_clerk._daemon_speaker_naming import (
-    Decision, decide_assignment, line_target_picker, parse_assignment, relabel_lines_where, remap_offset,
-    summarize_labels,
+    Decision, decide_assignment, line_target_picker, parse_assignment, range_targets, relabel_lines_where,
+    remap_offset, summarize_labels,
 )
 from shadow_clerk._daemon_speaker_names import SpeakerNameBook, SpeakerNameBookError
 from shadow_clerk._daemon_voice_sidecar import (
@@ -279,13 +279,14 @@ class _DashboardHandlerSpeakerOps:
             self._speaker_error("dash.speakers_invalid")
             return
         targets = {(x["ts"], x["label"]) for x in raw_lines}
-        if any(label in (Speaker.SELF.value, Speaker.CLAUDE.value) for _, label in targets):
+        scope = data.get("scope", "lines")
+        if (scope not in ("lines", "range")
+                or any(label in (Speaker.SELF.value, Speaker.CLAUDE.value) for _, label in targets)):
             self._speaker_error("dash.speakers_invalid")
             return
         d = self._decide_one({k: data[k] for k in ("name", "group", "person") if k in data})
         if d is None:
             return
-        pick_line = line_target_picker(targets, d.name.value)
         with self.recorder.transcript_lock:
             lines = self._read_lines(t_path)
             if self._is_active_transcript(t_path):
@@ -294,6 +295,12 @@ class _DashboardHandlerSpeakerOps:
             if self.recorder.is_translating(t_path):
                 self._speaker_error("dash.speakers_translating")
                 return
+            if scope == "range":  # 2 行の間にある相手側の行すべて（話者は問わない）
+                if (ranged := range_targets(lines, targets)) is None:
+                    self._speaker_error("dash.speakers_invalid")
+                    return
+                targets = ranged
+            pick_line = line_target_picker(targets, d.name.value)
             if relabel_lines_where(lines, pick_line)[1] == 0:
                 self._speaker_error("dash.speakers_invalid")
                 return

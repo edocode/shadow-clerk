@@ -60,7 +60,7 @@ function fmtTranscriptLine(t){
   const m=t.match(/^\\[(\\d{4}-\\d{2}-\\d{2}\\s\\d{2}:\\d{2}:\\d{2})\\]\\s\\[([^\\]]+)\\]\\s(.*)$/);
   if(m){const sp=m[2],mic=I18N['speaker.mic']||'自分';const c=spCls(sp,mic);
     const dl=sp===mic?mic:sp==='自分'?mic:(sp===(I18N['speaker.monitor']||'相手')||sp==='相手')?(I18N['speaker.monitor']||'相手'):sp;
-    return '<div class="ln" data-ts="'+escAttr(m[1])+'" data-raw="'+escAttr(t)+'"><input type="checkbox" class="ln-cb" onchange="onSelChange()"><span class="ln-text"><span class="ts">['+esc(m[1])+']</span> <span class="'+c+'" data-sp="'+escAttr(sp)+'"'+(spColor(sp,mic)?' style="color:'+spColor(sp,mic)+'"':'')+'>['+esc(dl)+']</span> '+esc(m[3])+'</span></div>';}
+    return '<div class="ln" data-ts="'+escAttr(m[1])+'" data-raw="'+escAttr(t)+'"><input type="checkbox" class="ln-cb" onmousedown="if(event.shiftKey)event.preventDefault()" onclick="onLnCbClick(event)"><span class="ln-text"><span class="ts">['+esc(m[1])+']</span> <span class="'+c+'" data-sp="'+escAttr(sp)+'"'+(spColor(sp,mic)?' style="color:'+spColor(sp,mic)+'"':'')+'>['+esc(dl)+']</span> '+esc(m[3])+'</span></div>';}
   return '<div class="ln" data-raw="'+escAttr(t)+'"><span class="ln-text">'+esc(t)+'</span></div>';
 }
 function addLines(id,text,fmt){
@@ -81,6 +81,13 @@ function onSelChange(){
     cnt.textContent=(I18N['dash.selected_count']||'{count} selected').replace('{count}',n);
   }else{bar.classList.remove('show');}
   btnExt.style.display=(n===0||n===2)?'':'none';
+}
+// Shift＋クリックで、前回クリックした行からの間を同じ状態にする（click の時点でチェックは切り替わっている）
+let _lastLnCb=null;
+function onLnCbClick(e){
+  const cbs=[...document.querySelectorAll('#tp .ln-cb')],a=cbs.indexOf(_lastLnCb),b=cbs.indexOf(e.target);
+  if(e.shiftKey&&a>=0&&b>=0)for(let i=Math.min(a,b);i<=Math.max(a,b);i++)cbs[i].checked=e.target.checked;
+  _lastLnCb=e.target;onSelChange();
 }
 function deselectAll(){
   document.querySelectorAll('#tp .ln-cb:checked').forEach(cb=>{cb.checked=false;});

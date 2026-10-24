@@ -28,12 +28,14 @@ HARNESS = r"""
 const I18N={'dash.speakers_count':'発話 {count} 件','dash.speakers_samples':'声紋 {count} 件',
   'dash.speakers_none':'NONE','dash.speakers_active':'ACTIVE','dash.speakers_translating':'TRANSLATING','dash.speakers_enrollment_off':'OFF',
   'dash.group_label':'グループ','dash.person_enroll':'個人','dash.summary_regen_after_naming':'再生成する？',
-  'dash.summary_started':'STARTED','dash.relabel_count':'{count} 行','speaker.mic':'自分',
+  'dash.summary_started':'STARTED','speaker.mic':'自分',
   'dash.voiceprints_empty':'EMPTY','dash.delete':'削除','dash.voiceprint_delete_confirm':'{name} を消す？',
   'dash.naming_history_title':'HISTORY','dash.naming_undo':'UNDO','dash.naming_undone_mark':'UNDONE',
   'dash.naming_undo_confirm':'{label} → {name} を取り消す？','dash.vp_show':'DETAILS',
   'dash.naming_history_error':'HISTERR','dash.speakers_tentative':'TENTATIVE','dash.speakers_auto_confirm':'CONFIRM {count}',
-  'dash.speakers_tentative_accept':'ACCEPT {name}'};
+  'dash.speakers_tentative_accept':'ACCEPT {name}','dash.relabel_scope_one':'ONE','dash.relabel_scope_two':'TWO',
+  'dash.relabel_scope_lines':'MANY','dash.relabel_target_lines':'LINES {count}','dash.relabel_target_range':'RANGE {count}',
+  'dash.relabel_target_label':'LABEL {labels} {count}'};
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function escAttr(s){return esc(s).replace(/"/g,'&quot;');}
 function el(){return {children:[],_h:'',textContent:'',value:'',disabled:false,dataset:{},
@@ -43,21 +45,23 @@ function el(){return {children:[],_h:'',textContent:'',value:'',disabled:false,d
 function mk(tag){return Object.assign(el(),{tagName:String(tag).toUpperCase()});}
 const els={spkRows:el(),spkInfo:el(),spkSuggest:el(),spkSaveBtn:el(),vpRows:el(),speakerModal:el(),
   rlName:el(),rlGroup:el(),rlPerson:el(),rlInfo:el(),rlSaveBtn:el(),relabelModal:el(),grpSuggest:el(),rlSuggest:el(),
-  spkHistory:el()};
+  spkHistory:el(),rlScopeLines:el(),rlScopeRange:el(),rlScopeLabel:el(),rlScopeRangeOpt:el(),rlScopeLabelOpt:el(),
+  rlScopeLinesText:el(),rlTarget:el()};
+let tpLines=[];
 let inputs=[],groupInputs=[],personInputs=[],confirmInputs=[],acceptInputs=[];
 const document={getElementById:id=>els[id],createElement:mk,
   querySelectorAll:q=>q==='#spkRows input[data-label]'?inputs:q==='#spkRows input[data-group-for]'?groupInputs
     :q==='#spkRows input[data-person-for]'?personInputs:q==='#spkRows input[data-confirm-for]'?confirmInputs
-    :q==='#spkRows input[data-accept-for]'?acceptInputs:[]};
+    :q==='#spkRows input[data-accept-for]'?acceptInputs:q==='#tp .ln[data-ts]'?tpLines:[]};
 let spkGroups={names:{},persons:{},groups:{},self_group:''};
 let curFile='transcript-202610091000.txt',activeFile='';
 const posted=[],toasts=[],loaded=[];
 let speakersResp,vpResp={status:'ok',people:[{name:'太郎',count:3}]};
-let failNext=false;const alerts=[];
+let failNext=false;const alerts=[],postResp=[];
 async function fetch(url,opt){
   if(failNext){failNext=false;throw new Error('down');}
-  if(opt){posted.push({url,body:JSON.parse(opt.body)});
-    return {json:async()=>({status:'ok',message:'2 行に名前を付けました',has_summary:true})};}
+  if(opt){posted.push({url,body:JSON.parse(opt.body)});const q=postResp.shift();
+    return {json:async()=>(q||{status:'ok',message:'2 行に名前を付けました',has_summary:true})};}
   return {json:async()=>url.startsWith('/api/speaker-groups')?groupsResp
     :url.startsWith('/api/speakers')?speakersResp:vpResp};}
 function showToast(m){toasts.push(m);}
@@ -120,7 +124,7 @@ let groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true,'花�
   out.changedMapping=speakerMapping();
   inputs=[{dataset:{label:'相手A',named:'0'},value:' 太郎 '},{dataset:{label:'相手B',named:'0'},value:''}];
   await saveSpeakers();
-  out.posted=posted[0];out.toasts=toasts;out.loaded=loaded;
+  out.posted=posted[0];out.toasts=toasts.slice();out.loaded=loaded.slice();
   speakersResp={status:'ok',labels:[{label:'相手A',count:1,example:'x',samples:0}],
     suggestions:[],active:true,enrollment:true};
   await openSpeakerModal();
@@ -225,6 +229,27 @@ let groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true,'花�
   personInputs=[];acceptInputs[0].checked=true;out.tentAccepted=speakerMapping();
   acceptInputs[0].checked=false;inputs[0].value=' 花子 ';out.tentTyped=speakerMapping();
   acceptInputs[0].checked=true;out.tentTypedAccepted=speakerMapping();
+  const ln=(s,label)=>({dataset:{ts:'2026-10-09 10:00:0'+s,raw:'[2026-10-09 10:00:0'+s+'] ['+label+'] x'}});
+  tpLines=[ln(1,'相手A'),ln(2,'相手B'),ln(3,'自分'),ln(4,'相手?'),ln(5,'相手A'),ln(6,'Claude'),ln(7,'相手B')];
+  const scopeView=()=>[els.rlScopeLinesText.textContent,!!els.rlScopeRangeOpt.hidden,!!els.rlScopeLabelOpt.hidden,
+    !!els.rlScopeLines.checked,els.rlTarget.textContent];
+  const pickScope=k=>{for(const s of ['Lines','Range','Label'])els['rlScope'+s].checked=s===k;updateRlTarget();return els.rlTarget.textContent;};
+  const F='transcript-202610091000.txt';
+  selected=[tpLines[0]];await openRelabelModal();out.sc1=scopeView();out.sc1Label=pickScope('Label');
+  selected=[tpLines[1],tpLines[4]];await openRelabelModal();out.sc2=scopeView();
+  out.sc2Range=pickScope('Range');out.sc2Label=pickScope('Label');out.sc2Back=pickScope('Lines');
+  pickScope('Range');posted.length=0;els.rlName.value='bob';await saveRelabel();out.rangePosted=posted[0];
+  selected=[tpLines[1],tpLines[4]];await openRelabelModal();pickScope('Label');posted.length=0;toasts.length=0;
+  els.rlName.value='acme';els.rlGroup.value='acme';els.rlGroup.dataset.touched='1';els.rlPerson.checked=false;onRlPersonChange();
+  await saveRelabel();out.labelPosted=posted.slice(0,2);
+  selected=[tpLines[0],tpLines[3],tpLines[6]];await openRelabelModal();out.sc3=scopeView();out.sc3Label=pickScope('Label');
+  posted.length=0;toasts.length=0;els.rlName.value='bob';await saveRelabel();
+  out.looseOk=[posted.slice(0,2),toasts.slice()];
+  selected=[tpLines[0],tpLines[3]];await openRelabelModal();pickScope('Label');
+  posted.length=0;toasts.length=0;alerts.length=0;postResp.push({status:'ok',message:'FIRST'},{status:'error',message:'NG'});
+  els.rlName.value='bob';await saveRelabel();out.looseNg=[posted.length,toasts.slice(),alerts.slice(),els.relabelModal.classList.open];
+  selected=[tpLines[3]];await openRelabelModal();out.scUnk=scopeView();out.rlInfoPlain=els.rlInfo.textContent;
+  selected=[tpLines[1],tpLines[1]];await openRelabelModal();out.scSame=scopeView();
   console.log(JSON.stringify(out));
 })();
 """
@@ -345,5 +370,35 @@ check("test_color_for_tentative_uses_name: 名前?は名前のグループ色、
       out["tentColor"] == "#e57373" and out["unkTent"] == "", repr((out["tentColor"], out["unkTent"])))
 check("test_color_mirrors_server_tentative_rule: 自分?・相手A?・Claude?・? は名前?として扱わない",
       out["notTent"] == ["", "", "", ""], repr(out["notTent"]))
+check("対象: 1 行なら「この行だけ」（既定）と「この話者の行を全部」、件数を出す",
+      out["sc1"] == ["ONE", True, False, True, "LINES 1"] and out["sc1Label"] == "LABEL 相手A 2", repr((out["sc1"], out["sc1Label"])))
+check("対象: 2 行なら「この 2 行だけ」「2 行の間を全部」「この話者の行を全部」、切り替えで件数が変わる",
+      out["sc2"] == ["TWO", False, False, True, "LINES 2"] and out["sc2Range"] == "RANGE 3"
+      and out["sc2Label"] == "LABEL 相手B / 相手A 4" and out["sc2Back"] == "LINES 2",
+      repr((out["sc2"], out["sc2Range"], out["sc2Label"], out["sc2Back"])))
+check("範囲: 2 行の間を全部は assign-lines に scope range で 2 行を送る", out["rangePosted"] == {
+      "url": "/api/speakers/assign-lines", "body": {"file": "transcript-202610091000.txt", "name": "bob", "scope": "range",
+      "lines": [{"ts": "2026-10-09 10:00:02", "label": "相手B"}, {"ts": "2026-10-09 10:00:05", "label": "相手A"}]}},
+      repr(out["rangePosted"]))
+check("対象: この話者の行を全部は assign にラベルごとの mapping（group/person 付き）を送る", out["labelPosted"] == [{
+      "url": "/api/speakers/assign", "body": {"file": "transcript-202610091000.txt", "mapping": {
+          "相手B": {"name": "acme", "group": "acme", "person": False},
+          "相手A": {"name": "acme", "group": "acme", "person": False}}}},
+      {"url": "/api/summary", "body": {"file": "transcript-202610091000.txt"}}], repr(out["labelPosted"]))
+check("対象: 3 行以上なら「選んだ行だけ」とこの話者の行を全部。相手? の行は件数に 1 行ずつ足す",
+      out["sc3"] == ["MANY", True, False, True, "LINES 3"] and out["sc3Label"] == "LABEL 相手A / 相手B 5",
+      repr((out["sc3"], out["sc3Label"])))
+check("対象: 相手? の選択行は assign のあと assign-lines で行単位に送り、両方のメッセージを出す", out["looseOk"] == [[
+      {"url": "/api/speakers/assign", "body": {"file": "transcript-202610091000.txt",
+                                                "mapping": {"相手A": {"name": "bob"}, "相手B": {"name": "bob"}}}},
+      {"url": "/api/speakers/assign-lines", "body": {"file": "transcript-202610091000.txt", "name": "bob",
+                                                      "lines": [{"ts": "2026-10-09 10:00:04", "label": "相手?"}]}}],
+      ["2 行に名前を付けました 2 行に名前を付けました", "STARTED"]], repr(out["looseOk"]))
+check("対象: 2 回目が失敗したら 1 回目の結果をトーストし、失敗を alert する",
+      out["looseNg"] == [2, ["FIRST"], ["NG"], False], repr(out["looseNg"]))
+check("対象: 相手? だけを選んだらこの話者の行を全部は出さない", out["scUnk"] == ["ONE", True, True, True, "LINES 1"],
+      repr(out["scUnk"]))
+check("範囲: 同じ行（時刻とラベル）が 2 つでは 2 行の間を全部は出さない", out["scSame"][1] is True, repr(out["scSame"]))
+check("対象: rlInfo は件数を繰り返さず、録音中・翻訳中の警告だけ出す", out["rlInfoPlain"] == "", repr(out["rlInfoPlain"]))
 check("誰もいなければ空表示", out["peopleNone"] == [0, "EMPTY"], repr(out["peopleNone"]))
 sys.exit(0 if all(results) else 1)

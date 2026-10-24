@@ -197,15 +197,43 @@ async function setPersonGroup(name,group){
   if(await _postJSON('/api/speaker-groups/set',{name,group}))await loadSpeakerGroups();
 }
 let _rlFile='',_rlItems=[];
+// 行の [時刻] [ラベル]。付け替えられない [自分] [Claude] の行は null
+function _rlParse(l){
+  const m=(l.dataset.raw||'').match(/^\[([^\]]+)\]\s\[([^\]]+)\]/);
+  return m&&m[2]!=='自分'&&m[2]!=='Claude'?{ts:m[1],label:m[2]}:null;
+}
+// 相手? と 相手 はラベル単位では名前を付けられないので、「この話者の行を全部」でも行単位で送る
+const _rlLoose=l=>l==='相手?'||l==='相手';
+function _rlLabels(){return [...new Set(_rlItems.map(i=>i.label).filter(l=>!_rlLoose(l)))];}
+function _rlScope(){
+  return document.getElementById('rlScopeRange').checked?'range':document.getElementById('rlScopeLabel').checked?'label':'lines';
+}
+function updateRlTarget(){
+  const scope=_rlScope(),shown=[...document.querySelectorAll('#tp .ln[data-ts]')].map(_rlParse).filter(Boolean);
+  let text;
+  if(scope==='range'){
+    const [lo,hi]=_rlItems.map(i=>i.ts).sort();
+    text=I18N['dash.relabel_target_range'].replace('{count}',shown.filter(x=>x.ts>=lo&&x.ts<=hi).length);
+  }else if(scope==='label'){
+    const ls=_rlLabels(),n=shown.filter(x=>ls.includes(x.label)).length+_rlItems.filter(i=>_rlLoose(i.label)).length;
+    text=I18N['dash.relabel_target_label'].replace('{labels}',ls.join(' / ')).replace('{count}',n);
+  }else text=I18N['dash.relabel_target_lines'].replace('{count}',_rlItems.length);
+  document.getElementById('rlTarget').textContent=text;
+}
 async function openRelabelModal(){
   _rlFile=curFile||activeFile;
-  _rlItems=getSelectedLines().map(l=>(l.dataset.raw||'').match(/^\[([^\]]+)\]\s\[([^\]]+)\]/))
-    .filter(m=>m&&m[2]!=='自分'&&m[2]!=='Claude').map(m=>({ts:m[1],label:m[2]}));
-  const info=document.getElementById('rlInfo');
-  info.textContent=I18N['dash.relabel_count'].replace('{count}',_rlItems.length);
+  _rlItems=getSelectedLines().map(_rlParse).filter(Boolean);
+  const info=document.getElementById('rlInfo'),n=_rlItems.length;
+  info.textContent='';
   document.getElementById('rlName').value='';document.getElementById('rlGroup').value='';
   document.getElementById('rlPerson').checked=true;document.getElementById('rlGroup').hidden=true;
   document.getElementById('rlGroup').dataset.touched='';document.getElementById('rlPerson').dataset.touched='';
+  document.getElementById('rlScopeLinesText').textContent=I18N[n===1?'dash.relabel_scope_one':n===2?'dash.relabel_scope_two':'dash.relabel_scope_lines'];
+  document.getElementById('rlScopeRangeOpt').hidden=new Set(_rlItems.map(i=>i.ts+'\u0000'+i.label)).size!==2;
+  document.getElementById('rlScopeLabelOpt').hidden=!_rlLabels().length;
+  document.getElementById('rlScopeLines').checked=true;
+  document.getElementById('rlScopeRange').checked=false;document.getElementById('rlScopeLabel').checked=false;
+  updateRlTarget();
   let d=null;
   try{d=await(await fetch('/api/speakers?file='+encodeURIComponent(_rlFile))).json();}catch(e){}
   if(d&&d.status==='ok'){
@@ -213,20 +241,31 @@ async function openRelabelModal(){
     if(d.active)info.textContent=I18N['dash.speakers_active'];
     else if(d.translating)info.textContent=I18N['dash.speakers_translating'];
   }
-  document.getElementById('rlSaveBtn').disabled=!_rlItems.length||!!(d&&(d.active||d.translating));
+  document.getElementById('rlSaveBtn').disabled=!n||!!(d&&(d.active||d.translating));
   document.getElementById('relabelModal').classList.add('open');
 }
 function closeRelabelModal(){document.getElementById('relabelModal').classList.remove('open');}
 async function saveRelabel(){
   const name=document.getElementById('rlName').value.trim();
   if(!name||!_rlItems.length)return;
-  const body={file:_rlFile,lines:_rlItems,name},gi=document.getElementById('rlGroup'),pi=document.getElementById('rlPerson');
-  if(gi.dataset.touched==='1'&&!pi.checked)body.group=gi.value.trim();
-  if(pi.dataset.touched==='1')body.person=!!pi.checked;
-  const d=await _postJSON('/api/speakers/assign-lines',body);
-  if(!d)return;
-  closeRelabelModal();deselectAll();showToast(d.message);loadT(_rlFile);loadR(_rlFile);await loadSpeakerGroups();
-  if(d.has_summary)await regenSummaryFor(_rlFile);
+  const e={name},gi=document.getElementById('rlGroup'),pi=document.getElementById('rlPerson'),scope=_rlScope(),f=_rlFile;
+  if(gi.dataset.touched==='1'&&!pi.checked)e.group=gi.value.trim();
+  if(pi.dataset.touched==='1')e.person=!!pi.checked;
+  let d;
+  if(scope==='label'){
+    const mapping={},loose=_rlItems.filter(i=>_rlLoose(i.label));
+    for(const l of _rlLabels())mapping[l]={...e};
+    d=await _postJSON('/api/speakers/assign',{file:f,mapping});
+    if(!d)return;
+    // 2 回目が失敗したら _postJSON が alert し、1 回目の結果はそのままトーストする
+    const d2=loose.length?await _postJSON('/api/speakers/assign-lines',{file:f,lines:loose,...e}):null;
+    if(d2)d={...d2,message:d.message+' '+d2.message,has_summary:d.has_summary||d2.has_summary};
+  }else{
+    d=await _postJSON('/api/speakers/assign-lines',{file:f,lines:_rlItems,...e,...(scope==='range'?{scope}:{})});
+    if(!d)return;
+  }
+  closeRelabelModal();deselectAll();showToast(d.message);loadT(f);loadR(f);await loadSpeakerGroups();
+  if(d.has_summary)await regenSummaryFor(f);
 }
 loadSpeakerGroups();
 """
