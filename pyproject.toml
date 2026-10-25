@@ -109,9 +109,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
-# スキル実体。clerk-util install-skill の配布元になるので wheel に載せる
+# スキル実体（clerk-util install-skill の配布元）と、VOICEVOX へ足す読みのプリセットを wheel に載せる
 [tool.setuptools.package-data]
-shadow_clerk = ["skills/**/*.md", "talk_prompts/*.md"]
+shadow_clerk = ["skills/**/*.md", "talk_prompts/*.md", "voicevox_dict.tsv"]
 
 [dependency-groups]
 dev = [

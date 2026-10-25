@@ -7,9 +7,11 @@ from __future__ import annotations
 import io
 import json
 import logging
+import unicodedata
 import urllib.error
 import urllib.request
 import wave
+from importlib import resources
 from typing import Any, Callable
 from urllib.parse import urlencode
 
@@ -20,6 +22,13 @@ from shadow_clerk.domain import Language, TalkVoice
 from shadow_clerk.i18n import t
 
 logger = logging.getLogger("shadow-clerk")
+
+
+def load_dict_preset() -> list[tuple[str, str, int]]:
+    """同梱の読みのプリセット（表記, 読み, アクセント核）"""
+    text = resources.files("shadow_clerk").joinpath("voicevox_dict.tsv").read_text(encoding="utf-8")
+    return [(c[0], c[1], int(c[2])) for line in text.splitlines()
+            if line.strip() and not line.startswith("#") and len(c := line.split("\t")) >= 3]
 
 
 class VoicevoxBackend:
@@ -44,6 +53,21 @@ class VoicevoxBackend:
 
     def check(self) -> None:
         self._request("/version")
+        self.sync_dict(load_dict_preset())
+
+    def sync_dict(self, words: list[tuple[str, str, int]]) -> None:
+        """エンジンのユーザー辞書に無い表記だけ足す。ユーザーが登録した読みは上書きしない。失敗しても読み上げは続ける"""
+        try:
+            have = {unicodedata.normalize("NFKC", w.get("surface", ""))
+                    for w in json.loads(self._request("/user_dict")).values()}
+            for surface, reading, accent in words:
+                if unicodedata.normalize("NFKC", surface) not in have:
+                    self._request("/user_dict_word?" + urlencode(
+                        {"surface": surface, "pronunciation": reading, "accent_type": accent,
+                         "word_type": "COMMON_NOUN", "priority": 8}), b"")
+                    logger.info("talk: VOICEVOX の辞書に読みを足しました: %s → %s", surface, reading)
+        except (TtsError, ValueError, AttributeError) as e:
+            logger.warning("talk: VOICEVOX の辞書を更新できません: %s", e)
 
     def synthesize(self, text: str) -> tuple[np.ndarray, int]:
         voice = self._voice()
