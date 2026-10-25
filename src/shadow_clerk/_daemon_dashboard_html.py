@@ -304,6 +304,7 @@ _HTML_TEMPLATE = (
     "      <select id=\"talkPersonaSel\"></select>\n"
     "      <button onclick=\"openPersonas()\" style=\"font-size:12px;\">{{i18n:dash.talk_edit_personas}}</button>\n"
     "      <button onclick=\"openVoice()\" style=\"font-size:12px;\">{{i18n:dash.talk_voice}}</button>\n"
+    "      <label style=\"display:block;font-size:12px;margin-top:8px;\"><input type=\"checkbox\" id=\"talkGlossary\" checked> {{i18n:dash.talk_glossary}}</label>\n"
     "      <div id=\"talkErr\" style=\"color:var(--red,#e55);font-size:12px;margin-top:8px;\"></div>\n"
     "    </div>\n"
     "    <div class=\"modal-foot\" style=\"flex-wrap:wrap;gap:6px;\">\n"

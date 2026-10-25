@@ -637,6 +637,7 @@ STRINGS_JA: dict[str, str] = {
     "dash.talk_route_connected": "接続中",
     "dash.talk_route_disconnected": "未接続",
     "dash.talk_edit_personas": "persona を編集",
+    "dash.talk_glossary": "用語集を使う（文字起こしの置き換えと Claude の参照）",
     "dash.talk_voice": "声の設定",
     "dash.voice_speaker": "話者",
     "dash.voice_speed": "話速",

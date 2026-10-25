@@ -183,6 +183,7 @@ class TalkDriver:
         self._playback = _PlaybackSpan()
         self._topic = ""
         self._persona: TalkPersona | None = None
+        self._glossary = True
         self._lang = Language.JA
         self._language = ""
         self._workdir = ""
@@ -202,7 +203,7 @@ class TalkDriver:
         self._was_routed = False  # stop() した会話が届け先ありだったか。猶予中の monitor の扱いを決める
 
     def start(self, topic: str, persona: str | None, workdir: str | None = None,
-              route: str | None = None) -> None:
+              route: str | None = None, glossary: bool = True) -> None:
         with self._lock:
             if self._active:
                 return
@@ -254,7 +255,7 @@ class TalkDriver:
             self._engine, self._engine_name, self._player = engine, name, player
             self._route, self._sink, self._echo = route_obj, sink, echo
             self._playback = _PlaybackSpan(tail_sec=tail_sec)
-            self._topic, self._persona, self._lang = topic, chosen, lang
+            self._topic, self._persona, self._lang, self._glossary = topic, chosen, lang, glossary
             self._language, self._workdir = lang.value, resolved
             self._credit, self._error = backend.credit(), ""
             self._filler_sec, self._floor_wait_sec, self._stop_re = filler_sec, floor_wait_sec, stop_re
@@ -295,6 +296,11 @@ class TalkDriver:
     @property
     def active(self) -> bool:
         return self._active
+
+    @property
+    def uses_glossary(self) -> bool:
+        """用語集で文字起こしを置き換え、skill に読ませるか。talk mode 外では常に使う"""
+        return not self._active or self._glossary
 
     @property
     def routed(self) -> bool:
@@ -532,6 +538,7 @@ class TalkDriver:
         return {"active": self._active, "engine": self._engine_name, "topic": self._topic,
                 "persona": self._persona.name if self._persona else "",
                 "persona_instructions": self._persona.instructions if self._persona else "",
+                "glossary": self.uses_glossary,
                 "language": self._language, "workdir": self._workdir,
                 "credit": self._credit, "error": self._error,
                 "route": route.status() if route is not None else {"app": "", "connected": False}}

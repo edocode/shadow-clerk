@@ -58,6 +58,7 @@ class _Diarizer:
 
 class _Talk:
     active = False
+    uses_glossary = True
 
     def is_suppressed(self, source: str) -> bool:
         return False

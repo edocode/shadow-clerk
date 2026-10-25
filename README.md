@@ -686,7 +686,7 @@ Requirements:
   voice does not come back as `[Others]` lines.
 
 Click **Talk with Claude** in the dashboard header, enter a topic (or leave it empty), pick a
-persona, and start. **Voice settings** in the same dialog picks the VOICEVOX speaker and adjusts speed, pitch, intonation and volume, with a preview button; changes apply from the next sentence. By default Claude runs in a second AI Console (**Talk with Claude** tab) with the `clerk-talk` skill,
+persona, and start. **Voice settings** in the same dialog picks the VOICEVOX speaker and adjusts speed, pitch, intonation and volume, with a preview button; changes apply from the next sentence. Unticking **Use the glossary** turns off the glossary replacements in the transcript for that conversation, and Claude does not read the glossary either (for conversations that do not need it, such as language practice; saved with presets). By default Claude runs in a second AI Console (**Talk with Claude** tab) with the `clerk-talk` skill,
 so it can edit files and run commands with the usual permission prompts, and the meeting helper keeps
 running in the **AI Console** tab. Set `talk_engine: headless` to use a background `claude -p` process
 instead: it answers a little faster but cannot ask for permission, so it only gets the tools in

@@ -178,7 +178,8 @@ class _RecorderTranscribeMixin:
                 logger.info("日付変更検出、出力先切り替え: %s", new_path)
                 self.output_path = new_path
 
-        text = self.word_replacer.apply(text, self.transcriber.language)
+        if self.talk.uses_glossary:
+            text = self.word_replacer.apply(text, self.transcriber.language)
         if self.talk.is_echo(source, seg_start, seg_start + duration, text):
             logger.debug("talk: Claude 自身の声として捨てる: %r", text.strip())
             self._clear_interim(source)
@@ -293,7 +294,8 @@ class _RecorderTranscribeMixin:
                 display_speaker = display_labels.get(source, source)
                 text = self.transcriber.transcribe(segment)
                 if text.strip():
-                    text = self.word_replacer.apply(text, self.transcriber.language)
+                    if self.talk.uses_glossary:
+                        text = self.word_replacer.apply(text, self.transcriber.language)
                     if self.talk.is_echo(source, seg_start, seg_start + len(segment) / SAMPLE_RATE, text):
                         continue
                     if self._is_noise_text(text):

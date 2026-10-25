@@ -143,6 +143,7 @@ from shadow_clerk._daemon_recorder_transcribe import _RecorderTranscribeMixin  #
 class _Talk:
     def __init__(self, clear: tuple[float, float] | None = None, active: bool = True) -> None:
         self.active = active
+        self.uses_glossary = True
         self.clear = clear        # None なら渡された区間をそのまま返す（重なりなし）
         self.playback_calls: list[tuple[float, float]] = []
 

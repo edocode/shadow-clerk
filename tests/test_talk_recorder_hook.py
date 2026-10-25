@@ -27,6 +27,7 @@ def check(label: str, ok: bool, detail: str = "") -> None:
 class _Talk:
     def __init__(self, active: bool, route: bool = False) -> None:
         self.active, self.route = active, route
+        self.uses_glossary = True
         self.self_lines: list[TranscriptLine] = []
         self.other_lines: list[TranscriptLine] = []
         self.echo_calls: list[tuple] = []
@@ -56,7 +57,7 @@ class _Rec(_RecorderTranscribeMixin):
         self.transcript_lock = threading.Lock()
         self.transcriber = type("_T", (), {"language": "ja",
                                            "transcribe": staticmethod(lambda seg: said)})()
-        self.word_replacer = type("_W", (), {"apply": staticmethod(lambda text, lang: text)})()
+        self.word_replacer = type("_W", (), {"apply": staticmethod(lambda text, lang: text.replace("テスト", "試験"))})()
         self.talk = talk
         self.pronounce = type("_P", (), {"offer": staticmethod(lambda *a, **k: None)})()
 
@@ -82,7 +83,7 @@ def test_suppress_monitor() -> None:
     _run(rec, "monitor")
     check("talk mode 中の monitor は書かない", _lines(rec) == [], repr(_lines(rec)))
     _run(rec, "mic")
-    check("mic は書く", _lines(rec) == ["[2026-10-02 10:00:00] [自分] これはテストです"], repr(_lines(rec)))
+    check("mic は書く", _lines(rec) == ["[2026-10-02 10:00:00] [自分] これは試験です"], repr(_lines(rec)))
     check("[自分] 行を通知する", [tl.speaker for tl in talk.self_lines] == [Speaker.SELF])
 
 
@@ -106,8 +107,16 @@ def test_inactive() -> None:
     talk = _Talk(active=False)
     rec = _Rec(talk)
     _run(rec, "monitor")
-    check("talk mode でなければ monitor も書く", _lines(rec) == ["[2026-10-02 10:00:00] [相手] これはテストです"])
+    check("talk mode でなければ monitor も書く", _lines(rec) == ["[2026-10-02 10:00:00] [相手] これは試験です"])
     check("[相手] 行は [自分] 行として通知しない", talk.self_lines == [])
+
+
+def test_glossary_off() -> None:
+    talk = _Talk(active=True)
+    talk.uses_glossary = False
+    rec = _Rec(talk)
+    _run(rec, "mic")
+    check("用語集を使わない会話では置き換えない", _lines(rec) == ["[2026-10-02 10:00:00] [自分] これはテストです"], repr(_lines(rec)))
 
 
 def test_append_line() -> None:
@@ -134,5 +143,6 @@ if __name__ == "__main__":
     test_suppress_monitor()
     test_inactive()
     test_echo_dropped_other_side_kept()
+    test_glossary_off()
     test_append_line()
     sys.exit(0 if all(results) else 1)
