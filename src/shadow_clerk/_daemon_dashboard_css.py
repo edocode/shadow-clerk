@@ -494,4 +494,33 @@ main {
   font-size:11px; padding:0 2px; cursor:pointer; flex-shrink:0; min-width:auto; }
 .mg-file:hover .mg-wd { opacity:0.7; }
 .mg-wd:hover { opacity:1 !important; color:var(--text); background:transparent; }
+/* 会議ごとの設定。左に会議の一覧、右に編集パネル（まとめて変更と 1 件の変更で共用） */
+.ms-gear { border:none; background:transparent; color:var(--muted); font-size:12px; padding:0 3px; cursor:pointer; }
+.ms-gear:hover { color:var(--text); background:transparent; }
+.ms-modal { width:900px; max-width:95vw; }
+.ms-two { display:grid; grid-template-columns:1fr 300px; min-height:420px; overflow:hidden; flex:1; }
+.ms-list { border-right:1px solid var(--border); padding:12px 16px; overflow-y:auto; }
+.ms-list input[type=text], .ms-edit input[type=text], .ms-edit select {
+  background:var(--btn); color:var(--text); border:1px solid var(--border); border-radius:6px;
+  padding:5px 8px; font-size:13px; width:100%; outline:none; font-family:inherit; }
+.ms-list input[type=text]:focus, .ms-edit input:focus, .ms-edit select:focus { border-color:var(--accent); }
+.ms-table { width:100%; border-collapse:collapse; margin-top:8px; font-size:13px; }
+.ms-table th { position:sticky; top:0; background:var(--panel); text-align:left; color:var(--muted);
+  font-size:12px; padding:6px; border-bottom:1px solid var(--border); }
+.ms-table td { padding:6px; border-bottom:1px solid #21262d; vertical-align:middle; }
+.ms-table tr.sel td { background:rgba(88,166,255,.08); }
+.ms-table td:nth-child(4) { white-space:nowrap; }
+.ms-table small { display:block; color:var(--muted); font-size:11px; }
+.ms-badge { display:inline-block; white-space:nowrap; font-size:11px; padding:1px 7px; border-radius:10px; border:1px solid var(--border); color:var(--muted); }
+.ms-badge.on { color:var(--green); border-color:#2ea04366; }
+.ms-edit { padding:14px 16px; display:flex; flex-direction:column; gap:6px; font-size:13px; overflow-y:auto; }
+.ms-edit label { color:var(--muted); font-size:12px; margin-top:6px; }
+.ms-ttl { font-weight:600; }
+.ms-chips { display:flex; flex-wrap:wrap; gap:4px; }
+.ms-chips span { font-size:11px; background:var(--btn); border:1px solid var(--border); border-radius:10px; padding:1px 8px; }
+.ms-hint { font-size:11px; }
+.ms-err { color:var(--red); font-size:12px; min-height:1em; }
+.ms-foot { margin-top:auto; display:flex; gap:8px; justify-content:flex-end; align-items:center; }
+.ms-foot .saved { color:var(--green); font-size:13px; display:none; }
+.ms-path { padding:6px 16px; border-top:1px solid var(--border); font-size:11px; color:var(--muted); }
 """

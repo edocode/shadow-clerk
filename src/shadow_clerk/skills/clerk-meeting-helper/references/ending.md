@@ -95,5 +95,6 @@ tail -3 <transcript>
 出す部分だけで、理由は「特定個人に関する内容が外部に置かれるのを避ける」ため。
 求められたら Markdown ファイルとして手元に出す。
 
-`publish` が真なら、共有される成果物なので Artifact として公開してリンクを渡すのが
-扱いやすい。Markdown で欲しいと言われたらそちらで出す。
+`publish` が真なら、共有される成果物なので公開先（設定の `publish_to`。既定は Artifact、
+`notion` なら `notion_url` の下）に出してリンクを渡すのが扱いやすい。手順は `publish.md`。
+Markdown で欲しいと言われたらそちらで出す。

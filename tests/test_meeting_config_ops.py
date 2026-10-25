@@ -88,7 +88,30 @@ def test_remote_rejected() -> None:
     check("外部からの保存を拒否する", h.sent.get("status") == "error", repr(h.sent))
 
 
+def test_meeting_settings() -> None:
+    h = _FakeHandler({"meetings": ["週次定例", "1on1 alice"], "set": {"publish": False, "publish_advice": True}})
+    h._save_meeting_settings()
+    check("まとめて保存できる", h.sent.get("status") == "ok", repr(h.sent))
+    h = _FakeHandler()
+    h.path = "/api/meeting-settings?meeting=%E9%80%B1%E6%AC%A1%E5%AE%9A%E4%BE%8B&meeting=other"
+    h._serve_meeting_settings()
+    got = {m["name"]: m for m in h.sent.get("meetings", [])}
+    check("会議ごとの値を返す",
+          got["週次定例"]["publish"] is False and got["週次定例"]["publish_advice"] is True
+          and got["週次定例"]["shared"] is False and got["other"]["matched"] == "(defaults)"
+          and got["other"]["publish_advice"] is False, repr(got))
+    for body, label in (({"meetings": [], "set": {}}, "会議なし"), ({"meetings": ["x"], "set": {"publish_to": "x"}}, "不正な値"),
+                        ({"meetings": [3], "set": {}}, "文字列でない会議名")):
+        h = _FakeHandler(body)
+        h._save_meeting_settings()
+        check(f"{label}は拒否", h.sent.get("status") == "error", repr(h.sent))
+    h = _FakeHandler({"meetings": ["x"], "set": {"publish": True}}, client="10.0.0.1")
+    h._save_meeting_settings()
+    check("外部からのまとめて保存を拒否する", h.sent.get("status") == "error", repr(h.sent))
+
+
 def main() -> int:
+    test_meeting_settings()
     test_serve_shape()
     test_upsert_then_read_back()
     test_delete()
