@@ -1,7 +1,7 @@
 ---
 description: shadow-clerk のリアルタイム文字起こしを監視して、進行中の会議について質問事項(不明点)・決定事項・アクション(期限と担当)・進行上の問題を随時報告する。ユーザーが「transcript を見て」「会議をモニターして」「リアルタイムに教えて」「会議中の論点を拾って」「shadow-clerk」と言ったとき、文字起こしファイルを tail や監視して分析してほしいと頼まれたとき、これから会議に入るので同席してほしいと言われたときには必ずこのスキルを使う。ファイル名や保存場所を指定されなくても使える(自力で特定する)。会議が終わったあとの議事録・宿題リストの作成にも続けて使う。
 metadata:
-  version: "1.1.1"
+  version: "1.2.0"
 ---
 
 # clerk-meeting-helper — 進行中の会議を監視して論点を返す
@@ -212,6 +212,7 @@ Monitor(
 1. 流れてきた新規行を読む
 2. `advice-<stem>.md` を**書式どおりにまとめ直して上書き**する
 3. `analysis-<stem>.md` に**時刻見出しで追記**する
+4. 設定の `publish` と `publish_advice` がどちらも真なら、Advice を公開先にも載せる（`references/publish.md`）
 
 **何を書くかは書式が決める。** 「出力先」の節にある見出し(未解決なら「いま確認すべきこと」
 「未確認のまま進んでいる前提」「進行への介入」「期限・担当が未定」、確定事実なら
@@ -450,9 +451,11 @@ Dashboard のペインで読む運用なら `minimal` にしておけば、タ�
 | `history` | 起動時に読む過去回の数(既定 3、`0` で読まない)。定例で前回の宿題と未解決を引き継ぐ |
 | `workdir` | AI アシスタントの起動ディレクトリ。調べもの(`references/research.md`)の探索範囲になる |
 | `publish` | **Artifact など外部サービスへの公開を許すか** |
+| `publish_to` / `notion_url` | 公開先。`artifact`（既定）か `notion`（`notion_url` のページの下に作る） |
+| `publish_advice` | 会議中の Advice も公開先に載せ、参加者みんなで見られるようにするか（既定 `false`） |
 | `research` | 調べもので使ってよい当て先と、`allow_private`（社内の情報を渡してよいか。既定 `false`）。**空なら外部に問い合わせない**(`references/research.md`) |
 | `glossary` | 用語集のパス |
 | `matched` / `note` | どのルールに一致したか、その理由 |
 
-`publish` の効き方は `references/ending.md` にある（議事録を作るときだけ要る）。
+`publish` の効き方は `references/ending.md` に、公開先と Advice の載せ方は `references/publish.md` にある。
 

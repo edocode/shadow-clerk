@@ -15,7 +15,7 @@ from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain import ConsoleRole, misheard
 from shadow_clerk.domain.ai_assistant import AiAssistantConfig
 from shadow_clerk.domain.forbid_analyze import ForbidAnalyze
-from shadow_clerk.domain.meeting_config import MeetingConfig
+from shadow_clerk.domain.meeting_config import MeetingConfig, MeetingSettings, literal_name
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -23,6 +23,8 @@ __all__ = ["start_console_for", "_DashboardHandlerConsoleOps"]
 
 # 1 リクエストで送れるキー入力の上限。貼り付けを通しつつ暴走を止める
 _MAX_INPUT_CHARS = 8192
+# 会議ごとの設定モーダルが返す・書く値
+_SETTING_KEYS = ("publish", "workdir", "publish_to", "notion_url", "publish_advice")
 
 
 class _DashboardHandlerConsoleOps:
@@ -302,4 +304,45 @@ class _DashboardHandlerConsoleOps:
             self._send_json({"status": "error", "message": str(e)})
             return
         logger.info("会議設定を更新: %s (%s)", pattern, path)
+        self._send_json({"status": "ok", "path": path})
+
+    def _serve_meeting_settings(self) -> None:
+        """GET /api/meeting-settings?meeting=<名前>&… — 会議ごとの解決済みの設定（会議ごとの設定モーダル）"""
+        cfg = MeetingConfig.load()
+        out = []
+        for name in parse_qs(urlparse(self.path).query).get("meeting", []):
+            resolved = cfg.resolve(name)
+            # shared: ほかの会議にも当たるルール（変えると、その会議用のルールを足して変える）
+            out.append({"name": name, "matched": resolved["matched"],
+                        "shared": resolved["matched"] != "(defaults)" and literal_name(resolved["matched"]) != name,
+                        **{k: resolved[k] for k in _SETTING_KEYS}})
+        self._send_json({"status": "ok", "path": cfg.path, "meetings": out})
+
+    def _save_meeting_settings(self) -> None:
+        """POST /api/meeting-settings {meetings: [名前…], set: {publish?, workdir?, publish_to?, notion_url?, publish_advice?}}
+
+        選んだ会議に同じ値を書く（MeetingConfig.apply）。1 回の load→save にまとめるので、途中で失敗しても半端に残らない
+        """
+        data = self._console_body()
+        if data is None:
+            return
+        names = data.get("meetings")
+        if not isinstance(names, list) or not names or not all(isinstance(n, str) and n.strip() for n in names):
+            self._send_json({"status": "error", "message": "meetings must be a list of names"})
+            return
+        try:
+            settings = MeetingSettings.parse(data.get("set"))
+        except ValueError as e:
+            self._send_json({"status": "error", "message": str(e)})
+            return
+        cfg = MeetingConfig.load()
+        for name in names:
+            cfg.apply(name.strip(), settings)
+        try:
+            path = cfg.save()
+        except OSError as e:
+            logger.warning("会議設定の保存に失敗: %s", e)
+            self._send_json({"status": "error", "message": str(e)})
+            return
+        logger.info("会議設定を更新: %d 件 %s (%s)", len(names), settings.fields(), path)
         self._send_json({"status": "ok", "path": path})

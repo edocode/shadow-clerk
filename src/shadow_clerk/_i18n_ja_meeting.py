@@ -1,0 +1,31 @@
+"""Shadow-clerk: i18n 文字列テーブル (ja) — 会議ごとの設定"""
+# pylint: disable=duplicate-code  # 日英テーブルは同一プレースホルダ構造を持つため
+from __future__ import annotations
+
+STRINGS_JA_MEETING: dict[str, str] = {
+    "ms.title": "会議ごとの設定",
+    "ms.filter_ph": "会議名で絞り込む",
+    "ms.col_name": "会議名",
+    "ms.col_publish": "公開",
+    "ms.col_dest": "公開先",
+    "ms.publish": "公開（議事録を外部サービスに出すか）",
+    "ms.keep": "変更しない",
+    "ms.publish_on": "公開",
+    "ms.publish_off": "非公開",
+    "ms.workdir": "作業ディレクトリ",
+    "ms.workdir_keep": "（空欄なら変更しない）",
+    "ms.dest": "公開先",
+    "ms.apply": "適用",
+    "ms.config_file": "設定ファイル: {path}",
+    "ms.uses_defaults": "既定値を使用",
+    "ms.shared_rule": "ルール「{rule}」に一致（変えるとこの会議用のルールを足します）",
+    "ms.edit_one": "この会議の設定",
+    "ms.title_one": "会議の設定 — {name}",
+    "ms.title_many": "{n} 件をまとめて変更",
+    "ms.pick": "左で会議を選んでください",
+    "ms.notion_url_required": "Notion の URL（https://…）を入れてください",
+    "ms.nothing": "変更する項目がありません",
+    "ms.advice": "AI分析の Advice",
+    "ms.advice_on": "公開先に載せる",
+    "ms.advice_off": "載せない",
+}

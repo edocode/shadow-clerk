@@ -202,6 +202,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_analysis()
         elif path == "/api/meeting-config":
             self._serve_meeting_config()
+        elif path == "/api/meeting-settings":
+            self._serve_meeting_settings()
         elif path == "/api/forbid-analyze":
             self._serve_forbid_analyze()
         elif path == "/api/config-presets":
@@ -276,6 +278,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._console_resize()
         elif path == "/api/meeting-config":
             self._save_meeting_config()
+        elif path == "/api/meeting-settings":
+            self._save_meeting_settings()
         elif path == "/api/forbid-analyze":
             self._save_forbid_analyze()
         elif path == "/api/config-presets":

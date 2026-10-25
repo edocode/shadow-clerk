@@ -55,6 +55,52 @@ def migrate_legacy(legacy_paths: list[str] | None = None,
     return False
 
 
+PUBLISH_TARGETS = ("artifact", "notion")
+
+
+def literal_name(pattern: str) -> str:
+    """会議名をそのまま書いたパターン（^…$ とエスケープを除いたもの）。メタ文字が残れば空"""
+    body = pattern.removeprefix("^").removesuffix("$")
+    if re.search(r"[.^$*+?{}\[\]|()]", re.sub(r"\\.", "", body)):
+        return ""
+    return re.sub(r"\\(.)", r"\1", body)
+
+
+@dataclass(frozen=True)
+class MeetingSettings:
+    """会議ごとの設定のうち、ダッシュボードから変える値。None は変えない"""
+
+    publish: bool | None = None
+    workdir: str | None = None
+    publish_to: str | None = None
+    notion_url: str | None = None
+    publish_advice: bool | None = None
+
+    @classmethod
+    def parse(cls, data: object) -> "MeetingSettings":
+        """POST の set を検証する。不正なら ValueError"""
+        if not isinstance(data, dict):
+            raise ValueError("set must be an object")
+        publish, workdir = data.get("publish"), data.get("workdir")
+        publish_to, notion_url = data.get("publish_to"), data.get("notion_url")
+        publish_advice = data.get("publish_advice")
+        for key, value in (("publish", publish), ("publish_advice", publish_advice)):
+            if value is not None and not isinstance(value, bool):
+                raise ValueError(f"{key} must be a boolean")
+        if workdir is not None and not isinstance(workdir, str):
+            raise ValueError("workdir must be a string")
+        if publish_to is not None and publish_to not in PUBLISH_TARGETS:
+            raise ValueError(f"publish_to must be one of {', '.join(PUBLISH_TARGETS)}")
+        if notion_url is not None and not (isinstance(notion_url, str) and (
+                not notion_url.strip() or notion_url.strip().startswith("https://"))):
+            raise ValueError("notion_url must be an https URL")
+        return cls(publish, workdir.strip() if workdir is not None else None, publish_to,
+                   notion_url.strip() if notion_url is not None else None, publish_advice)
+
+    def fields(self) -> dict:
+        return {k: v for k, v in vars(self).items() if v is not None}
+
+
 @dataclass(frozen=True)
 class MeetingRule:
     """会議名パターンと、その会議での起動ディレクトリ"""
@@ -107,7 +153,23 @@ class MeetingConfig:
     #: `research`(調べものの当て先)が空なのは、このマシンの外へ問い合わせるものを
     #: 明示的に許可されたものだけにするため。どの当て先が社内かは環境ごとに違う
     DEFAULTS = {"analyze": True, "verbosity": "normal", "interval": 25,
-                "publish": True, "workdir": "", "history": 3, "research": []}
+                "publish": True, "publish_to": "artifact", "notion_url": "", "publish_advice": False,
+                "workdir": "", "history": 3, "research": []}
+
+    def _first_match(self, meeting_name: str) -> tuple[int, dict | None]:
+        """meetings[] を上から照合し、最初に一致したルールと raw 上の位置を返す"""
+        entries = self.raw.get("meetings")
+        for i, entry in enumerate(entries if isinstance(entries, list) else []):
+            if not isinstance(entry, dict) or not (pattern := entry.get("pattern")):
+                continue
+            try:
+                if re.search(str(pattern), meeting_name, re.IGNORECASE):
+                    return i, entry
+            except re.error as e:
+                # 人が手で書く設定なので壊れたパターンは起こりうる。
+                # 全体を落とさず、そのルールだけ飛ばして次を見る
+                logger.warning("会議設定の pattern が不正です %r: %s", pattern, e)
+        return -1, None
 
     def resolve(self, meeting_name: str) -> dict:
         """会議名に対する設定を解決する。
@@ -121,22 +183,9 @@ class MeetingConfig:
         if isinstance(defaults, dict):
             resolved.update({k: v for k, v in defaults.items() if k in self.DEFAULTS})
         matched, note = "(defaults)", ""
-        for entry in self._meetings():
-            pattern = entry.get("pattern")
-            if not pattern:
-                continue
-            try:
-                hit = re.search(str(pattern), meeting_name, re.IGNORECASE)
-            except re.error as e:
-                # 人が手で書く設定なので壊れたパターンは起こりうる。
-                # 全体を落とさず、そのルールだけ飛ばして次を見る
-                logger.warning("会議設定の pattern が不正です %r: %s", pattern, e)
-                continue
-            if hit:
-                matched = str(pattern)
-                note = str(entry.get("note") or "")
-                resolved.update({k: v for k, v in entry.items() if k in self.DEFAULTS})
-                break
+        if (entry := self._first_match(meeting_name)[1]) is not None:
+            matched, note = str(entry["pattern"]), str(entry.get("note") or "")
+            resolved.update({k: v for k, v in entry.items() if k in self.DEFAULTS})
         resolved["workdir"] = (os.path.expanduser(str(resolved["workdir"]))
                                if resolved["workdir"] else "")
         resolved["research"] = self._research(resolved.get("research"))
@@ -169,19 +218,8 @@ class MeetingConfig:
 
     def resolve_workdir(self, meeting_name: str) -> str:
         """会議名に一致する最初のルールの workdir を返す。無ければ defaults、それも無ければ空"""
-        for entry in self._meetings():
-            pattern = entry.get("pattern")
-            if not pattern:
-                continue
-            try:
-                matched = re.search(str(pattern), meeting_name, re.IGNORECASE)
-            except re.error as e:
-                # 人が手で書く設定なので不正なパターンは起こりうる。
-                # 全体を落とさず、そのルールだけ飛ばして次を見る
-                logger.warning("会議設定の pattern が不正です %r: %s", pattern, e)
-                continue
-            if matched:
-                return str(entry.get("workdir") or self._default_workdir())
+        if (entry := self._first_match(meeting_name)[1]) is not None:
+            return str(entry.get("workdir") or self._default_workdir())
         return self._default_workdir()
 
     def _default_workdir(self) -> str:
@@ -207,6 +245,25 @@ class MeetingConfig:
                 entry["workdir"] = workdir
                 return
         entries.append({"pattern": pattern, "workdir": workdir})
+
+    def apply(self, meeting_name: str, settings: MeetingSettings) -> None:
+        """会議名ひとつに設定を書く。
+
+        一致したルールがその会議名だけのもの（`週次定例` や `^週次定例$`）なら、それを更新する。
+        別の名前向けの広いルールに一致していたら、そのルールの値を写した `^会議名$` のルールを
+        その直前に足して変える。最初に一致したルールだけが効くので、後ろに足すと効かず、
+        広いルールを書き換えるとほかの会議まで変わる
+        """
+        entries = self.raw.get("meetings")
+        if not isinstance(entries, list):
+            entries = self.raw["meetings"] = []
+        index, entry = self._first_match(meeting_name)
+        if entry is not None and literal_name(str(entry["pattern"])) == meeting_name:
+            entry.update(settings.fields())
+            return
+        copied = {k: v for k, v in (entry or {}).items() if k in self.DEFAULTS}
+        new = {"pattern": f"^{re.escape(meeting_name)}$", **copied, **settings.fields()}
+        entries.insert(index if entry is not None else len(entries), new)
 
     def remove(self, pattern: str) -> None:
         entries = self.raw.get("meetings")
