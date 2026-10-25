@@ -233,6 +233,8 @@ class _MockVoicevox(BaseHTTPRequestHandler):
         elif u.path == "/synthesis":
             _MockVoicevox.synth_body = json.loads(body)
             self._reply(_wav_bytes(np.zeros(240, dtype=np.float32), 24000), "audio/wav")
+        elif u.path == "/streaming_synthesis":
+            self._reply(_wav_bytes(np.linspace(-1, 1, 480, dtype=np.float32), 24000), "audio/wav")
         elif u.path == "/user_dict_word":
             self.user_dict[f"u{len(self.user_dict) + 1}"] = {
                 "surface": q["surface"][0], "pronunciation": q["pronunciation"][0], "accent_type": int(q["accent_type"][0])}
@@ -268,6 +270,15 @@ def test_voicevox() -> None:
         check("登録済みの表記（全角化されたものも）は上書きしない",
               not any("user_dict_word" in c for c in _MockVoicevox.calls)
               and _MockVoicevox.user_dict["u1"]["pronunciation"] == "エービーシー", repr(_MockVoicevox.calls))
+
+        # ストリーミング合成
+        chunks_iter, sr_s = vv.synthesize_stream("テスト")
+        all_chunks = list(chunks_iter)
+        check("ストリーミング合成: sample_rate", sr_s == 24000, str(sr_s))
+        check("ストリーミング合成: チャンクが返る", len(all_chunks) > 0)
+        pcm_s = np.concatenate(all_chunks) if all_chunks else np.array([], dtype=np.float32)
+        check("ストリーミング合成: PCM の長さが正しい", len(pcm_s) == 480, str(len(pcm_s)))
+        check("ストリーミング合成: dtype は float32", pcm_s.dtype == np.float32)
     finally:
         srv.shutdown()
         srv.server_close()

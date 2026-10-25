@@ -6,6 +6,7 @@ import queue
 import re
 import threading
 import time
+from collections.abc import Iterator as _IterABC
 from typing import Any, Callable, Protocol
 
 import numpy as np
@@ -16,6 +17,8 @@ logger = logging.getLogger("shadow-clerk")
 
 # (pcm, sample_rate, should_stop)。should_stop が真になったら再生を途中でやめる
 PlayFn = Callable[[np.ndarray, int, Callable[[], bool]], None]
+# (chunk_iter, sample_rate, should_stop)。PCM チャンクを順次書き込む
+StreamPlayFn = Callable[[_IterABC[np.ndarray], int, Callable[[], bool]], None]
 
 # 句点・感嘆符・疑問符の直後と改行で切る。1文目の再生を早く始めるため
 _SENTENCE_BREAK = re.compile(r"(?<=[。！？!?])|\n")
@@ -123,6 +126,72 @@ def play_on_devices(device_names: list[str]) -> PlayFn:
     return play
 
 
+def play_stream_on_devices(device_names: list[str]) -> StreamPlayFn:
+    """streaming_synthesis の PCM チャンクを各デバイスに順次書き込む関数を返す"""
+    from shadow_clerk._daemon_audio import PORTAUDIO_LOCK
+
+    def play(chunks: _IterABC[np.ndarray], sr: int, should_stop: Callable[[], bool]) -> None:
+        import sounddevice as sd
+
+        with PORTAUDIO_LOCK:
+            targets = [_resolve_output(n) for n in device_names] or [None]
+            target_srs: list[int] = []
+            for d in targets:
+                try:
+                    sd.check_output_settings(device=d, samplerate=sr, channels=1, dtype="float32")
+                    target_srs.append(sr)
+                except Exception:
+                    target_srs.append(int(sd.query_devices(d, kind="output")["default_samplerate"]))
+
+            if any(t != sr for t in target_srs):
+                # リサンプルが必要: 全チャンクを集めてデバイスごとにスレッド再生
+                chunk_list = list(chunks)
+                if not chunk_list:
+                    return
+                all_pcm = np.concatenate(chunk_list)
+                errors: list[Exception] = []
+
+                def run(device: int | None, target_sr: int) -> None:
+                    try:
+                        p = resample(all_pcm, sr, target_sr) if target_sr != sr else all_pcm
+                        _play_one(p, target_sr, device, should_stop)
+                    except Exception as e:
+                        errors.append(e)
+
+                threads = [threading.Thread(target=run, args=(d, t), daemon=True)
+                           for d, t in zip(targets, target_srs)]
+                for th in threads:
+                    th.start()
+                for th in threads:
+                    th.join()
+                if errors:
+                    raise errors[0]
+                return
+
+            streams = [sd.OutputStream(samplerate=sr, channels=1, dtype="float32", device=d)
+                       for d in targets]
+            for s in streams:
+                s.start()
+            try:
+                for chunk in chunks:
+                    if should_stop():
+                        for s in streams:
+                            s.abort()
+                        return
+                    shaped = chunk.reshape(-1, 1)
+                    for s in streams:
+                        s.write(shaped)
+            finally:
+                for s in streams:
+                    try:
+                        s.stop()
+                        s.close()
+                    except Exception:
+                        pass
+
+    return play
+
+
 def _drain(q: queue.Queue) -> int:
     """取り出した文の数を返す（終端の None は数えない）"""
     n = 0
@@ -143,16 +212,18 @@ class TtsPlayer:
     どちらの文も同じ再生キューを通るので、送った順に鳴る。
     """
 
-    def __init__(self, backend: TtsBackend, play: PlayFn, on_error: Callable[[str], None]) -> None:
+    def __init__(self, backend: TtsBackend, play: PlayFn, on_error: Callable[[str], None],
+                 stream_play: StreamPlayFn | None = None) -> None:
         self._backend = backend
         self._play = play
+        self._stream_play = stream_play
         self._on_error = on_error
         self._on_played: Callable[[str, float, float], None] | None = None
         self._on_span: Callable[[float, float | None], None] | None = None
         self._remote: RemoteSpeaker | None = None
         self._texts: queue.Queue[tuple[int, str, Language | None] | None] = queue.Queue()
-        # pcm が None の文は合成していない（ブラウザで読む候補）
-        self._audio: queue.Queue[tuple[int, str, np.ndarray | None, int, Language | None] | None] = queue.Queue(maxsize=2)
+        # pcm が None の文は合成していない（ブラウザで読む候補）。Iterator はストリーミング合成のチャンク列
+        self._audio: queue.Queue[tuple[int, str, np.ndarray | _IterABC[np.ndarray] | None, int, Language | None] | None] = queue.Queue(maxsize=2)
         self._abort = threading.Event()
         self._gen = 0
         self._speaking = ""
@@ -221,6 +292,7 @@ class TtsPlayer:
         return self._abort.is_set() or gen != self._gen
 
     def _synth_loop(self) -> None:
+        use_stream = self._stream_play is not None and hasattr(self._backend, "synthesize_stream")
         while (item := self._texts.get()) is not None:
             gen, text, lang = item
             if self._stale(gen):
@@ -229,6 +301,21 @@ class TtsPlayer:
             if lang is not None and self._remote is not None:
                 self._audio.put((gen, text, None, 0, lang))  # 読む先は鳴らす直前に決める（タブの状態はそのときのもの）
                 continue
+            if use_stream:
+                try:
+                    chunks, sr = self._backend.synthesize_stream(text)  # type: ignore[attr-defined]
+                    if self._stale(gen):
+                        try:
+                            chunks.close()
+                        except Exception:
+                            pass
+                        self._add_pending(-1)
+                    else:
+                        self._audio.put((gen, text, chunks, sr, lang))
+                    continue
+                except Exception as e:
+                    logger.warning("talk: ストリーミング合成に失敗。通常合成に切り替えます: %s", e)
+                    use_stream = False
             try:
                 pcm, sr = self._backend.synthesize(text)
             except Exception as e:
@@ -246,6 +333,11 @@ class TtsPlayer:
         while (item := self._audio.get()) is not None:
             gen, text, pcm, sr, lang = item
             if self._stale(gen):
+                if isinstance(pcm, _IterABC):
+                    try:
+                        pcm.close()  # type: ignore[union-attr]
+                    except Exception:
+                        pass
                 self._add_pending(-1)
                 continue
             self._speaking = text
@@ -257,8 +349,17 @@ class TtsPlayer:
                     if lang is not None and self._speak_remote(text, lang, should_stop):
                         continue
                     pcm, sr = self._backend.synthesize(text)  # 読めるタブが無い。VOICEVOX で読む
-                self._notify(text, len(pcm) / sr)
-                self._play(pcm, sr, should_stop)
+                if isinstance(pcm, _IterABC):
+                    self._notify(text, estimate_speech_sec(text))
+                    if self._stream_play is not None:
+                        self._stream_play(pcm, sr, should_stop)
+                    else:
+                        chunk_list = list(pcm)
+                        if chunk_list:
+                            self._play(np.concatenate(chunk_list), sr, should_stop)
+                else:
+                    self._notify(text, len(pcm) / sr)
+                    self._play(pcm, sr, should_stop)
             except Exception as e:
                 logger.warning("talk: 再生に失敗: %s", e)
                 self._on_error(str(e))
@@ -302,4 +403,6 @@ def make_backend(config: dict, voice: TalkVoice | None = None) -> TtsBackend:
 
 
 def make_player(backend: TtsBackend, config: dict, on_error: Callable[[str], None]) -> TtsPlayer:
-    return TtsPlayer(backend, play_on_devices(list(config.get("talk_output_devices") or [])), on_error)
+    devices = list(config.get("talk_output_devices") or [])
+    return TtsPlayer(backend, play_on_devices(devices), on_error,
+                     stream_play=play_stream_on_devices(devices))
