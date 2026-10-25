@@ -277,6 +277,18 @@ def test_route_none_keeps_old_behaviour() -> None:
     check("snapshot の経路は空", d.snapshot()["route"] == {"app": "", "connected": False})
 
 
+def test_glossary() -> None:
+    d, _w, _m = _driver()
+    check("talk mode 外は用語集を使う", d.uses_glossary)
+    d.start("x", None)
+    check("既定では用語集を使う", d.uses_glossary and d.snapshot()["glossary"] is True)
+    d.stop()
+    d.start("x", None, glossary=False)
+    check("外せば使わない", not d.uses_glossary and d.snapshot()["glossary"] is False)
+    d.stop()
+    check("終えれば使う", d.uses_glossary)
+
+
 def test_route_failures() -> None:
     d, _w, made = _driver(route_factory=lambda: _Route(ok=False), sink_factory=lambda: _Sink())
     try:
@@ -805,6 +817,7 @@ if __name__ == "__main__":
     test_route()
     test_route_stop_unblocks_player()
     test_route_none_keeps_old_behaviour()
+    test_glossary()
     test_route_failures()
     test_route_connect_failure()
     test_route_targets()

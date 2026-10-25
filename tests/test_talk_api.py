@@ -41,10 +41,12 @@ class _Talk:
             raise TtsError("down")
         self.calls.append(("preview", voice, text))
 
-    def start(self, topic: str, persona: str | None, workdir: str | None = None, route: str | None = None) -> None:
+    def start(self, topic: str, persona: str | None, workdir: str | None = None, route: str | None = None,
+              glossary: bool = True) -> None:
         if topic == "boom":
             raise TalkStartError("VOICEVOX down")
         self.calls.append(("start", topic, persona, workdir, route))
+        self.glossary = glossary
 
     def stop(self) -> None:
         self.calls.append(("stop",))
@@ -99,6 +101,13 @@ def test_start_stop() -> None:
     h = _FakeHandler({"on": True})
     h._set_talk_mode()
     check("persona 省略は None", h.talk.calls == [("start", "", None, None, None)], repr(h.talk.calls))
+    check("用語集は既定で使う", h.talk.glossary is True)
+    h = _FakeHandler({"on": True, "glossary": False})
+    h._set_talk_mode()
+    check("用語集を使わない指定を渡す", h.talk.glossary is False)
+    h = _FakeHandler({"on": True, "glossary": "no"})
+    h._set_talk_mode()
+    check("真偽値でない用語集の指定は拒否", h.sent.get("status") == "error" and h.talk.calls == [])
     h = _FakeHandler({"on": True, "workdir": "~/work"})
     h._set_talk_mode()
     check("作業ディレクトリを渡す", h.talk.calls == [("start", "", None, "~/work", None)], repr(h.talk.calls))

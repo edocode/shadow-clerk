@@ -620,6 +620,7 @@ STRINGS_EN: dict[str, str] = {
     "dash.talk_route_connected": "connected",
     "dash.talk_route_disconnected": "not connected",
     "dash.talk_edit_personas": "Edit personas",
+    "dash.talk_glossary": "Use the glossary (transcript replacements and Claude's lookups)",
     "dash.talk_voice": "Voice settings",
     "dash.voice_speaker": "Speaker",
     "dash.voice_speed": "Speed",

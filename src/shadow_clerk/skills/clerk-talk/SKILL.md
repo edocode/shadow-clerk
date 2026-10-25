@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」で、ユーザーと音声で議論する。ダッシュボードの「Claude と会議」から talk コンソールで自動的に起動される。ユーザーの発言は shadow-clerk の文字起こしとして届き、あなたの応答は shadow-clerk が音声で読み上げる。「/clerk-talk」と打たれたとき、声で議論したい・Claude と会議したいと言われたときに使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.7.3"
+  version: "1.7.4"
 ---
 
 # clerk-talk — 声で議論する
@@ -27,7 +27,7 @@ curl -s "http://localhost:8765/api/talk-mode"
 
 ```json
 {"active": true, "engine": "console", "topic": "…", "persona": "…",
- "persona_instructions": "…", "language": "ja", "credit": "VOICEVOX:…", "error": ""}
+ "persona_instructions": "…", "glossary": true, "language": "ja", "credit": "VOICEVOX:…", "error": ""}
 ```
 
 - `active` が false なら talk mode は始まっていない。ユーザーに「ダッシュボードの『Claude と会議』から始めてください」と伝えて終える
@@ -46,6 +46,8 @@ curl -s "http://localhost:8765/api/glossary"
 ```
 
 用語集（TSV: `ja / en / reading / note`）。社名・人名・サービス名・用語が入っている。
+`/api/talk-mode` の `glossary` が false なら、ユーザーが開始時に用語集を使わないと選んだ。用語集は読まず、
+用語集の語に寄せた解釈・聞き返しもしない（聞き間違いの対は読む）。
 
 ```
 curl -s "http://localhost:8765/api/misheard"
