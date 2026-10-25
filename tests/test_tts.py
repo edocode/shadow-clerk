@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 import numpy as np
 
 from shadow_clerk._daemon_tts import TtsError, TtsPlayer, resample, split_sentences
-from shadow_clerk._daemon_tts_voicevox import VoicevoxBackend
+from shadow_clerk._daemon_tts_voicevox import VoicevoxBackend, load_dict_preset
 from shadow_clerk.domain import Language, TalkVoice
 
 results: list[bool] = []
@@ -199,6 +199,7 @@ def _wav_bytes(samples: np.ndarray, sr: int) -> bytes:
 class _MockVoicevox(BaseHTTPRequestHandler):
     calls: list[str] = []
     synth_body: dict = {}
+    user_dict: dict = {"u1": {"surface": "ＡＢＣ", "pronunciation": "エービーシー"}}
 
     def log_message(self, format: str, *args: object) -> None:
         pass
@@ -218,6 +219,8 @@ class _MockVoicevox(BaseHTTPRequestHandler):
         elif u.path == "/speakers":
             body = [{"name": "テスト話者", "styles": [{"id": 3, "name": "ノーマル"}]}]
             self._reply(json.dumps(body).encode(), "application/json")
+        elif u.path == "/user_dict":
+            self._reply(json.dumps(self.user_dict).encode(), "application/json")
 
     def do_POST(self) -> None:
         u = urlparse(self.path)
@@ -230,6 +233,10 @@ class _MockVoicevox(BaseHTTPRequestHandler):
         elif u.path == "/synthesis":
             _MockVoicevox.synth_body = json.loads(body)
             self._reply(_wav_bytes(np.zeros(240, dtype=np.float32), 24000), "audio/wav")
+        elif u.path == "/user_dict_word":
+            self.user_dict[f"u{len(self.user_dict) + 1}"] = {
+                "surface": q["surface"][0], "pronunciation": q["pronunciation"][0], "accent_type": int(q["accent_type"][0])}
+            self._reply(b'"id"', "application/json")
 
 
 def test_voicevox() -> None:
@@ -254,6 +261,13 @@ def test_voicevox() -> None:
         check("声の設定は文ごとに読み直す", _MockVoicevox.synth_body.get("speedScale") == 0.8)
         check("話者一覧を「キャラ（スタイル）」で返す",
               vv.voices() == [{"id": 3, "name": "テスト話者（ノーマル）"}], repr(vv.voices()))
+        surfaces = [w["surface"] for w in _MockVoicevox.user_dict.values()]
+        check("check でプリセットの読みを辞書に足す", all(w in surfaces for w, _, _ in load_dict_preset()), repr(surfaces))
+        _MockVoicevox.calls.clear()
+        vv.sync_dict([("ABC", "アベセ", 1), ("同じ文", "ドウジブン", 0)])
+        check("登録済みの表記（全角化されたものも）は上書きしない",
+              not any("user_dict_word" in c for c in _MockVoicevox.calls)
+              and _MockVoicevox.user_dict["u1"]["pronunciation"] == "エービーシー", repr(_MockVoicevox.calls))
     finally:
         srv.shutdown()
         srv.server_close()

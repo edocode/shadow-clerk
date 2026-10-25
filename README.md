@@ -681,6 +681,7 @@ Requirements:
   - Or run via Docker: `docker run --rm -p 50021:50021 voicevox/voicevox_engine:cpu-ubuntu20.04-latest`
 
   Follow the terms of the voice you use; the dashboard shows the required credit (`VOICEVOX:<name>`) while talk mode is on.
+  When talk mode starts, words VOICEVOX is known to misread (bundled `voicevox_dict.tsv`) are added to the engine's user dictionary, unless the same word is already registered there.
 - Headphones. While talk mode is on, the monitor channel is not transcribed, so Claude's own
   voice does not come back as `[Others]` lines.
 
