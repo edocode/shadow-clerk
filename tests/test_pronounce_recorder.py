@@ -232,13 +232,25 @@ def test_overlap_is_trimmed() -> None:
     check("切り落としたことを知らせる", len(offers) == 1 and offers[0][3] is True, repr(offers))
 
 
+def test_pre_roll_overlap_is_kept() -> None:
+    # お手本の直後に言い始めると、声の前のプリロールだけが読み上げの tail に掛かる。
+    # 切ると文頭の弱い子音が消え、試行も「切れた録音」扱いになる
+    talk = _Talk(clear=(1000.75, 1001.75))     # 音声の頭 0.25 秒（プリロール）だけが重なる
+    rec = _Rec(talk)
+    talk.clear_part = lambda s, e: (s, e) if s >= 1000.75 else (1000.75, e)  # type: ignore[method-assign]
+    _run(rec, seg_start=1000.75, pre_roll=0.25)
+    offers = rec.pronounce.offers
+    check("プリロールだけが重なるなら切らずに渡す", len(offers) == 1 and offers[0][0] == 16000
+          and offers[0][3] is False, repr(offers))
+
+
 def test_playback_gate_gets_the_audio_span() -> None:
     # 開始だけ渡すと、読み上げをまたぐセグメントが gate を抜ける。終了（開始 + 長さ）も渡すこと。
     # 開始は音声の頭（声の開始からプリロールを引いた時刻）。切り落とす位置を音声の中で決めるため
     talk = _Talk()
     rec = _Rec(talk)
     _run(rec, pre_roll=0.25)     # 16000 サンプル = 1.0 秒
-    check("gate に音声の開始と終了を渡す", talk.playback_calls == [(1000.0, 1001.0)],
+    check("gate に声の開始と音声の終了を渡す", talk.playback_calls == [(1000.25, 1001.0)],
           repr(talk.playback_calls))
     check("重ならなければ切り落とさない", rec.pronounce.offers[0][0] == 16000
           and rec.pronounce.offers[0][3] is False, repr(rec.pronounce.offers))
@@ -302,6 +314,7 @@ if __name__ == "__main__":
     test_word_replacer_applied_first()
     test_playback_segment_is_not_offered()
     test_overlap_is_trimmed()
+    test_pre_roll_overlap_is_kept()
     test_playback_gate_gets_the_audio_span()
     test_monitor_is_not_offered()
     test_command_mode_is_not_offered()

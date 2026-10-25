@@ -189,12 +189,18 @@ class _RecorderTranscribeMixin:
         # ここで止めれば talk mode 外ではワーカーにセグメントが届かない。
         # ノイズフィルタより前に置く: 相槌として捨てる行も、課題の発話かは Claude が asr_text で判断する。
         # transcript 行の書き込みより前でもある（skill が行を見て poll するとき pending が増えている）
-        # 重なる部分だけを切り落とし、残りが短すぎるときだけ捨てる（_PlaybackSpan.clear_part）
+        # 重なる部分だけを切り落とし、残りが短すぎるときだけ捨てる（_PlaybackSpan.clear_part）。
+        # 重なりは声の開始から見る。お手本の直後に言い始めるとプリロールだけが tail に掛かり、
+        # そこを切ると文頭の弱い子音（θ など）が消える
         try:
             if source == "mic" and self.talk.active:
                 audio = (seg_start - pre_roll, seg_start - pre_roll + duration)
-                lo, hi = clear = self.talk.clear_part(*audio)
-                if not (trimmed := clear != audio) or hi - lo >= PRONOUNCE_MIN_CLEAR_SEC:
+                voice = (seg_start, audio[1])
+                if trimmed := self.talk.clear_part(*voice) != voice:
+                    lo, hi = self.talk.clear_part(*audio)
+                else:
+                    lo, hi = audio
+                if not trimmed or hi - lo >= PRONOUNCE_MIN_CLEAR_SEC:
                     if trimmed:
                         logger.info("pronounce: 読み上げと重なる %.1f秒を除き、%.1f秒を渡します: %r",
                                     duration - (hi - lo), hi - lo, text.strip())
