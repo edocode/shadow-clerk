@@ -67,6 +67,8 @@ curl -s -X POST "http://localhost:8765/api/misheard" -H 'Content-Type: applicati
 
 ## 話す
 
+- **返事は、必ず `/api/say` で声にする。画面の文字だけで返さない。**
+
 ```
 curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/json' -d '{"text":"…"}'
 ```
