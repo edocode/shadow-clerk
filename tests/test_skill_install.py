@@ -251,6 +251,18 @@ def test_practice_skill() -> None:
           0 <= body.index("## 3. 練習する") < body.index('/api/language"') and "では、始めましょう" in body)
 
 
+def test_sing_skill() -> None:
+    """歌の skill が版付きで同梱され、スクリプトごと配られること"""
+    sing = skill_install.SING_SKILL_NAME
+    check("voicevox-sing を同梱する", sing in skill_install.BUNDLED_SKILLS, repr(skill_install.BUNDLED_SKILLS))
+    check("voicevox-sing に版が付いている",
+          skill_install.read_skill_version(skill_install.bundled_skill_dir(sing)) is not None)
+    with tempfile.TemporaryDirectory() as tmp:
+        skill_install.install(tmp)
+        for name in ("SKILL.md", "sing.py", "band_example.py"):
+            check(f"voicevox-sing の {name} も配られた", (pathlib.Path(tmp) / sing / name).is_file())
+
+
 def test_talk_skill_reads_glossary_and_misheard() -> None:
     """声の聞き取りの崩れを読み解けるよう、talk skill が用語集と聞き間違いの対を読み、対を足せること"""
     text = (skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME) / "SKILL.md").read_text(encoding="utf-8")
@@ -304,6 +316,7 @@ def main() -> int:
     test_talk_skill_reads_glossary_and_misheard()
     test_talk_skill_watches_advice()
     test_practice_skill()
+    test_sing_skill()
     test_skills_read_screen_captures_via_subagent()
     shutil.rmtree(_DATA, ignore_errors=True)
     print(f"\n{sum(results)}/{len(results)} passed")

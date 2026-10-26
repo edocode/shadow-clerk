@@ -127,7 +127,7 @@ glossary and `misheard.tsv` exist for exactly that.
 
 ## Bundled Skills (`src/shadow_clerk/skills/`)
 
-`clerk-meeting-helper`, `clerk-talk`, `clerk-practice` の3スキルを同梱し、
+`clerk-meeting-helper`, `clerk-talk`, `clerk-practice`, `voicevox-sing` の4スキルを同梱し、
 `clerk-util install-skill` またはダッシュボードのモーダルでユーザーの
 `~/.claude/skills/` へ配布する（`skill_install.py` が一元管理）。
 
