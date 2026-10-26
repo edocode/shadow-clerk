@@ -805,7 +805,7 @@ clerk-util command translate_stop                  # 翻訳ループ停止
 
 ダッシュボードの **AI コンソール** タブ（**ログ** タブの隣）で、AI アシスタント（`claude` または `codex`）を PTY 上で動かし、会議の文字起こしを監視させて生成物を書かせることができる。
 
-- **スキルの導入**: アシスタントは同梱スキル（`clerk-meeting-helper`。[Claude と会議](#claude-と会議)用の `clerk-talk` と `clerk-practice` も一緒に入る）を使う。エージェント側のスキルディレクトリへコピーする必要があり、初回起動時に ようこそ ダイアログが案内する。コマンドからでも同じことができる:
+- **スキルの導入**: アシスタントは同梱スキル（`clerk-meeting-helper`。[Claude と会議](#claude-と会議)用の `clerk-talk`・`clerk-practice`・`voicevox-sing` も一緒に入る）を使う。エージェント側のスキルディレクトリへコピーする必要があり、初回起動時に ようこそ ダイアログが案内する。コマンドからでも同じことができる:
 
   ```bash
   clerk-util install-skill                        # ~/.claude/skills/   (Claude Code)
@@ -968,7 +968,7 @@ shadow-clerk/                          # リポジトリ
     skill_install.py                   # install-skill
     i18n.py                            # 多言語対応 (ja/en)
     domain/                            # ドメインの値オブジェクト
-    skills/                            # 同梱スキル: clerk-meeting-helper, clerk-talk, clerk-practice
+    skills/                            # 同梱スキル: clerk-meeting-helper, clerk-talk, clerk-practice, voicevox-sing
     talk_prompts/                      # talk mode のシステムプロンプト
   extension/                           # スクリーンショット用 Chrome 拡張
   packaging/                           # PyInstaller の spec とフック

@@ -811,7 +811,7 @@ Generated meeting minutes are saved to `~/.local/share/shadow-clerk/summary-YYYY
 
 An AI assistant (`claude` or `codex`) can run inside a PTY under the dashboard's **AI Console** tab (next to **Logs**), watching the meeting transcript and writing generated documents back for the dashboard to display.
 
-- **Installing the skill**: the assistant runs a bundled skill (`clerk-meeting-helper`; `clerk-talk` and `clerk-practice` for [talk mode](#talk-with-claude) are installed with it) that has to be copied into the agent's own skills directory. The Welcome dialog offers this on a first run, and the command does the same:
+- **Installing the skill**: the assistant runs a bundled skill (`clerk-meeting-helper`; `clerk-talk`, `clerk-practice` and `voicevox-sing` for [talk mode](#talk-with-claude) are installed with it) that has to be copied into the agent's own skills directory. The Welcome dialog offers this on a first run, and the command does the same:
 
   ```bash
   clerk-util install-skill                        # ~/.claude/skills/   (Claude Code)
@@ -974,7 +974,7 @@ shadow-clerk/                          # Repository
     skill_install.py                   # install-skill
     i18n.py                            # Internationalization (ja/en)
     domain/                            # Domain value objects
-    skills/                            # Bundled skills: clerk-meeting-helper, clerk-talk, clerk-practice
+    skills/                            # Bundled skills: clerk-meeting-helper, clerk-talk, clerk-practice, voicevox-sing
     talk_prompts/                      # Talk mode system prompts
   extension/                           # Chrome screenshot extension
   packaging/                           # PyInstaller spec and hooks

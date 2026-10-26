@@ -111,7 +111,7 @@ where = ["src"]
 
 # スキル実体（clerk-util install-skill の配布元）と、VOICEVOX へ足す読みのプリセットを wheel に載せる
 [tool.setuptools.package-data]
-shadow_clerk = ["skills/**/*.md", "talk_prompts/*.md", "voicevox_dict.tsv"]
+shadow_clerk = ["skills/**/*.md", "skills/**/*.py", "talk_prompts/*.md", "voicevox_dict.tsv"]
 
 [dependency-groups]
 dev = [
