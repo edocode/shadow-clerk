@@ -15,6 +15,7 @@ import time
 from shadow_clerk.i18n import t
 from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name
 from shadow_clerk.domain import MEETING_END_MARKER, MeetingSession, meeting_start_marker
+from shadow_clerk.domain.meeting_config import MeetingConfig
 from shadow_clerk._daemon_constants import (
     SESSION_FILE,
     VOICE_CMD_PREFIX, VOICE_CMD_SUFFIX, VOICE_COMMANDS,
@@ -179,9 +180,14 @@ class _RecorderCommandMixin:
     def _maybe_start_analysis(self, transcript_path: str) -> bool:
         """auto_analyze が有効なら AI アシスタントを起動して初期プロンプトを送る。
 
+        会議ごとの設定で analyze が偽の会議では起動しない（スキルも監視に入らないので、立てても空回りする）。
         起動に失敗しても会議そのものは続けたいので、例外は外に出さない。
         """
         if not load_config().get("auto_analyze"):
+            return False
+        tn = TranscriptName.parse(os.path.basename(transcript_path))
+        if not MeetingConfig.load().resolve((tn.meeting_name or "") if tn else "")["analyze"]:
+            logger.info("会議設定で AI 分析しない会議なので、アシスタントを起動しません: %s", transcript_path)
             return False
         try:
             return bool(start_console_for(transcript_path, auto=True))

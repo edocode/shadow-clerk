@@ -75,6 +75,7 @@ class MeetingSettings:
     publish_to: str | None = None
     notion_url: str | None = None
     publish_advice: bool | None = None
+    analyze: bool | None = None
 
     @classmethod
     def parse(cls, data: object) -> "MeetingSettings":
@@ -83,8 +84,8 @@ class MeetingSettings:
             raise ValueError("set must be an object")
         publish, workdir = data.get("publish"), data.get("workdir")
         publish_to, notion_url = data.get("publish_to"), data.get("notion_url")
-        publish_advice = data.get("publish_advice")
-        for key, value in (("publish", publish), ("publish_advice", publish_advice)):
+        publish_advice, analyze = data.get("publish_advice"), data.get("analyze")
+        for key, value in (("publish", publish), ("publish_advice", publish_advice), ("analyze", analyze)):
             if value is not None and not isinstance(value, bool):
                 raise ValueError(f"{key} must be a boolean")
         if workdir is not None and not isinstance(workdir, str):
@@ -95,7 +96,7 @@ class MeetingSettings:
                 not notion_url.strip() or notion_url.strip().startswith("https://"))):
             raise ValueError("notion_url must be an https URL")
         return cls(publish, workdir.strip() if workdir is not None else None, publish_to,
-                   notion_url.strip() if notion_url is not None else None, publish_advice)
+                   notion_url.strip() if notion_url is not None else None, publish_advice, analyze)
 
     def fields(self) -> dict:
         return {k: v for k, v in vars(self).items() if v is not None}
