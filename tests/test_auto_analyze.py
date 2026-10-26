@@ -69,6 +69,23 @@ def test_failure_is_swallowed() -> None:
     check("起動失敗で例外を投げない", started is False)
 
 
+def test_meeting_without_analysis_is_skipped() -> None:
+    """会議ごとの設定で analyze: false の会議は、auto_analyze が有効でも起動しない"""
+    calls: list[str] = []
+    cfg = os.path.join(DATA, "meeting-analyze.yaml")
+    with open(cfg, "w", encoding="utf-8") as f:
+        f.write("meetings:\n  - pattern: 雑談\n    analyze: false\n")
+    os.environ["MEETING_CONFIG"] = cfg
+    try:
+        host = _patch(True, lambda p, auto=False: calls.append(p) or True)
+        skipped = host._maybe_start_analysis("/tmp/transcript-202610271000@雑談.txt")
+        started = host._maybe_start_analysis("/tmp/transcript-202610271000@週次定例.txt")
+    finally:
+        del os.environ["MEETING_CONFIG"]
+    check("analyze: false の会議では起動しない", skipped is False, repr(calls))
+    check("ほかの会議は起動する", started is True and calls == ["/tmp/transcript-202610271000@週次定例.txt"], repr(calls))
+
+
 class _MeetingHost(_RecorderCommandMixin):
     """start_meeting の配線だけを見るための最小の器"""
 
@@ -177,6 +194,7 @@ def main() -> int:
     test_enabled_starts()
     test_auto_flag_is_passed()
     test_failure_is_swallowed()
+    test_meeting_without_analysis_is_skipped()
     test_summary_goes_to_console_when_running()
     test_summary_falls_back_to_llm()
     test_summary_via_console_can_be_turned_off()

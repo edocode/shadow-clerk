@@ -89,7 +89,7 @@ def test_remote_rejected() -> None:
 
 
 def test_meeting_settings() -> None:
-    h = _FakeHandler({"meetings": ["週次定例", "1on1 alice"], "set": {"publish": False, "publish_advice": True}})
+    h = _FakeHandler({"meetings": ["週次定例", "1on1 alice"], "set": {"publish": False, "publish_advice": True, "analyze": False}})
     h._save_meeting_settings()
     check("まとめて保存できる", h.sent.get("status") == "ok", repr(h.sent))
     h = _FakeHandler()
@@ -100,6 +100,7 @@ def test_meeting_settings() -> None:
           got["週次定例"]["publish"] is False and got["週次定例"]["publish_advice"] is True
           and got["週次定例"]["shared"] is False and got["other"]["matched"] == "(defaults)"
           and got["other"]["publish_advice"] is False, repr(got))
+    check("AI分析の有無を返す", got["週次定例"]["analyze"] is False and got["other"]["analyze"] is True, repr(got))
     for body, label in (({"meetings": [], "set": {}}, "会議なし"), ({"meetings": ["x"], "set": {"publish_to": "x"}}, "不正な値"),
                         ({"meetings": [3], "set": {}}, "文字列でない会議名")):
         h = _FakeHandler(body)

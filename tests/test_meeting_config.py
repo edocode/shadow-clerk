@@ -226,7 +226,7 @@ def test_apply_settings() -> None:
 
 def test_parse_settings() -> None:
     check("空の set は何も変えない", MeetingSettings.parse({}).fields() == {})
-    for body in ({"publish": "yes"}, {"publish_advice": 1}, {"publish_to": "slack"},
+    for body in ({"publish": "yes"}, {"publish_advice": 1}, {"analyze": "no"}, {"publish_to": "slack"},
                  {"notion_url": "http://x"}, {"workdir": 3}, []):
         try:
             MeetingSettings.parse(body)

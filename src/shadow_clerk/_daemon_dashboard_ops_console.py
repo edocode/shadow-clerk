@@ -24,7 +24,7 @@ __all__ = ["start_console_for", "_DashboardHandlerConsoleOps"]
 # 1 リクエストで送れるキー入力の上限。貼り付けを通しつつ暴走を止める
 _MAX_INPUT_CHARS = 8192
 # 会議ごとの設定モーダルが返す・書く値
-_SETTING_KEYS = ("publish", "workdir", "publish_to", "notion_url", "publish_advice")
+_SETTING_KEYS = ("analyze", "publish", "workdir", "publish_to", "notion_url", "publish_advice")
 
 
 class _DashboardHandlerConsoleOps:
@@ -319,7 +319,7 @@ class _DashboardHandlerConsoleOps:
         self._send_json({"status": "ok", "path": cfg.path, "meetings": out})
 
     def _save_meeting_settings(self) -> None:
-        """POST /api/meeting-settings {meetings: [名前…], set: {publish?, workdir?, publish_to?, notion_url?, publish_advice?}}
+        """POST /api/meeting-settings {meetings: [名前…], set: {analyze?, publish?, workdir?, publish_to?, notion_url?, publish_advice?}}
 
         選んだ会議に同じ値を書く（MeetingConfig.apply）。1 回の load→save にまとめるので、途中で失敗しても半端に残らない
         """
