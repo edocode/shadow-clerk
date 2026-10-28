@@ -124,6 +124,14 @@ def test_status_reports_each_target() -> None:
         check("配り立ては current", cur["state"] == "current", repr(cur))
 
 
+def test_status_hides_vanished_target() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        gone = tmp
+    st = skill_install.skill_status([gone])
+    names = [t["name"] for t in st["targets"]]
+    check("消えた配布先は出さない", gone not in names, repr(names))
+
+
 def test_status_missing_and_outdated() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         st = skill_install.skill_status([tmp])
@@ -310,6 +318,7 @@ def main() -> int:
     test_install_copies_every_bundled_skill()
     test_install_refuses_before_touching_anything()
     test_status_outdated_when_talk_skill_missing()
+    test_status_hides_vanished_target()
     test_skill_installed()
     test_talk_skill_check_looks_at_claude_only()
     test_talk_skill_pre_approves_its_curl_calls()

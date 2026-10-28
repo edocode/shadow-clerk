@@ -36,7 +36,7 @@ for p in parts:
     notes += stac([(l, k + up, d) for l, k, d in p])
     if pad:
         notes += [[None, None, pad]]
-json.dump({"notes": notes}, open("band.json", "w"), ensure_ascii=False)
+json.dump({"notes": notes}, open("band.json", "w", encoding="utf-8"), ensure_ascii=False)
 subprocess.run(["python3", "-I", sys.argv[1], "band.json", "vocal.wav", "--speaker", "3003", "--mp3-dir", ""], check=True)
 
 # ---- 伴奏（GM 音源）----

@@ -2,7 +2,7 @@
 name: voicevox-sing
 description: VOICEVOX（ボイスボックス）の歌唱機能で、Claude が作詞作曲した歌を実際に歌わせて再生する。「歌を歌って」「替え歌を作って歌わせて」「ボイスボックスで歌を作って」「音程をつけて歌って」と頼まれたとき、talk mode の雑談で歌を求められたときに使う。
 metadata:
-  version: "1.0.0"
+  version: "1.0.1"
 ---
 
 # voicevox-sing — ボイスボックスで歌を作って歌わせる

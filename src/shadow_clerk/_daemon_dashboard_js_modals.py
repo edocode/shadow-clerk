@@ -255,7 +255,7 @@ async function installSkill(target,btn){
     const r=await(await fetch('/api/skill-install',{method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({target})})).json();
-    btn.textContent=r.status==='ok'?I18N['welcome.skill_done']:(r.message||r.status);
+    btn.textContent=r.status==='ok'?I18N['welcome.skill_done']:_skillInstallError(r);
     if(r.status!=='ok')btn.disabled=false;
   }catch(e){btn.disabled=false;}
 }
@@ -316,13 +316,27 @@ async function maybeShowSkillUpdate(){
   document.getElementById('skillUpdateModal').classList.add('open');
 }
 
+// 拒否は理由（素性の分からない同名スキルのパス）を出す。黙って閉じると、
+// 次のリロードでまた同じモーダルが出るだけで原因に辿り着けない
+function _skillInstallError(r){
+  return r.status==='refused'
+    ?(I18N['skill_update.refused']||'').replace('{path}',r.message||''):(r.message||r.status);
+}
+
 async function updateOutdatedSkills(btn){
   btn.disabled=true;
+  const errors=[];
   for(const name of _outdatedSkills){
-    try{await fetch('/api/skill-install',{method:'POST',
-      headers:{'Content-Type':'application/json'},body:JSON.stringify({target:name})});}catch(e){}
+    try{
+      const r=await(await fetch('/api/skill-install',{method:'POST',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify({target:name})})).json();
+      if(r.status!=='ok')errors.push(_skillInstallError(r));
+    }catch(e){errors.push(String(e));}
   }
-  document.getElementById('skillUpdateModal').classList.remove('open');
+  btn.disabled=false;
+  if(!errors.length){document.getElementById('skillUpdateModal').classList.remove('open');return;}
+  document.getElementById('skillUpdateBody').innerHTML=
+    errors.map(e=>`<div style="font-size:12px;line-height:1.7">${esc(e)}</div>`).join('');
 }
 
 async function dismissSkillUpdate(){
