@@ -140,7 +140,7 @@ async function loadT(file){
   const d=await(await fetch(u)).json();if(g!==_tGen)return;
   const el=document.getElementById('tp');el.innerHTML='';
   d.lines.forEach(l=>el.insertAdjacentHTML('beforeend',fmtTranscriptLine(l)));linkifyFiles(el);
-  setFileLabel('tf',d.file);el.scrollTop=el.scrollHeight;}catch(e){}
+  setFileLabel('tf',d.file);el.scrollTop=el.scrollHeight;loadProvisional(d.file);}catch(e){}
 }
 async function loadR(file){
   const g=++_rGen;
@@ -173,6 +173,10 @@ es.addEventListener('response',e=>{
 });
 es.addEventListener('alert',e=>{
   const d=JSON.parse(e.data);if(d.message){alert(d.message);loadS(curFile);openSumPane();}
+});
+// 会議終了時に仮登録を本登録した。見ている会議なら書き換わった transcript を読み直す
+es.addEventListener('provisional_applied',e=>{
+  const d=JSON.parse(e.data);showToast(d.message);if(curFile===d.file){loadT(d.file);loadR(d.file);}
 });
 function hideResp(){document.getElementById('resp').classList.remove('show');}
 // ペインの初回読み込みは loadFiles() に一本化する。ここでも読むと、

@@ -29,6 +29,7 @@ try{const _pm=parseInt(localStorage.getItem('panelMode')||'0',10);
     if(_pm>=0&&_pm<PANEL_MODES.length)panelMode=_pm;}catch(e){}
 let meetingGroups={}, curGroup=null; // 会議グループ管理
 let spkGroups={names:{},persons:{},groups:{},self_group:''}; // 話者→グループ→色（speakers が読む）
+let spkProv={labels:{},lines:{}}; // 会議中の話者の仮登録（表示だけ差し替える。speakers が読み込む）
 const as={tp:true,rp:true,sp:true,logc:true};
 ['tp','rp','sp','logc'].forEach(id=>{
   document.getElementById(id).addEventListener('scroll',function(){
@@ -47,20 +48,24 @@ function docLink(urlKey,textKey){
 }
 function escJs(s){return s.replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'");}
 function spCls(sp,mic){return (sp===mic||sp==='自分')?'sp-s':sp==='Claude'?'sp-c':'sp-o';}
+// 仮登録は行単位 → ラベル単位の順に当てる（会議終了時の本登録と同じ順）
+function spSpan(ts,sp){
+  const mic=I18N['speaker.mic']||'自分',mon=I18N['speaker.monitor']||'相手';
+  const o=spkProv.lines[ts+'\\t'+sp]??sp,pv=spkProv.labels[o]||o,prov=pv!==sp,col=spColor(pv,mic);
+  const dl=sp===mic||sp==='自分'?mic:!prov&&(sp===mon||sp==='相手')?mon:pv;
+  return '<span class="'+spCls(sp,mic)+(prov?' sp-prov':'')+'" data-sp="'+escAttr(pv)+'"'
+    +(prov?' title="'+escAttr(I18N['dash.speakers_provisional_mark'])+'"':'')+(col?' style="color:'+col+'"':'')+'>['+esc(dl)+']</span>';
+}
 function fmtLine(t){
   if(/^---\\s.*\\s---$/.test(t)) return '<div class="ln"><span class="mk">'+esc(t)+'</span></div>';
   const m=t.match(/^\\[(\\d{4}-\\d{2}-\\d{2}\\s\\d{2}:\\d{2}:\\d{2})\\]\\s\\[([^\\]]+)\\]\\s(.*)$/);
-  if(m){const sp=m[2],mic=I18N['speaker.mic']||'自分';const c=spCls(sp,mic);
-    const dl=sp===mic?mic:sp==='自分'?mic:(sp===(I18N['speaker.monitor']||'相手')||sp==='相手')?(I18N['speaker.monitor']||'相手'):sp;
-    return '<div class="ln" data-ts="'+escAttr(m[1])+'" data-raw="'+escAttr(t)+'"><span class="ln-text"><span class="ts">['+esc(m[1])+']</span> <span class="'+c+'" data-sp="'+escAttr(sp)+'"'+(spColor(sp,mic)?' style="color:'+spColor(sp,mic)+'"':'')+'>['+esc(dl)+']</span> '+esc(m[3])+'</span></div>';}
+  if(m)return '<div class="ln" data-ts="'+escAttr(m[1])+'" data-raw="'+escAttr(t)+'"><span class="ln-text"><span class="ts">['+esc(m[1])+']</span> '+spSpan(m[1],m[2])+' '+esc(m[3])+'</span></div>';
   return '<div class="ln" data-raw="'+escAttr(t)+'"><span class="ln-text">'+esc(t)+'</span></div>';
 }
 function fmtTranscriptLine(t){
   if(/^---\\s.*\\s---$/.test(t)) return '<div class="ln"><span class="mk">'+esc(t)+'</span></div>';
   const m=t.match(/^\\[(\\d{4}-\\d{2}-\\d{2}\\s\\d{2}:\\d{2}:\\d{2})\\]\\s\\[([^\\]]+)\\]\\s(.*)$/);
-  if(m){const sp=m[2],mic=I18N['speaker.mic']||'自分';const c=spCls(sp,mic);
-    const dl=sp===mic?mic:sp==='自分'?mic:(sp===(I18N['speaker.monitor']||'相手')||sp==='相手')?(I18N['speaker.monitor']||'相手'):sp;
-    return '<div class="ln" data-ts="'+escAttr(m[1])+'" data-raw="'+escAttr(t)+'"><input type="checkbox" class="ln-cb" onmousedown="if(event.shiftKey)event.preventDefault()" onclick="onLnCbClick(event)"><span class="ln-text"><span class="ts">['+esc(m[1])+']</span> <span class="'+c+'" data-sp="'+escAttr(sp)+'"'+(spColor(sp,mic)?' style="color:'+spColor(sp,mic)+'"':'')+'>['+esc(dl)+']</span> '+esc(m[3])+'</span></div>';}
+  if(m)return '<div class="ln" data-ts="'+escAttr(m[1])+'" data-raw="'+escAttr(t)+'"><input type="checkbox" class="ln-cb" onmousedown="if(event.shiftKey)event.preventDefault()" onclick="onLnCbClick(event)"><span class="ln-text"><span class="ts">['+esc(m[1])+']</span> '+spSpan(m[1],m[2])+' '+esc(m[3])+'</span></div>';
   return '<div class="ln" data-raw="'+escAttr(t)+'"><span class="ln-text">'+esc(t)+'</span></div>';
 }
 function addLines(id,text,fmt){

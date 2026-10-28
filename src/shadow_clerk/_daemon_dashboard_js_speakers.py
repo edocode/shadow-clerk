@@ -6,7 +6,16 @@ core の esc / escAttr / curFile / activeFile / loadT / loadR と、modals の s
 from __future__ import annotations
 
 _JS_TEMPLATE_SPEAKERS = r"""
-let _spkFile='';
+let _spkFile='',_spkProv=null;
+async function loadProvisional(file){
+  let d=null;
+  try{d=await(await fetch('/api/speakers/provisional?file='+encodeURIComponent(file||''))).json();}catch(e){}
+  spkProv=d&&d.status==='ok'?{labels:d.labels,lines:d.lines}:{labels:{},lines:{}};
+  for(const s of document.querySelectorAll('#tp [data-sp],#rp [data-sp]')){
+    const m=(s.closest('.ln').dataset.raw||'').match(/^\[([^\]]+)\]\s\[([^\]]+)\]/);
+    if(m)s.outerHTML=spSpan(m[1],m[2]);
+  }
+}
 function spColor(sp,mic){
   // 識別の「alice?」は alice の色。サーバーの tentative_name と同じく、残りが名前として使えるときだけ
   const n=sp.endsWith('?')?sp.slice(0,-1).trim():'';
@@ -64,7 +73,9 @@ async function openSpeakerModal(){
   try{d=await(await fetch('/api/speakers?file='+encodeURIComponent(_spkFile))).json();}catch(e){alert(String(e));return;}
   if(d.status!=='ok'){alert(d.message||'error');return;}
   _fillOptions('spkSuggest',d.suggestions);_fillOptions('grpSuggest',d.groups||[]);
-  info.textContent=!d.labels.length?I18N['dash.speakers_none']:d.active?I18N['dash.speakers_active']
+  _spkProv=d.provisional;
+  info.textContent=!d.labels.length?I18N['dash.speakers_none']:_spkProv?I18N['dash.speakers_provisional_info']
+    :d.active?I18N['dash.speakers_active']
     :d.translating?I18N['dash.speakers_translating']
     :!d.enrollment?I18N['dash.speakers_enrollment_off']:'';
   for(const l of d.labels){
@@ -88,7 +99,8 @@ async function openSpeakerModal(){
       +'<span class="spk-example" title="'+escAttr(l.example)+'">'+esc(l.example)+'</span>';
     box.appendChild(row);
   }
-  document.getElementById('spkSaveBtn').disabled=!d.labels.length||!!(d.active||d.translating);
+  if(_spkProv)_fillProvisional(_spkProv.raw_labels);
+  document.getElementById('spkSaveBtn').disabled=!d.labels.length||!_spkProv&&!!(d.active||d.translating);
   renderNamingHistory(d.history||[],d.history_error);
   await loadVoiceprints();
   document.getElementById('speakerModal').classList.add('open');
@@ -128,6 +140,17 @@ async function _postJSON(url,body){
   if(d.status!=='ok'){alert(d.message||'error');return null;}
   return d;
 }
+// 仮登録した名前・グループ・個人区分をモーダルに入れ直す（入れ直した値は、そのまま保存すれば同じ仮登録になる）
+function _fillProvisional(raw){
+  const at=(sel,key,l)=>[...document.querySelectorAll('#spkRows input['+sel+']')].find(c=>c.dataset[key]===l);
+  for(const [l,v] of Object.entries(raw)){
+    const n=at('data-label','label',l),g=at('data-group-for','groupFor',l),p=at('data-person-for','personFor',l);
+    if(!n)continue;
+    n.value=typeof v==='string'?v:v.name;
+    if(g&&v.group!==undefined){g.value=v.group;g.dataset.touched='1';}
+    if(p&&v.person!==undefined){p.checked=v.person;p.dataset.touched='1';if(g)g.hidden=v.person;}
+  }
+}
 function closeSpeakerModal(){document.getElementById('speakerModal').classList.remove('open');}
 function speakerMapping(){
   const g={},p={},c={},a={},m={};
@@ -151,10 +174,14 @@ function speakerMapping(){
 }
 async function saveSpeakers(){
   const mapping=speakerMapping();
+  // 仮登録では、空欄にしたラベルを "" で送って取り消す
+  if(_spkProv)for(const l in _spkProv.raw_labels)if(!(l in mapping))mapping[l]='';
   if(!Object.keys(mapping).length)return;
   const d=await _postJSON('/api/speakers/assign',{file:_spkFile,mapping});
   if(!d)return;
-  closeSpeakerModal();showToast(d.message);loadT(_spkFile);loadR(_spkFile);await loadSpeakerGroups();
+  closeSpeakerModal();showToast(d.message);
+  if(d.provisional){loadProvisional(_spkFile);return;}
+  loadT(_spkFile);loadR(_spkFile);await loadSpeakerGroups();
   if(d.has_summary)await regenSummaryFor(_spkFile);
 }
 async function loadVoiceprints(openName){
@@ -196,7 +223,7 @@ async function deleteVoiceprint(name){
 async function setPersonGroup(name,group){
   if(await _postJSON('/api/speaker-groups/set',{name,group}))await loadSpeakerGroups();
 }
-let _rlFile='',_rlItems=[];
+let _rlFile='',_rlItems=[],_rlProv=false;
 // 行の [時刻] [ラベル]。付け替えられない [自分] [Claude] の行は null
 function _rlParse(l){
   const m=(l.dataset.raw||'').match(/^\[([^\]]+)\]\s\[([^\]]+)\]/);
@@ -236,25 +263,27 @@ async function openRelabelModal(){
   updateRlTarget();
   let d=null;
   try{d=await(await fetch('/api/speakers?file='+encodeURIComponent(_rlFile))).json();}catch(e){}
+  _rlProv=!!(d&&d.provisional);
   if(d&&d.status==='ok'){
     _fillOptions('rlSuggest',d.suggestions);_fillOptions('grpSuggest',d.groups||[]);
-    if(d.active)info.textContent=I18N['dash.speakers_active'];
+    if(_rlProv)info.textContent=I18N['dash.relabel_provisional_hint'];
+    else if(d.active)info.textContent=I18N['dash.speakers_active'];
     else if(d.translating)info.textContent=I18N['dash.speakers_translating'];
   }
-  document.getElementById('rlSaveBtn').disabled=!n||!!(d&&(d.active||d.translating));
+  document.getElementById('rlSaveBtn').disabled=!n||!_rlProv&&!!(d&&(d.active||d.translating));
   document.getElementById('relabelModal').classList.add('open');
 }
 function closeRelabelModal(){document.getElementById('relabelModal').classList.remove('open');}
 async function saveRelabel(){
   const name=document.getElementById('rlName').value.trim();
-  if(!name||!_rlItems.length)return;
+  if(!(name||_rlProv)||!_rlItems.length)return;
   const e={name},gi=document.getElementById('rlGroup'),pi=document.getElementById('rlPerson'),scope=_rlScope(),f=_rlFile;
   if(gi.dataset.touched==='1'&&!pi.checked)e.group=gi.value.trim();
   if(pi.dataset.touched==='1')e.person=!!pi.checked;
   let d;
   if(scope==='label'){
     const mapping={},loose=_rlItems.filter(i=>_rlLoose(i.label));
-    for(const l of _rlLabels())mapping[l]={...e};
+    for(const l of _rlLabels())mapping[l]=name?{...e}:'';  // 仮登録の取り消しは ""
     d=await _postJSON('/api/speakers/assign',{file:f,mapping});
     if(!d)return;
     // 2 回目が失敗したら _postJSON が alert し、1 回目の結果はそのままトーストする
@@ -264,7 +293,9 @@ async function saveRelabel(){
     d=await _postJSON('/api/speakers/assign-lines',{file:f,lines:_rlItems,...e,...(scope==='range'?{scope}:{})});
     if(!d)return;
   }
-  closeRelabelModal();deselectAll();showToast(d.message);loadT(f);loadR(f);await loadSpeakerGroups();
+  closeRelabelModal();deselectAll();showToast(d.message);
+  if(d.provisional){loadProvisional(f);return;}
+  loadT(f);loadR(f);await loadSpeakerGroups();
   if(d.has_summary)await regenSummaryFor(f);
 }
 loadSpeakerGroups();

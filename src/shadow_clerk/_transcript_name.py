@@ -142,6 +142,12 @@ class TranscriptName:
         return f"transcript-{self.datetime_str}{suffix}.naming.jsonl"
 
     @property
+    def provisional_filename(self) -> str:
+        """transcript-YYYYMMDDHHMM[@name].provisional.json — 会議中の話者の仮登録（終了時に本登録）"""
+        suffix = f"@{self.meeting_name}" if self.meeting_name else ""
+        return f"transcript-{self.datetime_str}{suffix}.provisional.json"
+
+    @property
     def advice_filename(self) -> str:
         """advice-YYYYMMDDHHMM[@name].md — AI アシスタントが書く未解決の提案"""
         suffix = f"@{self.meeting_name}" if self.meeting_name else ""

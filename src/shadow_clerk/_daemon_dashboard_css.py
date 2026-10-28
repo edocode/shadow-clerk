@@ -106,6 +106,7 @@ main {
 .ts { color:var(--muted); }
 .sp-s { color:var(--self); font-weight:600; }
 .sp-o { color:var(--other); font-weight:600; }
+.sp-prov { text-decoration:underline dotted; }
 .sp-c { color:var(--claude); font-weight:600; }
 .mk { color:var(--purple); font-weight:600; }
 #logp {

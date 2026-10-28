@@ -24,6 +24,7 @@ from shadow_clerk._daemon_constants import (
 )
 from shadow_clerk._daemon_config import load_config, get_translation_provider, _builtin_command_descs
 from shadow_clerk._daemon_console import request_summary_from_console, start_console_for
+from shadow_clerk._daemon_provisional_naming import apply_provisional
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -154,6 +155,16 @@ class _RecorderCommandMixin:
             logger.info("参加予定者を保存: %s (%d名)", out_path, len(attendees))
         except OSError as e:
             logger.warning("参加予定者の保存に失敗: %s", e)
+
+    def _finish_meeting(self, transcript_path: str) -> None:
+        """会議終了後の仕上げ。本登録は翻訳の終わりを待つことがあるので、コマンドのスレッドを止めないよう別スレッドで"""
+        if (message := apply_provisional(self, transcript_path)) and hasattr(self, "_file_watcher"):
+            self._file_watcher._broadcast("provisional_applied", json.dumps(
+                {"message": t("dash.alert_provisional_applied", message=message),
+                 "file": os.path.basename(transcript_path)}, ensure_ascii=False))
+        config = load_config()
+        if config.get("auto_summary"):
+            self._start_auto_summary(config, transcript_path)
 
     def _start_auto_summary(self, config: dict, transcript_path: str) -> None:
         """議事録を誰に作らせるか決める。
@@ -535,17 +546,14 @@ class _RecorderCommandMixin:
 
         elif cmd == "end_meeting":
             marker = MEETING_END_MARKER
-            with self.transcript_lock:
+            with self.transcript_lock:  # 仮登録の保存と同じロックの中で録音先を切り替え、終了後の仮登録を残さない
                 session_transcript = self.output_path
                 with open(session_transcript, "a", encoding="utf-8") as f:
                     f.write(marker)
+                # 明示的 output 指定の場合はその値に戻す、そうでなければ現在日付のデフォルト
+                self.output_path = self.args.output if self._explicit_output else self._get_default_output()
             logger.info("会議終了: %s", session_transcript)
             logger.info(t("rec.meeting_end", path=session_transcript))
-            # 明示的 output 指定の場合はその値に戻す、そうでなければ現在日付のデフォルト
-            if self._explicit_output:
-                self.output_path = self.args.output
-            else:
-                self.output_path = self._get_default_output()
             if self.current_session:
                 ended = self.current_session.end()
                 logger.info("会議セッション終了: 開始=%s 終了=%s",
@@ -556,10 +564,9 @@ class _RecorderCommandMixin:
                 os.remove(SESSION_FILE)
             except FileNotFoundError:
                 pass
-            # auto_summary: 会議終了時に自動で議事録を生成
-            config = load_config()
-            if config.get("auto_summary"):
-                self._start_auto_summary(config, session_transcript)
+            # 仮登録した話者を本登録してから、auto_summary で議事録を生成
+            threading.Thread(target=self._finish_meeting, args=(session_transcript,),
+                             name="finish-meeting", daemon=True).start()
 
         elif cmd.startswith("set_model "):
             model_size = cmd.split(None, 1)[1].strip()
