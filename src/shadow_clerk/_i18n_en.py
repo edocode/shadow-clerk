@@ -401,6 +401,7 @@ STRINGS_EN: dict[str, str] = {
     "skill_update.body": "The bundled copy is {bundled}; what is installed is older.",
     "skill_update.update": "Update",
     "skill_update.later": "Later",
+    "skill_update.refused": "A skill with the same name is already there and was not put there by shadow-clerk, so it was left alone. Check it, move or remove it, then install again: {path}",
     "cfg.path_missing_dir": "Directory not found: {path}",
     "cfg.path_missing_file": "File not found: {path}",
     "cfg.ai_assistant_workdir_warn": "The assistant runs shell scripts from the skill. Allow them in that directory's .claude/settings.json, or it will stop at a permission prompt mid-meeting.",

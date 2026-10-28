@@ -209,10 +209,12 @@ def skill_status(remembered: list[str]) -> dict:
     """組み込み2つ＋記憶した配布先の状態を返す。全 skill を見て、どれかが欠けていれば outdated。
 
     組み込みを常に含めるのは、まだどこにも配っていない利用者にも
-    モーダルから配布先を選ばせるため
+    モーダルから配布先を選ばせるため。記憶した配布先のうち親ディレクトリごと
+    消えたもの（一時ディレクトリなど）は出さない。配り直す先がもう無い
     """
     bundled = {s: read_skill_version(bundled_skill_dir(s)) for s in BUNDLED_SKILLS}
-    names = list(BUILTIN_TARGETS) + [r for r in remembered if r not in BUILTIN_TARGETS]
+    names = list(BUILTIN_TARGETS) + [r for r in remembered if r not in BUILTIN_TARGETS
+                                     and resolve_target(r)[1].parent.is_dir()]
     targets = []
     for name in names:
         installed = {s: read_skill_version(resolve_target(name, s)[1]) for s in BUNDLED_SKILLS}

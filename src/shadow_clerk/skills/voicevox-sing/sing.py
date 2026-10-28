@@ -39,7 +39,7 @@ def main() -> None:
     ap.add_argument("--speaker", type=int, default=3011)  # type=frame_decode の声（既定: 玄野武宏）
     a = ap.parse_args()
 
-    raw = json.load(open(a.score))["notes"]
+    raw = json.load(open(a.score, encoding="utf-8"))["notes"]
     notes = [{"key": None, "frame_length": 20, "lyric": ""}]  # 先頭に休符が必須
     for lyric, key, frames in raw:
         notes.append({"key": key, "frame_length": frames, "lyric": lyric or ""})

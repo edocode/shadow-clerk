@@ -400,6 +400,7 @@ STRINGS_JA: dict[str, str] = {
     "skill_update.body": "同梱 {bundled} に対して、配布済みが古いままです。",
     "skill_update.update": "更新する",
     "skill_update.later": "あとで",
+    "skill_update.refused": "同名のスキルが既にあり、shadow-clerk が配ったものか判別できないため上書きしませんでした。中身を確認して移すか消してから、もう一度配ってください: {path}",
     "cfg.path_missing_dir": "ディレクトリが見つかりません: {path}",
     "cfg.path_missing_file": "ファイルが見つかりません: {path}",
     "cfg.ai_assistant_workdir_warn": "アシスタントはスキルのシェルスクリプトを実行します。そのディレクトリの .claude/settings.json で許可しておかないと、会議中に承認プロンプトで止まります。",
