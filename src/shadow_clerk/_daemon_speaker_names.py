@@ -97,10 +97,14 @@ class SpeakerNameBook:
                 self._save(current, groups)
             return True
 
-    def ensure_group(self, group: GroupName) -> str:
+    def ensure_group(self, group: GroupName, color: str = "") -> str:
+        """group が無ければ作る（色は color、空なら自動）。そのグループの色を返す"""
         with _lock:
             current, groups = self._load()
-            if self._color_for(group.value, groups):
+            if color and is_color(color) and group.value not in groups:
+                groups[group.value] = color
+                self._save(current, groups)
+            elif self._color_for(group.value, groups):
                 self._save(current, groups)
             return groups[group.value]
 

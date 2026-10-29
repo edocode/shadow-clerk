@@ -12,6 +12,7 @@ import time
 from shadow_clerk import DATA_DIR, CONFIG_FILE, use_utf8_console
 from shadow_clerk._process import is_pid_alive as _is_pid_alive, is_clerk_daemon_process
 from shadow_clerk._transcript_name import TranscriptName
+from shadow_clerk._util_voiceprints import cmd_voiceprints_export, cmd_voiceprints_import
 
 # pkill 用パターン: `vim clerk_daemon.py` や `tail -f clerk-daemon.log` のような
 # 無関係プロセスにマッチしないよう、直後が空白または行末の場合のみマッチさせる
@@ -539,6 +540,8 @@ def cmd_help(args: list[str]) -> None:
     print("  recorder-status            clerk-daemon の動作状態 (running/stopped)")
     print("  read-config                config.yaml を読む（なければデフォルト生成）")
     print("  write-config-value <k> <v> config.yaml の指定キーを更新")
+    print("  voiceprints-export <out.json> [name ...]    声紋を書き出す（他の人に渡す）")
+    print("  voiceprints-import <file.json> [name[=to] ...]  書き出した声紋を取り込む")
     print()
     print("Process subcommands:")
     print("  start [opts]      clerk-daemon を起動 (exec)")
@@ -570,6 +573,8 @@ COMMANDS = {
     "restart": cmd_restart,
     "run-llm": cmd_run_llm,
     "summarize": cmd_summarize,
+    "voiceprints-export": cmd_voiceprints_export,
+    "voiceprints-import": cmd_voiceprints_import,
     "gcal-auth": cmd_gcal_auth,
     "install-skill": cmd_install_skill,
     "help": cmd_help,

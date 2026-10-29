@@ -1,4 +1,4 @@
-"""Shadow-clerk daemon: ダッシュボード JavaScript (登録済みの人の声紋の塊: 表示・消す・移す・戻す)
+"""Shadow-clerk daemon: ダッシュボード JavaScript (登録済みの人の声紋の塊: 表示・消す・移す・戻す、声紋の書き出し・取り込み)
 
 speakers の loadVoiceprints / _postJSON / _span / _spkFile / loadSpeakerGroups と、core の loadT / loadR、
 modals の showToast に依存するため、連結順は speakers の後でなければならない。
@@ -66,5 +66,74 @@ async function _vpAction(name,url,body,relabels){
   if(relabels&&_spkFile){loadT(_spkFile);loadR(_spkFile);}
   if(relabels)await loadSpeakerGroups();
   await loadVoiceprints(name);
+}
+// 書き出し・取り込み。_vpCounts は loadVoiceprints が入れる（名前 → 声紋の件数）
+let _vpCounts={},_vpImport=null,_vpImportRows=[];
+function _vpPicks(){return [...document.querySelectorAll('#vpRows input.vp-pick')];}
+function _fillVpGroupPicker(groups){
+  const sel=document.getElementById('vpPickGroup');sel.innerHTML='';
+  const opt=(v,text)=>{const o=document.createElement('option');o.value=v;o.textContent=text;sel.appendChild(o);};
+  opt('',I18N['dash.vp_pick_group']);opt('*',I18N['dash.vp_pick_all']);
+  for(const g of [...new Set(groups.filter(Boolean))].sort())opt(g,g);
+}
+function vpPickGroup(sel){
+  const g=sel.value;sel.value='';
+  for(const c of _vpPicks())if(!c.disabled&&(g==='*'||c.dataset.group===g))c.checked=true;
+}
+async function exportVoiceprints(){
+  const names=_vpPicks().filter(c=>c.checked).map(c=>c.dataset.name);
+  if(!names.length){alert(I18N['dash.vp_export_none']);return;}
+  const d=await _postJSON('/api/voiceprints/export',{names});
+  if(!d)return;
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(d.data)],{type:'application/json'}));
+  a.download=d.filename;a.click();URL.revokeObjectURL(a.href);
+  showToast(d.message);
+}
+async function readVoiceprintImport(input){
+  const f=input.files[0];input.value='';
+  if(!f)return;
+  let data=null;
+  try{data=JSON.parse(await f.text());}catch(e){}
+  if(!data||data.format!=='shadow-clerk-voiceprints'||!Array.isArray(data.people)){alert(I18N['dash.vp_import_invalid']);return;}
+  _vpImport=data;renderVoiceprintImport();
+}
+function renderVoiceprintImport(){
+  const box=document.getElementById('vpImport');box.innerHTML='';_vpImportRows=[];
+  if(!_vpImport)return;
+  box.appendChild(_span(I18N['dash.vp_import_from'].replace('{date}',_vpImport.exported_at||''),'spk-meta'));
+  for(const p of _vpImport.people){
+    const row=document.createElement('div');row.className='spk-row vp-person';
+    const pick=document.createElement('input');pick.type='checkbox';pick.className='vp-pick';pick.checked=true;
+    const to=document.createElement('input');to.type='text';to.value=p.name;to.setAttribute('list','vpNames');
+    const state=_span('','spk-meta');
+    to.oninput=()=>{
+      const v=to.value.trim();
+      state.textContent=!v?'':v in _vpCounts?I18N['dash.vp_import_existing'].replace('{name}',v):I18N['dash.vp_import_new'];
+    };
+    to.oninput();
+    const name=_span(p.name,'vp-name');name.title=p.name;
+    for(const c of [pick,name,_span(String(p.samples.length),'vp-count'),_span(p.group||'','spk-meta'),to,state])
+      row.appendChild(c);
+    box.appendChild(row);_vpImportRows.push({from:p.name,pick,to});
+  }
+  const foot=document.createElement('div');foot.className='vp-share';
+  foot.appendChild(_vpButton('dash.vp_import_apply',importVoiceprints));
+  foot.appendChild(_vpButton('dash.cancel',()=>{_vpImport=null;renderVoiceprintImport();}));
+  box.appendChild(foot);
+}
+async function importVoiceprints(){
+  const mapping={};
+  for(const r of _vpImportRows){
+    if(!r.pick.checked)continue;
+    const v=r.to.value.trim();
+    if(!v){alert(I18N['dash.vp_import_empty_name']);return;}
+    mapping[r.from]=v;
+  }
+  if(!Object.keys(mapping).length)return;
+  const d=await _postJSON('/api/voiceprints/import',{data:_vpImport,mapping});
+  if(!d)return;
+  _vpImport=null;renderVoiceprintImport();showToast(d.message);
+  await loadSpeakerGroups();await loadVoiceprints();
 }
 """

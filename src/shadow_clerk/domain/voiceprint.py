@@ -77,10 +77,14 @@ class SampleStatus(str, Enum):
     KEPT = "kept"  # 人が「戻す」した。自動判定で除外しない
 
 
+IMPORT_SOURCE = "import"  # 取り込んだサンプルの source（書き出しは会議名を持たない）
+
+
 class SampleOrigin(str, Enum):
     HEARD = "heard"  # 相手側（スピーカー）に届いた声。名前付けで登録する
     MIC = "mic"  # 自分のマイクの声。自分の名前の設定があるとき、自分の声紋に近いものだけ自動で取る
     ENROLLED = "enroll"  # 「自分の声を登録」で取ったマイクの声。自動で取るときの基準になる
+    IMPORTED = "import"  # 他の人の書き出しから取り込んだ。source は IMPORT_SOURCE
 
 
 @dataclass(frozen=True, eq=False)

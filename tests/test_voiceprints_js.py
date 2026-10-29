@@ -33,7 +33,7 @@ function esc(s){return String(s);}function escAttr(s){return String(s);}
 function el(tag){return {tagName:String(tag||'').toUpperCase(),children:[],_h:'',textContent:'',value:'',dataset:{},
   get innerHTML(){return this._h;},set innerHTML(v){this._h=v;this.children=[];this.textContent='';},
   classList:{add(){},remove(){}},appendChild(c){this.children.push(c);},setAttribute(k,v){this[k]=v;}};}
-const els={vpRows:el(),grpSuggest:el(),spkSuggest:el()};
+const els={vpRows:el(),grpSuggest:el(),spkSuggest:el(),vpNames:el(),vpPickGroup:el(),vpImport:el()};
 const document={getElementById:id=>els[id],createElement:el,querySelectorAll:()=>[]};
 let spkGroups={names:{},persons:{},groups:{},self_group:''};
 let curFile='',activeFile='';

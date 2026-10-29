@@ -92,7 +92,11 @@ main {
 .spk-person { flex:none; font-size:11px; color:var(--muted); white-space:nowrap; }
 .spk-sub { font-size:12px; margin:14px 0 4px; font-weight:bold; }
 .vp-person { flex-wrap:wrap; }
-.vp-share { display:flex; gap:8px; margin:0 0 8px; }
+.vp-person .vp-name { flex:none; width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.vp-person .vp-count { flex:none; width:36px; text-align:right; color:var(--muted); }
+.modal-body .spk-row input.vp-pick { width:auto; }
+.vp-share { display:flex; gap:8px; margin:8px 0; }
+.modal-body .vp-share select { width:auto; }
 .vp-clusters { flex-basis:100%; padding-left:16px; }
 .vp-clusters:empty { display:none; }
 .spk-row.vp-different { background:rgba(255,180,0,.12); }
