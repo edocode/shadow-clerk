@@ -75,7 +75,7 @@ async function openSpeakerModal(){
   _fillOptions('spkSuggest',d.suggestions);_fillOptions('grpSuggest',d.groups||[]);
   _spkProv=d.provisional;
   info.textContent=!d.labels.length?I18N['dash.speakers_none']:_spkProv?I18N['dash.speakers_provisional_info']
-    :d.active?I18N['dash.speakers_active']
+    :d.active?I18N['dash.speakers_daily_active']
     :d.translating?I18N['dash.speakers_translating']
     :!d.enrollment?I18N['dash.speakers_enrollment_off']:'';
   for(const l of d.labels){
@@ -268,7 +268,7 @@ async function openRelabelModal(){
   if(d&&d.status==='ok'){
     _fillOptions('rlSuggest',d.suggestions);_fillOptions('grpSuggest',d.groups||[]);
     if(_rlProv)info.textContent=I18N['dash.relabel_provisional_hint'];
-    else if(d.active)info.textContent=I18N['dash.speakers_active'];
+    else if(d.active)info.textContent=I18N['dash.speakers_daily_active'];
     else if(d.translating)info.textContent=I18N['dash.speakers_translating'];
   }
   document.getElementById('rlSaveBtn').disabled=!n||!_rlProv&&!!(d&&(d.active||d.translating));

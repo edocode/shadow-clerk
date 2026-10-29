@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 STRINGS_EN_SPEAKERS: dict[str, str] = {
-    "dash.speakers_active": "Cannot name speakers in the file being recorded. Do it after the meeting (for the daily file: after the date changes, or extract it as a meeting with ⏱ first).",
+    "dash.speakers_active": "This cannot be done while the meeting is being recorded. Do it after the meeting ends.",
+    "dash.speakers_daily_active": "Speakers cannot be assigned in the daily file (the transcript outside meetings) while it is being recorded. Extract it as a meeting with ⏱ to assign them (after the date changes you can also assign them as is).",
     "dash.speakers_translating": "Translation of this meeting is still running. Name speakers after it finishes.",
     "dash.speakers_invalid": "Invalid request",
     "dash.speakers_invalid_name": "Some names are not allowed (empty, brackets, \"自分\", \"Claude\", or starting with \"相手\")",

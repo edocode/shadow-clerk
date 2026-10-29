@@ -254,7 +254,7 @@ def test_assign_active_daily_file_refused() -> None:
         f.writelines(LINES[1:])
     h = _H({"file": daily, "mapping": {"相手A": "太郎"}}, rec=_Rec(active=daily))
     h._assign_speakers()
-    assert h.sent == {"status": "error", "message": t("dash.speakers_active")}
+    assert h.sent == {"status": "error", "message": t("dash.speakers_daily_active")}
     assert _read(daily) == "".join(LINES[1:]) and VoiceprintStore().people() == {}
 
 

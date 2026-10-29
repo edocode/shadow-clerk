@@ -26,7 +26,7 @@ from shadow_clerk._daemon_dashboard_js_voiceprints import _JS_TEMPLATE_VOICEPRIN
 
 HARNESS = r"""
 const I18N={'dash.speakers_count':'発話 {count} 件','dash.speakers_samples':'声紋 {count} 件',
-  'dash.speakers_none':'NONE','dash.speakers_active':'ACTIVE','dash.speakers_translating':'TRANSLATING','dash.speakers_enrollment_off':'OFF',
+  'dash.speakers_none':'NONE','dash.speakers_active':'ACTIVE','dash.speakers_daily_active':'DAILY','dash.speakers_translating':'TRANSLATING','dash.speakers_enrollment_off':'OFF',
   'dash.group_label':'グループ','dash.person_enroll':'個人','dash.summary_regen_after_naming':'再生成する？',
   'dash.summary_started':'STARTED','speaker.mic':'自分',
   'dash.voiceprints_empty':'EMPTY','dash.delete':'削除','dash.voiceprint_delete_confirm':'{name} を消す？',
@@ -306,8 +306,8 @@ check("保存後にトーストと再読み込み", out["toasts"][:2] == ["2 行
       and out["loaded"][:2] == ["T:transcript-202610091000.txt", "R:transcript-202610091000.txt"],
       repr((out["toasts"], out["loaded"])))
 check("翻訳中は保存できない", out["trInfo"] == "TRANSLATING" and out["trDisabled"] is True)
-check("録音中は保存できない", out["activeInfo"] == "ACTIVE" and out["activeDisabled"] is True)
-check("録音中かつ翻訳中は保存できない", out["bothInfo"] == "ACTIVE" and out["bothDisabled"] is True)
+check("録音中の日次ファイルは保存できない（日次ファイル用の文言）", out["activeInfo"] == "DAILY" and out["activeDisabled"] is True)
+check("録音中かつ翻訳中は保存できない", out["bothInfo"] == "DAILY" and out["bothDisabled"] is True)
 check("声紋の削除を送る", out["deletePosted"] == {"url": "/api/voiceprints/delete", "body": {"name": "太郎"}},
       repr(out["deletePosted"]))
 check("modal 取得失敗は alert", out["openErr"] == ["Error: down"], repr(out["openErr"]))

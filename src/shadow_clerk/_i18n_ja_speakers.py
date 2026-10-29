@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 STRINGS_JA_SPEAKERS: dict[str, str] = {
-    "dash.speakers_active": "録音中のファイルには名前を付けられません。会議が終わってから（日次ファイルは日付が変わってから、または ⏱ で会議として切り出してから）操作してください",
+    "dash.speakers_active": "記録中の会議では、この操作はできません。会議が終わってから操作してください",
+    "dash.speakers_daily_active": "会議の外の文字起こし（日次ファイル）は記録中のため、話者を割り当てられません。⏱ で会議として切り出すと割り当てられます（日付が変わったあとはそのままでも割り当てられます）",
     "dash.speakers_translating": "この会議の翻訳が実行中です。翻訳が終わってから名前を付けてください",
     "dash.speakers_invalid": "リクエストが不正です",
     "dash.speakers_invalid_name": "使えない名前があります（空・括弧入り・「自分」「Claude」・「相手」で始まる名前は不可）",

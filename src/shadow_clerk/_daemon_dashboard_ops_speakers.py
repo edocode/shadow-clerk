@@ -67,6 +67,11 @@ class _DashboardHandlerSpeakerOps:
         return os.path.basename(self.recorder.output_path or "") == os.path.basename(path)
 
     @staticmethod
+    def _is_meeting_file(path: str) -> bool:
+        """会議のファイルか（会議の外の日次ファイル transcript-YYYYMMDD.txt でなく）"""
+        return bool((tn := TranscriptName.parse(os.path.basename(path))) and tn.is_meeting_file)
+
+    @staticmethod
     def _read_lines(path: str) -> list[str]:
         with open(path, "r", encoding="utf-8") as f:
             return f.readlines()
@@ -126,9 +131,8 @@ class _DashboardHandlerSpeakerOps:
         with self.recorder.transcript_lock:  # end_meeting は同じロックの中で録音先を切り替える
             if not self._is_active_transcript(t_path):
                 return False
-            tn = TranscriptName.parse(os.path.basename(t_path))
-            if not (tn and tn.is_meeting_file):
-                self._speaker_error("dash.speakers_active")
+            if not self._is_meeting_file(t_path):
+                self._speaker_error("dash.speakers_daily_active")
                 return True
             try:
                 if (new := update(read_provisional(t_path))) is None:
@@ -195,8 +199,7 @@ class _DashboardHandlerSpeakerOps:
             "active": (active := self._is_active_transcript(t_path)),
             "translating": self.recorder.is_translating(t_path),
             # 録音中の会議は仮登録できる（日次ファイルは不可）
-            "provisional": self._provisional_display(t_path)
-            if active and (tn := TranscriptName.parse(os.path.basename(t_path))) and tn.is_meeting_file else None,
+            "provisional": self._provisional_display(t_path) if active and self._is_meeting_file(t_path) else None,
             "enrollment": bool(load_config().get("speaker_enrollment", False)),
             "history": [{"id": r.id, "at": r.at, "label": r.label, "name": r.name, "person": r.person,
                          "lines": len(r.lines), "added": len(r.added), "undone": r.undone}
@@ -248,7 +251,8 @@ class _DashboardHandlerSpeakerOps:
         with self.recorder.transcript_lock:
             lines = self._read_lines(t_path)
             if self._is_active_transcript(t_path):
-                self._speaker_error("dash.speakers_active")
+                self._speaker_error("dash.speakers_active" if self._is_meeting_file(t_path)
+                                    else "dash.speakers_daily_active")
                 return
             if self.recorder.is_translating(t_path):
                 self._speaker_error("dash.speakers_translating")
@@ -354,7 +358,8 @@ class _DashboardHandlerSpeakerOps:
         with self.recorder.transcript_lock:
             lines = self._read_lines(t_path)
             if self._is_active_transcript(t_path):
-                self._speaker_error("dash.speakers_active")
+                self._speaker_error("dash.speakers_active" if self._is_meeting_file(t_path)
+                                    else "dash.speakers_daily_active")
                 return
             if self.recorder.is_translating(t_path):
                 self._speaker_error("dash.speakers_translating")
@@ -464,7 +469,8 @@ class _DashboardHandlerSpeakerOps:
             return
         with self.recorder.transcript_lock:
             if self._is_active_transcript(t_path):
-                self._speaker_error("dash.speakers_active")
+                self._speaker_error("dash.speakers_active" if self._is_meeting_file(t_path)
+                                    else "dash.speakers_daily_active")
                 return
             if self.recorder.is_translating(t_path):
                 self._speaker_error("dash.speakers_translating")
