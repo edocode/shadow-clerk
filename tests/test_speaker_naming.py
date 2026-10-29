@@ -80,13 +80,17 @@ def test_line_target_picker_only_targets() -> None:
         "[2026-10-09 10:00:02] [相手A] 二\n",
         "[2026-10-09 10:00:02] [自分] 自分の行\n",
         "[2026-10-09 10:00:03] [相手] 分離なし\n",
+        "[2026-10-09 10:00:04] [Claude] 応答\n",
     ]
-    targets = {("2026-10-09 10:00:01", "相手A"), ("2026-10-09 10:00:02", "自分"), ("2026-10-09 10:00:03", "相手")}
+    targets = {("2026-10-09 10:00:01", "相手A"), ("2026-10-09 10:00:02", "自分"), ("2026-10-09 10:00:03", "相手"),
+               ("2026-10-09 10:00:04", "Claude")}
     new, n = relabel_lines_where(lines, line_target_picker(targets, "太郎"))
-    assert n == 2
+    assert n == 3
     assert new[0] == "[2026-10-09 10:00:01] [太郎] 一\n"
-    assert new[1:4] == lines[1:4]
+    assert new[1:3] == lines[1:3]
+    assert new[3] == "[2026-10-09 10:00:02] [太郎] 自分の行\n"
     assert new[4] == "[2026-10-09 10:00:03] [太郎] 分離なし\n"
+    assert new[5] == lines[5]
 
 
 def test_parse_assignment() -> None:

@@ -93,6 +93,14 @@ def test_apply_lines_first_then_labels() -> None:
     assert not os.path.exists(provisional_path(_p(MTG)))
 
 
+def test_self_line_provisional_then_applied() -> None:
+    D1 = "2026-10-09 10:00:04"
+    assert _assign_lines([(D1, "自分")], "次郎")["provisional"]
+    assert _display()["lines"] == {f"{D1}\t自分": "次郎"} and "[自分] 了解です" in _read(MTG)
+    apply_provisional(_Rec(), _p(MTG))
+    assert f"[{D1}] [次郎] 了解です" in _read(MTG)
+
+
 def test_apply_keeps_what_failed(monkeypatch) -> None:
     import shadow_clerk._daemon_provisional_naming as mod
     monkeypatch.setattr(mod, "TRANSLATION_WAIT_SEC", 0)

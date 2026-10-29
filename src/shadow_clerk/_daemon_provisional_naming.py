@@ -12,11 +12,9 @@ from typing import Any
 
 from shadow_clerk.i18n import t
 from shadow_clerk._atomic_file import atomic_write_lines
-from shadow_clerk._daemon_speaker_naming import summarize_labels
+from shadow_clerk._daemon_speaker_naming import relabelable_keys, summarize_labels
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain.provisional_naming import ProvisionalNaming
-from shadow_clerk.domain.speaker import Speaker
-from shadow_clerk.domain.transcript_line import TranscriptLine
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -98,8 +96,7 @@ def apply_provisional(recorder: Any, transcript_path: str) -> str | None:
             return f.readlines()
 
     remaining = ProvisionalNaming(p.labels)
-    remote = {(tl.timestamp, tl.speaker_label or Speaker.OTHER.value)
-              for ln in read_lines() if (tl := TranscriptLine.parse(ln)) and tl.speaker == Speaker.OTHER}
+    remote = relabelable_keys(read_lines())
     for assign, targets in p.line_groups():  # 行が先。ラベル単位の名前付けは、付け替えられずに残った行にだけ当たる
         if (present := targets & remote) and not run(DashboardHandler._assign_lines_with, {
                 "lines": [{"ts": ts, "label": label} for ts, label in sorted(present)], **assign}):

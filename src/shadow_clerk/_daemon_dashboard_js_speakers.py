@@ -224,13 +224,13 @@ async function setPersonGroup(name,group){
   if(await _postJSON('/api/speaker-groups/set',{name,group}))await loadSpeakerGroups();
 }
 let _rlFile='',_rlItems=[],_rlProv=false;
-// 行の [時刻] [ラベル]。付け替えられない [自分] [Claude] の行は null
+// 行の [時刻] [ラベル]。付け替えられない [Claude] の行は null
 function _rlParse(l){
   const m=(l.dataset.raw||'').match(/^\[([^\]]+)\]\s\[([^\]]+)\]/);
-  return m&&m[2]!=='自分'&&m[2]!=='Claude'?{ts:m[1],label:m[2]}:null;
+  return m&&m[2]!=='Claude'?{ts:m[1],label:m[2]}:null;
 }
-// 相手? と 相手 はラベル単位では名前を付けられないので、「この話者の行を全部」でも行単位で送る
-const _rlLoose=l=>l==='相手?'||l==='相手';
+// 相手? と 相手 と 自分 はラベル単位では名前を付けられないので、「この話者の行を全部」でも行単位で送る
+const _rlLoose=l=>l==='相手?'||l==='相手'||l==='自分';
 function _rlLabels(){return [...new Set(_rlItems.map(i=>i.label).filter(l=>!_rlLoose(l)))];}
 function _rlScope(){
   return document.getElementById('rlScopeRange').checked?'range':document.getElementById('rlScopeLabel').checked?'label':'lines';
@@ -239,8 +239,9 @@ function updateRlTarget(){
   const scope=_rlScope(),shown=[...document.querySelectorAll('#tp .ln[data-ts]')].map(_rlParse).filter(Boolean);
   let text;
   if(scope==='range'){
-    const [lo,hi]=_rlItems.map(i=>i.ts).sort();
-    text=I18N['dash.relabel_target_range'].replace('{count}',shown.filter(x=>x.ts>=lo&&x.ts<=hi).length);
+    // 自分の行は、端のどちらかが自分の行のときだけ（サーバーの range_targets と同じ）
+    const [lo,hi]=_rlItems.map(i=>i.ts).sort(),self=_rlItems.some(i=>i.label==='自分');
+    text=I18N['dash.relabel_target_range'].replace('{count}',shown.filter(x=>x.ts>=lo&&x.ts<=hi&&(self||x.label!=='自分')).length);
   }else if(scope==='label'){
     const ls=_rlLabels(),n=shown.filter(x=>ls.includes(x.label)).length+_rlItems.filter(i=>_rlLoose(i.label)).length;
     text=I18N['dash.relabel_target_label'].replace('{labels}',ls.join(' / ')).replace('{count}',n);
