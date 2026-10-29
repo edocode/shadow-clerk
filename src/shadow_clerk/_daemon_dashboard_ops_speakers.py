@@ -16,6 +16,7 @@ from shadow_clerk._daemon_provisional_naming import ProvisionalNamingError, read
 from shadow_clerk._daemon_naming_history import NamingHistoryError, append_history, mark_undone, read_history
 from shadow_clerk._daemon_speaker_naming import (
     Decision, decide_assignment, line_target_picker, parse_assignment, range_targets, relabel_lines_where,
+    relabelable_keys,
     remap_offset, summarize_labels,
 )
 from shadow_clerk._daemon_speaker_names import SpeakerNameBook, SpeakerNameBookError
@@ -328,7 +329,7 @@ class _DashboardHandlerSpeakerOps:
         targets = {(x["ts"], x["label"]) for x in raw_lines}
         scope = data.get("scope", "lines")
         if (scope not in ("lines", "range")
-                or any(label in (Speaker.SELF.value, Speaker.CLAUDE.value) for _, label in targets)):
+                or any(label == Speaker.CLAUDE.value for _, label in targets)):
             self._speaker_error("dash.speakers_invalid")
             return
         assign = {k: data[k] for k in ("name", "group", "person") if k in data}
@@ -337,8 +338,7 @@ class _DashboardHandlerSpeakerOps:
         def provisional(p: ProvisionalNaming) -> ProvisionalNaming | None:
             lines = self._read_lines(t_path)
             picked = (range_targets(lines, targets) if scope == "range" else targets) or set()
-            picked &= {(tl.timestamp, tl.speaker_label or Speaker.OTHER.value)
-                       for ln in lines if (tl := TranscriptLine.parse(ln)) and tl.speaker == Speaker.OTHER}
+            picked &= relabelable_keys(lines)
             return p.with_lines(picked, None if cancel else assign) if picked else None
         if not cancel:
             try:

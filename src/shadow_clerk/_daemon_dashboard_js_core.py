@@ -52,7 +52,7 @@ function spCls(sp,mic){return (sp===mic||sp==='自分')?'sp-s':sp==='Claude'?'sp
 function spSpan(ts,sp){
   const mic=I18N['speaker.mic']||'自分',mon=I18N['speaker.monitor']||'相手';
   const o=spkProv.lines[ts+'\\t'+sp]??sp,pv=spkProv.labels[o]||o,prov=pv!==sp,col=spColor(pv,mic);
-  const dl=sp===mic||sp==='自分'?mic:!prov&&(sp===mon||sp==='相手')?mon:pv;
+  const dl=prov?pv:sp===mic||sp==='自分'?mic:sp===mon||sp==='相手'?mon:pv;
   return '<span class="'+spCls(sp,mic)+(prov?' sp-prov':'')+'" data-sp="'+escAttr(pv)+'"'
     +(prov?' title="'+escAttr(I18N['dash.speakers_provisional_mark'])+'"':'')+(col?' style="color:'+col+'"':'')+'>['+esc(dl)+']</span>';
 }

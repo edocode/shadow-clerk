@@ -504,10 +504,12 @@ def test_assign_lines_only_touches_targets() -> None:
     assert SpeakerNameBook().entries()["次郎"].person is True
 
 
-def test_assign_lines_rejects_self_and_writes_nothing() -> None:
+def test_assign_lines_rejects_claude_and_writes_nothing() -> None:
+    with open(_p(MTG), "a", encoding="utf-8") as f:
+        f.write("[2026-10-09 10:00:06] [Claude] はい\n")
     before = _read(MTG)
-    for lines in ([{"ts": "2026-10-09 10:00:04", "label": "自分"}],
-                  [{"ts": "2026-10-09 10:00:01", "label": "相手A"}, {"ts": "2026-10-09 10:00:04", "label": "自分"}],
+    for lines in ([{"ts": "2026-10-09 10:00:06", "label": "Claude"}],
+                  [{"ts": "2026-10-09 10:00:01", "label": "相手A"}, {"ts": "2026-10-09 10:00:06", "label": "Claude"}],
                   [{"ts": "2026-10-09 10:00:09", "label": "相手A"}],
                   [], "x", [{"ts": 1, "label": "相手A"}]):
         h = _H({"file": MTG, "lines": lines, "name": "次郎"})
@@ -517,6 +519,34 @@ def test_assign_lines_rejects_self_and_writes_nothing() -> None:
     h = _H({"file": MTG, "lines": [{"ts": "2026-10-09 10:00:01", "label": "相手A"}], "name": "次郎"}, rec=_Rec(active=MTG))
     h._assign_lines()
     assert h.sent["provisional"] and _read(MTG) == before  # 録音中は仮登録だけ
+
+
+def test_assign_lines_self_line() -> None:
+    """自分の PC を会議室のマイクにしたときなど、[自分] の行も付け替えられる（マイクの行に声紋は無いので登録しない）"""
+    h = _H({"file": MTG, "lines": [{"ts": "2026-10-09 10:00:04", "label": "自分"}], "name": "次郎"})
+    h._assign_lines()
+    assert h.sent["status"] == "ok" and h.sent["renamed"] == 1 and h.sent["enrolled"] == {}, h.sent
+    assert "[2026-10-09 10:00:04] [次郎] 了解です" in _read(MTG) and VoiceprintStore().people() == {}
+
+
+def _range(ends: list[tuple[str, str]]) -> str:
+    h = _H({"file": MTG, "lines": [{"ts": f"2026-10-09 10:00:0{s}", "label": lb} for s, lb in ends],
+            "name": "次郎", "scope": "range"})
+    h._assign_lines()
+    assert h.sent["status"] == "ok", h.sent
+    return _read(MTG)
+
+
+def test_range_includes_self_lines_only_when_an_end_is_self() -> None:
+    _with_second_a()
+    body = _range([("1", "相手A"), ("5", "相手A")])
+    assert "[自分] 了解です" in body and body.count("[次郎]") == 4
+
+
+def test_range_from_a_self_line() -> None:
+    _with_second_a()
+    body = _range([("3", "相手C"), ("4", "自分")])
+    assert "[次郎] 了解です" in body and "[次郎] それでお願いします" in body and "[相手A] 二行目です" in body
 
 
 def test_assign_lines_non_person_moves_out() -> None:

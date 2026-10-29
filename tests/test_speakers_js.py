@@ -250,6 +250,9 @@ let groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true,'花�
   selected=[tpLines[0],tpLines[3]];await openRelabelModal();pickScope('Label');
   posted.length=0;toasts.length=0;alerts.length=0;postResp.push({status:'ok',message:'FIRST'},{status:'error',message:'NG'});
   els.rlName.value='bob';await saveRelabel();out.looseNg=[posted.length,toasts.slice(),alerts.slice(),els.relabelModal.classList.open];
+  selected=[tpLines[2],tpLines[4]];await openRelabelModal();out.selfRange=pickScope('Range');
+  out.selfLabel=pickScope('Label');posted.length=0;toasts.length=0;els.rlName.value='bob';await saveRelabel();
+  out.selfLabelPosted=posted.slice(0,2).map(p=>p.body.lines);
   selected=[tpLines[3]];await openRelabelModal();out.scUnk=scopeView();out.rlInfoPlain=els.rlInfo.textContent;
   selected=[tpLines[1],tpLines[1]];await openRelabelModal();out.scSame=scopeView();
   // 録音中の会議: モーダルに仮登録を入れ直し、空欄にしたラベルは "" で送って取り消す
@@ -331,7 +334,8 @@ check("付け替え: 開いた時は個人・未編集・グループ欄は隠�
 check("付け替え: 名前に追従", out["rlTaro"] == [True, "acme", True] and out["rlHanako"] == [False, "", False] and out["rlNew"] == [True, "", True],
       repr((out["rlTaro"], out["rlHanako"], out["rlNew"])))
 check("付け替え: 触っていなければ group/person は送らない", out["relabelUntouched"]["body"] == {
-      "file": "transcript-202610091000.txt", "lines": [{"ts": "2026-10-09 10:00:05", "label": "相手A"}], "name": "太郎"},
+      "file": "transcript-202610091000.txt", "lines": [{"ts": "2026-10-09 10:00:05", "label": "相手A"},
+                                                       {"ts": "2026-10-09 10:00:06", "label": "自分"}], "name": "太郎"},
       repr(out["relabelUntouched"]))
 check("付け替え: チェックの切り替えでグループ欄が出入りし、入れ直したら group は送らない",
       out["rlToggle"] == [False, "1"] and out["rlToggleBack"] is True and "group" not in out["relabelRechecked"]["body"]
@@ -395,6 +399,10 @@ check("対象: 2 行なら「この 2 行だけ」「2 行の間を全部」「�
       out["sc2"] == ["TWO", False, False, True, "LINES 2"] and out["sc2Range"] == "RANGE 3"
       and out["sc2Label"] == "LABEL 相手B / 相手A 4" and out["sc2Back"] == "LINES 2",
       repr((out["sc2"], out["sc2Range"], out["sc2Label"], out["sc2Back"])))
+check("自分の行: 端が自分なら範囲に自分の行も数え、この話者の行を全部では 1 行ずつ送る",
+      out["selfRange"] == "RANGE 3" and out["selfLabel"].startswith("LABEL 相手A ")
+      and [{"ts": "2026-10-09 10:00:03", "label": "自分"}] in out["selfLabelPosted"],
+      repr((out["selfRange"], out["selfLabel"], out["selfLabelPosted"])))
 check("範囲: 2 行の間を全部は assign-lines に scope range で 2 行を送る", out["rangePosted"] == {
       "url": "/api/speakers/assign-lines", "body": {"file": "transcript-202610091000.txt", "name": "bob", "scope": "range",
       "lines": [{"ts": "2026-10-09 10:00:02", "label": "相手B"}, {"ts": "2026-10-09 10:00:05", "label": "相手A"}]}},

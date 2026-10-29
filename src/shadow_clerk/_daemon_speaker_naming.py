@@ -62,24 +62,32 @@ def relabel_lines_where(lines: list[str], pick: Callable[[TranscriptLine], str |
     return out, renamed
 
 
+def line_key(tl: TranscriptLine) -> tuple[str, str] | None:
+    """付け替えられる行の (時刻, 今のラベル)。相手側（分離なしの行は「相手」）と自分の行。Claude の行は None"""
+    if tl.speaker == Speaker.OTHER:
+        return tl.timestamp, tl.speaker_label or Speaker.OTHER.value
+    return (tl.timestamp, Speaker.SELF.value) if tl.speaker == Speaker.SELF else None
+
+
+def relabelable_keys(lines: list[str]) -> set[tuple[str, str]]:
+    return {k for ln in lines if (tl := TranscriptLine.parse(ln)) and (k := line_key(tl))}
+
+
 def line_target_picker(targets: set[tuple[str, str]], new_label: str) -> Callable[[TranscriptLine], str | None]:
-    """(時刻, 今のラベル) が targets にある相手側の行だけ new_label にする。分離なしの行のラベルは「相手」"""
-    def pick(tl: TranscriptLine) -> str | None:
-        if tl.speaker != Speaker.OTHER:
-            return None
-        return new_label if (tl.timestamp, tl.speaker_label or Speaker.OTHER.value) in targets else None
-    return pick
+    """(時刻, 今のラベル) が targets にある行だけ new_label にする"""
+    return lambda tl: new_label if line_key(tl) in targets else None
 
 
 def range_targets(lines: list[str], ends: set[tuple[str, str]]) -> set[tuple[str, str]] | None:
     """2 行 ends（時刻, ラベル）の時刻の間（両端を含む）にある相手側の行を、話者を問わず targets の形で返す。
-    ends が 2 行でないか、どちらかが相手側の行として無ければ None"""
-    remote = {(tl.timestamp, tl.speaker_label or Speaker.OTHER.value)
-              for ln in lines if (tl := TranscriptLine.parse(ln)) and tl.speaker == Speaker.OTHER}
-    if len(ends) != 2 or not ends <= remote:
+    自分の行は、端のどちらかが自分の行のときだけ含める（相手の行だけ付け替えたいときに自分の行を巻き込まない）。
+    ends が 2 行でないか、どちらかが付け替えられる行として無ければ None"""
+    keys = relabelable_keys(lines)
+    if len(ends) != 2 or not ends <= keys:
         return None
     lo, hi = min(ts for ts, _ in ends), max(ts for ts, _ in ends)
-    return {p for p in remote if lo <= p[0] <= hi}
+    with_self = any(label == Speaker.SELF.value for _, label in ends)
+    return {k for k in keys if lo <= k[0] <= hi and (with_self or k[1] != Speaker.SELF.value)}
 
 
 @dataclass(frozen=True)
