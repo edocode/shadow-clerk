@@ -46,6 +46,19 @@ function _vpClusterRow(name,c){
   }
   return row;
 }
+// 「自分の声を登録」: 取り終えるまでボタンに残り秒数を出し、終わったら一覧を読み直す
+async function enrollSelfVoice(btn){
+  const d=await _postJSON('/api/voiceprints/enroll-self',{});
+  if(!d)return;
+  showToast(d.message);
+  const label=btn.textContent;let left=d.seconds;
+  btn.disabled=true;btn.textContent=label+' ('+left+')';
+  const timer=setInterval(()=>{
+    if(--left>0){btn.textContent=label+' ('+left+')';return;}
+    clearInterval(timer);btn.disabled=false;btn.textContent=label;
+    showToast(I18N['dash.vp_enroll_done']);loadVoiceprints();
+  },1000);
+}
 async function _vpAction(name,url,body,relabels){
   const d=await _postJSON(url,body);
   if(!d)return;

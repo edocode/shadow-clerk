@@ -455,6 +455,7 @@ _HTML_TEMPLATE = (
     "      <div id=\"spkRows\"></div>\n"
     "      <div id=\"spkHistory\" style=\"font-size:12px\"></div>\n"
     "      <div style=\"font-size:12px;margin:14px 0 4px;font-weight:bold\">{{i18n:dash.voiceprints_title}}</div>\n"
+    "      <div class=\"vp-share\"><button onclick=\"enrollSelfVoice(this)\" title=\"{{i18n:dash.vp_enroll_hint}}\">{{i18n:dash.vp_enroll}}</button></div>\n"
     "      <div id=\"vpRows\" style=\"font-size:12px\"></div>\n"
     "    </div>\n"
     "    <div class=\"modal-foot\">\n"

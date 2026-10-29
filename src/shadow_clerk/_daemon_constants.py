@@ -40,7 +40,9 @@ VAD_PRE_ROLL_FRAMES = 10
 # 読み上げと重なる部分を除いたあと、発音の解析に渡す最短の長さ(秒)。末尾の無音 (~0.9秒) + 短い文 (~0.5秒)
 PRONOUNCE_MIN_CLEAR_SEC = SILENCE_FRAMES_THRESHOLD * FRAME_DURATION_MS / 1000 + 0.5
 SELF_VOICEPRINT_INTERVAL_SEC = 60.0  # マイクの声から自分の声紋を取る最短の間隔（毎回取ると CPU を食う）
-SELF_VOICEPRINT_MAX = 30  # マイク由来の自分の声紋の保存件数（届いた声のサンプルとは別に数える）
+SELF_VOICEPRINT_MAX = 30  # マイク由来の自分の声紋の保存件数（由来ごとに、届いた声のサンプルとは別に数える）
+SELF_ENROLL_SEC = 60.0  # 「自分の声を登録」を押してからマイクの声を基準として取る時間
+SELF_BASELINE_MIN = 3  # 自動で取り始めるのに要る基準の件数（自動で取った分は数えない。他の人の声が混ざって基準がずれないように）
 MIN_SEGMENT_DURATION = 0.5  # 最小セグメント長(秒)
 MAX_SEGMENT_DURATION = 30.0  # 最大セグメント長(秒)
 INTERIM_MAX_DURATION = 10.0  # interim 転写に渡す直近音声の最大長(秒)

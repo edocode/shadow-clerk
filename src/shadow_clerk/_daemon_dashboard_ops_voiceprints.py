@@ -8,6 +8,8 @@ from collections.abc import Callable
 from urllib.parse import parse_qs, urlparse
 
 from shadow_clerk.i18n import t
+from shadow_clerk._daemon_config import load_config
+from shadow_clerk._daemon_constants import SELF_ENROLL_SEC
 from shadow_clerk._daemon_dashboard_base import read_local_json_body
 from shadow_clerk._daemon_naming_history import NamingHistoryError, read_history
 from shadow_clerk._daemon_speaker_naming import relabel_lines_where
@@ -209,3 +211,20 @@ class _DashboardHandlerVoiceprintOps:
             self._speaker_error("dash.voiceprint_store_error")
             return
         self._send_json({"status": "ok", "restored": restored, "message": t("dash.vp_restored", count=restored)})
+
+    def _start_self_enroll(self) -> None:
+        """POST /api/voiceprints/enroll-self — これからしばらくのマイクの声を自分の声紋の基準として取る"""
+        if read_local_json_body(self, "voiceprints") is None:
+            return
+        cfg = load_config()
+        if not (cfg.get("speaker_diarization") and cfg.get("speaker_enrollment")):
+            self._speaker_error("dash.vp_enroll_off")
+            return
+        try:
+            PersonName(str(cfg.get("self_name") or "").strip())
+        except ValueError:
+            self._speaker_error("dash.vp_enroll_no_name")
+            return
+        self.recorder.start_self_enroll()
+        sec = int(SELF_ENROLL_SEC)
+        self._send_json({"status": "ok", "seconds": sec, "message": t("dash.vp_enroll_started", sec=sec)})

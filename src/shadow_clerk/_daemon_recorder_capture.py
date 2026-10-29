@@ -222,6 +222,7 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         self.voiceprints = VoiceprintStore()  # 録音中の照合用（読み込みは mtime でキャッシュ）
         self._voiceprint_warned_path: str | None = None
         self._self_voiceprint_at = -SELF_VOICEPRINT_INTERVAL_SEC  # 最後にマイクの声から自分の声紋を取った時刻（monotonic）
+        self._self_enroll_until = 0.0  # 「自分の声を登録」で基準を取り終える時刻（monotonic）
 
         # Push-to-Talk コマンドモード
         self._command_mode = False

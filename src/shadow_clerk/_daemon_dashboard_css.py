@@ -92,6 +92,7 @@ main {
 .spk-person { flex:none; font-size:11px; color:var(--muted); white-space:nowrap; }
 .spk-sub { font-size:12px; margin:14px 0 4px; font-weight:bold; }
 .vp-person { flex-wrap:wrap; }
+.vp-share { display:flex; gap:8px; margin:0 0 8px; }
 .vp-clusters { flex-basis:100%; padding-left:16px; }
 .vp-clusters:empty { display:none; }
 .spk-row.vp-different { background:rgba(255,180,0,.12); }

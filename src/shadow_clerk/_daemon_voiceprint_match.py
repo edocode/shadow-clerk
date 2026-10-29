@@ -57,6 +57,18 @@ def _unit_rows(emb: np.ndarray) -> np.ndarray:
     return (emb[ok] / norms[ok, None]).astype(np.float32)
 
 
+def is_own_voice(emb: np.ndarray, own: np.ndarray, others: dict[str, np.ndarray]) -> bool:
+    """1 発話の埋め込みが自分の基準に断定の閾値以上で近く、他の誰よりもマージン以上に自分に近いか"""
+    cfg = load_config()
+    e = _unit_rows(np.asarray([emb], dtype=np.float64))
+    if not len(e) or own.ndim != 2 or own.shape[1] != e.shape[1]:
+        return False
+    mine = _score(e, own)
+    other = max((_score(e, p) for p in others.values() if p.ndim == 2 and p.shape[1] == e.shape[1]), default=-1.0)
+    return (mine >= voiceprint_number(cfg, "voiceprint_high")
+            and mine - other >= max(voiceprint_number(cfg, "voiceprint_margin"), 0.0))
+
+
 def match_cluster(cluster: list[np.ndarray], pools: dict[str, np.ndarray], attendees: set[str]) -> MatchResult:
     cfg = load_config()
     min_n = max(voiceprint_number(cfg, "voiceprint_min_utterances"), 1)
