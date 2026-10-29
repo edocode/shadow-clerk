@@ -344,7 +344,9 @@ voiceprint_min_utterances: 2           # ラベルの発話がこれ未満なら
   - 名前は `?` で終われない（本当の名前を未確定の名前と取り違えないように）
 - `*.voices.jsonl` の `label` は文字起こしに出したラベル（`alice`・`alice?`・`相手A`）、`cluster` は会議内のラベル、`auto: true` は識別で付いたまま未確認の名前。名前付け・確認で `auto` は外れ、その名前付けを取り消すと戻る。同じファイルで再起動したときはラベル番号の続きに `cluster` も数えるので、`alice` と表示された `相手A` を別人に振り直さない。これらの無い既存の行は従来どおり読める。
 
-**プライバシー:** 声紋は生体情報。データディレクトリの外に出さず、LLM にも渡さない。音声は保存しない。ダッシュボードで人を削除すると、その人の声紋と、会議ごとの `*.voices.jsonl` に残る名前付きの埋め込みがすべて消える。`voiceprints.json` と全ての `*.voices.jsonl` を消せば全消去できる。`*.naming.jsonl` はラベル・名前・時刻だけで、声のデータは含まない。
+**声紋の共有:** 話者分離をよく使う人の声紋を、あまり使っていない人に渡せる。「登録済みの人」で人にチェックを付け（「グループで選ぶ…」でまとめて選べる）「書き出し」で JSON ファイルを1つ保存する。受け取った人は「取り込み」でファイルを選び、人ごとに取り込むかどうかと取り込み先の名前を確かめる（既存の名前ならその人に足し、新しい名前なら人を作る）。ファイルには照合に使う声紋（除外中のサンプルは除く）、人ごとのグループと色、埋め込みのモデル名が入り、会議名は入らない。取り込んだサンプルには `"origin": "import"` / `"source": "import"` が付き、同じファイルを2回取り込んでも増えない。違うモデルで作ったファイルは取り込まない。受け取る側にいなかった人はファイルのグループと色を使い、既にいる人のグループは変えない。`clerk-util voiceprints-export` / `voiceprints-import` でも同じことができる。**声紋を渡すときは本人の同意を得ること。**
+
+**プライバシー:** 声紋は生体情報。書き出さない限りデータディレクトリの外に出さず、LLM にも渡さない。音声は保存しない。ダッシュボードで人を削除すると、その人の声紋と、会議ごとの `*.voices.jsonl` に残る名前付きの埋め込みがすべて消える。`voiceprints.json` と全ての `*.voices.jsonl` を消せば全消去できる。`*.naming.jsonl` はラベル・名前・時刻だけで、声のデータは含まない。
 
 ### オプション: Google Calendar 連携
 
@@ -612,6 +614,8 @@ custom_commands:
 | `read-config` | `config.yaml` を表示（なければデフォルト値で作る） |
 | `write-config-value <key> <value>` | `config.yaml` のキーを1つ変更 |
 | `gcal-auth <credentials.json> [token_file]` | Google Calendar の OAuth 認証。成功すると `gcal_integration` も有効にする |
+| `voiceprints-export <out.json> [name ...]` | 他の人に渡す声紋を書き出す（名前を省くと声紋のある全員） |
+| `voiceprints-import <file.json> [name[=to] ...]` | 書き出した声紋を取り込む（一部の人だけ・別の名前でも可） |
 | `install-skill [--target claude\|agents\|<path>] [--link] [--force]` | AI エージェント向けに同梱スキルを配る（[AI コンソール](#ai-コンソール)参照） |
 | `run-llm <args...>` | LLM クライアントを直接実行（`translate`, `query`, `match-command`, `summarize`, `spell-check`） |
 | `help` | 使い方を表示 |

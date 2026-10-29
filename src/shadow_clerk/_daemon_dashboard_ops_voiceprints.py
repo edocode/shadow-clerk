@@ -15,7 +15,10 @@ from shadow_clerk._daemon_naming_history import NamingHistoryError, read_history
 from shadow_clerk._daemon_speaker_naming import relabel_lines_where
 from shadow_clerk._daemon_voice_sidecar import mark_no_enroll, read_voices
 from shadow_clerk._daemon_voiceprint_clusters import ClusterKind, cluster_samples, majority_shape
+from shadow_clerk._daemon_speaker_names import SpeakerNameBookError
+from shadow_clerk._daemon_voiceprint_share import ModelMismatchError, build_export, import_export
 from shadow_clerk._daemon_voiceprint_store import VoiceprintStore, VoiceprintStoreError
+from shadow_clerk.domain.voiceprint_export import VoiceprintExport
 from shadow_clerk.domain.transcript_line import TranscriptLine
 from shadow_clerk.domain.voiceprint import PersonName, SampleStatus, VoiceEntry, VoiceSample
 
@@ -65,7 +68,8 @@ def _view_clusters(samples: list[VoiceSample]) -> list[tuple[ClusterKind, float,
 
 class _DashboardHandlerVoiceprintOps:
     """GET /api/voiceprints/clusters, POST /api/voiceprints/delete-samples,
-    POST /api/voiceprints/move, POST /api/voiceprints/restore"""
+    POST /api/voiceprints/move, POST /api/voiceprints/restore,
+    POST /api/voiceprints/export, POST /api/voiceprints/import"""
 
     def _voiceprint_request(self) -> tuple[str, set[tuple[str, str]], dict] | None:
         """{name, keys} を読む。不正なら応答済みにして None"""
@@ -228,3 +232,64 @@ class _DashboardHandlerVoiceprintOps:
         self.recorder.start_self_enroll()
         sec = int(SELF_ENROLL_SEC)
         self._send_json({"status": "ok", "seconds": sec, "message": t("dash.vp_enroll_started", sec=sec)})
+
+    def _export_voiceprints(self) -> None:
+        """POST /api/voiceprints/export {names} — 選んだ人の声紋を、他の人に渡すファイルの中身として返す"""
+        data = read_local_json_body(self, "voiceprints")
+        if data is None:
+            return
+        names = data.get("names")
+        if not isinstance(names, list) or not names or not all(isinstance(n, str) for n in names):
+            self._speaker_error("dash.vp_export_none")
+            return
+        try:
+            exp = build_export(names)
+        except ValueError:
+            self._speaker_error("dash.speakers_invalid")
+            return
+        except (VoiceprintStoreError, SpeakerNameBookError, OSError):
+            self._speaker_error("dash.voiceprint_store_error")
+            return
+        if not exp.people:
+            self._speaker_error("dash.vp_export_none")
+            return
+        self._send_json({"status": "ok", "data": exp.to_dict(),
+                         "filename": f"voiceprints-{exp.exported_at[:10]}.json",
+                         "message": t("dash.vp_exported", count=len(exp.people))})
+
+    def _import_voiceprints(self) -> None:
+        """POST /api/voiceprints/import {data, mapping} — mapping（ファイル上の名前 → 取り込み先）の人だけ取り込む"""
+        data = read_local_json_body(self, "voiceprints")
+        if data is None:
+            return
+        mapping = data.get("mapping")
+        if not isinstance(mapping, dict) or not mapping or not all(
+                isinstance(k, str) and isinstance(v, str) for k, v in mapping.items()):
+            self._speaker_error("dash.speakers_invalid")
+            return
+        try:
+            exp = VoiceprintExport.parse(data.get("data"))
+        except ValueError:
+            self._speaker_error("dash.vp_import_invalid")
+            return
+        if bad := [v for v in mapping.values() if not _valid_name(v)]:
+            self._send_json({"status": "error", "message": t("dash.vp_import_bad_name", name=bad[0])})
+            return
+        try:
+            added = import_export(exp, mapping)
+        except ModelMismatchError as e:
+            self._send_json({"status": "error", "message": t("dash.vp_import_model", model=str(e))})
+            return
+        except (VoiceprintStoreError, SpeakerNameBookError, OSError):
+            self._speaker_error("dash.voiceprint_store_error")
+            return
+        self._send_json({"status": "ok", "added": added,
+                         "message": t("dash.vp_imported", people=len(added), count=sum(added.values()))})
+
+
+def _valid_name(name: str) -> bool:
+    try:
+        PersonName(name)
+    except ValueError:
+        return False
+    return True

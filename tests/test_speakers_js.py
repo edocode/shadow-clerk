@@ -44,7 +44,7 @@ function el(){return {children:[],_h:'',textContent:'',value:'',disabled:false,d
   classList:{open:false,add(){this.open=true;},remove(){this.open=false;}},
   appendChild(c){this.children.push(c);},setAttribute(k,v){this[k]=v;}};}
 function mk(tag){return Object.assign(el(),{tagName:String(tag).toUpperCase()});}
-const els={spkRows:el(),spkInfo:el(),spkSuggest:el(),spkSaveBtn:el(),vpRows:el(),speakerModal:el(),
+const els={spkRows:el(),spkInfo:el(),spkSuggest:el(),spkSaveBtn:el(),vpRows:el(),vpNames:el(),vpPickGroup:el(),vpImport:el(),speakerModal:el(),
   rlName:el(),rlGroup:el(),rlPerson:el(),rlInfo:el(),rlSaveBtn:el(),relabelModal:el(),grpSuggest:el(),rlSuggest:el(),
   spkHistory:el(),rlScopeLines:el(),rlScopeRange:el(),rlScopeLabel:el(),rlScopeRangeOpt:el(),rlScopeLabelOpt:el(),
   rlScopeLinesText:el(),rlTarget:el()};
@@ -179,13 +179,14 @@ let groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true,'花�
   vpResp={status:'ok',people:[{name:'太郎',count:3},{name:'次郎',count:1}]};
   await loadVoiceprints();
   const rows=els.vpRows.children;
-  out.people=rows.map(r=>[r.children[0].textContent,r.children.length,r.children[1]?r.children[1].value:null]);
+  const pname=r=>r.children[1].textContent+' ('+r.children[2].textContent+')';
+  out.people=rows.map(r=>[pname(r),r.children.length,r.children[3].value,r.children[0].disabled]);
   out.grpSuggest=els.grpSuggest.children.map(o=>o.value);
-  const g0=rows[1].children[1];g0.value=' globex ';await g0.onchange();
+  const g0=rows[1].children[3];g0.value=' globex ';await g0.onchange();
   out.vpSet=posted[0];
   groupsResp={status:'error',message:'broken'};alerts.length=0;
   await loadVoiceprints();
-  out.peopleErr=els.vpRows.children.map(r=>[r.children[0].textContent,r.children.length]);out.peopleErrAlerts=alerts.slice();
+  out.peopleErr=els.vpRows.children.map(r=>[pname(r),r.children.length]);out.peopleErrAlerts=alerts.slice();
   vpResp={status:'ok',people:[]};
   groupsResp={status:'ok',names:{},persons:{'花子':false},groups:{},self_group:''};
   await loadVoiceprints();out.peopleNone=[els.vpRows.children.length,els.vpRows.textContent];
@@ -338,12 +339,12 @@ check("付け替え: チェックの切り替えでグループ欄が出入り�
 check("保存後に議事録の再生成を確認して頼む", out["regenPosted"] == {"url": "/api/summary",
       "body": {"file": "transcript-202610091000.txt"}}, repr(out["regenPosted"]))
 check("登録済みの人: 名簿の個人（声紋0件も）と声紋のある人を名前順に出し、個人でないラベルは出さない",
-      out["people"] == [["三郎 (0)", 5, ""], ["太郎 (3)", 5, "acme"], ["次郎 (1)", 5, ""]]
+      out["people"] == [["三郎 (0)", 7, "", True], ["太郎 (3)", 7, "acme", False], ["次郎 (1)", 7, "", False]]
       and out["grpSuggest"] == ["acme"], repr((out["people"], out["grpSuggest"])))
 check("登録済みの人: グループ欄の変更で speaker-groups/set を送る",
       out["vpSet"] == {"url": "/api/speaker-groups/set", "body": {"name": "太郎", "group": "globex"}}, repr(out["vpSet"]))
 check("名簿を読めなくても声紋のある人は出し、グループ欄なし・alert なし",
-      out["peopleErr"] == [["太郎 (3)", 4], ["次郎 (1)", 4]] and out["peopleErrAlerts"] == [], repr((out["peopleErr"], out["peopleErrAlerts"])))
+      out["peopleErr"] == [["太郎 (3)", 6], ["次郎 (1)", 6]] and out["peopleErrAlerts"] == [], repr((out["peopleErr"], out["peopleErrAlerts"])))
 check("付け替え: 不明な話者（相手?）の行も対象にし、Claude の行は除く",
       out["rlUnknown"] == [{"ts": "2026-10-09 10:00:07", "label": "相手?"}], repr(out["rlUnknown"]))
 check("履歴: 見出しと行を出し、未取り消しの行にだけ取り消すボタン",

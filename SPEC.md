@@ -617,7 +617,7 @@ sequenceDiagram
 | `transcript-*.provisional.json` | 会議中の話者の仮登録（`{labels: {ラベル: assign の mapping の値}, lines: [{ts, label, name, group?, person?}]}`）。録音中の会議への `assign` / `assign-lines` はここに預けるだけで transcript・声紋を触らない。`end_meeting` の直後（どの経路でも）に、議事録より先に `apply_provisional` が同じ処理で本登録する（行 → ラベルの順、翻訳中なら最大 120 秒待つ）。本登録できた分は消し、残りはファイルに残す。会議のリネーム・削除に追随する |
 | `transcript-*.naming.jsonl` | 名前付けの履歴（ラベル 1 件ごとに `{id, at, label, name, person, lines, added, removed, undone, auto_cleared}`。取り消しに使う。声のデータは含まない。会議のリネーム・削除・切り出しに追随する） |
 | `speaker_names.json` | 名前帳 v2（名前・グループ・個人区分・グループの色。声紋は含まない。どの会議でも候補に出す。人の削除で消える） |
-| `voiceprints.json` | 人ごとの声紋（名前付け後に追加。1人あたり `voiceprint_max_samples`、既定 200 件）。サンプルごとの `status`: なし＝通常、`outlier`＝自動で照合から除外中、`kept`＝人が「戻す」した（以後自動で除外しない）。`status` のない既存サンプルは通常として読む。`origin`: なし＝届いた声（名前付け）、`enroll`＝「自分の声を登録」（`POST /api/voiceprints/enroll-self`）から `SELF_ENROLL_SEC` の間に取ったマイクの声（照合なし・間隔なし）、`mic`＝ふだんのマイクの声（`SELF_VOICEPRINT_INTERVAL_SEC` ごと。`mic` 以外の自分のサンプル＝基準が `SELF_BASELINE_MIN` 件以上あり、`is_own_voice` で基準に `voiceprint_high` 以上かつ他の人より `voiceprint_margin` 以上近いときだけ）。`enroll`・`mic` はそれぞれ `SELF_VOICEPRINT_MAX` 件まで、他の由来のサンプルを押し出さない。照合では `self_name` を出席者として扱う |
+| `voiceprints.json` | 人ごとの声紋（名前付け後に追加。1人あたり `voiceprint_max_samples`、既定 200 件）。サンプルごとの `status`: なし＝通常、`outlier`＝自動で照合から除外中、`kept`＝人が「戻す」した（以後自動で除外しない）。`status` のない既存サンプルは通常として読む。`origin`: なし＝届いた声（名前付け）、`import`＝他の人の書き出しから取り込んだ、`enroll`＝「自分の声を登録」（`POST /api/voiceprints/enroll-self`）から `SELF_ENROLL_SEC` の間に取ったマイクの声（照合なし・間隔なし）、`mic`＝ふだんのマイクの声（`SELF_VOICEPRINT_INTERVAL_SEC` ごと。`mic` 以外の自分のサンプル＝基準が `SELF_BASELINE_MIN` 件以上あり、`is_own_voice` で基準に `voiceprint_high` 以上かつ他の人より `voiceprint_margin` 以上近いときだけ）。`enroll`・`mic` はそれぞれ `SELF_VOICEPRINT_MAX` 件まで、他の由来のサンプルを押し出さない。照合では `self_name` を出席者として扱う |
 | `wespeaker_cache/` | 話者分離の wespeaker ResNet34 ONNX モデル（初回利用時にダウンロード） |
 | `summary-YYYYMMDD.md` | 議事録（日次 transcript に対応） |
 | `summary-YYYYMMDDHHMM[@<会議名>].md` | 会議セッション用議事録 |
@@ -752,6 +752,8 @@ flowchart LR
 | `POST /api/voiceprints/move` | `{name, keys, to}`。サンプルを `to`（個人のみ）へ移し、今も `name` のままの該当行を書き換える。録音中・翻訳中の会議は書き換えずに `skipped_files` に数える |
 | `POST /api/voiceprints/restore` | `{name, keys}`。`status` を `kept` にする。`{restored, message}` |
 | `POST /api/voiceprints/enroll-self` | `{}`。これから `SELF_ENROLL_SEC` 秒のマイクの声を自分の声紋の基準（`origin: enroll`）として取る。話者分離・声紋の登録が無効、または `self_name` が名前として使えなければエラー。`{seconds, message}` |
+| `POST /api/voiceprints/export` | `{names}`。声紋のある人だけを書き出す。`{data, filename, message}`。`data` は `{format: "shadow-clerk-voiceprints", version: 1, model, exported_at, people: [{name, group, color, person, samples: [{emb, recorded_at}]}]}`（除外中のサンプルと `source` = 会議名は入れない）。ダッシュボードが Blob で保存する |
+| `POST /api/voiceprints/import` | `{data, mapping}`。`mapping` はファイル上の名前 → 取り込み先の名前。`model` が `EMBEDDING_MODEL` と違えば断る。サンプルは `source: "import"`・`origin: "import"` で足す（同じ `recorded_at` は重複させない）。名前帳にいない取り込み先はファイルのグループ・色で足す。`{added: {名前: 件数}, message}` |
 
 | 設定キー | 既定 | 意味 |
 |---|---|---|

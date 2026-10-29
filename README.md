@@ -345,7 +345,9 @@ voiceprint_min_utterances: 2           # a label needs this many utterances befo
   - Names cannot end in `?`, so a real name is never mistaken for a tentative one.
 - In `*.voices.jsonl`, `label` is the label shown in the transcript (`alice`, `alice?` or `相手A`), `cluster` is the meeting label it was grouped under, and `auto: true` marks a name that came from identification and has not been confirmed yet. Naming or confirming clears `auto`; undoing that naming sets it again. After a restart on the same file, numbering also counts `cluster`, so a `相手A` shown as `alice` is not reused for someone else. Older rows without these fields work as before.
 
-**Privacy:** voiceprints are biometric data. They stay inside the data directory and are never passed to an LLM. Audio is not stored. Deleting a person from the dashboard removes their stored voiceprints and every embedding named after them in the per-meeting `*.voices.jsonl` files; deleting `voiceprints.json` and all `*.voices.jsonl` files erases everything. `*.naming.jsonl` holds only labels, names and timestamps, no voice data.
+**Sharing voiceprints:** someone who uses diarization a lot can hand their voiceprints to someone who has few. In "Registered people", check people (or pick a group with "Select by group…") and press "Export" to save one JSON file; the receiver presses "Import", chooses the file, and for each person checks whether to import and edits the name to import as (an existing name adds to that person, a new name creates one). The file holds the voiceprints used for matching (excluded samples are left out), each person's group and color, and the embedding model; it holds no meeting names. Imported samples are marked `"origin": "import"` / `"source": "import"`, importing the same file twice adds nothing, and a file made with a different model is refused. People new to the receiver get the file's group and color; existing people keep theirs. The same is available as `clerk-util voiceprints-export` / `voiceprints-import`. **Get each person's consent before passing their voiceprints on.**
+
+**Privacy:** voiceprints are biometric data. They stay inside the data directory unless you export them, and are never passed to an LLM. Audio is not stored. Deleting a person from the dashboard removes their stored voiceprints and every embedding named after them in the per-meeting `*.voices.jsonl` files; deleting `voiceprints.json` and all `*.voices.jsonl` files erases everything. `*.naming.jsonl` holds only labels, names and timestamps, no voice data.
 
 ### Optional: Google Calendar integration
 
@@ -614,6 +616,8 @@ If a voice command doesn't match any built-in or custom command and an LLM is co
 | `read-config` | Print `config.yaml` (writes one with the defaults if missing) |
 | `write-config-value <key> <value>` | Change one key in `config.yaml` |
 | `gcal-auth <credentials.json> [token_file]` | Google Calendar OAuth; on success it also enables `gcal_integration` |
+| `voiceprints-export <out.json> [name ...]` | Export voiceprints to pass to someone else (everyone with voiceprints when no name is given) |
+| `voiceprints-import <file.json> [name[=to] ...]` | Import exported voiceprints, optionally only some people or under another name |
 | `install-skill [--target claude\|agents\|<path>] [--link] [--force]` | Install the bundled skills for an AI agent (see [AI Console](#ai-console)) |
 | `run-llm <args...>` | Run the LLM client directly (`translate`, `query`, `match-command`, `summarize`, `spell-check`) |
 | `help` | Show usage |

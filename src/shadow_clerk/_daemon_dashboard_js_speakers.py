@@ -197,11 +197,15 @@ async function loadVoiceprints(openName){
     _fillOptions('grpSuggest',Object.keys(book.groups||{}));
   }
   const names=Object.keys(counts).sort();
+  _vpCounts=counts;_fillOptions('vpNames',names);
+  _fillVpGroupPicker(book?names.map(n=>book.names[n]||''):[]);
   if(!names.length){box.textContent=I18N['dash.voiceprints_empty'];return;}
   for(const n of names){
     const row=document.createElement('div');row.className='spk-row vp-person';
-    const label=document.createElement('span');label.textContent=n+' ('+counts[n]+')';
-    row.appendChild(label);
+    const pick=document.createElement('input');pick.type='checkbox';pick.className='vp-pick';
+    pick.dataset.name=n;pick.dataset.group=book?(book.names[n]||''):'';pick.disabled=!counts[n];
+    const label=_span(n,'vp-name');label.title=n;
+    row.appendChild(pick);row.appendChild(label);row.appendChild(_span(String(counts[n]),'vp-count'));
     if(book){
       const grp=document.createElement('input');grp.type='text';grp.className='spk-group';
       grp.setAttribute('list','grpSuggest');
