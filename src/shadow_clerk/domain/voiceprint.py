@@ -77,6 +77,12 @@ class SampleStatus(str, Enum):
     KEPT = "kept"  # 人が「戻す」した。自動判定で除外しない
 
 
+class SampleOrigin(str, Enum):
+    HEARD = "heard"  # 相手側（スピーカー）に届いた声。名前付けで登録する
+    MIC = "mic"  # 自分のマイクの声。自分の名前の設定があるとき、自分の声紋に近いものだけ自動で取る
+    ENROLLED = "enroll"  # 「自分の声を登録」で取ったマイクの声。自動で取るときの基準になる
+
+
 @dataclass(frozen=True, eq=False)
 class VoiceSample:
     """声紋ストアに保存する1発話分の埋め込み"""
@@ -85,6 +91,7 @@ class VoiceSample:
     recorded_at: str
     source: str
     status: SampleStatus = SampleStatus.NORMAL
+    origin: SampleOrigin = SampleOrigin.HEARD
 
     @property
     def key(self) -> tuple[str, str]:
@@ -95,6 +102,8 @@ class VoiceSample:
              "source": self.source}
         if self.status is not SampleStatus.NORMAL:
             d["status"] = self.status.value
+        if self.origin is not SampleOrigin.HEARD:
+            d["origin"] = self.origin.value
         return d
 
     @classmethod
@@ -103,7 +112,11 @@ class VoiceSample:
             status = SampleStatus(d.get("status", SampleStatus.NORMAL.value))
         except ValueError:  # 未知の status 1件でストア全体を読めなくしない
             status = SampleStatus.NORMAL
-        return cls(decode_embedding(d["emb"]), str(d.get("recorded_at", "")), str(d.get("source", "")), status)
+        try:
+            origin = SampleOrigin(d.get("origin", SampleOrigin.HEARD.value))
+        except ValueError:
+            origin = SampleOrigin.HEARD
+        return cls(decode_embedding(d["emb"]), str(d.get("recorded_at", "")), str(d.get("source", "")), status, origin)
 
 
 @dataclass(frozen=True, eq=False)

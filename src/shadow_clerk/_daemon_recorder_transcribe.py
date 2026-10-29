@@ -13,9 +13,13 @@ import time
 from http.server import ThreadingHTTPServer
 from typing import Any
 
+import numpy as np
+
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_constants import (
-    PRONOUNCE_MIN_CLEAR_SEC, SAMPLE_RATE, SESSION_FILE, SHUTDOWN_JOIN_BUDGET_SEC,
+    PRONOUNCE_MIN_CLEAR_SEC, SAMPLE_RATE, SELF_BASELINE_MIN, SELF_ENROLL_SEC, SELF_VOICEPRINT_INTERVAL_SEC,
+    SELF_VOICEPRINT_MAX, SESSION_FILE,
+    SHUTDOWN_JOIN_BUDGET_SEC,
     _HAS_PYNPUT, _HAS_EVDEV,
 )
 from shadow_clerk._daemon_config import load_config
@@ -27,7 +31,9 @@ from shadow_clerk.domain import Speaker, TranscriptLine
 from shadow_clerk._daemon_pronounce import PronounceDriver
 from shadow_clerk._daemon_talk import TalkDriver
 from shadow_clerk._daemon_voice_sidecar import append_voice
-from shadow_clerk._daemon_voiceprint_match import match_cluster
+from shadow_clerk._daemon_voiceprint_clusters import majority_shape, voiceprint_number
+from shadow_clerk._daemon_voiceprint_match import is_own_voice, match_cluster
+from shadow_clerk.domain.voiceprint import PersonName, SampleOrigin, SampleStatus, VoiceSample
 from shadow_clerk._transcript_attendees import read_attendees
 
 logger = logging.getLogger("shadow-clerk")
@@ -74,14 +80,58 @@ class _RecorderTranscribeMixin:
         会議内ラベルのまま返し、warning は transcript（会議）ごとに 1 回だけ出す
         """
         try:
+            attendees = set(read_attendees(self.output_path))
+            if attendees and (me := str(load_config().get("self_name") or "").strip()):
+                attendees.add(me)  # 自分は必ず出席している（会議室で他の人のマイクから届く声）
             label = match_cluster(self.diarizer.cluster_embeddings(cluster_label), self.voiceprints.candidate_pools(),
-                                  set(read_attendees(self.output_path))).display_label(cluster_label)
+                                  attendees).display_label(cluster_label)
         except Exception as e:
             if self._voiceprint_warned_path != self.output_path:
                 self._voiceprint_warned_path = self.output_path
                 logger.warning("声紋照合できないので会議内ラベルのまま書く: %s", e)
             return cluster_label, False
         return label, label != cluster_label
+
+    def start_self_enroll(self) -> None:
+        """「自分の声を登録」: これから SELF_ENROLL_SEC 秒のマイクの声を、照合なしで自分の声紋の基準として取る"""
+        self._self_enroll_until = time.monotonic() + SELF_ENROLL_SEC
+
+    def _enroll_self_voice(self, segment: Any, timestamp: str) -> None:
+        """自分の名前の設定があれば、マイクの声から自分の声紋を取る。
+        会議室で他の人のマイク越しに届く自分の声にも名前が付き、書き出して他の人にも配れる。
+        マイクには他の人の声も入るので、ふだんは基準に近く他の誰よりも自分に近い声だけを 1 分おきに取る。
+        「自分の声を登録」を押した直後だけは、照合も間隔もなしに基準として取る"""
+        cfg = load_config()
+        if not (cfg.get("speaker_diarization") and cfg.get("speaker_enrollment")):
+            return
+        enrolling = time.monotonic() < self._self_enroll_until
+        if ((not enrolling and time.monotonic() - self._self_voiceprint_at < SELF_VOICEPRINT_INTERVAL_SEC)
+                or len(segment) / SAMPLE_RATE < voiceprint_number(cfg, "voiceprint_min_sec")):
+            return
+        try:
+            name = PersonName(str(cfg.get("self_name") or "").strip())
+        except ValueError:
+            return
+        self._self_voiceprint_at = time.monotonic()
+        if (emb := self.diarizer.extract_embedding(segment)) is None:
+            return
+        try:
+            if not (enrolling or self._sounds_like_me(name, emb)):
+                return
+            self.voiceprints.add_own_sample(name, VoiceSample(
+                emb, timestamp, os.path.basename(self.output_path),
+                origin=SampleOrigin.ENROLLED if enrolling else SampleOrigin.MIC), SELF_VOICEPRINT_MAX)
+        except Exception as e:
+            logger.warning("自分の声紋を保存できない: %s", e)
+
+    def _sounds_like_me(self, name: PersonName, emb: Any) -> bool:
+        """自動で取った分を除いた自分の声紋（基準）が SELF_BASELINE_MIN 件以上あり、その声に近いか"""
+        own = [s.embedding for s in self.voiceprints.samples(name)
+               if s.origin is not SampleOrigin.MIC and s.status is not SampleStatus.OUTLIER]
+        if len(own) < SELF_BASELINE_MIN:
+            return False
+        others = {n: p for n, p in self.voiceprints.candidate_pools().items() if n != name.value}
+        return is_own_voice(emb, np.stack([own[i] for i in majority_shape(own)]), others)
 
     @staticmethod
     def _is_noise_text(text: str) -> bool:
@@ -241,6 +291,8 @@ class _RecorderTranscribeMixin:
                     speaker_label, auto = self._resolve_display_label(cluster_label)
                     self._append_voice(timestamp, speaker_label, embedding, len(segment) / SAMPLE_RATE,
                                        cluster=cluster_label, auto=auto)
+        elif file_speaker == Speaker.SELF and not self.talk.active:
+            self._enroll_self_voice(segment, timestamp)
         tl = TranscriptLine(timestamp=timestamp, speaker=file_speaker, text=text,
                             speaker_label=speaker_label)
         self._append_transcript_line(tl)

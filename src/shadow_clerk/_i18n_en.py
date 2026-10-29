@@ -334,6 +334,8 @@ STRINGS_EN: dict[str, str] = {
     "cfg.voiceprint_min_utterances": "Voiceprint ID: Min Utterances",
     "cfg.self_group": "Your group (company etc.; used for transcript colors and minutes)",
     "cfg.self_group_ph": "e.g. acme",
+    "cfg.self_name": "Your name (with diarization and voiceprint enrollment on, record your voiceprint with \"Record my voice\" under registered people)",
+    "cfg.self_name_ph": "e.g. alice",
     "cfg.interim_transcription": "Interim Transcription",
     "cfg.interim_translation": "Interim Translation",
     "cfg.interim_translation_provider": "Interim Translation Provider (empty=auto)",

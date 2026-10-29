@@ -16,7 +16,7 @@ import numpy as np
 from shadow_clerk import DATA_DIR
 from shadow_clerk._daemon_constants import (
     SAMPLE_RATE, FRAME_SIZE, CHANNELS, DTYPE,
-    SESSION_FILE,
+    SELF_VOICEPRINT_INTERVAL_SEC, SESSION_FILE,
     STREAM_STALL_SEC, STREAM_CHECK_INTERVAL, STREAM_RESOLVE_INTERVAL, STREAM_RETRY_SEC,
     STREAM_DEGRADED_RETRY_SEC, STREAM_DEGRADED_RETRY_MAX_SEC,
     build_wake_word_patterns,
@@ -221,6 +221,8 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         self.diarizer = SpeakerDiarizer()
         self.voiceprints = VoiceprintStore()  # 録音中の照合用（読み込みは mtime でキャッシュ）
         self._voiceprint_warned_path: str | None = None
+        self._self_voiceprint_at = -SELF_VOICEPRINT_INTERVAL_SEC  # 最後にマイクの声から自分の声紋を取った時刻（monotonic）
+        self._self_enroll_until = 0.0  # 「自分の声を登録」で基準を取り終える時刻（monotonic）
 
         # Push-to-Talk コマンドモード
         self._command_mode = False

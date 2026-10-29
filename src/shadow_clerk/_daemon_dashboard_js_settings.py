@@ -42,6 +42,7 @@ const CFG_FIELDS=[
   {key:'voiceprint_non_attendee_penalty',label:I18N['cfg.voiceprint_non_attendee_penalty'],type:'number',float:true},
   {key:'voiceprint_min_utterances',label:I18N['cfg.voiceprint_min_utterances'],type:'number'},
   {key:'self_group',label:I18N['cfg.self_group'],type:'text',ph:I18N['cfg.self_group_ph']},
+  {key:'self_name',label:I18N['cfg.self_name'],type:'text',ph:I18N['cfg.self_name_ph']},
   {key:'asr_engine',label:I18N['cfg.asr_engine'],type:'select',opts:['whisper','moonshine']},
   {key:'japanese_asr_model',label:I18N['cfg.japanese_asr_model'],type:'select',opts:['default','kotoba-whisper','reazonspeech-k2']},
   {key:'english_asr_model',label:I18N['cfg.english_asr_model'],type:'select',opts:['default','moonshine','small.en','medium.en','large-v3-turbo','distil-large-v3']},

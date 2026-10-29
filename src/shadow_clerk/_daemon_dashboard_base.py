@@ -332,6 +332,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._move_voiceprint_samples()
         elif path == "/api/voiceprints/restore":
             self._restore_voiceprint_samples()
+        elif path == "/api/voiceprints/enroll-self":
+            self._start_self_enroll()
         else:
             self.send_error(404)
 

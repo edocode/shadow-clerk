@@ -333,6 +333,8 @@ STRINGS_JA: dict[str, str] = {
     "cfg.voiceprint_min_utterances": "識別: 名前を出す最小発話数",
     "cfg.self_group": "自分の所属グループ（会社名など。文字起こしの色分けと議事録の整理に使う）",
     "cfg.self_group_ph": "例: acme",
+    "cfg.self_name": "自分の名前（話者分離と声紋の登録が有効なら、「登録済みの人」の「自分の声を登録」で自分の声紋を取れる）",
+    "cfg.self_name_ph": "例: alice",
     "cfg.interim_transcription": "中間文字起こし",
     "cfg.interim_translation": "中間翻訳",
     "cfg.interim_translation_provider": "中間翻訳プロバイダ (空=自動)",
