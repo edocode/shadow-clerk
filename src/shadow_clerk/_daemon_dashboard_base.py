@@ -222,6 +222,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_misheard()
         elif path == "/api/speakers":
             self._serve_speakers()
+        elif path == "/api/speakers/provisional":
+            self._serve_provisional()
         elif path == "/api/voiceprints":
             self._serve_voiceprints()
         elif path == "/api/voiceprints/clusters":

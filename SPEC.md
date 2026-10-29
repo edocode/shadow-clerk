@@ -614,6 +614,7 @@ sequenceDiagram
 | `transcript-YYYYMMDDHHMM@<会議名>.txt` | 会議名付き transcript（Google Calendar 連携、rename 時） |
 | `transcript-*-<lang>.txt` | 翻訳結果ファイル（会議名含む対応: `transcript-YYYYMMDDHHMM@<会議名>-<lang>.txt`） |
 | `transcript-*.voices.jsonl` | 話者分離の埋め込み（1 行 `{ts, label, emb, dur?, noenroll?, cluster?, auto?}`。`speaker_enrollment: true` のとき transcript ごとに保存。名前付けで使う。`dur` は発話秒数（ない既存行は長さ不明として扱う）、`noenroll: true` は「声紋の中身」で消した行で、以後声紋に足さない。`label` は transcript に出した表示ラベル、`cluster` は会議内クラスタのラベル、`auto: true` は会議中の識別で付いた未確認の名前） |
+| `transcript-*.provisional.json` | 会議中の話者の仮登録（`{labels: {ラベル: assign の mapping の値}, lines: [{ts, label, name, group?, person?}]}`）。録音中の会議への `assign` / `assign-lines` はここに預けるだけで transcript・声紋を触らない。`end_meeting` の直後（どの経路でも）に、議事録より先に `apply_provisional` が同じ処理で本登録する（行 → ラベルの順、翻訳中なら最大 120 秒待つ）。本登録できた分は消し、残りはファイルに残す。会議のリネーム・削除に追随する |
 | `transcript-*.naming.jsonl` | 名前付けの履歴（ラベル 1 件ごとに `{id, at, label, name, person, lines, added, removed, undone, auto_cleared}`。取り消しに使う。声のデータは含まない。会議のリネーム・削除・切り出しに追随する） |
 | `speaker_names.json` | 名前帳 v2（名前・グループ・個人区分・グループの色。声紋は含まない。どの会議でも候補に出す。人の削除で消える） |
 | `voiceprints.json` | 人ごとの声紋（名前付け後に追加。1人あたり `voiceprint_max_samples`、既定 200 件）。サンプルごとの `status`: なし＝通常、`outlier`＝自動で照合から除外中、`kept`＝人が「戻す」した（以後自動で除外しない）。`status` のない既存サンプルは通常として読む |
@@ -672,6 +673,7 @@ flowchart LR
 | エンドポイント | 役割 |
 |---|---|
 | `POST /api/speakers/assign` | ラベルへ名前・グループ・`person` を付ける（声紋は `person` かつ `speaker_enrollment` のときだけ） |
+| `GET /api/speakers/provisional?file=` | 仮登録の表示用 `{labels: {ラベル: 名前}, lines: {"時刻\tラベル": 名前}, raw_labels}`。ダッシュボードは行単位 → ラベル単位の順に当てて表示だけ差し替える。`GET /api/speakers` も録音中の会議なら `provisional` に同じものを返す（それ以外は `null`） |
 | `POST /api/speakers/assign-lines` | `{"file","lines":[{"ts","label"}],"name","group?","person?","scope?"}`。`scope` が `"lines"`（既定）なら時刻とラベルの両方が一致する行だけを付け替える（相手側のみ。`[自分]` `[Claude]` は不可）。`"range"` なら `lines` はちょうど 2 行（どちらも相手側の行として存在すること。違えば `dash.speakers_invalid`）で、その時刻の間（両端を含む）にある相手側の行を話者を問わずすべて付け替える（`[相手?]` を含み、`[自分]` `[Claude]` は除く）。ダッシュボードの「この話者の行を全部」は、選んだ行のラベルを `assign` で名前付けし、`[相手?]` / `[相手]` の選択行だけ続けてこの API（`lines`）に送る。transcript・翻訳・voices サイドカーを書き換え、書き換えジャーナルに記録する。`speaker_enrollment` が有効なときだけ声紋のサンプルを移す |
 | `GET /api/speaker-groups` | `{names, persons, groups, self_group}`。ダッシュボードの色分け用。保存後に読み直す |
 | `POST /api/speaker-groups/set` | `{name, group}`。台帳の人のグループだけ変える（`""` で外す） |

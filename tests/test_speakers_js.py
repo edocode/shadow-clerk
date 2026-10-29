@@ -35,7 +35,8 @@ const I18N={'dash.speakers_count':'発話 {count} 件','dash.speakers_samples':'
   'dash.naming_history_error':'HISTERR','dash.speakers_tentative':'TENTATIVE','dash.speakers_auto_confirm':'CONFIRM {count}',
   'dash.speakers_tentative_accept':'ACCEPT {name}','dash.relabel_scope_one':'ONE','dash.relabel_scope_two':'TWO',
   'dash.relabel_scope_lines':'MANY','dash.relabel_target_lines':'LINES {count}','dash.relabel_target_range':'RANGE {count}',
-  'dash.relabel_target_label':'LABEL {labels} {count}'};
+  'dash.relabel_target_label':'LABEL {labels} {count}','dash.speakers_provisional_info':'PROVINFO',
+  'dash.relabel_provisional_hint':'PROVHINT'};
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function escAttr(s){return esc(s).replace(/"/g,'&quot;');}
 function el(){return {children:[],_h:'',textContent:'',value:'',disabled:false,dataset:{},
@@ -250,6 +251,23 @@ let groupsResp={status:'ok',names:{'太郎':'acme'},persons:{'太郎':true,'花�
   els.rlName.value='bob';await saveRelabel();out.looseNg=[posted.length,toasts.slice(),alerts.slice(),els.relabelModal.classList.open];
   selected=[tpLines[3]];await openRelabelModal();out.scUnk=scopeView();out.rlInfoPlain=els.rlInfo.textContent;
   selected=[tpLines[1],tpLines[1]];await openRelabelModal();out.scSame=scopeView();
+  // 録音中の会議: モーダルに仮登録を入れ直し、空欄にしたラベルは "" で送って取り消す
+  inputs=[{dataset:{label:'相手A',named:'0'},value:''},{dataset:{label:'相手B',named:'0'},value:''}];
+  groupInputs=[{dataset:{groupFor:'相手A',orig:''},value:''}];personInputs=[{dataset:{personFor:'相手A',orig:'1'},checked:true}];
+  speakersResp={status:'ok',labels:[{label:'相手A',count:1,example:'x',samples:0},{label:'相手B',count:1,example:'y',samples:0}],
+    suggestions:[],active:true,translating:true,enrollment:true,
+    provisional:{labels:{'相手A':'acme'},lines:{},raw_labels:{'相手A':{name:'acme',group:'acme',person:false}}}};
+  await openSpeakerModal();
+  out.provFilled=[inputs[0].value,groupInputs[0].value,personInputs[0].checked,els.spkSaveBtn.disabled,els.spkInfo.textContent];
+  inputs[0].value='';posted.length=0;loaded.length=0;postResp.push({status:'ok',provisional:true,message:'PROV'});
+  await saveSpeakers();
+  out.provCleared=[posted[0],loaded.slice()];
+  selected=[{dataset:{raw:'[2026-10-09 10:00:01] [相手A] x'}}];
+  await openRelabelModal();
+  out.rlProv=[els.rlInfo.textContent,els.rlSaveBtn.disabled];
+  els.rlName.value='';posted.length=0;postResp.push({status:'ok',provisional:true,message:'PROV'});
+  await saveRelabel();
+  out.rlProvCancel=posted[0];
   console.log(JSON.stringify(out));
 })();
 """
@@ -401,4 +419,14 @@ check("対象: 相手? だけを選んだらこの話者の行を全部は出さ
 check("範囲: 同じ行（時刻とラベル）が 2 つでは 2 行の間を全部は出さない", out["scSame"][1] is True, repr(out["scSame"]))
 check("対象: rlInfo は件数を繰り返さず、録音中・翻訳中の警告だけ出す", out["rlInfoPlain"] == "", repr(out["rlInfoPlain"]))
 check("誰もいなければ空表示", out["peopleNone"] == [0, "EMPTY"], repr(out["peopleNone"]))
+check("仮登録: 録音中の会議ではモーダルに仮登録を入れ直し、翻訳中でも保存できる",
+      out["provFilled"] == ["acme", "acme", False, False, "PROVINFO"], repr(out["provFilled"]))
+check("仮登録: 空欄にしたラベルは \"\" で送り、transcript は読み直さない", out["provCleared"] == [
+      {"url": "/api/speakers/assign", "body": {"file": "transcript-202610091000.txt", "mapping": {"相手A": ""}}}, []],
+      repr(out["provCleared"]))
+check("仮登録: 行の付け替えも保存でき、案内を出す", out["rlProv"] == ["PROVHINT", False], repr(out["rlProv"]))
+check("仮登録: 名前を空欄にして保存すると、選んだ行の取り消しを送る", out["rlProvCancel"] == {
+      "url": "/api/speakers/assign-lines", "body": {"file": "transcript-202610091000.txt", "name": "",
+                                                     "lines": [{"ts": "2026-10-09 10:00:01", "label": "相手A"}]}},
+      repr(out["rlProvCancel"]))
 sys.exit(0 if all(results) else 1)

@@ -247,12 +247,15 @@ def test_assign_refused_while_translating() -> None:
     assert [e.label for e in read_voices(_p(MTG))] == ["相手A", "相手B", "相手C"]
 
 
-def test_assign_active_file_refused() -> None:
-    h = _H({"file": MTG, "mapping": {"相手A": "太郎"}}, rec=_Rec(active=MTG))
+def test_assign_active_daily_file_refused() -> None:
+    """録音中の会議は仮登録になる（test_provisional_naming）。日次ファイルは今までどおり断る"""
+    daily = "transcript-20261009.txt"
+    with open(_p(daily), "w", encoding="utf-8") as f:
+        f.writelines(LINES[1:])
+    h = _H({"file": daily, "mapping": {"相手A": "太郎"}}, rec=_Rec(active=daily))
     h._assign_speakers()
     assert h.sent == {"status": "error", "message": t("dash.speakers_active")}
-    assert _read(MTG) == "".join(LINES) and VoiceprintStore().people() == {}
-    assert [e.label for e in read_voices(_p(MTG))] == ["相手A", "相手B", "相手C"]
+    assert _read(daily) == "".join(LINES[1:]) and VoiceprintStore().people() == {}
 
 
 def test_assign_refused_while_continuously_translated() -> None:
@@ -513,7 +516,7 @@ def test_assign_lines_rejects_self_and_writes_nothing() -> None:
         assert _read(MTG) == before
     h = _H({"file": MTG, "lines": [{"ts": "2026-10-09 10:00:01", "label": "相手A"}], "name": "次郎"}, rec=_Rec(active=MTG))
     h._assign_lines()
-    assert h.sent["status"] == "error" and _read(MTG) == before
+    assert h.sent["provisional"] and _read(MTG) == before  # 録音中は仮登録だけ
 
 
 def test_assign_lines_non_person_moves_out() -> None:

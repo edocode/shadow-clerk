@@ -12,6 +12,7 @@ from shadow_clerk.i18n import t
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_dashboard_base import read_local_json_body
 from shadow_clerk._transcript_attendees import read_attendees
+from shadow_clerk._daemon_provisional_naming import ProvisionalNamingError, read_provisional, write_provisional
 from shadow_clerk._daemon_naming_history import NamingHistoryError, append_history, mark_undone, read_history
 from shadow_clerk._daemon_speaker_naming import (
     Decision, decide_assignment, line_target_picker, parse_assignment, range_targets, relabel_lines_where,
@@ -25,6 +26,7 @@ from shadow_clerk._daemon_voiceprint_clusters import voiceprint_number
 from shadow_clerk._daemon_voiceprint_store import StoreChange, VoiceprintStore, VoiceprintStoreError
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain.naming_history import NamingRecord
+from shadow_clerk.domain.provisional_naming import ProvisionalNaming
 from shadow_clerk.domain.transcript_line import TranscriptLine
 from shadow_clerk.domain.speaker import Speaker
 from shadow_clerk.domain.speaker_group import GroupName, SpeakerEntry
@@ -116,6 +118,42 @@ class _DashboardHandlerSpeakerOps:
             return None
         return decide_assignment(a, entries, groups)
 
+    def _save_provisional(self, t_path: str,
+                          update: Callable[[ProvisionalNaming], ProvisionalNaming | None]) -> bool:
+        """録音中の会議なら仮登録を update で更新して応答し True。録音中でなければ False（呼び出し側が本登録する）。
+        update が None を返したら不正なリクエスト"""
+        with self.recorder.transcript_lock:  # end_meeting は同じロックの中で録音先を切り替える
+            if not self._is_active_transcript(t_path):
+                return False
+            tn = TranscriptName.parse(os.path.basename(t_path))
+            if not (tn and tn.is_meeting_file):
+                self._speaker_error("dash.speakers_active")
+                return True
+            try:
+                if (new := update(read_provisional(t_path))) is None:
+                    self._speaker_error("dash.speakers_invalid")
+                    return True
+                write_provisional(t_path, new)
+            except (ProvisionalNamingError, OSError) as e:
+                logger.error("仮登録を保存できない: %s", e)
+                self._speaker_error("dash.speakers_provisional_error")
+                return True
+        self._send_json({"status": "ok", "provisional": True, "message": t("dash.speakers_provisional_saved")})
+        return True
+
+    @staticmethod
+    def _provisional_display(t_path: str | None) -> dict:
+        try:
+            return (read_provisional(t_path) if t_path else ProvisionalNaming()).display()
+        except ProvisionalNamingError as e:
+            logger.warning("仮登録を読めない: %s", e)
+            return ProvisionalNaming().display()
+
+    def _serve_provisional(self) -> None:
+        """GET /api/speakers/provisional?file= — 録音中の会議の仮登録（表示の差し替え用）"""
+        t_path = self._speaker_transcript_path(parse_qs(urlparse(self.path).query).get("file", [None])[0])
+        self._send_json({"status": "ok", **self._provisional_display(t_path)})
+
     def _serve_speakers(self) -> None:
         """GET /api/speakers?file= — 名前付けの対象ラベルと名前の候補"""
         params = parse_qs(urlparse(self.path).query)
@@ -153,8 +191,11 @@ class _DashboardHandlerSpeakerOps:
                        for s in summaries],
             "suggestions": list(dict.fromkeys(read_attendees(t_path) + in_transcript + sorted(entries) + registered)),
             "groups": sorted(groups),
-            "active": self._is_active_transcript(t_path),
+            "active": (active := self._is_active_transcript(t_path)),
             "translating": self.recorder.is_translating(t_path),
+            # 録音中の会議は仮登録できる（日次ファイルは不可）
+            "provisional": self._provisional_display(t_path)
+            if active and (tn := TranscriptName.parse(os.path.basename(t_path))) and tn.is_meeting_file else None,
             "enrollment": bool(load_config().get("speaker_enrollment", False)),
             "history": [{"id": r.id, "at": r.at, "label": r.label, "name": r.name, "person": r.person,
                          "lines": len(r.lines), "added": len(r.added), "undone": r.undone}
@@ -164,9 +205,11 @@ class _DashboardHandlerSpeakerOps:
 
     def _assign_speakers(self) -> None:
         """POST /api/speakers/assign — ラベルに名前（またはグループ・個人区分）を付け、声紋を付け替える"""
-        data = read_local_json_body(self, "speakers")
-        if data is None:
-            return
+        if (data := read_local_json_body(self, "speakers")) is not None:
+            self._assign_speakers_with(data)
+
+    def _assign_speakers_with(self, data: dict) -> None:
+        """録音中の会議なら仮登録だけする（会議終了時に、この同じ処理で本登録する）"""
         t_path = self._speaker_transcript_path(data.get("file"))
         if t_path is None:
             self._speaker_error("dash.transcript_not_found")
@@ -180,6 +223,8 @@ class _DashboardHandlerSpeakerOps:
                       if not (isinstance(v, str) and not v.strip())}
         except ValueError:
             self._speaker_error("dash.speakers_invalid_name")
+            return
+        if self._save_provisional(t_path, lambda p: p.with_labels({k: raw[k] if k in parsed else "" for k in raw})):
             return
         try:  # 読めない名簿の既定値で個人区分を決めると、記録済みの選択に反して声紋を登録しかねない
             entries, groups = self._speaker_book(strict=True)
@@ -265,9 +310,11 @@ class _DashboardHandlerSpeakerOps:
 
     def _assign_lines(self) -> None:
         """POST /api/speakers/assign-lines — 選んだ行だけ別の話者（人・会社名・役割名）に付け替える"""
-        data = read_local_json_body(self, "speakers")
-        if data is None:
-            return
+        if (data := read_local_json_body(self, "speakers")) is not None:
+            self._assign_lines_with(data)
+
+    def _assign_lines_with(self, data: dict) -> None:
+        """録音中の会議なら仮登録だけする。そのとき空の name は、選んだ行の仮登録の取り消し"""
         t_path = self._speaker_transcript_path(data.get("file"))
         if t_path is None:
             self._speaker_error("dash.transcript_not_found")
@@ -284,7 +331,24 @@ class _DashboardHandlerSpeakerOps:
                 or any(label in (Speaker.SELF.value, Speaker.CLAUDE.value) for _, label in targets)):
             self._speaker_error("dash.speakers_invalid")
             return
-        d = self._decide_one({k: data[k] for k in ("name", "group", "person") if k in data})
+        assign = {k: data[k] for k in ("name", "group", "person") if k in data}
+        cancel = data.get("name") == ""
+
+        def provisional(p: ProvisionalNaming) -> ProvisionalNaming | None:
+            lines = self._read_lines(t_path)
+            picked = (range_targets(lines, targets) if scope == "range" else targets) or set()
+            picked &= {(tl.timestamp, tl.speaker_label or Speaker.OTHER.value)
+                       for ln in lines if (tl := TranscriptLine.parse(ln)) and tl.speaker == Speaker.OTHER}
+            return p.with_lines(picked, None if cancel else assign) if picked else None
+        if not cancel:
+            try:
+                parse_assignment(assign)
+            except ValueError:
+                self._speaker_error("dash.speakers_invalid_name")
+                return
+        if self._save_provisional(t_path, provisional):
+            return
+        d = self._decide_one(assign)
         if d is None:
             return
         with self.recorder.transcript_lock:

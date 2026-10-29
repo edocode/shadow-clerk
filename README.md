@@ -310,7 +310,10 @@ voiceprint_outlier_ratio: 0.03      # ... and its largest share of the person's 
   - **Different voice** — far from the main cluster: another person mixed in, or the same person on a different line or device. It is still used; you decide. "Delete" removes those samples from the voiceprint store only (the transcript keeps the name; the sidecar rows get `noenroll` so they are not enrolled again). "Move to…" moves them to another person (with name suggestions) and renames the matching transcript lines that still carry the old name; meetings being recorded or translated are not rewritten and are counted in the result.
   - **Excluded (laughter etc.)** — a tiny, distant cluster (at most `voiceprint_outlier_max` samples and `voiceprint_outlier_ratio` of the person's total) is excluded from matching automatically. "Restore" brings it back, and it is never excluded automatically again.
   The exclusion is stored per sample as `status` in `voiceprints.json` and is recomputed whenever samples are added to or removed from that person (naming, undo, delete, move). A restored sample is shown under the usual voice.
-- Naming and line reassignment are refused for the file being recorded, a file being translated, and when the name book or voiceprint store is unreadable. The file currently being recorded cannot be named (rewriting it would break the live AI-assistant stream's read offsets). Wait until the meeting ends; for the daily file, wait until the date changes or extract it as a meeting with ⏱ first. A file whose translation is running (one-shot or the continuous loop) cannot be named until it finishes.
+- Naming and line reassignment are refused for a file being translated, and when the name book or voiceprint store is unreadable. The file currently being recorded is never rewritten (that would break the live AI-assistant stream's read offsets):
+  - **During a meeting**, 👥 and 👤 save the names *provisionally* in `transcript-*.provisional.json`. The transcript, translations and voiceprints are left alone; the dashboard only shows the provisional names (dotted underline). Reopening the modal shows them for editing; clearing a name (👥) or saving 👤 with an empty name cancels them. When the meeting ends — by the button, the voice command, the calendar or a skill — they are applied with the same processing as a normal naming (line reassignments first, then labels), before the automatic minutes. Whatever cannot be applied stays in the file and is logged.
+  - **The daily file** cannot be named while it is recorded; wait until the date changes or extract it as a meeting with ⏱ first.
+- A file whose translation is running (one-shot or the continuous loop) cannot be named until it finishes; provisional names wait for it (up to 2 minutes) when the meeting ends.
 - Merging lines into an existing meeting can mix two different speakers under the same label; name such a file carefully (or extract into a new meeting instead).
 
 #### Identifying speakers during the meeting
@@ -1006,6 +1009,7 @@ shadow-clerk/                          # Repository
   voiceprints.json                     # Voiceprints (speaker_enrollment, after naming)
   transcript-YYYYMMDDHHMM@Title.voices.jsonl  # Speaker diarization embeddings (speaker_enrollment)
   transcript-YYYYMMDDHHMM@Title.naming.jsonl  # Naming history of the meeting (for undo)
+  transcript-YYYYMMDDHHMM@Title.provisional.json  # Speaker names given during the meeting (applied when it ends)
 ```
 
 ## Troubleshooting
