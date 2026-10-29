@@ -17,7 +17,7 @@ from shadow_clerk import DATA_DIR
 from shadow_clerk._atomic_file import atomic_write_json
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_voiceprint_clusters import ClusterKind, cluster_samples, majority_shape, voiceprint_number
-from shadow_clerk.domain.voiceprint import PersonName, SampleStatus, VoiceSample
+from shadow_clerk.domain.voiceprint import PersonName, SampleOrigin, SampleStatus, VoiceSample
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -179,6 +179,11 @@ class VoiceprintStore:
                     _restatus(people[name])
             self._save(people)
         return change
+
+    def add_mic_sample(self, name: PersonName, sample: VoiceSample, cap: int) -> None:
+        """マイク由来のサンプルを足す。マイク由来が cap 件を超えたら古いものから外す（届いた声のサンプルは押し出さない）"""
+        mic = [s.key for s in self.samples(name) if s.origin is SampleOrigin.MIC]
+        self.update({name: [sample]}, {name.value: set(mic[:max(len(mic) + 1 - cap, 0)])})
 
     def remove_samples(self, name: str, keys: set[tuple[str, str]]) -> int:
         """name のサンプルのうち keys に当たるものを外し、外した件数を返す"""

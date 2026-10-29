@@ -39,6 +39,8 @@ SILENCE_FRAMES_THRESHOLD = 30  # 無音検出に必要な連続フレーム数 (
 VAD_PRE_ROLL_FRAMES = 10
 # 読み上げと重なる部分を除いたあと、発音の解析に渡す最短の長さ(秒)。末尾の無音 (~0.9秒) + 短い文 (~0.5秒)
 PRONOUNCE_MIN_CLEAR_SEC = SILENCE_FRAMES_THRESHOLD * FRAME_DURATION_MS / 1000 + 0.5
+SELF_VOICEPRINT_INTERVAL_SEC = 60.0  # マイクの声から自分の声紋を取る最短の間隔（毎回取ると CPU を食う）
+SELF_VOICEPRINT_MAX = 30  # マイク由来の自分の声紋の保存件数（届いた声のサンプルとは別に数える）
 MIN_SEGMENT_DURATION = 0.5  # 最小セグメント長(秒)
 MAX_SEGMENT_DURATION = 30.0  # 最大セグメント長(秒)
 INTERIM_MAX_DURATION = 10.0  # interim 転写に渡す直近音声の最大長(秒)
@@ -181,6 +183,7 @@ DEFAULT_CONFIG = {
     "voiceprint_min_utterances": 2,  # クラスタの発話がこれ未満なら名前を出さない
     "voiceprint_outlier_ratio": 0.03,  # 除外中になる塊の、全体に対する最大割合
     "self_group": "",
+    "self_name": "",  # 自分の名前。話者分離と声紋の登録が有効なら、マイクの声から自分の声紋を取る
     "interim_transcription": False,
     "interim_translation": True,  # interim_transcription の出力を翻訳して dashboard に流す
     "interim_translation_provider": None,  # null=auto / "api" / "libretranslate" / "claude"

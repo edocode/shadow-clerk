@@ -617,7 +617,7 @@ sequenceDiagram
 | `transcript-*.provisional.json` | 会議中の話者の仮登録（`{labels: {ラベル: assign の mapping の値}, lines: [{ts, label, name, group?, person?}]}`）。録音中の会議への `assign` / `assign-lines` はここに預けるだけで transcript・声紋を触らない。`end_meeting` の直後（どの経路でも）に、議事録より先に `apply_provisional` が同じ処理で本登録する（行 → ラベルの順、翻訳中なら最大 120 秒待つ）。本登録できた分は消し、残りはファイルに残す。会議のリネーム・削除に追随する |
 | `transcript-*.naming.jsonl` | 名前付けの履歴（ラベル 1 件ごとに `{id, at, label, name, person, lines, added, removed, undone, auto_cleared}`。取り消しに使う。声のデータは含まない。会議のリネーム・削除・切り出しに追随する） |
 | `speaker_names.json` | 名前帳 v2（名前・グループ・個人区分・グループの色。声紋は含まない。どの会議でも候補に出す。人の削除で消える） |
-| `voiceprints.json` | 人ごとの声紋（名前付け後に追加。1人あたり `voiceprint_max_samples`、既定 200 件）。サンプルごとの `status`: なし＝通常、`outlier`＝自動で照合から除外中、`kept`＝人が「戻す」した（以後自動で除外しない）。`status` のない既存サンプルは通常として読む |
+| `voiceprints.json` | 人ごとの声紋（名前付け後に追加。1人あたり `voiceprint_max_samples`、既定 200 件）。サンプルごとの `status`: なし＝通常、`outlier`＝自動で照合から除外中、`kept`＝人が「戻す」した（以後自動で除外しない）。`status` のない既存サンプルは通常として読む。`origin`: なし＝届いた声（名前付け）、`mic`＝自分のマイクの声（`self_name` 設定時に `SELF_VOICEPRINT_INTERVAL_SEC` ごと、`SELF_VOICEPRINT_MAX` 件まで。届いた声のサンプルを押し出さない。照合では `self_name` を出席者として扱う） |
 | `wespeaker_cache/` | 話者分離の wespeaker ResNet34 ONNX モデル（初回利用時にダウンロード） |
 | `summary-YYYYMMDD.md` | 議事録（日次 transcript に対応） |
 | `summary-YYYYMMDDHHMM[@<会議名>].md` | 会議セッション用議事録 |
