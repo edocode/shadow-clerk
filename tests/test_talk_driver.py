@@ -422,6 +422,27 @@ def test_held_when_others_spoke() -> None:
         d.stop()
 
 
+def test_interim_texts() -> None:
+    d, _w, _m = _driver()
+    d.start("x", None)
+    try:
+        check("中間文字起こしが無ければ文字も無い", d.interim_texts() == {})
+        d.on_interim("mic", "来週の")
+        d.on_interim("mic", "来週のリリースですが")
+        d.on_voice("monitor")
+        check("source ごとに最新の文字だけを持つ（文字の無い source は含めない）",
+              d.interim_texts() == {"mic": "来週のリリースですが"}, repr(d.interim_texts()))
+        d.on_interim("mic")
+        check("文字なしの on_interim は直前の文字を消さない", d.interim_texts() == {"mic": "来週のリリースですが"})
+        d.clear_interim("mic")
+        check("確定行を処理したら文字も消す", d.interim_texts() == {})
+        d.on_interim("monitor", "それは")
+        d._heard["monitor"] = time.monotonic() - 10
+        check("話し終えたとみなした source の文字は返さない", d.interim_texts() == {})
+    finally:
+        d.stop()
+
+
 def test_floor_wait_limit_and_stop() -> None:
     route, sink = _Route(), _Sink()
     d, written, _m = _driver(route_factory=lambda: route, sink_factory=lambda: sink, talk_floor_wait_sec=0.3)
@@ -826,6 +847,7 @@ if __name__ == "__main__":
     test_start_with_broken_config_leaves_nothing_running()
     test_no_route_keeps_suppressing_monitor()
     test_wait_for_floor_with_route()
+    test_interim_texts()
     test_floor_wait_limit_and_stop()
     test_held_when_others_spoke()
     test_mic_voice_floor()

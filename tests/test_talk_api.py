@@ -76,6 +76,9 @@ class _Talk:
     def speaking(self) -> list[str]:
         return ["monitor"] if self.reachable else []
 
+    def interim_texts(self) -> dict[str, str]:
+        return {"monitor": "来週のリリースですが"} if self.reachable else {}
+
     def snapshot(self) -> dict:
         return {"active": bool(self.calls)}
 
@@ -216,10 +219,11 @@ def test_route() -> None:
 def test_speaking() -> None:
     h = _FakeHandler()
     h._serve_speaking()
-    check("話していれば speaking が真", h.sent == {"speaking": True, "sources": ["monitor"]}, repr(h.sent))
+    check("話していれば speaking が真で、確定前の文字も返す", h.sent == {
+        "speaking": True, "sources": ["monitor"], "interim": {"monitor": "来週のリリースですが"}}, repr(h.sent))
     h = _FakeHandler(reachable=False)
     h._serve_speaking()
-    check("誰も話していなければ偽", h.sent == {"speaking": False, "sources": []}, repr(h.sent))
+    check("誰も話していなければ偽", h.sent == {"speaking": False, "sources": [], "interim": {}}, repr(h.sent))
     h = _FakeHandler(client="10.0.0.9")
     h._serve_speaking()
     check("外部からは拒否", h.sent.get("status") == "error")

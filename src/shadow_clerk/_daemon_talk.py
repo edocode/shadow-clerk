@@ -197,6 +197,7 @@ class TalkDriver:
         self._filler_last = ""
         self._floor_wait_sec = 0.0
         self._heard: dict[str, float] = {}  # source → 中間文字起こしに文字が出た最後の時刻（monotonic）
+        self._interim: dict[str, str] = {}  # source → 確定前の最新の中間文字起こし
         self._lines_seen = 0  # talk mode 中に届いた [自分]・[相手] 行の数
         self._recent_lines: deque[TranscriptLine] = deque(maxlen=_HEARD_LINES_MAX)
         self._stopped_at: float = float("-inf")  # stop() を呼んだ時刻（monotonic）
@@ -312,15 +313,25 @@ class TalkDriver:
         確定行の処理（clear_interim）か SPEAKING_STALE_SEC の無更新で消える"""
         self._heard[source] = time.monotonic()
 
-    on_interim = on_voice
+    def on_interim(self, source: str, text: str = "") -> None:
+        """source の中間文字起こしに文字が出た。最新の文字を、確定行が来るまで interim_texts() で渡す"""
+        self.on_voice(source)
+        if text:
+            self._interim[source] = text
 
     def clear_interim(self, source: str) -> None:
         self._heard.pop(source, None)
+        self._interim.pop(source, None)
 
     def speaking(self) -> list[str]:
         """話している source（monitor は中間文字起こし、mic は VAD）。transcript の確定行を待つより早く「話している」と分かる"""
         now = time.monotonic()
         return sorted(s for s, at in list(self._heard.items()) if now - at < SPEAKING_STALE_SEC)
+
+    def interim_texts(self) -> dict[str, str]:
+        """話している source の、確定前の最新の文字。軽いモデルの文字なので誤認識を含む"""
+        live = self.speaking()
+        return {s: t for s, t in list(self._interim.items()) if s in live}
 
     def _monitor_filtered(self, routed: bool) -> bool:
         """monitor の文字起こしを routed（届け先あり）/ 非 routed の規則で扱う期間か。

@@ -48,10 +48,11 @@ class _DashboardHandlerTalkOps:
             self._send_json(self.recorder.talk.route_targets())
 
     def _serve_speaking(self) -> None:
-        """GET /api/speaking — 中間文字起こしに文字が出ている（誰かが話している）か"""
+        """GET /api/speaking — 中間文字起こしに文字が出ている（誰かが話している）か。interim は確定前の最新の文字"""
         if not self._reject_remote():
             sources = self.recorder.talk.speaking()
-            self._send_json({"speaking": bool(sources), "sources": sources})
+            self._send_json({"speaking": bool(sources), "sources": sources,
+                             "interim": self.recorder.talk.interim_texts()})
 
     def _talk_preview(self) -> None:
         """POST /api/talk-preview {text?, voice?} — 保存前の声で試し読みする。transcript には書かない"""

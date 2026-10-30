@@ -728,6 +728,9 @@ waits, the reply is not spoken, because the topic may have moved on: `/api/say` 
 gets the lines with a note). Interim transcription runs for this even
 when `interim_transcription` is off (it is then not shown on the dashboard). `GET /api/speaking` returns the flag
 (`{"speaking": true, "sources": ["monitor"]}`); the talk skill also uses it before raising a point on its own.
+It also returns the latest interim text of each source still speaking (`"interim": {"monitor": "..."}`), so Claude
+can start drafting a reply before the line is finalized. For this, the microphone also gets interim transcription during
+talk mode, with or without a meeting app (it is never shown on the dashboard).
 
 Your own voice counts too: while the microphone's voice detection hears you speaking (muted mic and push-to-talk
 excluded), a reply waits for you to finish, even without a meeting app chosen. Use earphones, since Claude's own

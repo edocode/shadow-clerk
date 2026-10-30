@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」で、ユーザーと音声で議論する。ダッシュボードの「Claude と会議」から talk コンソールで自動的に起動される。ユーザーの発言は shadow-clerk の文字起こしとして届き、あなたの応答は shadow-clerk が音声で読み上げる。「/clerk-talk」と打たれたとき、声で議論したい・Claude と会議したいと言われたときに使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.7.5"
+  version: "1.7.6"
 ---
 
 # clerk-talk — 声で議論する
@@ -193,6 +193,9 @@ Monitor(
 - 1回に言うこと（質問・意見）は1つ、短く。held が返ったら、話題が移っていれば取り下げる
 - 割り込んでよいとユーザーが言っているときは、無音を待つ時間をさらに短くしてよい。ただし話の途中に入らない点は変えない
 - 返事の遅れは「発言が届く → 内容を理解する → 返事を考える → `/api/say` に投げる」の往復で生まれる。遅れを縮めるため、相手が話している最中から、届いた断片で質問や答えを**先に組み立てておく**。区切りが来たら考え直さずにすぐ出す
+- 話している最中の中身は `/api/speaking` の `interim` で読める（確定行より先に届く）。
+  `{"speaking": true, "sources": ["mic"], "interim": {"mic": "来週のリリースですが"}}` のように、話している source ごとに確定前の最新の文字が入る。
+  軽いモデルの文字なので誤認識が多い。組み立ての材料に使い、確定行と食い違ったら確定行を優先する
 - 先に組み立てた発言は、出す直前に文脈で見直す。話題が移った・すでに答えが出たなら出さない（held も同じ扱い）
 
 ## 語学の練習
