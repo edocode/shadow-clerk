@@ -361,6 +361,11 @@ class _DashboardHandlerSkillOps:
         既存の日付ファイルを丸ごと流し直してしまう（つないだ時点のファイルを見続けると、0 時をまたいだところで
         発言が届かなくなる）。file 指定と kind=advice は指定のファイルを見続ける。
 
+        interim=1 を付けると、話している最中の確定前の文字（/api/speaking の interim と同じ）も、変わるたびに
+        <interim source="mic">…</interim> の1行で流す。確定行が来るより先に返事を組み立てるためのもので、
+        軽いモデルの文字なので誤認識を含む。確定行と食い違ったら確定行を優先する。付けなければ流さない
+        （1回の発話で何度も変わるので、通知が増える）。
+
         kind=advice なら、transcript に対応する advice ファイルを見張り、書き換わるたびに中身を丸ごと流す
         （advice は上書きされるので差分ではなく全体）。Claude と会議の skill が、会議アシスタントの論点を
         拾って自分から切り出すために使う。
@@ -390,6 +395,7 @@ class _DashboardHandlerSkillOps:
                 else self.recorder.output_path)
         follow = not name
         kind = (q.get("kind") or ["transcript"])[0]
+        want_interim = (q.get("interim") or ["0"])[0] in ("1", "true")
         if kind not in ("transcript", "advice"):
             self.send_error(400)
             return
@@ -445,6 +451,31 @@ class _DashboardHandlerSkillOps:
             self.wfile.flush()
             return True
 
+        sent_interim: dict[str, str] = {}
+
+        def _emit_interim() -> bool:
+            """話している source の確定前の文字が前回から変わっていたら、1行ずつ流す。流したら True
+
+            確定行が来ると interim_texts() から消えるので、同じ文字をもう一度話しても流れる。
+            中身は音声認識の結果なので、改行と < を落として <interim> の境界が壊れないようにする
+            """
+            talk = getattr(self.recorder, "talk", None)
+            if not want_interim or talk is None:
+                return False
+            texts = talk.interim_texts()
+            for source in [s for s in sent_interim if s not in texts]:
+                del sent_interim[source]
+            sent = False
+            for source, text in texts.items():
+                text = " ".join(text.replace("<", "＜").split())
+                if text and sent_interim.get(source) != text:
+                    sent_interim[source] = text
+                    self.wfile.write(f'<interim source="{source}">{text}</interim>\n'.encode())
+                    sent = True
+            if sent:
+                self.wfile.flush()
+            return sent
+
         with self.recorder.transcript_lock:
             offset, generation = _size(), journal.generation(path)
         quiet = 0
@@ -461,7 +492,8 @@ class _DashboardHandlerSkillOps:
                     self.wfile.write(f"<notice>書き込み先が {os.path.basename(path)} に変わりました</notice>\n".encode())
                     self.wfile.flush()
                     logger.info("監視ストリーム: 書き込み先が変わった: %s", os.path.basename(path))
-                if _emit_new_lines():
+                emitted_interim = _emit_interim()
+                if _emit_new_lines() or emitted_interim:
                     quiet = 0
                 else:
                     quiet += interval

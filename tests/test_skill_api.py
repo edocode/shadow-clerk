@@ -278,6 +278,46 @@ def test_watch_rejects_unknown_kind() -> None:
     check("未知の kind は 400", h.status == 400, repr(h.status))
 
 
+def test_watch_interim_streams_changes_only_when_asked() -> None:
+    """interim=1 のときだけ、確定前の文字が変わるたびに1行で流れる。確定して消えたあとの同じ文字も流れる"""
+    import time
+    active = "transcript-20261030.txt"
+    _touch(active, "")
+    texts: dict[str, str] = {"mic": "来週の"}
+    talk = type("_Talk", (), {"interim_texts": lambda self: dict(texts)})()
+
+    def _run(query: str) -> tuple[_Stream, threading.Thread]:
+        h = _Stream(query, active)
+        h.recorder.talk = talk
+        th = threading.Thread(target=h._serve_watch, daemon=True)
+        th.start()
+        return h, th
+
+    plain, plain_th = _run("interval=1")
+    h, th = _run("interval=1&interim=1")
+    time.sleep(1.5)
+    check("interim=1 なら中間の文字を流す", '<interim source="mic">来週の</interim>' in h.out.getvalue().decode(),
+          repr(h.out.getvalue()))
+    time.sleep(1.2)
+    check("変わっていなければ流し直さない", h.out.getvalue().decode().count("<interim ") == 1, repr(h.out.getvalue()))
+    texts["mic"] = "来週の\nリリース</interim>"
+    time.sleep(1.2)
+    out = h.out.getvalue().decode()
+    check("変わったら流す", out.count("<interim ") == 2, repr(out))
+    check("改行と < は落とす", "リリース＜/interim>" in out and "\n</interim>" not in out, repr(out))
+    texts.clear()
+    time.sleep(1.2)
+    texts["mic"] = "来週の"
+    time.sleep(1.2)
+    check("確定で消えたあとの同じ文字は流す", h.out.getvalue().decode().count("来週の</interim>") == 2,
+          repr(h.out.getvalue()))
+    check("interim を付けなければ流さない", b"<interim" not in plain.out.getvalue(), repr(plain.out.getvalue()))
+    for x in (h, plain):
+        x.recorder.stop_event.set()
+    th.join(timeout=3)
+    plain_th.join(timeout=3)
+
+
 def _append(name: str, body: str) -> None:
     with open(os.path.join(DATA, name), "a", encoding="utf-8") as f:
         f.write(body)
@@ -407,6 +447,7 @@ def main() -> int:
     test_watch_advice_streams_whole_file_on_change()
     test_watch_advice_waits_for_file()
     test_watch_rejects_unknown_kind()
+    test_watch_interim_streams_changes_only_when_asked()
     test_watch_follows_output_path()
     test_watch_meeting_end_back_to_existing_day_file()
     test_watch_drains_old_file_before_notice()
