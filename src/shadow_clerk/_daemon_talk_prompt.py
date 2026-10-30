@@ -25,12 +25,15 @@ _FILLERS = {Language.JA: ("うーん。", "えーっと。", "そうですね。
             Language.EN: ("Hmm.", "Let me see.", "Well.", "I see.", "Right.", "Okay.", "Mm-hm.")}
 
 # 届け先ありの会議で話し出す前の一声と、話し出しが誰かと重なったときに譲る言葉
-_PROBES = {Language.JA: "あの、", Language.EN: "Um,"}
+_PROBES = {Language.JA: ("あの、", "えっと、", "ええと、", "えー、", "その、", "ちょっと、"),
+           Language.EN: ("Um,", "Uh,", "Well,", "Er,")}
 _YIELDS = {Language.JA: "すみません、お先にどうぞ。", Language.EN: "Sorry, go ahead."}
 
 
-def probe_phrase(lang: Language) -> str:
-    return _PROBES.get(lang, _PROBES[Language.JA])
+def probe_phrase(lang: Language, previous: str = "") -> str:
+    """一声を1つ選ぶ。直前と同じものは選ばない"""
+    phrases = _PROBES.get(lang, _PROBES[Language.JA])
+    return random.choice([p for p in phrases if p != previous] or phrases)
 
 
 def yield_phrase(lang: Language) -> str:

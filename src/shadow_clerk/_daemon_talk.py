@@ -207,6 +207,7 @@ class TalkDriver:
         self._filler_said = -1  # 最後につなぎを挟んだときの _said。1回の返事待ちに1回まで
         self._filler_at = float("-inf")  # 最後につなぎを挟んだ時刻（monotonic）
         self._filler_last = ""
+        self._probe_last = ""
         self._floor_wait_sec = 0.0
         self._heard: dict[str, float] = {}  # source → 中間文字起こしに文字が出た最後の時刻（monotonic）
         self._interim: dict[str, str] = {}  # source → 確定前の最新の中間文字起こし
@@ -545,7 +546,8 @@ class TalkDriver:
     def _collides(self, player: Any) -> bool:
         """一声出して少し黙り、その間に monitor に声があれば、誰かと話し出しが重なった。
         一声の後は Claude が黙っているので、monitor の声は他の人のもの（読み上げ中の monitor は Claude の声と分けられない）"""
-        player.speak(probe_phrase(self._lang))
+        self._probe_last = probe_phrase(self._lang, self._probe_last)
+        player.speak(self._probe_last)
         deadline = time.monotonic() + _PROBE_PLAY_LIMIT_SEC
         while player.is_busy() and time.monotonic() < deadline:
             time.sleep(_FLOOR_POLL_SEC)
