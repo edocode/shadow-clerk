@@ -23,6 +23,7 @@ class VADSegmenter:
 
     def reset(self) -> None:
         self.in_speech = False
+        self.last_is_speech = False  # 直前のフレームに声があったか（区切りの余韻を含まない）
         self.speech_frame_count = 0
         self.silence_frame_count = 0
         self.current_segment: list[np.ndarray] = []
@@ -36,7 +37,7 @@ class VADSegmenter:
         確定していなければ None を返す。
         """
         raw = frame.tobytes()
-        is_speech = self.vad.is_speech(raw, SAMPLE_RATE)
+        is_speech = self.last_is_speech = self.vad.is_speech(raw, SAMPLE_RATE)
 
         if not self.in_speech:
             if is_speech:

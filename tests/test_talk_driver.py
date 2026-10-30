@@ -13,7 +13,7 @@ import numpy as np
 from shadow_clerk._daemon_talk import (
     MIC_VOICE_INTERVAL_SEC, TalkDriver, TalkStartError, mic_voice_due, one_line, stop_pattern)
 from shadow_clerk._daemon_tts import TtsError, TtsPlayer
-from shadow_clerk.domain import Language, Speaker, TalkVoice, TranscriptLine
+from shadow_clerk.domain import Language, Speaker, SpokenSpan, TalkVoice, TranscriptLine
 
 results: list[bool] = []
 
@@ -443,6 +443,56 @@ def test_interim_texts() -> None:
         d.stop()
 
 
+def test_say_after_unread_lines() -> None:
+    d, written, _m = _driver()
+    d.start("x", None)
+    try:
+        d.on_self_line(TranscriptLine("2026-10-30 15:32:51", Speaker.SELF, "先週末どこか行った"))
+        d.on_self_line(TranscriptLine("2026-10-30 15:32:55", Speaker.SELF, "紅葉を見に行ったよ"))
+        check("読んだ行より後の発言があれば話さずに返す", d.api_say("先週末ですか。", after="2026-10-30 15:32:51") == {
+            "status": "held", "heard": ["[2026-10-30 15:32:55] [自分] 紅葉を見に行ったよ"]} and written == [], repr(written))
+        check("最新の行まで読んでいれば話す", d.api_say("紅葉ですか。", after="2026-10-30 15:32:55") == {"status": "ok"}
+              and [tl.text for tl in written] == ["紅葉ですか。"], repr(written))
+    finally:
+        d.stop()
+
+
+def test_yield_when_starts_collide() -> None:
+    route, sink = _Route(), _Sink()
+    d, written, _m = _driver(route_factory=lambda: route, sink_factory=lambda: sink, talk_floor_wait_sec=1)
+    d.start("x", None, None, "Chromium")
+    try:
+        now = time.time()
+        d._echo.record(SpokenSpan(now - 1, now, "あの、"))
+        d.on_monitor_voice(now - 0.5)
+        d.on_monitor_voice(now + 5)
+        check("Claude の読み上げ中の monitor の声は数えない", d._monitor_voice_after(now - 2) == 1)
+
+        check("monitor が静かなら一声のあとに話す", d.api_say("いいですね。") == {"status": "ok"}
+              and [tl.text for tl in written] == ["いいですね。"], repr(written))
+
+        stop = threading.Event()
+
+        def talk_over() -> None:  # 一声のあとも相手が話し続ける
+            while not stop.is_set():
+                d.on_monitor_voice(time.time())
+                time.sleep(0.03)
+
+        other = TranscriptLine("2026-10-03 10:00:02", Speaker.OTHER, "あ、先にいいですか")
+        voice = threading.Thread(target=talk_over)
+        voice.start()
+        threading.Timer(1.5, stop.set).start()
+        threading.Timer(2.0, lambda: d.on_other_line(other)).start()
+        result = d.api_say("ところで写真は？")
+        check("話し出しが重なったら譲り、相手の発言を返す", result == {"status": "held", "heard": [
+            "[2026-10-03 10:00:02] [相手] あ、先にいいですか"]}, repr(result))
+        check("譲る言葉だけを書き、本文は書かない", [tl.text for tl in written][1:] == ["すみません、お先にどうぞ。"],
+              repr(written))
+        voice.join()
+    finally:
+        d.stop()
+
+
 def test_floor_wait_limit_and_stop() -> None:
     route, sink = _Route(), _Sink()
     d, written, _m = _driver(route_factory=lambda: route, sink_factory=lambda: sink, talk_floor_wait_sec=0.3)
@@ -850,6 +900,8 @@ if __name__ == "__main__":
     test_interim_texts()
     test_floor_wait_limit_and_stop()
     test_held_when_others_spoke()
+    test_yield_when_starts_collide()
+    test_say_after_unread_lines()
     test_mic_voice_floor()
     test_mic_voice_keeps_routed_behaviour()
     test_filler_suppressed_while_mic_speaks()

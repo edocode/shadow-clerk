@@ -652,6 +652,8 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
 
             timestamp = time.time()
             segment = segmenter.process_frame(frame, timestamp)
+            if label == "monitor" and segmenter.last_is_speech and self.talk.routed:
+                self.talk.on_monitor_voice(timestamp)  # 話し出しが重なったかの判定用
             if segment is not None:
                 ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 self.transcribe_queue.put((segment, ts, label, command_mode_latch,

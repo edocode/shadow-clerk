@@ -24,6 +24,19 @@ _FILLERS = {Language.JA: ("うーん。", "えーっと。", "そうですね。
                          "うんうん。", "そうですねえ。", "ふむふむ。", "あー。"),
             Language.EN: ("Hmm.", "Let me see.", "Well.", "I see.", "Right.", "Okay.", "Mm-hm.")}
 
+# 届け先ありの会議で話し出す前の一声と、話し出しが誰かと重なったときに譲る言葉
+_PROBES = {Language.JA: "あの、", Language.EN: "Um,"}
+_YIELDS = {Language.JA: "すみません、お先にどうぞ。", Language.EN: "Sorry, go ahead."}
+
+
+def probe_phrase(lang: Language) -> str:
+    return _PROBES.get(lang, _PROBES[Language.JA])
+
+
+def yield_phrase(lang: Language) -> str:
+    return _YIELDS.get(lang, _YIELDS[Language.JA])
+
+
 # 制止で読み上げを止めたときに、ユーザー発言の前に付けて claude に伝える
 INTERRUPT_NOTE = ("[The user interrupted you. You were cut off while saying: \"{cut}\". "
                   "Nothing after that was heard.]")
@@ -32,6 +45,8 @@ INTERRUPT_NOTE = ("[The user interrupted you. You were cut off while saying: \"{
 HELD_NOTE = ("[Others spoke before you could say: \"{text}\". It was not spoken, and the rest of that reply was "
              "dropped. What they said:\n{heard}\nReply to the conversation as it is now; repeat your point only "
              "if it still fits.]")
+# 話し出しが重なって譲り、相手の発言がまだ確定していないとき
+HELD_NOTHING_YET = "(someone started speaking at the same time as you; nothing transcribed yet)"
 
 
 def filler_phrase(lang: Language, previous: str = "") -> str:
