@@ -696,7 +696,7 @@ Requirements:
   voice does not come back as `[Others]` lines.
 
 Click **Talk with Claude** in the dashboard header, enter a topic (or leave it empty), pick a
-persona, and start. **Voice settings** in the same dialog picks the VOICEVOX speaker and adjusts speed, pitch, intonation and volume, with a preview button; changes apply from the next sentence. Unticking **Use the glossary** turns off the glossary replacements in the transcript for that conversation, and Claude does not read the glossary either (for conversations that do not need it, such as language practice; saved with presets). By default Claude runs in a second AI Console (**Talk with Claude** tab) with the `clerk-talk` skill,
+persona, and start. **Voice settings** in the same dialog picks the VOICEVOX speaker and adjusts speed, pitch, intonation and volume, with a preview button; changes apply from the next sentence. Unticking **Use the glossary** turns off the glossary replacements in the transcript for that conversation, and Claude does not read the glossary either (for conversations that do not need it, such as language practice; saved with presets). **Reply early** (on by default) lets Claude answer from the in-progress transcription before the final line arrives, which is faster but may answer a misheard line; untick it to have Claude wait for final lines. By default Claude runs in a second AI Console (**Talk with Claude** tab) with the `clerk-talk` skill,
 so it can edit files and run commands with the usual permission prompts, and the meeting helper keeps
 running in the **AI Console** tab. Set `talk_engine: headless` to use a background `claude -p` process
 instead: it answers a little faster but cannot ask for permission, so it only gets the tools in
@@ -775,6 +775,8 @@ The skill uses these localhost-only endpoints, which you can also call yourself:
 
 `GET /api/watch` without `file` follows the current transcript: when the day changes or a meeting starts or ends it
 sends `<notice>…</notice>` and continues with the new file, so Claude keeps hearing you past midnight.
+`interim=1` also streams the not-yet-final text as `<interim>` lines (`interim_min=N` skips texts shorter than N characters),
+and `exclude=claude` drops Claude's own `[Claude]` lines, sending nothing when a chunk had only those.
 
 | Key | Default | Description |
 |---|---|---|

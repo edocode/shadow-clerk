@@ -278,9 +278,83 @@ def test_watch_rejects_unknown_kind() -> None:
     check("未知の kind は 400", h.status == 400, repr(h.status))
 
 
+def test_watch_interim_streams_changes_only_when_asked() -> None:
+    """interim=1 のときだけ、確定前の文字が変わるたびに1行で流れる。確定して消えたあとの同じ文字も流れる"""
+    import time
+    active = "transcript-20261030.txt"
+    _touch(active, "")
+    texts: dict[str, str] = {"mic": "来週の"}
+    talk = type("_Talk", (), {"interim_texts": lambda self: dict(texts)})()
+
+    def _run(query: str) -> tuple[_Stream, threading.Thread]:
+        h = _Stream(query, active)
+        h.recorder.talk = talk
+        th = threading.Thread(target=h._serve_watch, daemon=True)
+        th.start()
+        return h, th
+
+    plain, plain_th = _run("interval=1")
+    h, th = _run("interval=1&interim=1")
+    time.sleep(1.5)
+    check("interim=1 なら中間の文字を流す", '<interim source="mic">来週の</interim>' in h.out.getvalue().decode(),
+          repr(h.out.getvalue()))
+    time.sleep(1.2)
+    check("変わっていなければ流し直さない", h.out.getvalue().decode().count("<interim ") == 1, repr(h.out.getvalue()))
+    texts["mic"] = "来週の\nリリース</interim>"
+    time.sleep(1.2)
+    out = h.out.getvalue().decode()
+    check("変わったら流す", out.count("<interim ") == 2, repr(out))
+    check("改行と < は落とす", "リリース＜/interim>" in out and "\n</interim>" not in out, repr(out))
+    texts.clear()
+    time.sleep(1.2)
+    texts["mic"] = "来週の"
+    time.sleep(1.2)
+    check("確定で消えたあとの同じ文字は流す", h.out.getvalue().decode().count("来週の</interim>") == 2,
+          repr(h.out.getvalue()))
+    check("interim を付けなければ流さない", b"<interim" not in plain.out.getvalue(), repr(plain.out.getvalue()))
+    for x in (h, plain):
+        x.recorder.stop_event.set()
+    th.join(timeout=3)
+    plain_th.join(timeout=3)
+
+
 def _append(name: str, body: str) -> None:
     with open(os.path.join(DATA, name), "a", encoding="utf-8") as f:
         f.write(body)
+
+
+def test_watch_interim_min_and_exclude_claude() -> None:
+    """interim_min に満たない interim と、exclude=claude での [Claude] 行は流さない。付けなければ今まで通り"""
+    import time
+    active = "transcript-20261031.txt"
+    _touch(active, "")
+    texts: dict[str, str] = {"mic": "うん"}
+    talk = type("_Talk", (), {"interim_texts": lambda self: dict(texts)})()
+    streams = [_Stream(q, active) for q in ("interval=1&interim=1&interim_min=5&exclude=claude",
+                                            "interval=1&interim=1")]
+    threads = [threading.Thread(target=x._serve_watch, daemon=True) for x in streams]
+    for x, th in zip(streams, threads):
+        x.recorder.talk = talk
+        th.start()
+    time.sleep(0.3)
+    _append(active, "[2026-10-31 10:00:00] [Claude] 自分の声\n")
+    time.sleep(1.2)
+    texts["mic"] = "うん、来週のリリース"
+    _append(active, "[2026-10-31 10:00:05] [Claude] 続き\n[2026-10-31 10:00:06] [自分] 質問です\n"
+                    "[2026-10-31 10:00:07] [画面] 画面キャプチャ: shot.png\n--- 会議終了 ---\n")
+    time.sleep(1.2)
+    for x in streams:
+        x.recorder.stop_event.set()
+    for th in threads:
+        th.join(timeout=3)
+    out, plain = (x.out.getvalue().decode() for x in streams)
+    check("短い interim は流さない", ">うん</interim>" not in out, repr(out))
+    check("伸びた interim は流す", ">うん、来週のリリース</interim>" in out, repr(out))
+    check("[Claude] 行だけの塊は <transcript> ごと流さない", out.count("<transcript ") == 1, repr(out))
+    check("混ざった塊は [Claude] 行を除いて流す", "[Claude]" not in out and all(
+        w in out for w in ("[自分] 質問です", "[画面] 画面キャプチャ", "--- 会議終了 ---")), repr(out))
+    check("付けなければ短い interim も [Claude] 行も流す", ">うん</interim>" in plain
+          and plain.count("<transcript ") == 2 and "自分の声" in plain and "続き" in plain, repr(plain))
 
 
 def test_watch_follows_output_path() -> None:
@@ -407,6 +481,8 @@ def main() -> int:
     test_watch_advice_streams_whole_file_on_change()
     test_watch_advice_waits_for_file()
     test_watch_rejects_unknown_kind()
+    test_watch_interim_streams_changes_only_when_asked()
+    test_watch_interim_min_and_exclude_claude()
     test_watch_follows_output_path()
     test_watch_meeting_end_back_to_existing_day_file()
     test_watch_drains_old_file_before_notice()

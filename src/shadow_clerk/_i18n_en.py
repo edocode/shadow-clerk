@@ -624,6 +624,7 @@ STRINGS_EN: dict[str, str] = {
     "dash.talk_route_disconnected": "not connected",
     "dash.talk_edit_personas": "Edit personas",
     "dash.talk_glossary": "Use the glossary (transcript replacements and Claude's lookups)",
+    "dash.talk_early_reply": "Reply early (from the in-progress transcription; may answer a misheard line)",
     "dash.talk_voice": "Voice settings",
     "dash.voice_speaker": "Speaker",
     "dash.voice_speed": "Speed",

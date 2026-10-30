@@ -13,6 +13,7 @@ import time
 import numpy as np
 
 from shadow_clerk._daemon_talk import TalkDriver
+from shadow_clerk._daemon_talk_prompt import _PROBES
 from shadow_clerk._daemon_talk_speech import BrowserSpeech
 from shadow_clerk._daemon_tts import TtsPlayer
 from shadow_clerk.domain import Language, SpeechTab, Speaker, TranscriptLine, estimate_speech_sec
@@ -235,7 +236,8 @@ def test_driver_route_ignores_lang() -> None:
     d.start("x", None, None, "Chromium")
     d.say("Hello.", Language.EN)
     _wait(lambda: "vv:Hello." in events)
-    check("届け先ありでは lang を無視して VOICEVOX（話し出しの一声のあと）", events == ["vv:あの、", "vv:Hello."] and bus.sent == [],
+    check("届け先ありでは lang を無視して VOICEVOX（話し出しの一声のあと）", len(events) == 2 and events[0] in [f"vv:{p}" for p in _PROBES[Language.JA]]
+          and events[1] == "vv:Hello." and bus.sent == [],
           repr(events))
     d.stop()
 

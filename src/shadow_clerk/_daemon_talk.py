@@ -196,6 +196,7 @@ class TalkDriver:
         self._topic = ""
         self._persona: TalkPersona | None = None
         self._glossary = True
+        self._early_reply = True  # 確定行を待たずに中間文字起こしから返事を出すか（skill が読む）
         self._lang = Language.JA
         self._language = ""
         self._workdir = ""
@@ -207,6 +208,7 @@ class TalkDriver:
         self._filler_said = -1  # 最後につなぎを挟んだときの _said。1回の返事待ちに1回まで
         self._filler_at = float("-inf")  # 最後につなぎを挟んだ時刻（monotonic）
         self._filler_last = ""
+        self._probe_last = ""
         self._floor_wait_sec = 0.0
         self._heard: dict[str, float] = {}  # source → 中間文字起こしに文字が出た最後の時刻（monotonic）
         self._interim: dict[str, str] = {}  # source → 確定前の最新の中間文字起こし
@@ -217,7 +219,7 @@ class TalkDriver:
         self._was_routed = False  # stop() した会話が届け先ありだったか。猶予中の monitor の扱いを決める
 
     def start(self, topic: str, persona: str | None, workdir: str | None = None,
-              route: str | None = None, glossary: bool = True) -> None:
+              route: str | None = None, glossary: bool = True, early_reply: bool = True) -> None:
         with self._lock:
             if self._active:
                 return
@@ -270,7 +272,7 @@ class TalkDriver:
             self._route, self._sink, self._echo = route_obj, sink, echo
             self._playback = _PlaybackSpan(tail_sec=tail_sec)
             self._topic, self._persona, self._lang, self._glossary = topic, chosen, lang, glossary
-            self._language, self._workdir = lang.value, resolved
+            self._language, self._workdir, self._early_reply = lang.value, resolved, early_reply
             self._credit, self._error = backend.credit(), ""
             self._filler_sec, self._floor_wait_sec, self._stop_re = filler_sec, floor_wait_sec, stop_re
             self._active = True  # つなぎは [自分] 行のあとだけ。口火の前に挟むと最初の質問より先に話してしまう
@@ -545,7 +547,8 @@ class TalkDriver:
     def _collides(self, player: Any) -> bool:
         """一声出して少し黙り、その間に monitor に声があれば、誰かと話し出しが重なった。
         一声の後は Claude が黙っているので、monitor の声は他の人のもの（読み上げ中の monitor は Claude の声と分けられない）"""
-        player.speak(probe_phrase(self._lang))
+        self._probe_last = probe_phrase(self._lang, self._probe_last)
+        player.speak(self._probe_last)
         deadline = time.monotonic() + _PROBE_PLAY_LIMIT_SEC
         while player.is_busy() and time.monotonic() < deadline:
             time.sleep(_FLOOR_POLL_SEC)
@@ -611,7 +614,7 @@ class TalkDriver:
         return {"active": self._active, "engine": self._engine_name, "topic": self._topic,
                 "persona": self._persona.name if self._persona else "",
                 "persona_instructions": self._persona.instructions if self._persona else "",
-                "glossary": self.uses_glossary,
+                "glossary": self.uses_glossary, "early_reply": self._early_reply,
                 "language": self._language, "workdir": self._workdir,
                 "credit": self._credit, "error": self._error,
                 "route": route.status() if route is not None else {"app": "", "connected": False}}

@@ -73,12 +73,13 @@ class _DashboardHandlerTalkOps:
         self._send_json({"status": "ok"})
 
     def _set_talk_mode(self) -> None:
-        """POST /api/talk-mode {on, topic?, persona?, workdir?, route?, glossary?} — persona は null で既定、"" で persona なし"""
+        """POST /api/talk-mode {on, topic?, persona?, workdir?, route?, glossary?, early_reply?} — persona は null で既定、"" で persona なし"""
         data = read_local_json_body(self, "talk")
         if data is None:
             return
         on, topic, persona = data.get("on"), data.get("topic", ""), data.get("persona")
-        workdir, route, glossary = data.get("workdir"), data.get("route"), data.get("glossary", True)
+        workdir, route = data.get("workdir"), data.get("route")
+        glossary, early_reply = data.get("glossary", True), data.get("early_reply", True)
         if not isinstance(on, bool):
             self._send_json({"status": "error", "message": "on must be a boolean"})
             return
@@ -94,15 +95,16 @@ class _DashboardHandlerTalkOps:
         if route is not None and (not isinstance(route, str) or len(route) > _MAX_ROUTE_CHARS):
             self._send_json({"status": "error", "message": "route must be a short string"})
             return
-        if not isinstance(glossary, bool):
-            self._send_json({"status": "error", "message": "glossary must be a boolean"})
-            return
+        for key, value in (("glossary", glossary), ("early_reply", early_reply)):
+            if not isinstance(value, bool):
+                self._send_json({"status": "error", "message": f"{key} must be a boolean"})
+                return
         talk = self.recorder.talk
         if not on:
             talk.stop()
         else:
             try:
-                talk.start(topic.strip(), persona, workdir, route or None, glossary)
+                talk.start(topic.strip(), persona, workdir, route or None, glossary, early_reply)
             except TalkStartError as e:
                 self._send_json({"status": "error", "message": str(e)})
                 return
