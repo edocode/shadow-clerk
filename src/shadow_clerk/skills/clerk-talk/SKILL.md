@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」で、ユーザーと音声で議論する。ダッシュボードの「Claude と会議」から talk コンソールで自動的に起動される。ユーザーの発言は shadow-clerk の文字起こしとして届き、あなたの応答は shadow-clerk が音声で読み上げる。「/clerk-talk」と打たれたとき、声で議論したい・Claude と会議したいと言われたときに使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.7.7"
+  version: "1.7.8"
 ---
 
 # clerk-talk — 声で議論する
@@ -27,7 +27,7 @@ curl -s "http://localhost:8765/api/talk-mode"
 
 ```json
 {"active": true, "engine": "console", "topic": "…", "persona": "…",
- "persona_instructions": "…", "glossary": true, "language": "ja", "credit": "VOICEVOX:…", "error": ""}
+ "persona_instructions": "…", "glossary": true, "early_reply": true, "language": "ja", "credit": "VOICEVOX:…", "error": ""}
 ```
 
 - `active` が false なら talk mode は始まっていない。ユーザーに「ダッシュボードの『Claude と会議』から始めてください」と伝えて終える
@@ -36,6 +36,7 @@ curl -s "http://localhost:8765/api/talk-mode"
   話し方の規則（1回は1〜2文、記号を使わない等）は形の決まりで、その中の中身・言い回し・相づちは**毎回**その性格で話す。
   会話が長くなっても、定型の報告が続く場面でも薄めない
 - `language` の言語で話す
+- `early_reply` が true なら、確定行を待たずに `<interim>` から返事を出してよい（下の「聞く」「会話に入るタイミング」）。false なら確定行を待ち、返事には必ず `after` を付ける
 
 ### 用語集と聞き間違いを読む
 
@@ -77,6 +78,7 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 
 - `after` には、返事を考えるときに読んだ `[自分]`・`[相手]` の行のうち、いちばん新しい行の時刻（`[…]` の中身）を入れる。
   それより後の発言が届いていれば、その返事は古い。話さずに held で返るので、届いた発言まで読んでから考え直す
+- `early_reply` が true で、確定行が届く前に `<interim>` から組み立てた返事には `after` を付けない（下の「会話に入るタイミング」）
 - **1回の `/api/say` は1〜2文**。長い説明は文ごとに分けて何度も呼ぶ。文の切れ目でユーザーが割って入れる
 - 1文は短く、句点で区切る。Markdown・箇条書き・記号・URL・コードは使わない。読み上げてそのまま伝わる文だけにする
 - 質問は一度に1つ
@@ -106,14 +108,17 @@ Monitor で新しい発言を待つ:
 
 ```
 Monitor(
-  command: 'curl -sN "http://localhost:8765/api/watch?interval=1"',
+  command: 'curl -sN "http://localhost:8765/api/watch?interval=1&exclude=claude&interim=1&interim_min=5"',
   description: "Claude と会議の発言",
   persistent: true,
   timeout_ms: 3600000
 )
 ```
 
-- 届いた行のうち `[自分]` がユーザーの発言。`[相手]` は会議のほかの参加者の発言（届くときだけ）。`[Claude]` は自分が話した内容なので応答しない
+- `/api/talk-mode` の `early_reply` が false なら、URL から `&interim=1&interim_min=5` を外す（確定行だけを待つ）
+
+- 届いた行のうち `[自分]` がユーザーの発言。`[相手]` は会議のほかの参加者の発言（届くときだけ）。自分の `[Claude]` 行は `exclude=claude` で届かない
+- `<interim source="…">…</interim>` は話している最中の確定前の文字（下の「会話に入るタイミング」）。5文字未満の相づちは `interim_min=5` で届かない
 - 1回の通知に複数の発言がまとまって届くことがある。続けて話された1つの発言として扱う
 - 発言は音声認識の結果なので、誤認識や言い淀みを含む。意味が通らなければ推測し、重要なところは聞き返す
 - 「ちょっと待って」などで遮られたときは、相手が話し終えるまで話さない
@@ -201,7 +206,8 @@ Monitor(
 - 話している最中の中身は `/api/speaking` の `interim` で読める（確定行より先に届く）。
   `{"speaking": true, "sources": ["mic"], "interim": {"mic": "来週のリリースですが"}}` のように、話している source ごとに確定前の最新の文字が入る。
   軽いモデルの文字なので誤認識が多い。組み立ての材料に使い、確定行と食い違ったら確定行を優先する
-  聞く Monitor の URL に `&interim=1` を足すと、同じ文字が `<interim source="mic">…</interim>` の1行で、変わるたびに届く（既定は届かない。通知が増える）。
+  `early_reply` が true なら聞く Monitor に `&interim=1` を付けてあるので、同じ文字が `<interim source="mic">…</interim>` の1行で、変わるたびに届く。
+- `early_reply` が true のとき、`<interim>` から確定行より先に出す返事は `after` を付けずに送る。付けると同じ発話の確定行が先に届いて held になる。誰かが話している間は `/api/say` が待つので付けなくてよい。確定行に答えるとき、`early_reply` が false のときは `after` を付ける
 - 先に組み立てた発言は、出す直前に文脈で見直す。話題が移った・すでに答えが出たなら出さない（held も同じ扱い）
 
 ## 語学の練習

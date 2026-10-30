@@ -18,7 +18,7 @@ from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_constants import SESSION_FILE
 from shadow_clerk._daemon_dashboard_base import is_localhost_client, read_local_json_body
 from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name
-from shadow_clerk.domain import Language
+from shadow_clerk.domain import Language, Speaker, TranscriptLine
 from shadow_clerk.domain.meeting_config import MeetingConfig
 
 logger = logging.getLogger("shadow-clerk")
@@ -35,6 +35,12 @@ _MAX_GENERATED_CHARS = 20000
 _GENERATED_KINDS = ("advice", "analysis")
 _GENERATED_MODES = ("replace", "append")
 _HISTORY_TAIL_MAX = 50
+
+
+def _drop_claude_lines(text: str) -> str:
+    """[Claude] 行を除いた残り。話者分離のラベルや会議開始の印など、ほかの行はそのまま残す"""
+    return "".join(f"{ln}\n" for ln in text.split("\n")[:-1]
+                   if not ((t := TranscriptLine.parse(ln)) and t.speaker is Speaker.CLAUDE))
 
 
 def _norm(name: str) -> str:
@@ -353,7 +359,8 @@ class _DashboardHandlerSkillOps:
         self._send_json({"status": "ok", "result": result})
 
     def _serve_watch(self) -> None:
-        """GET /api/watch?interval=25&idle=600[&kind=advice][&file=…] — 新規行をまとめて流し続ける。
+        """GET /api/watch?interval=25&idle=600[&kind=advice][&file=…][&interim=1][&interim_min=N][&exclude=claude]
+        — 新規行をまとめて流し続ける。
 
         file を指定しなければ、いまの書き込み先（recorder.output_path）を毎回見る。日付の切り替えや会議の開始・終了で
         変わったら、前のファイルの残り（会議終了の印など）を流しきってから <notice> を流し、新しいファイルは
@@ -364,7 +371,11 @@ class _DashboardHandlerSkillOps:
         interim=1 を付けると、話している最中の確定前の文字（/api/speaking の interim と同じ）も、変わるたびに
         <interim source="mic">…</interim> の1行で流す。確定行が来るより先に返事を組み立てるためのもので、
         軽いモデルの文字なので誤認識を含む。確定行と食い違ったら確定行を優先する。付けなければ流さない
-        （1回の発話で何度も変わるので、通知が増える）。
+        （1回の発話で何度も変わるので、通知が増える）。interim_min=N を足すと、N 文字に満たない interim
+        （「うん」「なるほど」のような相づち）は流さない。
+
+        exclude=claude を付けると、[Claude] 行（Claude と会議で Claude 自身が話した内容）を流さない。
+        残る行が無ければ <transcript> ごと流さない（自分の声の行で Claude を起こさないため）。既定は全行を流す。
 
         kind=advice なら、transcript に対応する advice ファイルを見張り、書き換わるたびに中身を丸ごと流す
         （advice は上書きされるので差分ではなく全体）。Claude と会議の skill が、会議アシスタントの論点を
@@ -396,6 +407,8 @@ class _DashboardHandlerSkillOps:
         follow = not name
         kind = (q.get("kind") or ["transcript"])[0]
         want_interim = (q.get("interim") or ["0"])[0] in ("1", "true")
+        interim_min = max(0, _int("interim_min", 0))
+        drop_claude = "claude" in (q.get("exclude") or [""])[0].split(",")
         if kind not in ("transcript", "advice"):
             self.send_error(400)
             return
@@ -446,8 +459,10 @@ class _DashboardHandlerSkillOps:
             if nl < 0:
                 return False
             offset += nl + 1
-            self.wfile.write(wrap_transcript(os.path.basename(path),
-                                             chunk[:nl + 1].decode("utf-8", errors="replace")))
+            text = chunk[:nl + 1].decode("utf-8", errors="replace")
+            if drop_claude and not (text := _drop_claude_lines(text)):
+                return False
+            self.wfile.write(wrap_transcript(os.path.basename(path), text))
             self.wfile.flush()
             return True
 
@@ -457,6 +472,7 @@ class _DashboardHandlerSkillOps:
             """話している source の確定前の文字が前回から変わっていたら、1行ずつ流す。流したら True
 
             確定行が来ると interim_texts() から消えるので、同じ文字をもう一度話しても流れる。
+            interim_min に満たない文字は流さず、送った記録も変えない（後で伸びた文字は前回と違うので流れる）。
             中身は音声認識の結果なので、改行と < を落として <interim> の境界が壊れないようにする
             """
             talk = getattr(self.recorder, "talk", None)
@@ -468,7 +484,7 @@ class _DashboardHandlerSkillOps:
             sent = False
             for source, text in texts.items():
                 text = " ".join(text.replace("<", "＜").split())
-                if text and sent_interim.get(source) != text:
+                if len(text) >= max(1, interim_min) and sent_interim.get(source) != text:
                     sent_interim[source] = text
                     self.wfile.write(f'<interim source="{source}">{text}</interim>\n'.encode())
                     sent = True

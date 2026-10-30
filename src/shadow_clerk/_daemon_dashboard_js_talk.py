@@ -80,6 +80,7 @@ function loadTalkPreset(){
   if(f.persona!==undefined){const ps=document.getElementById('talkPersonaSel');if(ps)ps.value=f.persona||'';}
   if(f.route!==undefined){const rs=document.getElementById('talkRoute');if(rs&&!rs.disabled)rs.value=f.route||'';}
   if(f.glossary!==undefined)document.getElementById('talkGlossary').checked=f.glossary!==false;
+  if(f.early_reply!==undefined)document.getElementById('talkEarlyReply').checked=f.early_reply!==false;
 }
 function openSaveTalkPreset(){
   const sel=document.getElementById('talkPresetSel');
@@ -102,6 +103,7 @@ async function doSaveTalkPreset(){
     persona:ps?ps.value:'',
     route:(rs&&!rs.disabled)?rs.value:'',
     glossary:document.getElementById('talkGlossary').checked,
+    early_reply:document.getElementById('talkEarlyReply').checked,
   };
   try{
     await fetch('/api/talk-presets',{method:'POST',
@@ -131,6 +133,7 @@ async function togTalk(){
   await loadTalkPresets();
   document.getElementById('talkTopic').value='';
   document.getElementById('talkGlossary').checked=true;
+  document.getElementById('talkEarlyReply').checked=true;
   document.getElementById('talkErr').textContent='';
   document.getElementById('talkModal').classList.add('open');
 }
@@ -142,7 +145,8 @@ async function startTalk(){
                           persona:document.getElementById('talkPersonaSel').value,
                           workdir:document.getElementById('talkWorkdir').value.trim()||null,
                           route:(rs&&!rs.disabled&&rs.value)||null,
-                          glossary:document.getElementById('talkGlossary').checked});
+                          glossary:document.getElementById('talkGlossary').checked,
+                          early_reply:document.getElementById('talkEarlyReply').checked});
   if(r.status==='ok'){
     if(rs&&!rs.disabled)await saveTalkCfg('talk_route_app',rs.value||'');
     closeTalk();if(r.talk&&r.talk.engine==='console')selectConsoleRole('talk');}else document.getElementById('talkErr').textContent=r.message||'';

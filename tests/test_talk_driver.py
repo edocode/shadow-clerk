@@ -289,6 +289,16 @@ def test_glossary() -> None:
     check("終えれば使う", d.uses_glossary)
 
 
+def test_early_reply() -> None:
+    d, _w, _m = _driver()
+    d.start("x", None)
+    check("既定では早めに返す", d.snapshot()["early_reply"] is True)
+    d.stop()
+    d.start("x", None, early_reply=False)
+    check("外せば snapshot で false", d.snapshot()["early_reply"] is False)
+    d.stop()
+
+
 def test_route_failures() -> None:
     d, _w, made = _driver(route_factory=lambda: _Route(ok=False), sink_factory=lambda: _Sink())
     try:
@@ -889,6 +899,7 @@ if __name__ == "__main__":
     test_route_stop_unblocks_player()
     test_route_none_keeps_old_behaviour()
     test_glossary()
+    test_early_reply()
     test_route_failures()
     test_route_connect_failure()
     test_route_targets()
