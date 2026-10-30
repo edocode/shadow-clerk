@@ -148,7 +148,7 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
         self.monitor_queue: queue.Queue = queue.Queue()
         self.vad_queue: queue.Queue = queue.Queue()
         self.transcribe_queue: queue.Queue = queue.Queue()
-        self.interim_queue: queue.Queue = queue.Queue(maxsize=2)
+        self.interim_queue: queue.Queue = queue.Queue(maxsize=4)  # mic と monitor で2つずつ
         self.transcript_lock = threading.Lock()  # トランスクリプトファイル読み書きの排他制御
         self.output_switch_offset: dict[str, int] = {}  # 書き込み先 → 移った時点の大きさ（/api/watch 用）
         self.rewrite_journal = TranscriptRewriteJournal()  # ダッシュボードの書き直し履歴（/api/watch・翻訳の offset を写す）
@@ -652,6 +652,8 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
 
             timestamp = time.time()
             segment = segmenter.process_frame(frame, timestamp)
+            if label == "monitor" and segmenter.last_is_speech and self.talk.routed:
+                self.talk.on_monitor_voice(timestamp)  # 話し出しが重なったかの判定用
             if segment is not None:
                 ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 self.transcribe_queue.put((segment, ts, label, command_mode_latch,
@@ -664,17 +666,19 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
                 self.last_in_speech_time = timestamp
                 # final segment 確定時に config を再読み込み（ランタイム切替対応）
                 interim_enabled = load_config().get("interim_transcription", False)
-            elif label == "mic" and segmenter.in_speech:
-                # mic に中間文字起こしは無い。VAD が声を検出している間を「話している」として Claude に知らせる
+            elif segmenter.in_speech:
                 now = time.time()
                 self.last_in_speech_time = now
-                if mic_voice_due(last_voice, now, self.mute_mic, command_mode_latch):
-                    self.talk.on_voice("mic")
-                    last_voice = now
-            elif label == "monitor" and segmenter.in_speech:
-                now = time.time()
-                self.last_in_speech_time = now
-                if (interim_enabled or self.talk.routed) and now - last_interim_time >= 1.5:
+                if label == "mic":
+                    # VAD が声を検出している間を「話している」として Claude に知らせる。
+                    # 中間文字起こしは talk mode 中だけ作り、話の中身を Claude に先に渡す（ダッシュボードには出さない）
+                    if mic_voice_due(last_voice, now, self.mute_mic, command_mode_latch):
+                        self.talk.on_voice("mic")
+                        last_voice = now
+                    wants_interim = self.talk.active and not (self.mute_mic or command_mode_latch)
+                else:
+                    wants_interim = interim_enabled or self.talk.routed
+                if wants_interim and now - last_interim_time >= 1.5:
                     interim_audio = segmenter.get_interim_segment()
                     if interim_audio is not None and not self.talk.hides_interim(
                             label, now - len(interim_audio) / SAMPLE_RATE, now):

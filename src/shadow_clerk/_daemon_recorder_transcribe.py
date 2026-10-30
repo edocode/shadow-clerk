@@ -374,8 +374,8 @@ class _RecorderTranscribeMixin:
         while not self.stop_event.is_set():
             config = load_config()
             show = config.get("interim_transcription", False)
-            # 届け先ありの talk mode では、相手が話しているかを知るため表示が無効でも動かす
-            if not (show or self.talk.routed):
+            # talk mode 中は、誰が何を話しているかを Claude に先に渡すため表示が無効でも動かす
+            if not (show or self.talk.active):
                 # 無効中はモデルをロードせず待機
                 self.stop_event.wait(timeout=2.0)
                 continue
@@ -419,18 +419,19 @@ class _RecorderTranscribeMixin:
             current_seq[source] = seq
 
             try:
-                text = interim_transcriber.transcribe(audio_segment)
-                if text.strip():
-                    self.talk.on_interim(source)
-                if text.strip() and show and hasattr(self, "_file_watcher"):
+                text = interim_transcriber.transcribe(audio_segment).strip()
+                if text:
+                    self.talk.on_interim(source, text)
+                # ダッシュボードの途中表示は monitor だけ（mic の中間は talk mode で Claude に渡すためのもの）
+                if text and show and source == "monitor" and hasattr(self, "_file_watcher"):
                     speaker = display_labels.get(source, source)
                     self._file_watcher._broadcast("interim_transcript", json.dumps(
-                        {"source": source, "speaker": speaker, "text": text.strip(),
+                        {"source": source, "speaker": speaker, "text": text,
                          "timestamp": timestamp}, ensure_ascii=False))
                     # リアルタイム翻訳キューに投入（最新のみ保持）
                     try:
                         self._interim_translate_queue.put_nowait(
-                            (text.strip(), source, speaker, timestamp, seq))
+                            (text, source, speaker, timestamp, seq))
                     except queue.Full:
                         pass
             except Exception as e:

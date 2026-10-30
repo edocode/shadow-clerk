@@ -17,7 +17,8 @@ from typing import Any, Callable
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_talk_engine import TalkContext, TalkEngine, TalkStartError, make_engine
 from shadow_clerk._daemon_talk_route import TalkRoute, make_route
-from shadow_clerk._daemon_talk_prompt import filler_phrase, requested_language, resolve_talk_language
+from shadow_clerk._daemon_talk_prompt import (filler_phrase, probe_phrase, requested_language, resolve_talk_language,
+                                              yield_phrase)
 from shadow_clerk._daemon_talk_speech import BrowserSpeech
 from shadow_clerk._daemon_tts import TtsBackend, TtsError, TtsPlayer, make_backend, make_player
 from shadow_clerk._daemon_tts_pipewire import PwCatSink
@@ -79,6 +80,13 @@ FILLER_COOLDOWN_SEC = 30.0
 SPEAKING_STALE_SEC = 4.0
 _FLOOR_POLL_SEC = 0.1
 MIC_VOICE_INTERVAL_SEC = 0.5  # mic の VAD が声を検出している間、on_voice を呼ぶ間隔
+# 届け先ありの会議で話し出す前に一声出して黙る秒数（反響の遅れ talk_echo_tail_sec の後）。
+# その間に monitor に PROBE_VOICE_FRAMES 以上の声のフレーム（30ms）があれば、誰かと話し出しが重なった
+PROBE_WAIT_SEC = 0.5
+PROBE_VOICE_FRAMES = 5
+_PROBE_PLAY_LIMIT_SEC = 3.0  # 一声の再生を待つ上限
+_VOICE_RECENT_SEC = 1.0  # 譲った後、monitor のこの秒数に声が無ければ相手は黙った
+_YIELD_LINE_WAIT_SEC = 3.0  # 譲った後、相手が黙ってから発言の確定行を待つ上限
 # talk 終了後もこの秒数はモニターの文字起こしを捨てる。
 # stop() の後もキューに積まれた音声が ASR を通ってくるため
 STOP_MONITOR_GRACE_SEC = 5.0
@@ -118,6 +126,10 @@ class _PlaybackSpan:
         self._keep = keep_sec
         self._lock = threading.Lock()
         self._spans: list[list[float | None]] = []  # [start, end or None]
+
+    @property
+    def tail(self) -> float:
+        return self._tail
 
     def open(self, start: float) -> None:
         with self._lock:
@@ -197,6 +209,8 @@ class TalkDriver:
         self._filler_last = ""
         self._floor_wait_sec = 0.0
         self._heard: dict[str, float] = {}  # source → 中間文字起こしに文字が出た最後の時刻（monotonic）
+        self._interim: dict[str, str] = {}  # source → 確定前の最新の中間文字起こし
+        self._monitor_voice: deque[float] = deque(maxlen=400)  # 届け先ありで monitor に声があったフレームの時刻（time.time()）
         self._lines_seen = 0  # talk mode 中に届いた [自分]・[相手] 行の数
         self._recent_lines: deque[TranscriptLine] = deque(maxlen=_HEARD_LINES_MAX)
         self._stopped_at: float = float("-inf")  # stop() を呼んだ時刻（monotonic）
@@ -312,15 +326,33 @@ class TalkDriver:
         確定行の処理（clear_interim）か SPEAKING_STALE_SEC の無更新で消える"""
         self._heard[source] = time.monotonic()
 
-    on_interim = on_voice
+    def on_interim(self, source: str, text: str = "") -> None:
+        """source の中間文字起こしに文字が出た。最新の文字を、確定行が来るまで interim_texts() で渡す"""
+        self.on_voice(source)
+        if text:
+            self._interim[source] = text
 
     def clear_interim(self, source: str) -> None:
         self._heard.pop(source, None)
+        self._interim.pop(source, None)
 
     def speaking(self) -> list[str]:
         """話している source（monitor は中間文字起こし、mic は VAD）。transcript の確定行を待つより早く「話している」と分かる"""
         now = time.monotonic()
         return sorted(s for s, at in list(self._heard.items()) if now - at < SPEAKING_STALE_SEC)
+
+    def on_monitor_voice(self, at: float) -> None:
+        """届け先ありの talk mode で、monitor のフレーム（30ms）に声があった。Claude の声も含む（数えるときに除く）"""
+        self._monitor_voice.append(at)
+
+    def _monitor_voice_after(self, since: float) -> int:
+        """since より後の、Claude の読み上げ（終了後 tail まで）と重ならない monitor の声のフレーム数"""
+        return sum(1 for at in list(self._monitor_voice) if at > since and not self._echo.overlaps(at, at))
+
+    def interim_texts(self) -> dict[str, str]:
+        """話している source の、確定前の最新の文字。軽いモデルの文字なので誤認識を含む"""
+        live = self.speaking()
+        return {s: t for s, t in list(self._interim.items()) if s in live}
 
     def _monitor_filtered(self, routed: bool) -> bool:
         """monitor の文字起こしを routed（届け先あり）/ 非 routed の規則で扱う期間か。
@@ -390,17 +422,21 @@ class TalkDriver:
                 self._arm_filler_locked()
         engine.on_self_line(line.text)
 
-    def api_say(self, text: str, lang: Language | None = None, display: str | None = None) -> dict:
+    def api_say(self, text: str, lang: Language | None = None, display: str | None = None,
+                after: str | None = None) -> dict:
         """/api/say の応答。制止の直後（console engine）なら話さずに止めた文を、
-        相手が話し終えるのを待つ間に発言が届いたら話さずにその発言を返す"""
+        相手が話し終えるのを待つ間に発言が届いたら話さずにその発言を返す。
+        after（skill が最後に読んだ行の時刻）より後の [自分]・[相手] 行があれば、読まずに返事を作ったので話さずにその行を返す"""
         with self._lock:
             if self._active:
                 cut = self._engine.consume_interrupt()
                 if cut is not None:
                     return {"status": "interrupted", "cut": cut}
+                if after is not None and (unread := [ln for ln in self._recent_lines if ln.timestamp > after]):
+                    return {"status": "held", "heard": _line_texts(unread)}
                 self._said += 1
         heard = self.say(text, lang, display)
-        return {"status": "held", "heard": _line_texts(heard)} if heard else {"status": "ok"}
+        return {"status": "ok"} if heard is None else {"status": "held", "heard": _line_texts(heard)}
 
     def _engine_say(self, text: str) -> None:
         with self._lock:
@@ -409,7 +445,7 @@ class TalkDriver:
             self._said += 1
             engine = self._engine
         heard = self.say(text)
-        if heard:
+        if heard is not None:
             engine.on_held(text, _line_texts(heard))
 
     def end_after_speech(self, timeout: float = 30.0) -> bool:
@@ -454,50 +490,87 @@ class TalkDriver:
 
     # --- 出力 ---
 
-    def say(self, text: str, lang: Language | None = None, display: str | None = None) -> list[TranscriptLine]:
+    def say(self, text: str, lang: Language | None = None, display: str | None = None) -> list[TranscriptLine] | None:
         """[Claude] 行を書いて読み上げる。talk mode でなければ一時的な再生器を使う
 
         display があれば transcript の行にはそれを書く（読むのは text。答えの綴りを見せない語学の練習用）
 
         lang が読み上げの言語（VOICEVOX）と違えば、その文はダッシュボードのブラウザで読む。届け先ありの talk mode
         （ブラウザの音は会議アプリに届かない）と talk mode の外（一時的な再生器）では lang を見ない
-        話し終えるのを待つ間に発言が届いたら、話題が変わったかもしれないので話さずにその発言を返す
+        話し終えるのを待つ間に発言が届いたら、話題が変わったかもしれないので話さずにその発言を返す。
+        届け先ありで話し出しが誰かと重なったら、譲って話さずに、その人の発言を返す（届く前なら空）。
+        話したとき（話すものが無いとき、待つ間に talk mode が終わったときも）は None
         """
         text = one_line(text)
         if not text:
-            return []
+            return None
         if self._active:
-            heard = self._wait_for_floor()
-            if heard is None or heard:
-                return heard or []
+            with self._lock:
+                seen, player = self._lines_seen, self._player
+            heard = self._wait_for_floor(seen)
+            if heard is None:
+                return None
+            if not heard and self.routed and player is not None and self._collides(player):
+                return self._yield_floor(player, seen)
+            if heard or (heard := self._lines_since(seen)):
+                return heard
         self._write_line(TranscriptLine(self._clock(), Speaker.CLAUDE, one_line(display or "") or text))
         with self._lock:
             player = self._player
             browser = lang if lang is not None and lang != self._lang and self._route is None else None
         if player is not None:
             player.speak(text, browser)
-            return []
+            return None
         config = self._config_loader()
         self._speak_once(self._backend_factory(config, None), config, text)
-        return []
+        return None
 
     def _floor_taken(self) -> bool:
         speaking = self.speaking()
         return bool(speaking) if self.routed else "mic" in speaking
 
-    def _wait_for_floor(self) -> list[TranscriptLine] | None:
+    def _wait_for_floor(self, seen: int) -> list[TranscriptLine] | None:
         """届け先ありなら誰かが、なければ自分（mic）が話し終えるまで待つ（最長 talk_floor_wait_sec）。
-        待つ間に届いた発言を返す。待つ間に talk mode が終われば None"""
-        with self._lock:
-            seen = self._lines_seen
+        seen 以降に届いた発言を返す。待つ間に talk mode が終われば None"""
         deadline = time.monotonic() + self._floor_wait_sec
         while self._active and self._floor_taken() and time.monotonic() < deadline:
             time.sleep(_FLOOR_POLL_SEC)
+        return self._lines_since(seen) if self._active else None
+
+    def _lines_since(self, seen: int) -> list[TranscriptLine]:
         with self._lock:
-            if not self._active:
-                return None
             n = self._lines_seen - seen
             return list(self._recent_lines)[-n:] if n else []
+
+    def _collides(self, player: Any) -> bool:
+        """一声出して少し黙り、その間に monitor に声があれば、誰かと話し出しが重なった。
+        一声の後は Claude が黙っているので、monitor の声は他の人のもの（読み上げ中の monitor は Claude の声と分けられない）"""
+        player.speak(probe_phrase(self._lang))
+        deadline = time.monotonic() + _PROBE_PLAY_LIMIT_SEC
+        while player.is_busy() and time.monotonic() < deadline:
+            time.sleep(_FLOOR_POLL_SEC)
+        quiet_from = time.time() + self._playback.tail
+        time.sleep(self._playback.tail + PROBE_WAIT_SEC)
+        return self._monitor_voice_after(quiet_from) >= PROBE_VOICE_FRAMES
+
+    def _yield_floor(self, player: Any, seen: int) -> list[TranscriptLine]:
+        """「お先にどうぞ」と譲り、相手が黙ってその発言が届くまで待つ（最長 talk_floor_wait_sec + 確定待ち）"""
+        phrase = yield_phrase(self._lang)
+        self._write_line(TranscriptLine(self._clock(), Speaker.CLAUDE, phrase))
+        player.speak(phrase)
+        logger.info("talk: 話し出しが重なったので譲る")
+        deadline = time.monotonic() + self._floor_wait_sec + _YIELD_LINE_WAIT_SEC
+        quiet_since: float | None = None
+        while self._active and time.monotonic() < deadline:
+            if (self.speaking() or player.is_busy()
+                    or self._monitor_voice_after(time.time() - _VOICE_RECENT_SEC) >= PROBE_VOICE_FRAMES):
+                quiet_since = None
+            else:
+                quiet_since = quiet_since or time.monotonic()
+                if self._lines_since(seen) or time.monotonic() - quiet_since >= _YIELD_LINE_WAIT_SEC:
+                    break
+            time.sleep(_FLOOR_POLL_SEC)
+        return self._lines_since(seen)
 
     def set_broadcaster(self, fn: Callable[[str, str], None]) -> None:
         """SSE の送り口。ダッシュボード（FileWatcher）が立ち上がってから渡される"""

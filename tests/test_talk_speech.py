@@ -234,8 +234,9 @@ def test_driver_route_ignores_lang() -> None:
     d.speech_ready(_tab("tabA", "en"))
     d.start("x", None, None, "Chromium")
     d.say("Hello.", Language.EN)
-    _wait(lambda: events)
-    check("届け先ありでは lang を無視して VOICEVOX", events == ["vv:Hello."] and bus.sent == [], repr(events))
+    _wait(lambda: "vv:Hello." in events)
+    check("届け先ありでは lang を無視して VOICEVOX（話し出しの一声のあと）", events == ["vv:あの、", "vv:Hello."] and bus.sent == [],
+          repr(events))
     d.stop()
 
 

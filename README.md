@@ -725,9 +725,15 @@ has text, someone else is talking, so a new reply waits until they finish (at mo
 spoken. This is much earlier than waiting for the finished transcript line. If anyone's line is transcribed while it
 waits, the reply is not spoken, because the topic may have moved on: `/api/say` answers
 `{"status": "held", "heard": [...lines...]}` and Claude rethinks it (the headless engine drops the rest of that turn and
-gets the lines with a note). Interim transcription runs for this even
+gets the lines with a note). Before speaking in a meeting, Claude says a short "Um," and pauses for half a second; if
+someone else is heard in that pause, both started at once, so Claude says "Sorry, go ahead" and waits for them. The
+talk skill also passes the time of the newest line it has read (`after`), so a reply written before a newer line
+arrived is held instead of spoken. Interim transcription runs for this even
 when `interim_transcription` is off (it is then not shown on the dashboard). `GET /api/speaking` returns the flag
 (`{"speaking": true, "sources": ["monitor"]}`); the talk skill also uses it before raising a point on its own.
+It also returns the latest interim text of each source still speaking (`"interim": {"monitor": "..."}`), so Claude
+can start drafting a reply before the line is finalized. For this, the microphone also gets interim transcription during
+talk mode, with or without a meeting app (it is never shown on the dashboard).
 
 Your own voice counts too: while the microphone's voice detection hears you speaking (muted mic and push-to-talk
 excluded), a reply waits for you to finish, even without a meeting app chosen. Use earphones, since Claude's own

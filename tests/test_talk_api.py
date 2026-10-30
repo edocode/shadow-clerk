@@ -51,12 +51,15 @@ class _Talk:
     def stop(self) -> None:
         self.calls.append(("stop",))
 
-    def api_say(self, text: str, lang: Language | None = None, display: str | None = None) -> dict:
+    def api_say(self, text: str, lang: Language | None = None, display: str | None = None,
+                after: str | None = None) -> dict:
         if text == "遮られた":
             return {"status": "interrupted", "cut": "途中の文。"}
         self.calls.append(("say", text) if lang is None else ("say", text, lang))
         if display is not None:
             self.calls[-1] += (display,)
+        if after is not None:
+            self.calls[-1] += (after,)
         return {"status": "ok"}
 
     def speech_ready(self, tab: SpeechTab) -> None:
@@ -75,6 +78,9 @@ class _Talk:
 
     def speaking(self) -> list[str]:
         return ["monitor"] if self.reachable else []
+
+    def interim_texts(self) -> dict[str, str]:
+        return {"monitor": "来週のリリースですが"} if self.reachable else {}
 
     def snapshot(self) -> dict:
         return {"active": bool(self.calls)}
@@ -216,10 +222,11 @@ def test_route() -> None:
 def test_speaking() -> None:
     h = _FakeHandler()
     h._serve_speaking()
-    check("話していれば speaking が真", h.sent == {"speaking": True, "sources": ["monitor"]}, repr(h.sent))
+    check("話していれば speaking が真で、確定前の文字も返す", h.sent == {
+        "speaking": True, "sources": ["monitor"], "interim": {"monitor": "来週のリリースですが"}}, repr(h.sent))
     h = _FakeHandler(reachable=False)
     h._serve_speaking()
-    check("誰も話していなければ偽", h.sent == {"speaking": False, "sources": []}, repr(h.sent))
+    check("誰も話していなければ偽", h.sent == {"speaking": False, "sources": [], "interim": {}}, repr(h.sent))
     h = _FakeHandler(client="10.0.0.9")
     h._serve_speaking()
     check("外部からは拒否", h.sent.get("status") == "error")
@@ -245,6 +252,16 @@ def test_say_display() -> None:
         h = _FakeHandler({"text": "right", "display": display})
         h._say()
         check(f"不正な display {display!r:.10} は拒否", h.sent.get("status") == "error" and h.talk.calls == [], repr(h.sent))
+
+
+def test_say_after() -> None:
+    h = _FakeHandler({"text": "はい。", "after": "2026-10-30 15:32:51"})
+    h._say()
+    check("after を渡す", h.talk.calls == [("say", "はい。", "2026-10-30 15:32:51")], repr(h.talk.calls))
+    for after in ("", "15:32:51", "2026-10-30T15:32:51", 1, []):
+        h = _FakeHandler({"text": "はい。", "after": after})
+        h._say()
+        check(f"不正な after {after!r} は拒否", h.sent.get("status") == "error" and h.talk.calls == [], repr(h.sent))
 
 
 def test_speech_ready_done() -> None:
@@ -282,5 +299,6 @@ if __name__ == "__main__":
     test_route()
     test_say_lang()
     test_say_display()
+    test_say_after()
     test_speech_ready_done()
     sys.exit(0 if all(results) else 1)

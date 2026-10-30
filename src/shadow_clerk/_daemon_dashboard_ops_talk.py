@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from shadow_clerk._daemon_dashboard_base import is_localhost_client, read_local_json_body
 from shadow_clerk._daemon_pronounce import ArmError
@@ -14,6 +15,7 @@ logger = logging.getLogger("shadow-clerk")
 
 _MAX_TOPIC_CHARS = 500
 _MAX_SAY_CHARS = 2000
+_TIMESTAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}")  # transcript の行の時刻
 _MAX_WORKDIR_CHARS = 1000
 _MAX_ROUTE_CHARS = 200
 _MAX_SPEECH_ID_CHARS = 64
@@ -48,10 +50,11 @@ class _DashboardHandlerTalkOps:
             self._send_json(self.recorder.talk.route_targets())
 
     def _serve_speaking(self) -> None:
-        """GET /api/speaking — 中間文字起こしに文字が出ている（誰かが話している）か"""
+        """GET /api/speaking — 中間文字起こしに文字が出ている（誰かが話している）か。interim は確定前の最新の文字"""
         if not self._reject_remote():
             sources = self.recorder.talk.speaking()
-            self._send_json({"speaking": bool(sources), "sources": sources})
+            self._send_json({"speaking": bool(sources), "sources": sources,
+                             "interim": self.recorder.talk.interim_texts()})
 
     def _talk_preview(self) -> None:
         """POST /api/talk-preview {text?, voice?} — 保存前の声で試し読みする。transcript には書かない"""
@@ -116,11 +119,12 @@ class _DashboardHandlerTalkOps:
         self._send_json({"status": "ok", "ending": self.recorder.talk.end_after_speech()})
 
     def _say(self) -> None:
-        """POST /api/say {text, lang?, display?} — [Claude] 行を書いて読み上げる（talk mode でなくても使える）
+        """POST /api/say {text, lang?, display?, after?} — [Claude] 行を書いて読み上げる（talk mode でなくても使える）
 
         lang（例: "en"）が読み上げの言語と違えば、その文はダッシュボードのブラウザの声で読む（語学の練習用）。
         文の言語は話す本人（skill）が知っているので、daemon は推測しない
         display があれば transcript の [Claude] 行にはそれを書き、声は text を読む（答えの綴りを見せない練習用）
+        after（"YYYY-MM-DD HH:MM:SS"）は skill が最後に読んだ行の時刻。それより後の発言があれば話さずに held で返す
         """
         data = read_local_json_body(self, "talk")
         if data is None:
@@ -134,7 +138,12 @@ class _DashboardHandlerTalkOps:
         if lang is not None and (not isinstance(lang, str) or lang not in {v.value for v in Language}):
             self._send_json({"status": "error", "message": "lang must be a known language code"})
             return
-        self._send_json(self.recorder.talk.api_say(text, Language(lang) if lang is not None else None, display))
+        after = data.get("after")
+        if after is not None and (not isinstance(after, str) or not _TIMESTAMP_RE.fullmatch(after)):
+            self._send_json({"status": "error", "message": "after must be a transcript timestamp (YYYY-MM-DD HH:MM:SS)"})
+            return
+        self._send_json(self.recorder.talk.api_say(
+            text, Language(lang) if lang is not None else None, display, after))
 
     def _talk_speech_ready(self) -> None:
         """POST /api/talk-speech/ready {tab, langs} — 練習言語の文を読めるダッシュボードのタブが名乗る（30 秒ごと）"""
