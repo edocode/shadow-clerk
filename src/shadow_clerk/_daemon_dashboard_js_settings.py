@@ -45,6 +45,7 @@ const CFG_FIELDS=[
   {key:'self_name',label:I18N['cfg.self_name'],type:'text',ph:I18N['cfg.self_name_ph']},
   {key:'asr_engine',label:I18N['cfg.asr_engine'],type:'select',opts:['whisper','moonshine']},
   {key:'japanese_asr_model',simple:1,label:I18N['cfg.japanese_asr_model'],type:'select',opts:['default','kotoba-whisper','reazonspeech-k2']},
+  {key:'kana_hint',simple:1,label:I18N['cfg.kana_hint'],type:'bool'},
   {key:'english_asr_model',simple:1,label:I18N['cfg.english_asr_model'],type:'select',opts:['default','moonshine','small.en','medium.en','large-v3-turbo','distil-large-v3']},
   {key:'reazonspeech_model',simple:1,when:{k:'japanese_asr_model',v:'reazonspeech-k2'},label:I18N['cfg.reazonspeech_model'],type:'select',opts:['ja','ja-en']},
   {key:'voice_command_key',label:I18N['cfg.voice_command_key'],type:'select',opts:['menu','f23','ctrl_r','ctrl_l','alt_r','alt_l','shift_r','shift_l']},

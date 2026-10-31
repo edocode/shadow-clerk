@@ -366,6 +366,7 @@ STRINGS_JA: dict[str, str] = {
     "cfg.summary_length": "要約の長さ",
     "cfg.asr_engine": "ASRエンジン",
     "cfg.japanese_asr_model": "日本語ASRモデル",
+    "cfg.kana_hint": "聞き間違いの目印: 音と読みが食い違う語に「(音のかな?)」を添える (kana-hint extra、モデル 1.2GB)",
     "cfg.english_asr_model": "英語ASRモデル",
     "cfg.kotoba_whisper_model": "Kotoba-Whisper モデル",
     "cfg.interim_asr_engine": "中間 ASRエンジン",

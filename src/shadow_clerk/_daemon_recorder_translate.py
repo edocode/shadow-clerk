@@ -25,6 +25,7 @@ from shadow_clerk import DATA_DIR
 from shadow_clerk.i18n import nt
 from shadow_clerk._daemon_config import load_config, get_translation_provider
 from shadow_clerk.domain import Translation
+from shadow_clerk.domain.kana_hint import strip_hints
 from shadow_clerk._transcript_name import TranscriptName
 
 logger = logging.getLogger("shadow-clerk")
@@ -205,7 +206,7 @@ class _RecorderTranslateMixin:
                                "translate", lang]
                         if os.path.exists(tr_path):
                             cmd += ["--context-file", tr_path]
-                        result = subprocess.run(cmd, input=chunk.decode("utf-8", errors="replace"),
+                        result = subprocess.run(cmd, input=strip_hints(chunk.decode("utf-8", errors="replace")),
                                                 capture_output=True, text=True,
                                                 encoding="utf-8", errors="replace", timeout=300)
                         if result.returncode == 0 and result.stdout.strip():

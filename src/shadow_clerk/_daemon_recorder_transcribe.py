@@ -28,6 +28,7 @@ from shadow_clerk._daemon_vad import VADSegmenter
 from shadow_clerk._daemon_transcriber import Transcriber
 from shadow_clerk._daemon_dashboard import LogBuffer, FileWatcher, DashboardHandler
 from shadow_clerk.domain import Speaker, TranscriptLine
+from shadow_clerk._daemon_kana_hint import KanaHinter
 from shadow_clerk._daemon_pronounce import PronounceDriver
 from shadow_clerk._daemon_talk import TalkDriver
 from shadow_clerk._daemon_voice_sidecar import append_voice
@@ -293,6 +294,8 @@ class _RecorderTranscribeMixin:
                                        cluster=cluster_label, auto=auto)
         elif file_speaker == Speaker.SELF and not self.talk.active:
             self._enroll_self_voice(segment, timestamp)
+        # 聞き間違いの目印。捨てる行の分まで計算しないよう、フィルタを通った後に付ける
+        text = self.kana_hint.annotate(text, segment, self.transcriber.language)
         tl = TranscriptLine(timestamp=timestamp, speaker=file_speaker, text=text,
                             speaker_label=speaker_label)
         self._append_transcript_line(tl)
@@ -468,6 +471,7 @@ class _RecorderTranscribeMixin:
 
         self.talk = TalkDriver(self._append_transcript_line)
         self.pronounce = PronounceDriver()
+        self.kana_hint = KanaHinter()
         self.mic_segmenter = VADSegmenter()
         self.monitor_segmenter = VADSegmenter()
 

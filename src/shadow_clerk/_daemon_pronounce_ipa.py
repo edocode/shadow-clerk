@@ -165,7 +165,8 @@ class PhonemeRecogniser:
     1.2GB あるので、読み込みは呼び手がワーカースレッドから行う（API スレッドを塞がない）
     """
 
-    def __init__(self, model: str, device: str, threads: int) -> None:
+    def __init__(self, model: str, device: str, threads: int, label: str = "pronounce") -> None:
+        self._label = label
         self._model_name = model
         self._device = device
         self._threads = threads
@@ -187,11 +188,11 @@ class PhonemeRecogniser:
 
             if self._threads > 0:
                 torch.set_num_threads(self._threads)
-            logger.info("pronounce: モデルを読み込みます (%s)", self._model_name)
+            logger.info("%s: モデルを読み込みます (%s)", self._label, self._model_name)
             processor = AutoProcessor.from_pretrained(self._model_name)
             model = AutoModelForCTC.from_pretrained(self._model_name).to(self._device).eval()
             self._processor, self._model = processor, model
-            logger.info("pronounce: モデルの読み込みが終わりました")
+            logger.info("%s: モデルの読み込みが終わりました", self._label)
 
     def unload(self) -> None:
         """アイドルで解放する。import torch 自体のメモリは残る"""
@@ -199,19 +200,29 @@ class PhonemeRecogniser:
             if self._model is None:
                 return
             self._processor = self._model = None
-            logger.info("pronounce: モデルを解放しました")
+            logger.info("%s: モデルを解放しました", self._label)
 
-    def actual_ipa(self, pcm: Any) -> tuple[str, ...]:
-        """16kHz モノラルの float32 PCM から、正規化済みの実測IPAを取る"""
+    @property
+    def processor(self) -> Any:
+        return self._processor
+
+    def logits(self, pcm: Any) -> Any:
+        """16kHz モノラルの PCM から、1発話分の CTC ロジット (1 × フレーム × 語彙) を取る"""
         with self._lock:
             processor, model = self._processor, self._model
         if model is None:
-            raise RuntimeError("pronounce model is not loaded")
+            raise RuntimeError(f"{self._label} model is not loaded")
         import torch
 
         inputs = processor(_as_model_pcm(pcm), sampling_rate=_MODEL_SAMPLE_RATE, return_tensors="pt")
         with torch.no_grad():
-            logits = model(inputs.input_values.to(self._device)).logits
-        ids = torch.argmax(logits, dim=-1)
-        text = processor.batch_decode(ids)[0]
+            return model(inputs.input_values.to(self._device)).logits.cpu()
+
+    def actual_ipa(self, pcm: Any) -> tuple[str, ...]:
+        """16kHz モノラルの float32 PCM から、正規化済みの実測IPAを取る"""
+        processor = self._processor   # 推論中にアイドル解放されても復号できるよう先に握る
+        logits = self.logits(pcm)     # 未ロードならここで RuntimeError（torch を import する前）
+        import torch
+
+        text = processor.batch_decode(torch.argmax(logits, dim=-1))[0]
         return normalise(text.split())
