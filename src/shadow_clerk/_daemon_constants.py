@@ -262,6 +262,7 @@ DEFAULT_CONFIG = {
     "pronounce_device": "cpu",
     "pronounce_idle_unload_sec": 600,  # この秒数使われなければモデルを解放する
     "pronounce_threads": 0,          # torch のスレッド上限。0 なら torch の既定にまかせる
+    "kana_hint": False,              # 既定 off。かな認識モデルが 1.2GB あり、kana-hint extra が要る
 }
 
 # セッションファイル

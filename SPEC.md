@@ -21,6 +21,7 @@ Python スクリプト。常駐してリアルタイムに文字起こしを行�
   - 翻訳ファイル: `transcript-YYYYMMDD[HHMM][@name]-<lang>.txt`
   - 形式: `[YYYY-MM-DD HH:MM:SS] [自分/相手] テキスト`
 - **glossary.txt**: TSV 形式の用語集。`reading` 列を使って音声認識の誤認識を機械置換（長さ降順で適用）、LLM 翻訳・要約のヒントとしても使用。ファイル変更時は自動再読み込み
+- **聞き間違いの目印**（`kana_hint: true`、`kana-hint` extra、`_daemon_kana_hint.py`）: 日本語の行だけ、書き込む直前に同じセグメントをひらがなの CTC モデル（wav2vec2、`PhonemeRecogniser` を共用）にかけ、聞こえたかなを出す。文字起こしの読みは SudachiPy（SplitMode.A）で取り、発音に寄せて（を→お、長音→母音）編集距離で突き合わせる。読みが食い違う内容語のかたまりごとに、そこを聞こえたかなに差し替えた読みと元の読みを CTC の強制スコアで比べ、差が `MIN_MARGIN` 以上のときだけ語の直後に `(でぷろい?)` を添える（`domain/kana_hint.py`）。置き換えはしない。助詞だけの食い違い、読みがかなにならない語を含む行は飛ばす。翻訳ループは LLM に渡す前に目印を外す。モデルは有効化後に別スレッドで読み、読み終えるまでの行には付けない。無効にすると解放する。比べた結果は INFO ログに残す（閾値の調整用）
 - **音声認識モデル**: 日本語時は `japanese_asr_model` で `default` / `kotoba-whisper` / `reazonspeech-k2` から切替可能。英語時は `english_asr_model` で専用モデルに切替可能: `moonshine` なら Moonshine（未インストールなら Whisper）、それ以外は faster-whisper のモデル名（例: `medium.en`）。`default` のままなら `default_model` と同じ。中間認識にも同じ設定が効く。中間認識（`interim_transcription: true` 時）用にも別系統（`interim_model`, `interim_japanese_asr_model`）。`asr_engine: moonshine`（中間は `interim_asr_engine`）で Moonshine Voice 対応言語を Moonshine に切替（言語指定必須、未対応・auto は Whisper、ja は `japanese_asr_model` が優先）
 - **コマンドインターフェース**: `.clerk_command` ファイル経由で以下を受付
   - `set_language <lang>` / `unset_language` — 言語切り替え
@@ -346,6 +347,7 @@ sequenceDiagram
             Whisper->>WR: text
             WR->>WR: glossary.txt の reading 列で置換(長さ降順)
             WR-->>Whisper: corrected text
+            Whisper->>Whisper: kana_hint: 音と読みが食い違う語に (音のかな?) を添える（ja のみ）
             Whisper->>File: append "[HH:MM:SS] [自分/相手] text"
             Whisper->>Whisper: print (ターミナル表示)
         end
@@ -819,6 +821,7 @@ whisper_device: cpu               # デバイス (cpu/cuda)
 whisper_vad_filter: true          # Silero VAD で区間内の非音声を落とす (Whisper/Kotoba のみ)
 whisper_vad_threshold: 0.35       # Silero のしきい値 (0.5 だと小声の頭が削れる)
 japanese_asr_model: default       # ja 時の ASR (default/kotoba-whisper/reazonspeech-k2)
+kana_hint: false                  # 音と読みが食い違う ja の語に (音のかな?) を添える (kana-hint extra)
 english_asr_model: default        # en 時の ASR (default=default_model と同じ / moonshine / faster-whisper のモデル名。例: medium.en)
 kotoba_whisper_model: <HF model>  # kotoba-whisper 時に使うモデル
 reazonspeech_model: ja            # reazonspeech-k2 時のモデル (ja / ja-en=日英、転載元から取得)
@@ -897,6 +900,7 @@ talk_stop_words: [待って, ストップ, 止めて, やめて, stop, wait, hol
 - `moonshine`: `moonshine-voice` — 多言語 ASR エンジン（英語以外のモデルは非商用ライセンス）
 - `gcal`: `google-auth-oauthlib`, `google-api-python-client` — Google Calendar 連携
 - `diarization`: `onnxruntime`, `kaldi-native-fbank` — 話者分離 (wespeaker ONNX)
+- `kana-hint`: `transformers`, `torch`, `sudachipy`, `sudachidict-core` — 聞き間違いの目印（かな CTC モデル + 形態素解析）
 
 ### Wayland 環境
 - `evdev` が必要(X11 では `pynput` でPTTキーを捕まえられるが Wayland では動かないため、`evdev` による代替実装を追加)

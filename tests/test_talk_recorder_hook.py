@@ -60,6 +60,7 @@ class _Rec(_RecorderTranscribeMixin):
         self.word_replacer = type("_W", (), {"apply": staticmethod(lambda text, lang: text.replace("テスト", "試験"))})()
         self.talk = talk
         self.pronounce = type("_P", (), {"offer": staticmethod(lambda *a, **k: None)})()
+        self.kana_hint = type("_K", (), {"annotate": staticmethod(lambda text, *a: text)})()
 
     def _extract_command_body(self, text: str) -> str | None:
         return None

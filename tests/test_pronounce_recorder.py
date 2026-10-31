@@ -183,6 +183,7 @@ class _Rec(_RecorderTranscribeMixin):
             "apply": staticmethod(lambda text, lang: text.replace("rite", "right"))})()
         self.talk = talk
         self.pronounce = _Pronounce()
+        self.kana_hint = type("_K", (), {"annotate": staticmethod(lambda text, *a: text)})()
 
     def _extract_command_body(self, text: str) -> str | None:
         return None

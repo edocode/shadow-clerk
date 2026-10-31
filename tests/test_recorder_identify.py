@@ -83,6 +83,7 @@ class _Rec(_RecorderTranscribeMixin):
         self.word_replacer = type("_W", (), {"apply": staticmethod(lambda text, lang: text)})()
         self.talk = _Talk()
         self.pronounce = type("_P", (), {"offer": staticmethod(lambda *a: None)})()
+        self.kana_hint = type("_K", (), {"annotate": staticmethod(lambda text, *a: text)})()
         self.diarizer = _Diarizer()
         self.voiceprints = VoiceprintStore(os.path.join(out_dir, "voiceprints.json"))
         self._voiceprint_warned_path = None

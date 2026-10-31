@@ -141,6 +141,7 @@ foreach ($s in @(@("Shadow Clerk", "start -d"), @("Shadow Clerk (stop)", "stop")
 | [話者分離](#オプション-話者分離)（相手側に `[相手A]`, `[相手B]`… を付与、名前付け、声紋、会議中の名前表示） | `diarization` extra | — | — | `speaker_diarization`, `speaker_enrollment` |
 | [Google Calendar](#オプション-google-calendar-連携)（会議の自動開始・終了、参加予定者） | `gcal` extra、OAuth 認証情報 | — | — | `gcal_integration`, `gcal_credentials_file` |
 | [発音フィードバック](#オプション-発音フィードバック)（音素レベル、英語、`clerk-practice` 用） | `pronounce` extra | — | — | `pronounce_enabled` |
+| [聞き間違いの目印](#オプション-聞き間違いの目印)（`リプロイ(でぷろい?)`、日本語） | `kana-hint` extra | — | — | `kana_hint` |
 | [ブラウザのスクリーンショット](#ブラウザのスクリーンショット)を transcript に残す | `extension/` の Chrome 拡張 | — | — | — |
 
 **LLM なしで使える最小構成:** 文字起こし + LibreTranslate 翻訳であれば、外部 API や Claude Code は不要。すべてローカルで完結する。
@@ -171,7 +172,8 @@ PyPI からインストール:
 | + Google Calendar | `uv tool install "shadow-clerk[gcal]"` |
 | + 話者分離 | `uv tool install "shadow-clerk[diarization]"` |
 | + 発音フィードバック | `uv tool install "shadow-clerk[pronounce]"` |
-| すべて | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech,moonshine,diarization,pronounce]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| + 聞き間違いの目印 | `uv tool install "shadow-clerk[kana-hint]"` |
+| すべて | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech,moonshine,diarization,pronounce,kana-hint]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 
 > **注意:** `uv tool install` はツールごとに1つの環境を管理します。異なる extras で再インストールする場合は `--force` を付けてください。`--force` なしでは「already installed」と表示され、extra が追加されません。指定した extras のみが含まれ、以前の extras は削除されます。
 
@@ -196,7 +198,8 @@ cd shadow-clerk
 | + Google Calendar | `uv sync --extra gcal` |
 | + 話者分離 | `uv sync --extra diarization` |
 | + 発音フィードバック | `uv sync --extra pronounce` |
-| すべて | `uv sync --extra spell-check --extra gcal --extra reazonspeech --extra moonshine --extra diarization --extra pronounce` |
+| + 聞き間違いの目印 | `uv sync --extra kana-hint` |
+| すべて | `uv sync --extra spell-check --extra gcal --extra reazonspeech --extra moonshine --extra diarization --extra pronounce --extra kana-hint` |
 
 **`uv sync` は毎回「環境のあるべき姿のすべて」を決める。extra は累積しない。**
 `uv sync --extra reazonspeech` のあとに `uv sync --extra gcal` を打つと
@@ -236,6 +239,27 @@ uv run python -c "import sherpa_onnx, reazonspeech.k2.asr; print('ok')"
 # config.yaml
 japanese_asr_model: reazonspeech-k2
 ```
+
+### オプション: 聞き間違いの目印
+
+日本語のみ。別のモデル（ひらがなの wav2vec2 CTC モデル、1.2GB、初回に自動ダウンロード）が
+同じ音声を聞いてかなに書き取り、文字起こしの語の読みと食い違う所に、聞こえたかなを添える:
+
+```
+きょうの午後にリプロイ(でぷろい?)しますか
+```
+
+文字起こしは書き換えない。どの語だったかの判断は読み手（目印の形を知っている
+`clerk-meeting-helper` スキルを含む）に任せる。聞こえたかなの方が文字起こしの読みより
+はっきり音に合うと CTC のスコアが示すときだけ添える。翻訳に渡すときは目印を外す。
+音声は保存しない。
+
+```bash
+uv sync --extra kana-hint      # transformers, torch, SudachiPy + SudachiDict（形態素解析）
+```
+
+設定の「聞き間違いの目印」で有効にする（`kana_hint: true`）。文字起こしの言語が `ja` 以外の
+ときは何もしない。CPU で 1 行あたり 0.2〜0.5 秒ほど増える。
 
 ### オプション: 誤字訂正（翻訳前補正）
 
@@ -884,6 +908,7 @@ whisper_vad_threshold: 0.35   # Silero VAD のしきい値 (0.2 / 0.35 / 0.5)
 interim_transcription: false  # 中間文字起こし（発話中にリアルタイム表示）
 interim_model: base           # 中間文字起こし用モデル
 japanese_asr_model: default   # 日本語 ASR モデル (default/kotoba-whisper/reazonspeech-k2)
+kana_hint: false              # 音と読みが食い違う日本語の語に「(音のかな?)」を添える (kana-hint extra)
 kotoba_whisper_model: kotoba-tech/kotoba-whisper-v2.0-faster  # Kotoba-Whisper モデル
 interim_japanese_asr_model: default  # 中間文字起こし用の日本語 ASR モデル
 english_asr_model: default    # 英語 ASR (default/moonshine/medium.en などの faster-whisper モデル名)

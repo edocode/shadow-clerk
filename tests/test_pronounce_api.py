@@ -562,6 +562,7 @@ class _PronounceHandler(Ops):
         self.rfile = io.BytesIO(raw)
         self.sent: dict = {}
         self.pronounce = _FakeDriver()
+        self.kana_hint = type("_K", (), {"annotate": staticmethod(lambda text, *a: text)})()
         self.recorder = type("_Rec", (), {
             "pronounce": self.pronounce,
             "talk": type("_T", (), {"active": talk_active})()})()
