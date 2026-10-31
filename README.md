@@ -70,9 +70,7 @@ Recommended install (explicit Windows deps):
 
 ```powershell
 uv python install 3.13
-uv tool install --python 3.13 --with PyAudioWPatch "shadow-clerk[spell-check,gcal]"
-# +ReazonSpeech k2 (Japanese ASR, optional):
-uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr" "shadow-clerk[spell-check,gcal,reazonspeech]"
+uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr" "shadow-clerk[spell-check,gcal,reazonspeech,moonshine,diarization,pronounce,kana-hint]"
 # Add the tool directory (%USERPROFILE%\.local\bin) to PATH, then reopen PowerShell:
 uv tool update-shell
 ```

@@ -438,6 +438,20 @@ main {
 .modal-body textarea { resize:vertical; min-height:60px; font-family:monospace; font-size:12px; }
 .modal-body .cfg-section { grid-column:1/-1; font-weight:bold; font-size:13px; padding:8px 0 4px; border-bottom:1px solid var(--border); margin-top:4px; color:var(--text); }
 .modal-body .cfg-section:first-child { margin-top:0; }
+/* タブのパネルと項目行は grid の中へ直接並べる (display:contents)。hidden で隠す */
+.modal-body .cfg-panel, .modal-body .cfg-row { display:contents; }
+.modal-body .cfg-panel[hidden], .modal-body .cfg-row[hidden] { display:none; }
+.modal-body .cfg-empty { grid-column:1/-1; text-align:center; color:var(--muted); font-size:12px; padding:24px 0; }
+.modal-body .cfg-empty[hidden] { display:none; }
+.modal-body label.cfg-child-label::before { content:"↳ "; color:var(--muted); }
+.cfg-mode { display:inline-flex; gap:2px; margin-left:auto; margin-right:10px; background:var(--btn); border-radius:999px; padding:2px; }
+.cfg-mode button { width:auto; border:none; border-radius:999px; padding:3px 10px; font-size:11px; background:none; color:var(--muted); cursor:pointer; }
+.cfg-mode button[aria-pressed="true"] { background:var(--accent); color:var(--bg); }
+.cfg-tabs { display:flex; flex:0 0 auto; gap:2px; padding:0 12px; border-bottom:1px solid var(--border); overflow-x:auto; }
+.cfg-tabs button { width:auto; background:none; border:none; border-bottom:2px solid transparent; border-radius:0; padding:8px 10px; font-size:12px; color:var(--muted); white-space:nowrap; cursor:pointer; }
+.cfg-tabs button[aria-selected="true"] { color:var(--text); border-bottom-color:var(--accent); }
+.cfg-tabs .cfg-count { font-size:10px; margin-left:4px; color:var(--muted); }
+.cfg-hint { font-size:11px; color:var(--muted); margin-right:auto; }
 /* 設定フォーム以外の本文。.modal-body は 140px+1fr の grid なので、
    素の要素を並べると左右のセルに振り分けられて崩れる */
 .modal-body.flow { display:block; }

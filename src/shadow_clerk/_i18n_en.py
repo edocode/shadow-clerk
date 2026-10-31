@@ -270,6 +270,16 @@ STRINGS_EN: dict[str, str] = {
 
     # --- cfg.section.* ---
     "cfg.section.general": "General",
+    "cfg.tab.general": "General",
+    "cfg.tab.transcription": "Transcription",
+    "cfg.tab.translation": "Translation & summary",
+    "cfg.tab.ai": "AI & API",
+    "cfg.tab.talk": "Talk & pronunciation",
+    "cfg.tab.integrations": "Integrations",
+    "cfg.mode_simple": "Simple",
+    "cfg.mode_advanced": "Advanced",
+    "cfg.shown_count": "Showing",
+    "cfg.tab_empty": "No settings in this tab for the current mode. Switch to Advanced to see more.",
     "cfg.section.audio": "Audio Devices",
     "cfg.section.transcription": "Transcription",
     "cfg.section.interim": "Interim (pre-confirmed)",
