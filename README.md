@@ -507,23 +507,16 @@ talk_voicevox_url: http://voicevox:50021
 
 #### PulseAudio ソケットのパスについて
 
-デフォルトの UID は `1000` です。異なる場合は `docker-compose.yml` の `volumes` を編集してください：
-
-```yaml
-volumes:
-  - /run/user/<YOUR_UID>/pulse:/run/pulse
-```
-
-または `docker compose up` の前に環境変数で指定することもできます：
+`docker-compose.yml` は `${UID}` を参照します（未設定時は `1000`）。シェルが `UID` をエクスポートしていない場合は次のように指定してください：
 
 ```bash
-PULSE_UID=$(id -u) docker compose up
+UID=$(id -u) docker compose up
 ```
 
-その場合、`docker-compose.yml` の該当行を次のように変更してください：
+または `.env` ファイルを作成しておくと毎回不要です：
 
-```yaml
-- /run/user/${PULSE_UID:-1000}/pulse:/run/pulse
+```
+UID=1001   # id -u の値に合わせる
 ```
 
 #### PipeWire を使っている場合

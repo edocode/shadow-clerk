@@ -5,8 +5,7 @@ services:
       - "8765:8765"
     volumes:
       - ./data:/data
-      # PulseAudio socket — replace 1000 with your UID if different (`id -u`)
-      - /run/user/1000/pulse:/run/pulse
+      - /run/user/${UID:-1000}/pulse:/run/pulse
     environment:
       SHADOW_CLERK_DATA_DIR: /data
       PULSE_SERVER: unix:/run/pulse/native
