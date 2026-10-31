@@ -70,9 +70,7 @@ Windows には標準で `uv` も `git` も入っていません。以下のコ�
 
 ```powershell
 uv python install 3.13
-uv tool install --python 3.13 --with PyAudioWPatch "shadow-clerk[spell-check,gcal]"
-# +ReazonSpeech k2(日本語 ASR、オプション):
-uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr" "shadow-clerk[spell-check,gcal,reazonspeech]"
+uv tool install --python 3.13 --with PyAudioWPatch --with sherpa-onnx --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr" "shadow-clerk[spell-check,gcal,reazonspeech,moonshine,diarization,pronounce,kana-hint]"
 # ツールの置き場所 (%USERPROFILE%\.local\bin) を PATH に追加し、PowerShell を開き直す:
 uv tool update-shell
 ```
