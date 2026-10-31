@@ -26,6 +26,7 @@ Available on PyPI: <https://pypi.org/project/shadow-clerk/>
 - [Platform support](#platform-support)
 - [Features and requirements](#features-and-requirements)
 - [Setup](#setup)
+- [Docker](#docker)
 - [Usage](#usage)
   - [Starting the daemon](#starting-the-daemon) · [Recording & transcription](#recording--transcription) · [Audio device selection](#audio-device-selection) · [Audio level meters](#audio-level-meters)
   - [Dashboard](#dashboard) · [Voice commands](#voice-commands) · [CLI options](#cli-options) · [clerk-util subcommands](#clerk-util-subcommands)
@@ -466,6 +467,89 @@ claude_cli_model: haiku   # or sonnet / opus / a full model id
 ```
 
 This uses your existing Claude Code OAuth login. No extra setup needed — translation and summarization run inside the daemon as background threads, no Claude Code session required.
+
+## Docker
+
+Docker を使うと、Python や PortAudio のセットアップなしに shadow-clerk を動かせます。Linux ホストで PulseAudio / PipeWire が動いていることが前提です。
+
+### shadow-clerk 単体
+
+```bash
+# イメージをビルドして起動（フォアグラウンド）
+docker build -t shadow-clerk .
+docker run --rm \
+  -p 8765:8765 \
+  -v "$HOME/.local/share/shadow-clerk":/data \
+  -v /run/user/$(id -u)/pulse:/run/pulse \
+  -e SHADOW_CLERK_DATA_DIR=/data \
+  -e PULSE_SERVER=unix:/run/pulse/native \
+  shadow-clerk
+```
+
+ダッシュボードは <http://localhost:8765> で開けます。
+
+### VOICEVOX 込みで docker-compose
+
+`docker-compose.yml` は shadow-clerk と [VOICEVOX Engine](https://github.com/VOICEVOX/voicevox_engine) をまとめて起動します。
+
+```bash
+# 起動（初回はビルドに数分かかります）
+docker compose up
+```
+
+起動後、ダッシュボードの **Settings → talk_voicevox_url** を `http://voicevox:50021` に変更するか、`data/config.yaml` に次の行を追加してください：
+
+```yaml
+talk_voicevox_url: http://voicevox:50021
+```
+
+`data/` ディレクトリが自動的に作成され、設定・文字起こし・翻訳・要約が保存されます。
+
+#### PulseAudio ソケットのパスについて
+
+デフォルトの UID は `1000` です。異なる場合は `docker-compose.yml` の `volumes` を編集してください：
+
+```yaml
+volumes:
+  - /run/user/<YOUR_UID>/pulse:/run/pulse
+```
+
+または `docker compose up` の前に環境変数で指定することもできます：
+
+```bash
+PULSE_UID=$(id -u) docker compose up
+```
+
+その場合、`docker-compose.yml` の該当行を次のように変更してください：
+
+```yaml
+- /run/user/${PULSE_UID:-1000}/pulse:/run/pulse
+```
+
+#### PipeWire を使っている場合
+
+PipeWire の PulseAudio 互換ソケットを使います。パスを確認して `docker-compose.yml` の `volumes` と `PULSE_SERVER` を置き換えてください：
+
+```bash
+ls /run/user/$(id -u)/pulse/native   # このファイルがあれば PipeWire が PulseAudio 互換ソケットを提供中
+```
+
+ソケットが存在すれば、上記の PulseAudio 設定がそのまま動きます。
+
+#### GPU（CUDA）でより速い文字起こし
+
+`docker-compose.yml` の `shadow-clerk` サービスに次を追加し、`clerk-daemon` のオプションに `--device cuda` を加えてください：
+
+```yaml
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: ["--dashboard-host", "0.0.0.0", "--device", "cuda"]
+```
 
 ## Usage
 
