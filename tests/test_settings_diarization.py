@@ -89,7 +89,7 @@ let CFG,posted=null;const els={};
 function mkEl(){return {children:[],value:'',disabled:false,textContent:'',style:{},dataset:{},classList:{add(){},remove(){}},
   appendChild(c){this.children.push(c);if(c.id)els[c.id]=c;if(c.value!==undefined&&this.tagName==='SELECT'&&this.value==='')this.value=c.value;},
   addEventListener(){},querySelector(){return null;},querySelectorAll(){return [];},set innerHTML(v){this.children=[];}};}
-const document={getElementById:id=>els[id]=els[id]||mkEl(),createTextNode:t=>({}),
+const document={getElementById:id=>els[id]=els[id]||mkEl(),querySelectorAll:()=>[],createTextNode:t=>({}),
   createElement:tag=>{const e=mkEl();e.tagName=tag.toUpperCase();return e;}};
 async function fetch(url,opt){
   if(url==='/api/config'&&!opt)return {json:async()=>JSON.parse(JSON.stringify(CFG))};

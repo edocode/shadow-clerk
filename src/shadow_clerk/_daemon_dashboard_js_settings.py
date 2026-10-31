@@ -9,26 +9,26 @@ from __future__ import annotations
 _JS_TEMPLATE_SETTINGS = """\
 const LANG_OPTS=['ja','en','zh','ko','fr','de','es','pt','ru'];
 const CFG_FIELDS=[
-  {type:'section',label:I18N['cfg.section.general']},
-  {key:'ui_language',label:I18N['cfg.ui_language'],type:'select',opts:['ja','en']},
-  {key:'output_directory',label:I18N['cfg.output_directory'],type:'text',ph:I18N['cfg.output_directory_ph']},
-  {type:'section',label:I18N['cfg.section.audio']},
-  {key:'mic_device',label:I18N['cfg.mic_device'],type:'device_select'},
-  {key:'monitor_device',label:I18N['cfg.monitor_device'],type:'device_select'},
-  {type:'device_refresh',id:'cfgDeviceRefreshBtn'},
-  {type:'section',label:I18N['cfg.section.transcription']},
-  {key:'default_language',label:I18N['cfg.default_language'],type:'select',opts:['auto',...LANG_OPTS]},
-  {key:'default_model',label:I18N['cfg.default_model'],type:'select',opts:['tiny','base','small','medium','large-v3']},
+  {type:'section',tab:'general',label:I18N['cfg.section.general']},
+  {key:'ui_language',simple:1,label:I18N['cfg.ui_language'],type:'select',opts:['ja','en']},
+  {key:'output_directory',simple:1,label:I18N['cfg.output_directory'],type:'text',ph:I18N['cfg.output_directory_ph']},
+  {type:'section',tab:'general',label:I18N['cfg.section.audio']},
+  {key:'mic_device',simple:1,label:I18N['cfg.mic_device'],type:'device_select'},
+  {key:'monitor_device',simple:1,label:I18N['cfg.monitor_device'],type:'device_select'},
+  {type:'device_refresh',simple:1,id:'cfgDeviceRefreshBtn'},
+  {type:'section',tab:'transcription',label:I18N['cfg.section.transcription']},
+  {key:'default_language',simple:1,label:I18N['cfg.default_language'],type:'select',opts:['auto',...LANG_OPTS]},
+  {key:'default_model',simple:1,label:I18N['cfg.default_model'],type:'select',opts:['tiny','base','small','medium','large-v3']},
   {key:'initial_prompt',label:I18N['cfg.initial_prompt'],type:'text',ph:I18N['cfg.initial_prompt_ph']},
   {key:'whisper_beam_size',label:I18N['cfg.whisper_beam_size'],type:'select',opts:['1','2','3','5']},
   {key:'whisper_compute_type',label:I18N['cfg.whisper_compute_type'],type:'select',opts:['int8','float16','float32']},
   {key:'whisper_device',label:I18N['cfg.whisper_device'],type:'select',opts:['cpu','cuda']},
-  {key:'whisper_vad_filter',label:I18N['cfg.whisper_vad_filter'],type:'bool',def:true},
-  {key:'whisper_vad_threshold',label:I18N['cfg.whisper_vad_threshold'],type:'select',opts:['0.2','0.35','0.5']},
-  {key:'speaker_diarization',label:I18N['cfg.speaker_diarization'],type:'bool'},
+  {key:'whisper_vad_filter',simple:1,label:I18N['cfg.whisper_vad_filter'],type:'bool',def:true},
+  {key:'whisper_vad_threshold',when:{k:'whisper_vad_filter'},label:I18N['cfg.whisper_vad_threshold'],type:'select',opts:['0.2','0.35','0.5']},
+  {key:'speaker_diarization',simple:1,label:I18N['cfg.speaker_diarization'],type:'bool'},
   {key:'speaker_enrollment',label:I18N['cfg.speaker_enrollment'],type:'bool'},
-  {key:'diarization_threshold',label:I18N['cfg.diarization_threshold'],type:'select',opts:['0.50','0.55','0.60','0.65','0.70','0.75','0.80']},
-  {key:'diarization_min_sec',label:I18N['cfg.diarization_min_sec'],type:'select',opts:['1.0','1.5','2.0','2.5','3.0']},
+  {key:'diarization_threshold',when:{k:'speaker_diarization'},label:I18N['cfg.diarization_threshold'],type:'select',opts:['0.50','0.55','0.60','0.65','0.70','0.75','0.80']},
+  {key:'diarization_min_sec',when:{k:'speaker_diarization'},label:I18N['cfg.diarization_min_sec'],type:'select',opts:['1.0','1.5','2.0','2.5','3.0']},
   {key:'voiceprint_max_samples',label:I18N['cfg.voiceprint_max_samples'],type:'number'},
   {key:'voiceprint_min_sec',label:I18N['cfg.voiceprint_min_sec'],type:'number',float:true},
   {key:'voiceprint_cluster_min_samples',label:I18N['cfg.voiceprint_cluster_min_samples'],type:'number'},
@@ -44,44 +44,44 @@ const CFG_FIELDS=[
   {key:'self_group',label:I18N['cfg.self_group'],type:'text',ph:I18N['cfg.self_group_ph']},
   {key:'self_name',label:I18N['cfg.self_name'],type:'text',ph:I18N['cfg.self_name_ph']},
   {key:'asr_engine',label:I18N['cfg.asr_engine'],type:'select',opts:['whisper','moonshine']},
-  {key:'japanese_asr_model',label:I18N['cfg.japanese_asr_model'],type:'select',opts:['default','kotoba-whisper','reazonspeech-k2']},
-  {key:'english_asr_model',label:I18N['cfg.english_asr_model'],type:'select',opts:['default','moonshine','small.en','medium.en','large-v3-turbo','distil-large-v3']},
-  {key:'reazonspeech_model',label:I18N['cfg.reazonspeech_model'],type:'select',opts:['ja','ja-en']},
+  {key:'japanese_asr_model',simple:1,label:I18N['cfg.japanese_asr_model'],type:'select',opts:['default','kotoba-whisper','reazonspeech-k2']},
+  {key:'english_asr_model',simple:1,label:I18N['cfg.english_asr_model'],type:'select',opts:['default','moonshine','small.en','medium.en','large-v3-turbo','distil-large-v3']},
+  {key:'reazonspeech_model',simple:1,when:{k:'japanese_asr_model',v:'reazonspeech-k2'},label:I18N['cfg.reazonspeech_model'],type:'select',opts:['ja','ja-en']},
   {key:'voice_command_key',label:I18N['cfg.voice_command_key'],type:'select',opts:['menu','f23','ctrl_r','ctrl_l','alt_r','alt_l','shift_r','shift_l']},
   {key:'wake_word',label:I18N['cfg.wake_word'],type:'text',ph:I18N['cfg.wake_word_ph']},
-  {type:'section',label:I18N['cfg.section.interim']},
+  {type:'section',tab:'transcription',label:I18N['cfg.section.interim']},
   {key:'interim_transcription',label:I18N['cfg.interim_transcription'],type:'bool'},
-  {key:'interim_model',label:I18N['cfg.interim_model'],type:'select',opts:['tiny','base','small','medium']},
-  {key:'interim_asr_engine',label:I18N['cfg.interim_asr_engine'],type:'select',opts:['whisper','moonshine']},
-  {key:'interim_japanese_asr_model',label:I18N['cfg.interim_japanese_asr_model'],type:'select',opts:['default','kotoba-whisper','reazonspeech-k2']},
-  {key:'interim_translation',label:I18N['cfg.interim_translation'],type:'bool'},
-  {key:'interim_translation_provider',label:I18N['cfg.interim_translation_provider'],type:'select',opts:['','api','libretranslate','claude'],
+  {key:'interim_model',when:{k:'interim_transcription'},label:I18N['cfg.interim_model'],type:'select',opts:['tiny','base','small','medium']},
+  {key:'interim_asr_engine',when:{k:'interim_transcription'},label:I18N['cfg.interim_asr_engine'],type:'select',opts:['whisper','moonshine']},
+  {key:'interim_japanese_asr_model',when:{k:'interim_transcription'},label:I18N['cfg.interim_japanese_asr_model'],type:'select',opts:['default','kotoba-whisper','reazonspeech-k2']},
+  {key:'interim_translation',when:{k:'interim_transcription'},label:I18N['cfg.interim_translation'],type:'bool'},
+  {key:'interim_translation_provider',when:{k:'interim_transcription'},label:I18N['cfg.interim_translation_provider'],type:'select',opts:['','api','libretranslate','claude'],
     warn:{when:'claude',msgKey:'cfg.interim_translation_provider_claude_warn'}},
-  {type:'section',label:I18N['cfg.section.translation']},
-  {key:'translate_language',label:I18N['cfg.translate_language'],type:'select',opts:LANG_OPTS},
-  {key:'auto_translate',label:I18N['cfg.auto_translate'],type:'bool'},
-  {key:'translation_provider',label:I18N['cfg.translation_provider'],type:'select',opts:['','claude','api','libretranslate']},
-  {key:'translation_claude_model',label:I18N['cfg.translation_claude_model'],type:'select',opts:['','haiku','sonnet','opus']},
-  {key:'libretranslate_endpoint',label:I18N['cfg.libretranslate_endpoint'],type:'text',ph:'http://localhost:5000'},
-  {key:'libretranslate_api_key',label:I18N['cfg.libretranslate_api_key'],type:'text',ph:''},
+  {type:'section',tab:'translation',label:I18N['cfg.section.translation']},
+  {key:'translate_language',simple:1,label:I18N['cfg.translate_language'],type:'select',opts:LANG_OPTS},
+  {key:'auto_translate',simple:1,label:I18N['cfg.auto_translate'],type:'bool'},
+  {key:'translation_provider',simple:1,label:I18N['cfg.translation_provider'],type:'select',opts:['','claude','api','libretranslate']},
+  {key:'translation_claude_model',when:{k:'translation_provider',v:'claude'},label:I18N['cfg.translation_claude_model'],type:'select',opts:['','haiku','sonnet','opus']},
+  {key:'libretranslate_endpoint',simple:1,when:{k:'translation_provider',v:'libretranslate'},label:I18N['cfg.libretranslate_endpoint'],type:'text',ph:'http://localhost:5000'},
+  {key:'libretranslate_api_key',when:{k:'translation_provider',v:'libretranslate'},label:I18N['cfg.libretranslate_api_key'],type:'text',ph:''},
   {key:'libretranslate_spell_check',label:I18N['cfg.libretranslate_spell_check'],type:'bool'},
   {key:'spell_check_model',label:I18N['cfg.spell_check_model'],type:'text',ph:'sonoisa/t5-base-japanese-spell-checker'},
   {key:'translation_hiragana_step',label:I18N['cfg.translation_hiragana_step'],type:'bool',def:true},
-  {type:'section',label:I18N['cfg.section.summary']},
-  {key:'auto_summary',label:I18N['cfg.auto_summary'],type:'bool'},
+  {type:'section',tab:'translation',label:I18N['cfg.section.summary']},
+  {key:'auto_summary',simple:1,label:I18N['cfg.auto_summary'],type:'bool'},
   {key:'summary_source',label:I18N['cfg.summary_source'],type:'select',opts:['auto','transcript','translate']},
   {key:'summary_language',label:I18N['cfg.summary_language'],type:'select',opts:['auto',...LANG_OPTS]},
   {key:'summary_hiragana_step',label:I18N['cfg.summary_hiragana_step'],type:'bool',def:true},
-  {key:'summary_length',label:I18N['cfg.summary_length'],type:'select',opts:['half','1page','2pages','3pages','4pages','5pages']},
-  {type:'section',label:I18N['cfg.section.api']},
-  {key:'llm_provider',label:I18N['cfg.llm_provider'],type:'select',opts:['claude','api']},
-  {key:'claude_cli_model',label:I18N['cfg.claude_cli_model'],type:'select',opts:['haiku','sonnet','opus']},
-  {key:'api_endpoint',label:I18N['cfg.api_endpoint'],type:'text',ph:'https://...'},
-  {key:'api_model',label:I18N['cfg.api_model'],type:'api_model'},
-  {key:'api_key_env',label:I18N['cfg.api_key_env'],type:'text',ph:'SHADOW_CLERK_API_KEY'},
-  {key:'api_disable_thinking',label:I18N['cfg.api_disable_thinking'],type:'bool',def:false},
-  {type:'section',label:I18N['cfg.section.ai_console']},
-  {type:'skill'},   // 配布ボタン。Welcome モーダルと同じ行を出す
+  {key:'summary_length',simple:1,label:I18N['cfg.summary_length'],type:'select',opts:['half','1page','2pages','3pages','4pages','5pages']},
+  {type:'section',tab:'ai',label:I18N['cfg.section.api']},
+  {key:'llm_provider',simple:1,label:I18N['cfg.llm_provider'],type:'select',opts:['claude','api']},
+  {key:'claude_cli_model',when:{k:'llm_provider',v:'claude'},label:I18N['cfg.claude_cli_model'],type:'select',opts:['haiku','sonnet','opus']},
+  {key:'api_endpoint',simple:1,when:{k:'llm_provider',v:'api'},label:I18N['cfg.api_endpoint'],type:'text',ph:'https://...'},
+  {key:'api_model',simple:1,when:{k:'llm_provider',v:'api'},label:I18N['cfg.api_model'],type:'api_model'},
+  {key:'api_key_env',when:{k:'llm_provider',v:'api'},label:I18N['cfg.api_key_env'],type:'text',ph:'SHADOW_CLERK_API_KEY'},
+  {key:'api_disable_thinking',when:{k:'llm_provider',v:'api'},label:I18N['cfg.api_disable_thinking'],type:'bool',def:false},
+  {type:'section',tab:'ai',label:I18N['cfg.section.ai_console']},
+  {type:'skill',simple:1},   // 配布ボタン。Welcome モーダルと同じ行を出す
   {key:'auto_analyze',label:I18N['cfg.auto_analyze'],type:'bool'},
   {key:'forbid_analyze',label:I18N['cfg.forbid_analyze'],type:'forbid'},
   {key:'ai_assistant_command',label:I18N['cfg.ai_assistant_command'],type:'text',ph:'claude'},
@@ -89,21 +89,21 @@ const CFG_FIELDS=[
   {key:'ai_assistant_init_prompt',label:I18N['cfg.ai_assistant_init_prompt'],type:'text',ph:I18N['cfg.ai_assistant_init_prompt_ph']},
   {key:'ai_assistant_workdir',label:I18N['cfg.ai_assistant_workdir'],type:'text',ph:PATH_HINTS.ai_assistant_workdir,
     warn:{when:'',msgKey:'cfg.ai_assistant_workdir_warn'}},
-  {type:'section',label:I18N['cfg.section.talk']},
+  {type:'section',tab:'talk',label:I18N['cfg.section.talk']},
   {key:'talk_filler_sec',label:I18N['cfg.talk_filler_sec'],type:'select',num:true,opts:['0','5','8','10','15','20']},
-  {type:'section',label:I18N['cfg.section.pronounce']},
+  {type:'section',tab:'talk',label:I18N['cfg.section.pronounce']},
   {key:'pronounce_enabled',label:I18N['cfg.pronounce_enabled'],type:'bool'},
-  {key:'pronounce_model',label:I18N['cfg.pronounce_model'],type:'text',ph:'facebook/wav2vec2-xlsr-53-espeak-cv-ft'},
-  {key:'pronounce_device',label:I18N['cfg.pronounce_device'],type:'select',opts:['cpu','cuda']},
-  {key:'pronounce_idle_unload_sec',label:I18N['cfg.pronounce_idle_unload_sec'],type:'number'},
-  {key:'pronounce_threads',label:I18N['cfg.pronounce_threads'],type:'number'},
-  {type:'section',label:I18N['cfg.section.gcal']},
-  {type:'doc',urlKey:'cfg.gcal_setup_url',textKey:'cfg.gcal_setup_link'},
-  {key:'gcal_integration',label:I18N['cfg.gcal_integration'],type:'bool'},
-  {key:'gcal_credentials_file',label:I18N['cfg.gcal_credentials_file'],type:'text',ph:PATH_HINTS.gcal_credentials_file},
-  {key:'gcal_calendar_id',label:I18N['cfg.gcal_calendar_id'],type:'text',ph:'primary'},
-  {key:'gcal_buffer_minutes',label:I18N['cfg.gcal_buffer_minutes'],type:'select',num:true,opts:['0','1','2','3','5','10']},
-  {key:'gcal_end_buffer_minutes',label:I18N['cfg.gcal_end_buffer_minutes'],type:'select',num:true,opts:['0','1','2','3','5']},
+  {key:'pronounce_model',when:{k:'pronounce_enabled'},label:I18N['cfg.pronounce_model'],type:'text',ph:'facebook/wav2vec2-xlsr-53-espeak-cv-ft'},
+  {key:'pronounce_device',when:{k:'pronounce_enabled'},label:I18N['cfg.pronounce_device'],type:'select',opts:['cpu','cuda']},
+  {key:'pronounce_idle_unload_sec',when:{k:'pronounce_enabled'},label:I18N['cfg.pronounce_idle_unload_sec'],type:'number'},
+  {key:'pronounce_threads',when:{k:'pronounce_enabled'},label:I18N['cfg.pronounce_threads'],type:'number'},
+  {type:'section',tab:'integrations',label:I18N['cfg.section.gcal']},
+  {type:'doc',simple:1,when:{k:'gcal_integration'},urlKey:'cfg.gcal_setup_url',textKey:'cfg.gcal_setup_link'},
+  {key:'gcal_integration',simple:1,label:I18N['cfg.gcal_integration'],type:'bool'},
+  {key:'gcal_credentials_file',simple:1,when:{k:'gcal_integration'},label:I18N['cfg.gcal_credentials_file'],type:'text',ph:PATH_HINTS.gcal_credentials_file},
+  {key:'gcal_calendar_id',simple:1,when:{k:'gcal_integration'},label:I18N['cfg.gcal_calendar_id'],type:'text',ph:'primary'},
+  {key:'gcal_buffer_minutes',when:{k:'gcal_integration'},label:I18N['cfg.gcal_buffer_minutes'],type:'select',num:true,opts:['0','1','2','3','5','10']},
+  {key:'gcal_end_buffer_minutes',when:{k:'gcal_integration'},label:I18N['cfg.gcal_end_buffer_minutes'],type:'select',num:true,opts:['0','1','2','3','5']},
 ];
 let cfgData={};
 /* 分析しない話題。定型はチェックボックス、それ以外は自由入力に振り分ける */
@@ -131,10 +131,22 @@ async function openCfg(){
   try{cfgData=await(await fetch('/api/config')).json();}catch(e){return;}
   const b=document.getElementById('cfgBody');b.innerHTML='';
   const pw=document.getElementById('cfgPathWarn');pw.textContent='';pw.style.display='none';
+  cfgMode=cfgLoadMode();cfgTab=0;cfgGroups=[];cfgFieldByKey={};
+  cfgEmptyEls=[];
+  cfgPanelEls=CFG_TAB_IDS.map(()=>{const p=document.createElement('div');p.className='cfg-panel';
+    const e=document.createElement('div');e.className='cfg-empty';e.textContent=I18N['cfg.tab_empty'];
+    p.appendChild(e);cfgEmptyEls.push(e);b.appendChild(p);return p;});
+  let grp=null;
   CFG_FIELDS.forEach(f=>{
     if(f.type==='section'){
-      const h=document.createElement('div');h.className='cfg-section';h.textContent=f.label;b.appendChild(h);return;
+      const h=document.createElement('div');h.className='cfg-section';h.textContent=f.label;
+      const tab=CFG_TAB_IDS.indexOf(f.tab);cfgPanelEls[tab].appendChild(h);
+      grp={tab,head:h,rows:[]};cfgGroups.push(grp);return;
     }
+    // 1 項目 = 1 行 (.cfg-row)。モード・親の値に応じて hidden を切り替える
+    const b=document.createElement('div');b.className='cfg-row';
+    cfgPanelEls[grp.tab].appendChild(b);grp.rows.push({f,node:b});
+    if(f.key)cfgFieldByKey[f.key]=f;
     if(f.type==='doc'){
       // key を持たない全幅の行。saveCfg() は 'cfg_'+undefined を探すので自然に無視される
       const d=document.createElement('div');d.className='cfg-doc';
@@ -159,7 +171,7 @@ async function openCfg(){
       b.appendChild(btn);
       return;
     }
-    const lbl=document.createElement('label');lbl.textContent=f.label;b.appendChild(lbl);
+    const lbl=document.createElement('label');lbl.textContent=f.label;if(f.when)lbl.className='cfg-child-label';b.appendChild(lbl);
     let el;const v=(cfgData[f.key]!==undefined)?cfgData[f.key]:f.def;
     if(f.type==='bool'){
       el=document.createElement('select');el.id='cfg_'+f.key;
@@ -241,6 +253,8 @@ async function openCfg(){
       b.appendChild(w);
     }
   });
+  b.addEventListener('change',cfgApply);
+  cfgRenderTabs();
   document.getElementById('cfgSaved').style.display='none';
   const jaEl=document.getElementById('cfg_japanese_asr_model');
   if(jaEl)jaEl.onchange=updateCfgDisabled;
@@ -248,10 +262,60 @@ async function openCfg(){
   if(ijaEl)ijaEl.onchange=updateCfgDisabled;
   renderCfgSkillRows();
   updateCfgDisabled();
+  cfgApply();
   loadCfgPresets();
   document.getElementById('cfgModal').classList.add('open');
   if(cfgData.api_endpoint){fetchApiModels();}
   loadAudioDevices(cfgData);
+}
+/* --- 設定モーダル: タブ・Simple/Advanced・親子表示 --- */
+const CFG_TAB_IDS=['general','transcription','translation','ai','talk','integrations'];
+let cfgMode='simple',cfgTab=0,cfgGroups=[],cfgPanelEls=[],cfgEmptyEls=[],cfgFieldByKey={};
+function cfgLoadMode(){try{return localStorage.getItem('cfgMode')==='advanced'?'advanced':'simple';}catch(e){return 'simple';}}
+function setCfgMode(m){cfgMode=m;try{localStorage.setItem('cfgMode',m);}catch(e){}cfgApply();}
+function cfgRenderTabs(){
+  const t=document.getElementById('cfgTabs');t.innerHTML='';
+  CFG_TAB_IDS.forEach((id,i)=>{
+    const btn=document.createElement('button');btn.type='button';
+    btn.innerHTML=`${esc(I18N['cfg.tab.'+id])}<span class="cfg-count"></span>`;
+    btn.onclick=()=>cfgShowTab(i);t.appendChild(btn);
+  });
+  cfgShowTab(cfgTab);
+}
+function cfgShowTab(i){
+  cfgTab=i;
+  cfgPanelEls.forEach((p,j)=>{p.hidden=j!==i;});
+  document.querySelectorAll('#cfgTabs button').forEach((t,j)=>t.setAttribute('aria-selected',String(j===i)));
+}
+// 現在の入力値。親キーの条件判定に使う（保存前の DOM 値をそのまま見る）
+function cfgCur(k){
+  const f=cfgFieldByKey[k];const el=document.getElementById('cfg_'+k);if(!f||!el)return undefined;
+  if(f.type==='bool')return el.value==='true';
+  if(f.type==='api_model')return el.querySelector('select').value;
+  return el.value;
+}
+function cfgCond(w){
+  if(!w)return true;
+  const v=cfgCur(w.k);
+  return w.v===undefined?!!v:String(v)===w.v;
+}
+// 表示条件 = (Advanced または simple 指定) かつ 親の条件を満たす。隠すだけで値は保持される
+function cfgApply(){
+  document.querySelectorAll('#cfgModeBox button').forEach(x=>x.setAttribute('aria-pressed',String(x.dataset.mode===cfgMode)));
+  const cnt=CFG_TAB_IDS.map(()=>0);let on=0,total=0;
+  cfgGroups.forEach(g=>{
+    let any=false;
+    g.rows.forEach(r=>{
+      const vis=(cfgMode==='advanced'||!!r.f.simple)&&cfgCond(r.f.when);
+      r.node.hidden=!vis;
+      if(vis){any=true;cnt[g.tab]++;}
+      if(r.f.key){total++;if(vis)on++;}
+    });
+    g.head.hidden=!any;
+  });
+  cfgEmptyEls.forEach((e,i)=>{e.hidden=cnt[i]>0;});
+  document.querySelectorAll('#cfgTabs .cfg-count').forEach((s,i)=>{s.textContent=cnt[i];});
+  document.getElementById('cfgHint').textContent=`${I18N['cfg.shown_count']} ${on} / ${total}`;
 }
 async function fetchApiModels(){
   const sel=document.getElementById('cfg_api_model');if(!sel)return;
@@ -335,6 +399,7 @@ function loadCfgPreset(){
     else if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){el.value=(v===null||v===undefined)?'':String(v);}
   });
   updateCfgDisabled();
+  cfgApply();
 }
 function openSavePreset(){
   const sel=document.getElementById('cfgPresetSel');

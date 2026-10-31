@@ -269,6 +269,16 @@ STRINGS_JA: dict[str, str] = {
 
     # --- cfg.section.* : 設定セクション ---
     "cfg.section.general": "基本設定",
+    "cfg.tab.general": "基本",
+    "cfg.tab.transcription": "文字起こし",
+    "cfg.tab.translation": "翻訳・要約",
+    "cfg.tab.ai": "AI・API",
+    "cfg.tab.talk": "会話・発音",
+    "cfg.tab.integrations": "連携",
+    "cfg.mode_simple": "Simple",
+    "cfg.mode_advanced": "Advanced",
+    "cfg.shown_count": "表示中",
+    "cfg.tab_empty": "この表示モードでは、このタブに表示する項目がありません。Advanced で詳細設定を確認できます。",
     "cfg.section.audio": "オーディオデバイス",
     "cfg.section.transcription": "文字起こし",
     "cfg.section.interim": "中間処理 (確定前)",
