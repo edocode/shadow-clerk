@@ -141,6 +141,7 @@ To start the daemon when you sign in, copy the **Shadow Clerk** shortcut into th
 | [Speaker diarization](#optional-speaker-diarization) (`[相手A]`, `[相手B]`… on the remote side, naming, voiceprints, names during the meeting) | `diarization` extra | — | — | `speaker_diarization`, `speaker_enrollment` |
 | [Google Calendar](#optional-google-calendar-integration) (auto start/end, expected attendees) | `gcal` extra, OAuth credentials | — | — | `gcal_integration`, `gcal_credentials_file` |
 | [Pronunciation feedback](#optional-pronunciation-feedback) (phoneme-level, English, for `clerk-practice`) | `pronounce` extra | — | — | `pronounce_enabled` |
+| [Mishearing hints](#optional-mishearing-hints) (`リプロイ(でぷろい?)`, Japanese) | `kana-hint` extra | — | — | `kana_hint` |
 | [Browser screenshots](#browser-screenshots) in the transcript | Chrome extension in `extension/` | — | — | — |
 
 **Minimal setup without LLM:** Transcription + LibreTranslate translation requires no external API or Claude Code. Everything runs locally.
@@ -171,7 +172,8 @@ Install from PyPI:
 | + Google Calendar | `uv tool install "shadow-clerk[gcal]"` |
 | + Speaker diarization | `uv tool install "shadow-clerk[diarization]"` |
 | + Pronunciation feedback | `uv tool install "shadow-clerk[pronounce]"` |
-| All | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech,moonshine,diarization,pronounce]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| + Mishearing hints | `uv tool install "shadow-clerk[kana-hint]"` |
+| All | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech,moonshine,diarization,pronounce,kana-hint]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 
 > **Note:** `uv tool install` maintains a single environment per tool. When reinstalling with different extras, use `--force` — without it, `uv tool install` reports "already installed" and does not add the extra. Only the extras specified in the command are included; previously installed extras are removed.
 
@@ -196,7 +198,8 @@ cd shadow-clerk
 | + Google Calendar | `uv sync --extra gcal` |
 | + Speaker diarization | `uv sync --extra diarization` |
 | + Pronunciation feedback | `uv sync --extra pronounce` |
-| All | `uv sync --extra spell-check --extra gcal --extra reazonspeech --extra moonshine --extra diarization --extra pronounce` |
+| + Mishearing hints | `uv sync --extra kana-hint` |
+| All | `uv sync --extra spell-check --extra gcal --extra reazonspeech --extra moonshine --extra diarization --extra pronounce --extra kana-hint` |
 
 **Each `uv sync` defines the whole environment, and extras do not accumulate.**
 `uv sync --extra gcal` after `uv sync --extra reazonspeech` removes ReazonSpeech
@@ -237,6 +240,28 @@ uv run python -c "import sherpa_onnx, reazonspeech.k2.asr; print('ok')"
 # config.yaml
 japanese_asr_model: reazonspeech-k2
 ```
+
+### Optional: Mishearing hints
+
+Japanese only. A second model (a hiragana wav2vec2 CTC model, 1.2GB, downloaded on first
+use) listens to the same audio and writes down what it hears in kana. Where that disagrees with
+the reading of the transcribed word, the heard kana is appended to the word:
+
+```
+きょうの午後にリプロイ(でぷろい?)しますか
+```
+
+The transcript is never rewritten — which word was meant is left to the reader (or to the
+`clerk-meeting-helper` skill, which knows the format). A hint is added only when a CTC score says
+the heard kana fits the audio clearly better than the transcribed reading. Translation strips the
+hints before sending text to the translator. No audio is stored.
+
+```bash
+uv sync --extra kana-hint      # transformers, torch, SudachiPy + SudachiDict (morphological analysis)
+```
+
+Enable "Mishearing hints" in the settings (`kana_hint: true`). It does nothing when the
+transcription language is not `ja`. On CPU it adds about 0.2–0.5 s per line.
 
 ### Optional: Spell check (pre-translation correction)
 
@@ -892,6 +917,7 @@ whisper_vad_threshold: 0.35   # Silero VAD speech threshold (0.2 / 0.35 / 0.5)
 interim_transcription: false  # Interim transcription (real-time display while speaking)
 interim_model: base           # Model for interim transcription
 japanese_asr_model: default   # Japanese ASR model (default/kotoba-whisper/reazonspeech-k2)
+kana_hint: false              # Append "(heard kana?)" to Japanese words that disagree with the audio (kana-hint extra)
 kotoba_whisper_model: kotoba-tech/kotoba-whisper-v2.0-faster  # Kotoba-Whisper model
 interim_japanese_asr_model: default  # Japanese ASR for interim transcription
 english_asr_model: default    # English ASR (default/moonshine/a faster-whisper model name such as medium.en)

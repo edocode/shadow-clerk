@@ -98,6 +98,15 @@ pronounce = [
     "phonemizer-fork>=3.3.2",
 ]
 
+# 聞き間違いの目印 (kana_hint: true)。文字起こしの読みを形態素解析で取り、
+# かな認識モデル (wav2vec2) の音と食い違う語に「(音のかな?)」を添える
+kana-hint = [
+    "transformers>=4.30.0",
+    "torch>=2.0.0",
+    "sudachipy>=0.6.8",
+    "sudachidict-core>=20240409",
+]
+
 [project.scripts]
 clerk-daemon = "shadow_clerk.clerk_daemon:main"
 clerk-util = "shadow_clerk.clerk_util:main"
