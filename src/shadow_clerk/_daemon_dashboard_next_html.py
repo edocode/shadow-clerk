@@ -39,7 +39,7 @@ _NEXT_HTML_TEMPLATE = (
     "</head>\n"
     "<body>\n"
     "<header>\n"
-    "  <span class=\"logo\">🎙 Shadow-clerk</span>\n"
+    "  <span class=\"logo\">🎙 Shadow Clerk</span>\n"
     "  <span class=\"status\" id=\"nxStatus\"><span class=\"dot\"></span><span id=\"nxStatusText\"></span></span>\n"
     "  <button class=\"primary\" id=\"nxMeetingBtn\"></button>\n"
     "  <button class=\"tbtn\" id=\"nxTranslateBtn\" title=\"{{i18n:nx.translate_title}}\"><span class=\"sw\"></span>{{i18n:nx.translate}}</button>\n"
