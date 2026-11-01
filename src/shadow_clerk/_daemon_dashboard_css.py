@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 # CSS content extracted from _HTML_TEMPLATE (between <style> and </style> tags)
-_CSS_TEMPLATE = """\
+_CSS_HEAD = """\
 :root {
   --bg: #0d1117;
   --panel: #161b22;
@@ -212,6 +212,10 @@ main {
 /* パネル本来のヘッダはタブと名前が重複するうえ、背の低い下部ペインでは
    場所を食う。隠してよい——ミュートとレベル計はタブバーへ移してある */
 #sideHost .ph { display:none; }
+"""
+
+# AI Console の端末（/next も流用する）
+_CSS_CONSOLE = """\
 #consolec {
   position:relative;
   /* **gutter は常に確保すること。** overflow:auto のままだと、行が増減して
@@ -291,6 +295,9 @@ main {
 .cbg-brightblue{background:#79c0ff}.cbg-brightmagenta{background:#d2a8ff}
 .cbg-bfightmagenta{background:#d2a8ff}
 .cbg-brightcyan{background:#56d4dd}.cbg-brightwhite{background:#ffffff}
+"""
+
+_CSS_TAIL = """\
 #pnlM { position:relative; overflow:visible; flex:0 0 180px; min-width:0; transition:flex-basis .15s; }
 #pnlM.collapsed { flex:0 0 0; }
 #pnlM.collapsed .lp-tabs, #pnlM.collapsed #datePane,
@@ -544,3 +551,5 @@ main {
 .ms-foot .saved { color:var(--green); font-size:13px; display:none; }
 .ms-path { padding:6px 16px; border-top:1px solid var(--border); font-size:11px; color:var(--muted); }
 """
+
+_CSS_TEMPLATE = _CSS_HEAD + _CSS_CONSOLE + _CSS_TAIL

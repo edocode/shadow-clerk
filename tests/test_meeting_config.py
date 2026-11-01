@@ -224,9 +224,37 @@ def test_apply_settings() -> None:
     check("既定値", MeetingConfig.load(write_cfg({})).resolve("x")["publish_to"] == "artifact")
 
 
+def test_analyze_three_states() -> None:
+    """analyze は未指定（None）/ する / しない。未指定なら auto_analyze に従う"""
+    c = MeetingConfig.load(write_cfg({"meetings": [
+        {"pattern": "雑談", "analyze": False}, {"pattern": "週次定例", "analyze": True},
+        {"pattern": "acme|shopsite", "analyze": False}]}))
+    check("ルールが無ければ未指定", c.resolve("other")["analyze"] is None, repr(c.resolve("other")["analyze"]))
+    check("明示のオン・オフはそのまま", c.resolve("週次定例")["analyze"] is True and c.resolve("雑談")["analyze"] is False)
+    check("既定の空の設定でも未指定", MeetingConfig.load(write_cfg({})).resolve("x")["analyze"] is None)
+    old = MeetingConfig.load(write_cfg({"defaults": {"analyze": False}, "meetings": [{"pattern": "週次定例", "analyze": True}]}))
+    check("defaults の analyze: false は従来どおり全会議オフ", old.resolve("other")["analyze"] is False)
+    check("defaults がオフでも会議のルールのオンは効く", old.resolve("週次定例")["analyze"] is True)
+    check("defaults の analyze: true は従来の既定と同じ扱い（未指定）",
+          MeetingConfig.load(write_cfg({"defaults": {"analyze": True}})).resolve("x")["analyze"] is None)
+    c.apply("週次定例", MeetingSettings.parse({"analyze": "default"}))
+    check("default で会議のルールから analyze を消す",
+          "analyze" not in c.raw["meetings"][1] and c.resolve("週次定例")["analyze"] is None, repr(c.raw["meetings"]))
+    c.apply("acme 定例", MeetingSettings.parse({"analyze": "default", "publish": False}))
+    check("広いルールの会議は analyze を写さない専用ルールを足す",
+          c.raw["meetings"][2] == {"pattern": "^acme\\ 定例$", "publish": False}
+          and c.resolve("acme 定例")["analyze"] is None and c.resolve("shopsite")["analyze"] is False,
+          repr(c.raw["meetings"]))
+    before = list(c.raw["meetings"])
+    c.apply("採用面談", MeetingSettings.parse({"analyze": "default"}))
+    check("一致しない会議の default だけならルールを足さない", c.raw["meetings"] == before
+          and c.resolve("採用面談")["analyze"] is None, repr(c.raw["meetings"]))
+    check("default は文字列の default だけ", MeetingSettings.parse({"analyze": "default"}).analyze == "default")
+
+
 def test_parse_settings() -> None:
     check("空の set は何も変えない", MeetingSettings.parse({}).fields() == {})
-    for body in ({"publish": "yes"}, {"publish_advice": 1}, {"analyze": "no"}, {"publish_to": "slack"},
+    for body in ({"publish": "yes"}, {"publish_advice": 1}, {"analyze": "no"}, {"publish": "default"}, {"publish_to": "slack"},
                  {"notion_url": "http://x"}, {"workdir": 3}, []):
         try:
             MeetingSettings.parse(body)
@@ -245,6 +273,7 @@ def test_literal_name() -> None:
 
 def main() -> int:
     test_apply_settings()
+    test_analyze_three_states()
     test_parse_settings()
     test_literal_name()
     test_research_destinations()

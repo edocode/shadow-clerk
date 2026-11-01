@@ -1,6 +1,157 @@
 """Shadow-clerk daemon: ダッシュボード JavaScript (part B)"""
 from __future__ import annotations
 
+# 用語集・音声コマンド・使い方と今日の予定のモーダル。/next（_daemon_dashboard_next_js.py）も丸ごと流用する
+_JS_TEMPLATE_GLOSSARY = """\
+const GL_COL_OPTS=[...LANG_OPTS,'reading','note'];
+let glossaryCols=[];
+function glossaryAddRow(vals){
+  const tb=document.getElementById('glossaryBody');
+  const tr=document.createElement('tr');
+  glossaryCols.forEach((c,i)=>{
+    const td=document.createElement('td');
+    const inp=document.createElement('input');
+    inp.type='text'; inp.value=(vals&&vals[i])||'';
+    inp.placeholder=c;
+    td.appendChild(inp); tr.appendChild(td);
+  });
+  const del=document.createElement('td');
+  del.className='gl-del'; del.textContent='\u00d7';
+  del.onclick=()=>tr.remove();
+  tr.appendChild(del); tb.appendChild(tr);
+  return tr;
+}
+function glossaryMakeHeadSel(val){
+  const sel=document.createElement('select');
+  sel.style.cssText='background:transparent;color:var(--muted);border:none;font-weight:600;font-size:12px;cursor:pointer;padding:2px;';
+  GL_COL_OPTS.forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=o;sel.appendChild(op);});
+  sel.value=val;
+  sel.onchange=()=>{const idx=[...sel.closest('tr').children].indexOf(sel.parentElement);glossaryCols[idx]=sel.value;};
+  return sel;
+}
+let glossaryComments=[];
+async function openGlossary(){
+  let text='';
+  try{const r=await fetch('/api/glossary');text=await r.text();}catch(e){}
+  // コメント行は編集 UI に出さないが、保存時に消さないよう保持する
+  glossaryComments=text.split('\\n').filter(l=>l.startsWith('#'));
+  const lines=text.split('\\n').filter(l=>l.trim()&&!l.startsWith('#'));
+  glossaryCols=(lines.length>0)?lines[0].split('\\t'):['ja','en','reading','note'];
+  const head=document.getElementById('glossaryHead');
+  head.innerHTML='';
+  glossaryCols.forEach(c=>{const th=document.createElement('th');th.appendChild(glossaryMakeHeadSel(c));head.appendChild(th);});
+  const thDel=document.createElement('th');thDel.style.width='30px';head.appendChild(thDel);
+  const tb=document.getElementById('glossaryBody');
+  tb.innerHTML='';
+  for(let i=1;i<lines.length;i++){
+    const cols=lines[i].split('\\t');
+    glossaryAddRow(cols);
+  }
+  if(lines.length<=1)glossaryAddRow();
+  document.getElementById('glossarySaved').style.display='none';
+  document.getElementById('glossaryModal').classList.add('open');
+}
+function closeGlossary(){document.getElementById('glossaryModal').classList.remove('open');}
+async function saveGlossary(){
+  glossaryCols=[...document.querySelectorAll('#glossaryHead select')].map(s=>s.value);
+  const rows=[...glossaryComments,glossaryCols.join('\\t')];
+  document.querySelectorAll('#glossaryBody tr').forEach(tr=>{
+    const vals=Array.from(tr.querySelectorAll('input')).map(i=>i.value);
+    if(vals.some(v=>v.trim()))rows.push(vals.join('\\t'));
+  });
+  const text=rows.join('\\n')+'\\n';
+  try{await fetch('/api/glossary',{method:'POST',headers:{'Content-Type':'text/plain; charset=utf-8'},
+    body:text});
+    const s=document.getElementById('glossarySaved');s.style.display='inline';
+    setTimeout(()=>s.style.display='none',2000);
+  }catch(e){}
+}
+"""
+_JS_TEMPLATE_CUSTOM_CMDS = """\
+function customCmdAddRow(pattern,action){
+  const tb=document.getElementById('customCmdBody');
+  const tr=document.createElement('tr');
+  const td1=document.createElement('td');
+  const inp1=document.createElement('input');inp1.type='text';inp1.value=pattern||'';inp1.placeholder='regex pattern';
+  td1.appendChild(inp1);tr.appendChild(td1);
+  const td2=document.createElement('td');
+  const inp2=document.createElement('input');inp2.type='text';inp2.value=action||'';inp2.placeholder='shell command';
+  td2.appendChild(inp2);tr.appendChild(td2);
+  const del=document.createElement('td');
+  del.className='gl-del';del.textContent='\\u00d7';
+  del.onclick=()=>tr.remove();
+  tr.appendChild(del);tb.appendChild(tr);
+  return tr;
+}
+async function openCustomCmds(){
+  let cmds=[];
+  try{const d=await(await fetch('/api/config')).json();cmds=d.custom_commands||[];}catch(e){}
+  const tb=document.getElementById('customCmdBody');tb.innerHTML='';
+  cmds.forEach(c=>customCmdAddRow(c.pattern||'',c.action||''));
+  if(cmds.length===0)customCmdAddRow();
+  document.getElementById('customCmdSaved').style.display='none';
+  document.getElementById('customCmdModal').classList.add('open');
+}
+function closeCustomCmds(){document.getElementById('customCmdModal').classList.remove('open');}
+async function saveCustomCmds(){
+  const rows=[];
+  document.querySelectorAll('#customCmdBody tr').forEach(tr=>{
+    const inputs=tr.querySelectorAll('input');
+    const p=(inputs[0]||{}).value||'';
+    const a=(inputs[1]||{}).value||'';
+    if(p.trim()||a.trim())rows.push({pattern:p,action:a});
+  });
+  try{
+    const cfg=await(await fetch('/api/config')).json();
+    cfg.custom_commands=rows;
+    await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
+    const s=document.getElementById('customCmdSaved');s.style.display='inline';
+    setTimeout(()=>s.style.display='none',2000);
+  }catch(e){}
+}
+"""
+_JS_TEMPLATE_HELP_GCAL = """\
+function openHelp(){
+  document.getElementById('helpContent').textContent=I18N['dash.help_body'];
+  const lang=cfgData&&cfgData.ui_language||'en';
+  document.getElementById('helpReadmeLink').href='https://github.com/edocode/shadow-clerk/blob/main/'+(lang==='ja'?'README.ja.md':'README.md');
+  document.getElementById('helpModal').classList.add('open');
+}
+function closeHelp(){document.getElementById('helpModal').classList.remove('open');}
+async function openGcal(){
+  const body=document.getElementById('gcalBody');
+  body.textContent=I18N['dash.loading']||'...';
+  document.getElementById('gcalModal').classList.add('open');
+  try{
+    const d=await(await fetch('/api/gcal-events')).json();
+    if(!d.enabled){body.textContent=I18N['dash.gcal_disabled']||'Google Calendar integration is not enabled.';return;}
+    if(!d.events||d.events.length===0){body.textContent=I18N['dash.gcal_no_events']||'No upcoming events.';return;}
+    const now=new Date();
+    const rows=d.events.map(ev=>{
+      const start=ev.start?new Date(ev.start):null;
+      const end=ev.end?new Date(ev.end):null;
+      const fmt=dt=>dt?dt.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';
+      const fmtDate=dt=>dt?dt.toLocaleDateString([],{month:'numeric',day:'numeric'}):'';
+      const isToday=dt=>dt&&dt.toDateString()===now.toDateString();
+      const dateStr=start?(isToday(start)?'':fmtDate(start)+' '):'';
+      const status=ev.status==='started'?'🔴':ev.status==='ended'?'✅':'🔵';
+      const attendees=Array.isArray(ev.attendees)?ev.attendees:[];
+      const attLabel=I18N['dash.attendees']||'Attendees';
+      const attHtml=attendees.length?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${esc(attLabel)}: ${attendees.map(esc).join(', ')}</div>`:'';
+      return `<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">`
+        +`<span style="font-size:16px">${status}</span>`
+        +`<div style="flex:1;min-width:0">`
+        +`<div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ev.summary)}</div>`
+        +`<div style="font-size:11px;color:var(--muted)">${dateStr}${fmt(start)} – ${fmt(end)}</div>`
+        +attHtml
+        +`</div></div>`;
+    }).join('');
+    body.innerHTML=rows;
+  }catch(e){body.textContent='Error: '+e.message;}
+}
+function closeGcal(){document.getElementById('gcalModal').classList.remove('open');}
+"""
+
 _JS_TEMPLATE_PANELS = """\
 /* --- 検索 --- */
 async function doSearch(){
@@ -186,69 +337,7 @@ maybeShowWelcome();maybeShowSkillUpdate();
 // 翻訳・ミュート等のボタン状態は SSE に載らないため、定期的にステータスも同期する
 setInterval(()=>{loadFiles();fetchStatus();},10000);
 window.addEventListener('hashchange',()=>{const f=_hashFile();if(f&&fileInfo[f]&&f!==curFile)selectMtgFile(f);});
-const GL_COL_OPTS=[...LANG_OPTS,'reading','note'];
-let glossaryCols=[];
-function glossaryAddRow(vals){
-  const tb=document.getElementById('glossaryBody');
-  const tr=document.createElement('tr');
-  glossaryCols.forEach((c,i)=>{
-    const td=document.createElement('td');
-    const inp=document.createElement('input');
-    inp.type='text'; inp.value=(vals&&vals[i])||'';
-    inp.placeholder=c;
-    td.appendChild(inp); tr.appendChild(td);
-  });
-  const del=document.createElement('td');
-  del.className='gl-del'; del.textContent='\u00d7';
-  del.onclick=()=>tr.remove();
-  tr.appendChild(del); tb.appendChild(tr);
-  return tr;
-}
-function glossaryMakeHeadSel(val){
-  const sel=document.createElement('select');
-  sel.style.cssText='background:transparent;color:var(--muted);border:none;font-weight:600;font-size:12px;cursor:pointer;padding:2px;';
-  GL_COL_OPTS.forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=o;sel.appendChild(op);});
-  sel.value=val;
-  sel.onchange=()=>{const idx=[...sel.closest('tr').children].indexOf(sel.parentElement);glossaryCols[idx]=sel.value;};
-  return sel;
-}
-let glossaryComments=[];
-async function openGlossary(){
-  let text='';
-  try{const r=await fetch('/api/glossary');text=await r.text();}catch(e){}
-  // コメント行は編集 UI に出さないが、保存時に消さないよう保持する
-  glossaryComments=text.split('\\n').filter(l=>l.startsWith('#'));
-  const lines=text.split('\\n').filter(l=>l.trim()&&!l.startsWith('#'));
-  glossaryCols=(lines.length>0)?lines[0].split('\\t'):['ja','en','reading','note'];
-  const head=document.getElementById('glossaryHead');
-  head.innerHTML='';
-  glossaryCols.forEach(c=>{const th=document.createElement('th');th.appendChild(glossaryMakeHeadSel(c));head.appendChild(th);});
-  const thDel=document.createElement('th');thDel.style.width='30px';head.appendChild(thDel);
-  const tb=document.getElementById('glossaryBody');
-  tb.innerHTML='';
-  for(let i=1;i<lines.length;i++){
-    const cols=lines[i].split('\\t');
-    glossaryAddRow(cols);
-  }
-  if(lines.length<=1)glossaryAddRow();
-  document.getElementById('glossarySaved').style.display='none';
-  document.getElementById('glossaryModal').classList.add('open');
-}
-function closeGlossary(){document.getElementById('glossaryModal').classList.remove('open');}
-async function saveGlossary(){
-  glossaryCols=[...document.querySelectorAll('#glossaryHead select')].map(s=>s.value);
-  const rows=[...glossaryComments,glossaryCols.join('\\t')];
-  document.querySelectorAll('#glossaryBody tr').forEach(tr=>{
-    const vals=Array.from(tr.querySelectorAll('input')).map(i=>i.value);
-    if(vals.some(v=>v.trim()))rows.push(vals.join('\\t'));
-  });
-  const text=rows.join('\\n')+'\\n';
-  try{await fetch('/api/glossary',{method:'POST',headers:{'Content-Type':'text/plain; charset=utf-8'},
-    body:text});
-    const s=document.getElementById('glossarySaved');s.style.display='inline';
-    setTimeout(()=>s.style.display='none',2000);
-  }catch(e){}
-}
+""" + _JS_TEMPLATE_GLOSSARY + """\
 function _renderAttendees(list){
   if(!Array.isArray(list)||list.length===0)return '';
   const label=I18N['dash.attendees']||'Attendees';
@@ -352,47 +441,7 @@ async function regenSummary(){
   if(!confirm(I18N['dash.summary_regen_confirm']))return;
   await genSummary();
 }
-function customCmdAddRow(pattern,action){
-  const tb=document.getElementById('customCmdBody');
-  const tr=document.createElement('tr');
-  const td1=document.createElement('td');
-  const inp1=document.createElement('input');inp1.type='text';inp1.value=pattern||'';inp1.placeholder='regex pattern';
-  td1.appendChild(inp1);tr.appendChild(td1);
-  const td2=document.createElement('td');
-  const inp2=document.createElement('input');inp2.type='text';inp2.value=action||'';inp2.placeholder='shell command';
-  td2.appendChild(inp2);tr.appendChild(td2);
-  const del=document.createElement('td');
-  del.className='gl-del';del.textContent='\\u00d7';
-  del.onclick=()=>tr.remove();
-  tr.appendChild(del);tb.appendChild(tr);
-  return tr;
-}
-async function openCustomCmds(){
-  let cmds=[];
-  try{const d=await(await fetch('/api/config')).json();cmds=d.custom_commands||[];}catch(e){}
-  const tb=document.getElementById('customCmdBody');tb.innerHTML='';
-  cmds.forEach(c=>customCmdAddRow(c.pattern||'',c.action||''));
-  if(cmds.length===0)customCmdAddRow();
-  document.getElementById('customCmdSaved').style.display='none';
-  document.getElementById('customCmdModal').classList.add('open');
-}
-function closeCustomCmds(){document.getElementById('customCmdModal').classList.remove('open');}
-async function saveCustomCmds(){
-  const rows=[];
-  document.querySelectorAll('#customCmdBody tr').forEach(tr=>{
-    const inputs=tr.querySelectorAll('input');
-    const p=(inputs[0]||{}).value||'';
-    const a=(inputs[1]||{}).value||'';
-    if(p.trim()||a.trim())rows.push({pattern:p,action:a});
-  });
-  try{
-    const cfg=await(await fetch('/api/config')).json();
-    cfg.custom_commands=rows;
-    await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
-    const s=document.getElementById('customCmdSaved');s.style.display='inline';
-    setTimeout(()=>s.style.display='none',2000);
-  }catch(e){}
-}
+""" + _JS_TEMPLATE_CUSTOM_CMDS + """\
 function openRenameMtgGroup(){
   if(!curGroup||curGroup==='ad-hoc')return;
   const inp=document.getElementById('renameMtgGroupInput');
@@ -479,43 +528,4 @@ async function doRenameMtg(){
     setTimeout(closeRenameMtg,800);
   }catch(e){alert('Error: '+e.message);}
 }
-function openHelp(){
-  document.getElementById('helpContent').textContent=I18N['dash.help_body'];
-  const lang=cfgData&&cfgData.ui_language||'en';
-  document.getElementById('helpReadmeLink').href='https://github.com/edocode/shadow-clerk/blob/main/'+(lang==='ja'?'README.ja.md':'README.md');
-  document.getElementById('helpModal').classList.add('open');
-}
-function closeHelp(){document.getElementById('helpModal').classList.remove('open');}
-async function openGcal(){
-  const body=document.getElementById('gcalBody');
-  body.textContent=I18N['dash.loading']||'...';
-  document.getElementById('gcalModal').classList.add('open');
-  try{
-    const d=await(await fetch('/api/gcal-events')).json();
-    if(!d.enabled){body.textContent=I18N['dash.gcal_disabled']||'Google Calendar integration is not enabled.';return;}
-    if(!d.events||d.events.length===0){body.textContent=I18N['dash.gcal_no_events']||'No upcoming events.';return;}
-    const now=new Date();
-    const rows=d.events.map(ev=>{
-      const start=ev.start?new Date(ev.start):null;
-      const end=ev.end?new Date(ev.end):null;
-      const fmt=dt=>dt?dt.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';
-      const fmtDate=dt=>dt?dt.toLocaleDateString([],{month:'numeric',day:'numeric'}):'';
-      const isToday=dt=>dt&&dt.toDateString()===now.toDateString();
-      const dateStr=start?(isToday(start)?'':fmtDate(start)+' '):'';
-      const status=ev.status==='started'?'🔴':ev.status==='ended'?'✅':'🔵';
-      const attendees=Array.isArray(ev.attendees)?ev.attendees:[];
-      const attLabel=I18N['dash.attendees']||'Attendees';
-      const attHtml=attendees.length?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${esc(attLabel)}: ${attendees.map(esc).join(', ')}</div>`:'';
-      return `<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">`
-        +`<span style="font-size:16px">${status}</span>`
-        +`<div style="flex:1;min-width:0">`
-        +`<div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ev.summary)}</div>`
-        +`<div style="font-size:11px;color:var(--muted)">${dateStr}${fmt(start)} – ${fmt(end)}</div>`
-        +attHtml
-        +`</div></div>`;
-    }).join('');
-    body.innerHTML=rows;
-  }catch(e){body.textContent='Error: '+e.message;}
-}
-function closeGcal(){document.getElementById('gcalModal').classList.remove('open');}
-"""
+""" + _JS_TEMPLATE_HELP_GCAL

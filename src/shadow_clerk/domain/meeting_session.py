@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import datetime
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from shadow_clerk._transcript_name import TranscriptName
 
@@ -27,6 +27,8 @@ class MeetingSession:
     file_path: str
     started_at: datetime.datetime
     ended_at: datetime.datetime | None = None
+    #: この回だけの AI 分析の指定（開始モーダル・clerk-practice）。None なら会議ごとの設定に従う
+    analyze: bool | None = None
 
     @property
     def is_active(self) -> bool:
@@ -34,7 +36,8 @@ class MeetingSession:
         return self.ended_at is None
 
     @classmethod
-    def start(cls, file_path: str, started_at: datetime.datetime | None = None) -> MeetingSession:
+    def start(cls, file_path: str, started_at: datetime.datetime | None = None,
+              analyze: bool | None = None) -> MeetingSession:
         """ファイルパスから MeetingSession（開始状態）を生成する。"""
         name = TranscriptName.parse(os.path.basename(file_path))
         if name is None:
@@ -43,13 +46,9 @@ class MeetingSession:
             transcript_name=name,
             file_path=file_path,
             started_at=started_at or datetime.datetime.now(),
+            analyze=analyze,
         )
 
     def end(self, ended_at: datetime.datetime | None = None) -> MeetingSession:
         """終了した MeetingSession を返す（イミュータブルなので新しいオブジェクトを返す）。"""
-        return MeetingSession(
-            transcript_name=self.transcript_name,
-            file_path=self.file_path,
-            started_at=self.started_at,
-            ended_at=ended_at or datetime.datetime.now(),
-        )
+        return replace(self, ended_at=ended_at or datetime.datetime.now())

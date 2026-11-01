@@ -166,7 +166,14 @@ class _DashboardHandlerSkillOps:
         if not self._skill_guard():
             return
         meeting = (self._skill_query().get("meeting") or [""])[0]
-        self._send_json({"status": "ok", **MeetingConfig.load().resolve(meeting)})
+        resolved = MeetingConfig.load().resolve(meeting)
+        # 進行中の会議にこの回だけの指定（開始モーダル・clerk-practice）があればそれを返す。
+        # スキルは「analyze が偽なら監視しない」と読むので、未指定（None）は監視する側に倒す
+        session = getattr(self.recorder, "current_session", None)
+        override = (session.analyze if session is not None and (session.transcript_name.meeting_name or "") == meeting
+                    else None)
+        analyze = resolved["analyze"] is not False if override is None else override
+        self._send_json({"status": "ok", **resolved, "analyze": analyze})
 
     # --- 定例の過去回 ---
 
@@ -249,7 +256,11 @@ class _DashboardHandlerSkillOps:
         self._send_json({"status": "ok", "language": lang})
 
     def _meeting(self) -> None:
-        """POST /api/meeting {action: start|end, name?, analyze?} — 会議を始める・終える（clerk-practice 用）
+        """POST /api/meeting {action: start|end, name?, analyze?} — 会議を始める・終える（clerk-practice・/next の会議開始モーダル用）
+
+        name が空なら start_meeting コマンドと同じく進行中の予定の名前を付ける（無ければ名前なし）。
+        空でないのに使える文字が残らない名前（"///" など）はエラーにする（黙って名前なしにしない）。
+        analyze（true / false）はこの回だけの指定で会議ごとの設定より優先し、省けば設定に従う
 
         /api/command は任意のコマンドを通すので skill には使わせない。開始は会議中なら、終了は会議中でなければ
         何もしない（会議の外で end_meeting を通すと、日付のファイルに終了の印が書かれる）
@@ -259,14 +270,17 @@ class _DashboardHandlerSkillOps:
             return
         action, in_meeting = data.get("action"), os.path.exists(SESSION_FILE)
         if action == "start":
-            raw, analyze = data.get("name"), data.get("analyze", True)
-            name = sanitize_meeting_name(raw) if isinstance(raw, str) and len(raw) <= _MAX_MEETING_NAME_CHARS else ""
-            if not name or not isinstance(analyze, bool):
+            raw, analyze = data.get("name", ""), data.get("analyze")
+            if not (isinstance(raw, str) and len(raw) <= _MAX_MEETING_NAME_CHARS) or not isinstance(analyze, (bool, type(None))):
                 self._send_json({"status": "error",
-                                 "message": "name must be a meeting name up to 100 characters and analyze a boolean"})
+                                 "message": "name must be a string up to 100 characters and analyze a boolean, null or omitted"})
+                return
+            name = sanitize_meeting_name(raw)
+            if raw and not name:
+                self._send_json({"status": "error", "message": "name has no usable characters"})
                 return
             if not in_meeting:
-                self.recorder.start_meeting(name, analyze=analyze)
+                self.recorder.start_meeting(name or self.recorder.calendar_meeting_name(), analyze=analyze)
         elif action == "end":
             if in_meeting:
                 self.recorder._execute_command("end_meeting")

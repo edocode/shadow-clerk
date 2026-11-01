@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 from dataclasses import dataclass
+from typing import Literal
 
 import yaml
 
@@ -68,14 +69,18 @@ def literal_name(pattern: str) -> str:
 
 @dataclass(frozen=True)
 class MeetingSettings:
-    """会議ごとの設定のうち、ダッシュボードから変える値。None は変えない"""
+    """会議ごとの設定のうち、ダッシュボードから変える値。None は変えない。
+
+    analyze の "default" はその会議のルールから analyze を消す。以後は defaults の analyze、それも無ければ
+    auto_analyze が効く
+    """
 
     publish: bool | None = None
     workdir: str | None = None
     publish_to: str | None = None
     notion_url: str | None = None
     publish_advice: bool | None = None
-    analyze: bool | None = None
+    analyze: bool | Literal["default"] | None = None
 
     @classmethod
     def parse(cls, data: object) -> "MeetingSettings":
@@ -86,7 +91,7 @@ class MeetingSettings:
         publish_to, notion_url = data.get("publish_to"), data.get("notion_url")
         publish_advice, analyze = data.get("publish_advice"), data.get("analyze")
         for key, value in (("publish", publish), ("publish_advice", publish_advice), ("analyze", analyze)):
-            if value is not None and not isinstance(value, bool):
+            if value is not None and not isinstance(value, bool) and not (key == "analyze" and value == "default"):
                 raise ValueError(f"{key} must be a boolean")
         if workdir is not None and not isinstance(workdir, str):
             raise ValueError("workdir must be a string")
@@ -99,7 +104,12 @@ class MeetingSettings:
                    notion_url.strip() if notion_url is not None else None, publish_advice, analyze)
 
     def fields(self) -> dict:
-        return {k: v for k, v in vars(self).items() if v is not None}
+        """書く値（None と "default" を除く）"""
+        return {k: v for k, v in vars(self).items() if v is not None and v != "default"}
+
+    def cleared(self) -> list[str]:
+        """会議のルールから消して既定に戻すキー"""
+        return [k for k, v in vars(self).items() if v == "default"]
 
 
 @dataclass(frozen=True)
@@ -152,8 +162,9 @@ class MeetingConfig:
 
     #: 設定が無くても動くための組み込み既定。get-config.sh と同じ値。
     #: `research`(調べものの当て先)が空なのは、このマシンの外へ問い合わせるものを
-    #: 明示的に許可されたものだけにするため。どの当て先が社内かは環境ごとに違う
-    DEFAULTS = {"analyze": True, "verbosity": "normal", "interval": 25,
+    #: 明示的に許可されたものだけにするため。どの当て先が社内かは環境ごとに違う。
+    #: `analyze` の None は未指定で、AI アシスタントを起動するかは全体の auto_analyze に従う
+    DEFAULTS = {"analyze": None, "verbosity": "normal", "interval": 25,
                 "publish": True, "publish_to": "artifact", "notion_url": "", "publish_advice": False,
                 "workdir": "", "history": 3, "research": []}
 
@@ -182,7 +193,10 @@ class MeetingConfig:
         resolved = dict(self.DEFAULTS)
         defaults = self.raw.get("defaults")
         if isinstance(defaults, dict):
-            resolved.update({k: v for k, v in defaults.items() if k in self.DEFAULTS})
+            # defaults の analyze: true は 3 状態化の前の組み込み既定と同じ意味（auto_analyze に従う）。
+            # false だけが「全会議で分析しない」
+            resolved.update({k: v for k, v in defaults.items() if k in self.DEFAULTS
+                             and not (k == "analyze" and v is not False)})
         matched, note = "(defaults)", ""
         if (entry := self._first_match(meeting_name)[1]) is not None:
             matched, note = str(entry["pattern"]), str(entry.get("note") or "")
@@ -259,12 +273,15 @@ class MeetingConfig:
         if not isinstance(entries, list):
             entries = self.raw["meetings"] = []
         index, entry = self._first_match(meeting_name)
-        if entry is not None and literal_name(str(entry["pattern"])) == meeting_name:
-            entry.update(settings.fields())
-            return
-        copied = {k: v for k, v in (entry or {}).items() if k in self.DEFAULTS}
-        new = {"pattern": f"^{re.escape(meeting_name)}$", **copied, **settings.fields()}
-        entries.insert(index if entry is not None else len(entries), new)
+        if entry is None and not settings.fields():
+            return  # 消すだけなら、どのルールにも当たらない会議は既に既定どおり
+        if entry is None or literal_name(str(entry["pattern"])) != meeting_name:
+            copied = {k: v for k, v in (entry or {}).items() if k in self.DEFAULTS}
+            entry = {"pattern": f"^{re.escape(meeting_name)}$", **copied}
+            entries.insert(index if index >= 0 else len(entries), entry)
+        entry.update(settings.fields())
+        for key in settings.cleared():
+            entry.pop(key, None)
 
     def remove(self, pattern: str) -> None:
         entries = self.raw.get("meetings")

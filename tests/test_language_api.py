@@ -9,6 +9,7 @@ import json
 import sys
 
 from shadow_clerk._daemon_dashboard_ops_skill import _DashboardHandlerSkillOps as Ops
+from shadow_clerk._daemon_recorder_command import _RecorderCommandMixin
 
 results: list[bool] = []
 
@@ -65,7 +66,21 @@ def test_model_failure_is_reported() -> None:
           repr(h.sent))
 
 
+def test_broadcast_carries_language() -> None:
+    sent: list[tuple[str, dict]] = []
+    rec = type("_Rec", (), {
+        "transcriber": type("_T", (), {"_backend": "whisper", "_loaded_model_id": "small", "model_size": "small", "language": "en"})(),
+        "_file_watcher": type("_W", (), {"_broadcast": lambda _s, ev, data: sent.append((ev, json.loads(data)))})(),
+    })()
+    _RecorderCommandMixin._broadcast_asr_status(rec)
+    rec.transcriber.language = None
+    _RecorderCommandMixin._broadcast_asr_status(rec)
+    check("asr_status は認識言語も載せる（自動検出は auto）", [d.get("language") for _, d in sent] == ["en", "auto"]
+          and all(ev == "asr_status" for ev, _ in sent), repr(sent))
+
+
 if __name__ == "__main__":
+    test_broadcast_carries_language()
     test_switch()
     test_rejects()
     test_model_failure_is_reported()

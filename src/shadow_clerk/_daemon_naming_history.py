@@ -45,11 +45,13 @@ def _write(path: str, records: list[NamingRecord]) -> None:
     atomic_write_lines(path, [r.to_json_line() for r in records], ".naming-")
 
 
-def append_history(transcript_path: str, records: list[NamingRecord]) -> None:
+def append_history(transcript_path: str, records: list[NamingRecord]) -> bool:
+    """書いたら True。transcript 名でない（履歴ファイルを決められない）か records が空なら書かない"""
     path = naming_path(transcript_path)
     if path is None or not records:
-        return
+        return False
     _write(path, read_history(transcript_path) + records)
+    return True
 
 
 def mark_undone(transcript_path: str, record_id: str) -> NamingRecord | None:

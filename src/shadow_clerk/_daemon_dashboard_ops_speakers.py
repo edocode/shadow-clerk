@@ -296,18 +296,22 @@ class _DashboardHandlerSpeakerOps:
                                + ([t("dash.speakers_auto_not_cleared")] if clear_failed else []))
             # 確認は行を書き換えないので lines は空。取り消すと足した声紋が外れ、識別で付いた印が戻る
             relabeled = {label: [p.timestamp for p in parsed_lines if p.speaker_label == label] for label in mapping}
+            records = [NamingRecord.new(label, decided[label].name.value, decided[label].person, relabeled.get(label, []),
+                                        outcome.added.get(label, []), outcome.removed.get(label, []),
+                                        auto_rows.get(label, []))
+                       for label in [*mapping, *sorted(confirmed)]]
             try:  # 名前付け自体は済んでいる。履歴だけ残せなくても成功として返す
-                append_history(t_path, [
-                    NamingRecord.new(label, decided[label].name.value, decided[label].person, relabeled.get(label, []),
-                                     outcome.added.get(label, []), outcome.removed.get(label, []),
-                                     auto_rows.get(label, []))
-                    for label in [*mapping, *sorted(confirmed)]])
+                if not append_history(t_path, records):
+                    records = []
             except (NamingHistoryError, OSError) as e:
                 logger.error("名前付けの履歴を残せない: %s", e)
                 message += " " + t("dash.naming_history_not_saved")
+                records = []
         self._remember(decided.values())
+        # history_ids は /next の「元に戻す」が /api/speakers/undo に渡す（残せなかったときは空）
         self._send_json({"status": "ok", "renamed": renamed, "enrolled": outcome.counts,
-                         "has_summary": self._has_summary(t_path), "message": message})
+                         "has_summary": self._has_summary(t_path), "message": message,
+                         "history_ids": [r.id for r in records]})
 
     def _assign_lines(self) -> None:
         """POST /api/speakers/assign-lines — 選んだ行だけ別の話者（人・会社名・役割名）に付け替える"""

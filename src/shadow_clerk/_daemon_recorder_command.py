@@ -189,16 +189,19 @@ class _RecorderCommandMixin:
         ).start()
 
     def _maybe_start_analysis(self, transcript_path: str) -> bool:
-        """auto_analyze が有効なら AI アシスタントを起動して初期プロンプトを送る。
+        """AI アシスタントを起動して初期プロンプトを送る。
 
-        会議ごとの設定で analyze が偽の会議では起動しない（スキルも監視に入らないので、立てても空回りする）。
+        この回の指定（MeetingSession.analyze）、会議ごとの設定の analyze の順に、オン / オフが決まっていれば
+        それに、どちらも未指定なら auto_analyze に従う（オフの会議ではスキルも監視に入らないので、立てても空回りする）。
         起動に失敗しても会議そのものは続けたいので、例外は外に出さない。
         """
-        if not load_config().get("auto_analyze"):
-            return False
-        tn = TranscriptName.parse(os.path.basename(transcript_path))
-        if not MeetingConfig.load().resolve((tn.meeting_name or "") if tn else "")["analyze"]:
-            logger.info("会議設定で AI 分析しない会議なので、アシスタントを起動しません: %s", transcript_path)
+        session = getattr(self, "current_session", None)
+        analyze = session.analyze if session is not None and session.file_path == transcript_path else None
+        if analyze is None:
+            tn = TranscriptName.parse(os.path.basename(transcript_path))
+            analyze = MeetingConfig.load().resolve((tn.meeting_name or "") if tn else "")["analyze"]
+        if not (load_config().get("auto_analyze") if analyze is None else analyze):
+            logger.info("AI 分析しない会議なので、アシスタントを起動しません: %s", transcript_path)
             return False
         try:
             return bool(start_console_for(transcript_path, auto=True))
@@ -484,17 +487,27 @@ class _RecorderCommandMixin:
                     os.path.basename(transcript), reset_offset)
 
     def _broadcast_asr_status(self) -> None:
-        """ASRバックエンド/モデル変更をSSEで通知"""
+        """ASRバックエンド/モデル・認識言語の変更をSSEで通知（スキルや音声コマンドで変えたときも画面が追う）"""
         if hasattr(self, "_file_watcher"):
             self._file_watcher._broadcast("asr_status", json.dumps({
                 "asr_backend": self.transcriber._backend,
                 "asr_model_id": self.transcriber._loaded_model_id or self.transcriber.model_size,
+                "language": self.transcriber.language or "auto",
             }))
 
-    def start_meeting(self, meeting_name: str, analyze: bool = True) -> None:
+    def calendar_meeting_name(self) -> str:
+        """名前なしで始めるときの会議名。進行中の gcal 予定があればその名前（サニタイズ済み）、無ければ空"""
+        gcal = getattr(self, "gcal_monitor", None)
+        name = (gcal.get_ongoing_event_name() if gcal else "") or ""
+        if name:
+            logger.info("gcal 進行中イベントを会議名に割り当て: %s", name)
+        return name
+
+    def start_meeting(self, meeting_name: str, analyze: bool | None = None) -> None:
         """会議を始める（meeting_name は sanitize_meeting_name 済み、空なら名前なし）。
 
-        analyze=False なら auto_analyze が有効でも AI アシスタントを起動しない。語学の練習（clerk-practice）は
+        analyze はこの回だけの AI 分析の指定で、会議ごとの設定より優先する（None なら設定に従う）。
+        False なら auto_analyze が有効でも AI アシスタントを起動しない。語学の練習（clerk-practice）は
         talk の Claude が自分で Advice / Analysis を書くので、アシスタントを立てると記入が二重になる
         """
         now = datetime.datetime.now()
@@ -504,13 +517,13 @@ class _RecorderCommandMixin:
             self.output_path = os.path.join(self._output_dir, filename)
             with open(self.output_path, "a", encoding="utf-8") as f:
                 f.write(meeting_start_marker(now))
-        self.current_session = MeetingSession.start(self.output_path, now)
+            self.current_session = MeetingSession.start(self.output_path, now, analyze)
         with open(SESSION_FILE, "w", encoding="utf-8") as f:
             f.write(self.output_path)
         logger.info("会議開始: %s", self.output_path)
         logger.info(t("rec.meeting_start", path=self.output_path))
         self._save_attendees_for_session(self.output_path)
-        if analyze:
+        if analyze is not False:
             self._maybe_start_analysis(self.output_path)
 
     def _execute_command(self, cmd: str) -> None:
@@ -534,15 +547,7 @@ class _RecorderCommandMixin:
 
         elif cmd.startswith("start_meeting"):
             parts = cmd.split(None, 1)
-            if len(parts) > 1:
-                meeting_name = sanitize_meeting_name(parts[1])
-            else:
-                # 名前なし: 進行中の gcal イベントがあればその名前を自動割り当て
-                gcal = getattr(self, "gcal_monitor", None)
-                meeting_name = gcal.get_ongoing_event_name() if gcal else ""
-                if meeting_name:
-                    logger.info("gcal 進行中イベントを会議名に割り当て: %s", meeting_name)
-            self.start_meeting(meeting_name)
+            self.start_meeting(sanitize_meeting_name(parts[1]) if len(parts) > 1 else self.calendar_meeting_name())
 
         elif cmd == "end_meeting":
             marker = MEETING_END_MARKER
@@ -552,14 +557,14 @@ class _RecorderCommandMixin:
                     f.write(marker)
                 # 明示的 output 指定の場合はその値に戻す、そうでなければ現在日付のデフォルト
                 self.output_path = self.args.output if self._explicit_output else self._get_default_output()
+                session, self.current_session = self.current_session, None
             logger.info("会議終了: %s", session_transcript)
             logger.info(t("rec.meeting_end", path=session_transcript))
-            if self.current_session:
-                ended = self.current_session.end()
+            if session:
+                ended = session.end()
                 logger.info("会議セッション終了: 開始=%s 終了=%s",
                             ended.started_at.strftime("%H:%M:%S"),
                             ended.ended_at.strftime("%H:%M:%S"))
-                self.current_session = None
             try:
                 os.remove(SESSION_FILE)
             except FileNotFoundError:

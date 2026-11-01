@@ -153,6 +153,7 @@ class _DashboardHandlerMeetingOps:
         resp: dict = {
             "status": "ok",
             "message": t("dash.extract_meeting_success", name=meeting_name),
+            "file": meeting_name,
         }
         if source_deleted:
             resp["source_deleted"] = source_deleted
@@ -401,6 +402,7 @@ class _DashboardHandlerMeetingOps:
         resp: dict = {
             "status": "ok",
             "message": t("dash.extract_split_success", count=len(created)),
+            "files": created,
         }
         if source_deleted:
             resp["source_deleted"] = source_deleted

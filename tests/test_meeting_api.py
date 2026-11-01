@@ -34,10 +34,14 @@ class _Rec:
         self.output_path = os.path.join(DATA, active)
         self.mute_mic = False
         self.mute_monitor = False
-        self.started: list[tuple[str, bool]] = []
+        self.started: list[tuple[str, bool | None]] = []
         self.commands: list[str] = []
+        self.calendar = ""
 
-    def start_meeting(self, meeting_name: str, analyze: bool = True) -> None:
+    def calendar_meeting_name(self) -> str:
+        return self.calendar
+
+    def start_meeting(self, meeting_name: str, analyze: bool | None = None) -> None:
         self.started.append((meeting_name, analyze))
         self.output_path = os.path.join(DATA, f"transcript-202610041000@{meeting_name}.txt")
         with open(SESSION_FILE, "w", encoding="utf-8") as f:
@@ -88,18 +92,18 @@ def test_meeting_start() -> None:
     _no_meeting()
     h = _Handler({"action": "start", "name": "週次 定例"})
     h._meeting()
-    check("analyze の既定は true、名前は sanitize する", h.recorder.started == [("週次_定例", True)],
+    check("analyze の既定は未指定（会議の設定に従う）、名前は sanitize する", h.recorder.started == [("週次_定例", None)],
           repr(h.recorder.started))
     _no_meeting()
 
 
 def test_meeting_start_rejects() -> None:
     _no_meeting()
-    for body, label in [({"action": "start"}, "名前なし"), ({"action": "start", "name": ""}, "空の名前"),
-                        ({"action": "start", "name": "..."}, "sanitize で空になる名前"),
-                        ({"action": "start", "name": "x" * 101}, "101 字の名前"),
+    for body, label in [({"action": "start", "name": "x" * 101}, "101 字の名前"),
                         ({"action": "start", "name": 3}, "数値の名前"),
                         ({"action": "start", "name": "英語練習", "analyze": "no"}, "bool でない analyze"),
+                        ({"action": "start", "name": "..."}, "使える文字の無い名前 ..."),
+                        ({"action": "start", "name": "///"}, "使える文字の無い名前 ///"),
                         ({"action": "restart"}, "知らない action")]:
         h = _Handler(body)
         h._meeting()
@@ -111,6 +115,20 @@ def test_meeting_start_rejects() -> None:
     h = _Handler({"action": "start", "name": "英語練習"}, client="10.0.0.9")
     h._meeting()
     check("外部からは拒否", h.sent.get("status") == "error" and h.recorder.started == [], repr(h.sent))
+
+
+def test_meeting_start_empty_name() -> None:
+    """名前が空なら start_meeting コマンドと同じく、進行中の予定の名前を付ける（無ければ名前なし）"""
+    for body, cal, want in [({"action": "start", "name": "", "analyze": False}, "設計レビュー", ("設計レビュー", False)),
+                            ({"action": "start"}, "設計レビュー", ("設計レビュー", None)),
+                            ({"action": "start", "name": "", "analyze": True}, None, ("", True))]:
+        _no_meeting()
+        rec = _Rec()
+        rec.calendar = cal or ""
+        h = _Handler(body, rec=rec)
+        h._meeting()
+        check(f"空の名前で始める {body!r} 予定={cal!r}", h.sent.get("status") == "ok" and rec.started == [want], repr(rec.started))
+    _no_meeting()
 
 
 def test_meeting_end() -> None:
@@ -209,6 +227,7 @@ def test_generated_rejects() -> None:
 if __name__ == "__main__":
     test_meeting_start()
     test_meeting_start_rejects()
+    test_meeting_start_empty_name()
     test_meeting_end()
     test_mute()
     test_generated_replace_and_append()

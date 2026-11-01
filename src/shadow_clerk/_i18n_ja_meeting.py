@@ -11,6 +11,7 @@ STRINGS_JA_MEETING: dict[str, str] = {
     "ms.analyze": "AI分析（会議中にアシスタントが監視・分析するか）",
     "ms.analyze_on": "する",
     "ms.analyze_off": "しない",
+    "ms.analyze_default": "既定",
     "ms.col_dest": "公開先",
     "ms.publish": "公開（議事録を外部サービスに出すか）",
     "ms.keep": "変更しない",

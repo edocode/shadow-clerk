@@ -11,6 +11,7 @@ STRINGS_EN_MEETING: dict[str, str] = {
     "ms.analyze": "AI analysis (assistant watches and analyzes the meeting)",
     "ms.analyze_on": "On",
     "ms.analyze_off": "Off",
+    "ms.analyze_default": "Default",
     "ms.col_dest": "Destination",
     "ms.publish": "Publish (allow minutes on external services)",
     "ms.keep": "Keep as is",

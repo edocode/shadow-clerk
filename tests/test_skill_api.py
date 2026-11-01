@@ -15,7 +15,7 @@ os.environ["MEETING_CONFIG"] = os.path.join(DATA, "mtg.yaml")
 with open(os.environ["MEETING_CONFIG"], "w", encoding="utf-8") as _f:
     _f.write("defaults:\n  verbosity: normal\n  history: 3\n"
              "meetings:\n  - pattern: 'Sprint[ _-]?MTG'\n    verbosity: minimal\n"
-             "    interval: 20\n    note: 短時間\n")
+             "    interval: 20\n    note: 短時間\n  - pattern: 雑談\n    analyze: false\n")
 
 from shadow_clerk._daemon_constants import SESSION_FILE  # noqa: E402
 from shadow_clerk._daemon_dashboard_ops_skill import (
@@ -110,6 +110,10 @@ def test_config_resolve_matches_rule() -> None:
     h._serve_meeting_config_resolve()
     check("当たらなければ defaults", h.sent.get("verbosity") == "normal", repr(h.sent))
     check("history の既定は 3", h.sent.get("history") == 3, repr(h.sent))
+    check("analyze は明示的なオフでなければ true（スキルは偽なら監視しない）", h.sent.get("analyze") is True, repr(h.sent))
+    h.path = "/api/meeting-config/resolve?meeting=" + "雑談".encode("utf-8").decode("latin-1")
+    h._serve_meeting_config_resolve()
+    check("analyze: false のルールなら false", h.sent.get("analyze") is False, repr(h.sent))
 
 
 def test_history_normalised_match() -> None:

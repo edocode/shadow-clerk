@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>エンドポイント対応表</title>
+<style>
+:root{--bg:#f7f7f8;--card:#fff;--fg:#1f2328;--muted:#6b7280;--line:#e5e7eb;--ok:#15803d;--okb:#dcfce7;--part:#a16207;--partb:#fef3c7;--ng:#b91c1c;--ngb:#fee2e2;--ext:#475569;--extb:#e2e8f0;--code:#f1f5f9}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17181b;--card:#1f2125;--fg:#e5e7eb;--muted:#9ca3af;--line:#33363c;--ok:#4ade80;--okb:#14321f;--part:#facc15;--partb:#3a3112;--ng:#f87171;--ngb:#3b1717;--ext:#cbd5e1;--extb:#2a2f38;--code:#2a2d33}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 Inter,"Hiragino Sans","Noto Sans JP",sans-serif;padding:24px 16px 60px}
+.wrap{max-width:1180px;margin:0 auto}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:16px;margin:28px 0 8px;padding-top:8px;border-top:1px solid var(--line)}
+.lead{color:var(--muted);margin:0 0 16px}
+.cards{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:150px;cursor:pointer}
+.card b{font-size:22px;display:block}
+.card.act{outline:2px solid var(--fg)}
+.tbl{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.tbl th,.tbl td{text-align:left;vertical-align:top;padding:7px 10px;border-bottom:1px solid var(--line)}
+.tbl th{font-size:12px;color:var(--muted);font-weight:600;background:var(--code)}
+.tbl tr:last-child td{border-bottom:0}
+code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:12.5px;white-space:nowrap}
+.m{font-size:11px;font-weight:700;color:var(--muted)}
+.b{display:inline-block;font-size:11.5px;font-weight:700;border-radius:999px;padding:1px 9px;white-space:nowrap}
+.ok{color:var(--ok);background:var(--okb)}.part{color:var(--part);background:var(--partb)}.ng{color:var(--ng);background:var(--ngb)}.ext{color:var(--ext);background:var(--extb)}
+.note{color:var(--muted);font-size:12.5px;display:block;margin-top:2px}
+.todo{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--ng);border-radius:8px;padding:10px 14px;margin:8px 0}
+.todo.p{border-left-color:var(--part)}
+.todo h3{margin:0 0 4px;font-size:14px}
+.todo ul{margin:4px 0 0;padding-left:20px}
+.scroll{overflow-x:auto}
+@media (max-width:720px){.tbl td:nth-child(3),.tbl th:nth-child(3){display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>ダッシュボード API ↔ 新 UI 対応表</h1>
+<p class="lead">対象は origin/main（#114 マージ後）の <code>_daemon_dashboard_base.py</code> に登録された全ルートです。<br>
+JS から呼んでいる箇所（ファイル:関数）を現行 UI の入口として、試作 UI でどこに置くかを対応づけました。ダッシュボード以外から呼ばれるもの（スキル・拡張・CLI）は「UI 外」として分けています。</p>
+
+<div class="cards" id="cards"></div>
+
+<h2>要対応（未割当・部分的）</h2>
+<div id="todo"></div>
+
+<h2>全エンドポイント</h2>
+<div class="scroll"><table class="tbl" id="tbl">
+<thead><tr><th>エンドポイント</th><th>現行 UI の入口</th><th>呼び出し元（JS）</th><th>新 UI の割り当て先</th><th>状態</th></tr></thead>
+<tbody></tbody></table></div>
+
+<h2><code>/api/command</code> のサブコマンド</h2>
+<div class="scroll"><table class="tbl" id="cmdtbl">
+<thead><tr><th>サブコマンド</th><th>現行 UI の入口</th><th>呼び出し元（JS）</th><th>新 UI の割り当て先</th><th>状態</th></tr></thead>
+<tbody></tbody></table></div>
+
+<h2>バックエンドの変更が要るもの</h2>
+<div class="todo p"><h3>会議ごとの analyze を 3 状態（既定 / オン / オフ）にする</h3><ul>
+<li>現状：<code>MeetingConfig.DEFAULTS["analyze"]</code> が True のため、「書いていない」と「true と書いた」を区別できない。自動起動は <code>auto_analyze and analyze</code> なので、会議ごとの設定は止める方向にしか効かない</li>
+<li><code>domain/meeting_config.py</code>：analyze の既定を「未指定」にし、resolve で未指定・true・false を区別して返す</li>
+<li><code>_daemon_recorder_command.py</code> <code>_maybe_start_analysis</code>：true なら <code>auto_analyze</code> がオフでも起動、false なら起動しない、未指定なら <code>auto_analyze</code> に従う</li>
+<li><code>MeetingSettings.parse</code> / <code>POST /api/meeting-settings</code>：None は「変えない」なので、既定に戻す値（例 <code>"default"</code>）を受けてキーを消す。<code>GET</code> も 3 状態で返す</li>
+<li><code>GET /api/meeting-config/resolve</code>（clerk-meeting-helper が「analyze が偽なら監視しない」に使う）：明示的なオフのときだけ false を返す。手動で「会議を見て」と頼まれた場合は、自動起動の設定に関係なく監視する</li>
+</ul></div>
+<h2>エンドポイントを持たない現行機能（参考）</h2>
+<table class="tbl"><tbody>
+<tr><td>文字サイズ切替 <code>cycleFont</code></td><td>その他 ▾ →「Aあ 文字の大きさ」</td><td><span class="b ok">割当済</span></td></tr>
+<tr><td>ペイン切替 <code>cyclePanel</code>（T|R / T / R / AI）</td><td>🪟 表示メニュー（Alt+1..5）</td><td><span class="b ok">割当済</span></td></tr>
+<tr><td>アクティブファイルへ移動 <code>goActive</code>（★）</td><td>状態表示「● 会議中」クリック → 今の会議へ</td><td><span class="b part">要確認</span></td></tr>
+<tr><td>使い方 <code>openHelp</code></td><td>その他 ▾ →「❓ 使い方」</td><td><span class="b ok">割当済</span></td></tr>
+<tr><td>会議開始時の「AI アシスタントに見守ってもらう」（新 UI で追加）</td><td>開始モーダル：初期値は会議ごとの analyze（オン / オフ）、既定なら auto_analyze。チェックを外したら <code>/api/meeting {analyze:false}</code>、オフの状態から入れたら開始後に <code>/api/console/start</code></td><td><span class="b part">新規</span></td></tr>
+<tr><td>LLM Response パネル <code>#resp</code></td><td>未配置（カスタムコマンドの応答表示先）</td><td><span class="b ng">未割当</span></td></tr>
+</tbody></table>
+</div>
+
+<script>
+const OK="ok",PART="part",NG="ng",EXT="ext";
+const LABEL={ok:"割当済",part:"部分的",ng:"未割当",ext:"UI 外"};
+// [method, path, 現行入口, JS, 新UI, 状態, 備考]
+const ROWS=[
+ // ---- 状態・ストリーム
+ ["GET","/api/events","常時（SSE）","core:fetchStatus","ヘッダの状態表示・レベルメーター・各ペインの更新",OK],
+ ["GET","/api/status","常時（初期表示）","core:fetchStatus","ヘッダの状態表示（会議中／翻訳中／ミュート）",OK],
+ ["POST","/api/command","ヘッダの各トグル","panels:cmd","サブコマンド表を参照",OK],
+ // ---- ファイル・本文
+ ["GET","/api/files","左ペイン（日付／会議）","core:loadFiles, modals:openFileDelModal","左ペイン「日付」「会議」タブ",OK],
+ ["GET","/api/transcript","中央 Transcript","panels:loadT","中央の文字起こし",OK],
+ ["GET","/api/translation","右 Translation（T|R）","panels:loadR","🪟 表示「文字起こし＋翻訳」",OK],
+ ["GET","/api/file","ペイン見出しのファイル名リンク","core:setFileLabel","各ペインの「📄 開く」ボタン",OK],
+ ["GET","/api/search","左ペイン「検索」タブ","panels:(検索入力)","左ペイン「検索」タブ",OK],
+ ["GET","/api/attendees","S ペイン要約タブの参加者","panels:loadS","議事録タブの見出し下",NG,"試作に参加者表示がない"],
+ ["GET","/api/screenshot","AI 出力中の shot-*.png リンク","core:_fileRefLink","AI のアドバイス／分析内のファイル名リンク",NG,"linkifyFiles 相当（ファイル名→リンク）が試作にない"],
+ // ---- 要約・AI
+ ["GET","/api/summary","S ペイン「要約」タブ","panels:loadS","右ペイン「議事録」タブ",OK],
+ ["POST","/api/summary","ヘッダ「要約」／話者命名後の再生成","panels:genSummary, speakers:regenSummaryFor","議事録タブ「作り直す」（確認あり）",PART,"命名後の「作り直しますか？」導線は名前付けモーダルとあわせて未試作"],
+ ["GET","/api/advice","S ペイン AI タブ（左列）","panels:loadAdvice","右ペイン「AI のアドバイス」→ アドバイス列",OK],
+ ["GET","/api/analysis","S ペイン AI タブ（右列）","panels:loadAnalysis","右ペイン「AI のアドバイス」→ 分析列",OK],
+ // ---- 行操作・ファイル操作
+ ["POST","/api/transcript/delete","行選択 → 🗑","modals:doBulkDel","行選択バー「🗑 削除」／行メニュー",OK],
+ ["POST","/api/transcript/delete-file","Transcript 見出しの 🗑","modals:openFileDelModal","会議見出しの 🗑（くわしく表示）",PART,"ボタンはあるがモーダル未試作"],
+ ["POST","/api/transcript/merge-to-daily","🗑 モーダルの「日次ファイルに戻す」","modals:(delete-file と同モーダル)","会議見出しの 🗑 → 「日次ファイルに戻す」",PART,"切り出し画面の注記で言及しているだけ"],
+ ["POST","/api/transcript/extract-meeting","⏱ 切り出しモーダル（範囲）","modals:(newTypeVal)","行選択「✂ 会議として切り出す」／✂ ボタン",OK],
+ ["POST","/api/transcript/split-by-silence","⏱ 切り出しモーダル（沈黙で分割）","modals:(modeVal)","✂ 切り出しモーダル「沈黙で分ける」",OK],
+ ["POST","/api/transcript/rename-meeting","📂（ファイル）／✏（会議グループ）","panels:doRenameMtg, doRenameMtgGroup","📂 会議に結びつける／会議一覧の名前変更",OK],
+ // ---- 話者・声紋
+ ["GET","/api/speakers","👥 話者モーダル／行選択 👤","speakers:openSpeakerModal, openRelabelModal","👥「話している人に名前を付ける」",PART,"ボタンのみ（トースト）。モーダル未試作"],
+ ["POST","/api/speakers/assign","👥 話者モーダル保存","speakers:saveSpeakers, saveRelabel","👥 名前付けモーダル",PART,"同上"],
+ ["POST","/api/speakers/assign-lines","行選択 → 👤 付け直し","speakers:saveRelabel","行選択「👤 話した人を直す」モーダル",OK],
+ ["GET","/api/speakers/provisional","👥 話者モーダル（仮の名前候補）","speakers:loadProvisional","👥 名前付けモーダル内の候補",NG],
+ ["POST","/api/speakers/undo","👥 話者モーダル「取り消し」","speakers:undoNaming","名前付け後のトースト「元に戻す」",NG,"切り出しで使っている取り消しトーストを流用する案"],
+ ["GET","/api/speaker-groups","👥 話者モーダル（人のグループ）","speakers:loadSpeakerGroups","👥 名前付けモーダル",NG],
+ ["POST","/api/speaker-groups/set","👥 話者モーダル（グループ変更）","speakers:setPersonGroup","👥 名前付けモーダル",NG],
+ ["GET","/api/voiceprints","👥 話者モーダル（覚えた声一覧）","speakers:loadVoiceprints","置き場所なし",NG],
+ ["POST","/api/voiceprints/delete","👥 話者モーダル（声を削除）","speakers:deleteVoiceprint","置き場所なし",NG],
+ ["GET","/api/voiceprints/clusters","👥 話者モーダル（声の内訳を展開）","voiceprints:toggleVoiceprintClusters","置き場所なし",NG],
+ ["POST","/api/voiceprints/move","声の内訳 → 別の人へ移す","voiceprints:_vpClusterRow","置き場所なし",NG],
+ ["POST","/api/voiceprints/restore","声の内訳 → 元に戻す","voiceprints:_vpClusterRow","置き場所なし",NG],
+ ["POST","/api/voiceprints/delete-samples","声の内訳 → サンプル削除","voiceprints:_vpClusterRow","置き場所なし",NG],
+ ["POST","/api/voiceprints/enroll-self","👥 話者モーダル「自分の声を登録」","voiceprints:enrollSelfVoice","置き場所なし",NG],
+ ["POST","/api/voiceprints/export","👥 話者モーダル「書き出し」","voiceprints:exportVoiceprints","置き場所なし",NG],
+ ["POST","/api/voiceprints/import","👥 話者モーダル「読み込み」","voiceprints:importVoiceprints","置き場所なし",NG],
+ // ---- AI コンソール・ログ
+ ["GET","/api/console","下ペイン「コンソール」","console:loadConsole","下ドロワー「AI アシスタントの画面」／AI 中央表示のコンソール",OK],
+ ["POST","/api/console/start","下ペイン「起動」／AI タブの分析トグル","console:launchConsole, panels:toggleAnalysis","AI のアドバイスタブ「起動」",OK],
+ ["POST","/api/console/stop","下ペイン「停止」","console:stopConsole","AI のアドバイスタブ「止める」",OK],
+ ["POST","/api/console/input","コンソールへの入力","console:_postConsole","下ドロワーのコンソール入力",OK],
+ ["POST","/api/console/resize","コンソールの幅変更","console:reportConsoleCols","下ドロワー（表示時に自動）",OK],
+ ["GET","/api/logs","下ペイン「ログ」タブ","panels:loadLogs","下ドロワー「動作ログ」（くわしく表示）",OK],
+ // ---- 会議設定
+ ["GET","/api/meeting-config","workdir モーダル","console_side:openWorkdirModal","会議の設定（作業フォルダ）／Claude と会議の作業フォルダ",OK],
+ ["POST","/api/meeting-config","workdir モーダル保存","console_side:_postWorkdir","同上",OK],
+ ["GET","/api/meeting-settings","会議一覧の ⚙（まとめて設定）","meeting_settings:_msLoad","会議の設定（チェックで選んでまとめて設定。変えられるのは analyze / workdir / publish / publish_to / notion_url / publish_advice の6項目）",OK],
+ ["POST","/api/meeting-settings","同上 → 適用","meeting_settings:msApply","同上 → 保存",OK],
+ // ---- 設定
+ ["GET","/api/config","⚙ 設定ほか多数","settings:openCfg ほか","⚙ 設定／Claude と会議（性格・声・モデル）",PART,"⚙ 設定はメニュー項目のみ。中身は現行モーダルを流用する前提"],
+ ["POST","/api/config","⚙ 設定保存ほか","settings:saveCfg ほか","同上",PART,"同上（ペルソナ・声・カスタムコマンド・ようこそ非表示も含む）"],
+ ["GET","/api/models","⚙ 設定（モデル候補）","settings:fetchApiModels","⚙ 設定",PART],
+ ["GET","/api/config-presets","⚙ 設定（プリセット）","settings:loadCfgPresets","⚙ 設定",PART],
+ ["POST","/api/config-presets","⚙ 設定（プリセット保存）","settings:(name)","⚙ 設定",PART],
+ ["POST","/api/config-presets/delete","⚙ 設定（プリセット削除）","settings:(name)","⚙ 設定",PART],
+ ["GET","/api/forbid-analyze","⚙ 設定（分析しない話題）","settings:loadForbidAnalyze","⚙ 設定",PART],
+ ["POST","/api/forbid-analyze","同上 保存","settings:saveForbidAnalyze","⚙ 設定",PART],
+ ["GET","/api/audio-devices","⚙ 設定（入出力デバイス）","devices:loadAudioDevices","⚙ 設定",PART],
+ ["POST","/api/audio-devices/refresh","⚙ 設定（デバイス再読込）","devices:refreshAudioDevices","⚙ 設定",PART],
+ ["GET","/api/glossary","ヘッダ「用語集」","panels:openGlossary","その他 ▾ →「📖 用語集」",PART,"メニュー項目のみ。モーダルは現行流用"],
+ ["POST","/api/glossary","用語集モーダル保存","panels:saveGlossary","同上",PART],
+ ["GET","/api/gcal-events","ヘッダ 📅","panels:openGcal","その他 ▾ →「📅 今日の予定」／会議開始モーダルの候補",PART,"開始モーダルのヒント表示のみ"],
+ ["GET","/api/skill-status","起動時（スキル更新確認）","modals:_skillStatus","起動時のようこそ／更新モーダル",NG,"試作にない。現行モーダルのまま出す想定"],
+ ["POST","/api/skill-install","ようこそ／更新モーダル","modals:installSkill, updateOutdatedSkills","同上",NG],
+ // ---- Claude と会議
+ ["POST","/api/talk-mode","「Claude と会議」開始／終了","talk:talkPost","Claude と会議モーダル「開始」／トグル",OK],
+ ["GET","/api/talk-presets","Claude と会議モーダル（モード）","talk:loadTalkPresets","モーダル上部のモード選択",OK],
+ ["POST","/api/talk-presets","同上「保存」","talk:(name)","「今の設定をモードとして保存」",OK],
+ ["POST","/api/talk-presets/delete","同上「削除」","talk:(name)","モードの削除",NG,"モードチップに削除がない"],
+ ["GET","/api/talk-route-targets","Claude と会議モーダル（相手アプリ）","talk:fillRouteSel","アプリ一覧＋↻",OK],
+ ["GET","/api/talk-voices","声の設定モーダル","talk:openVoice","「🔈 声の設定」",PART,"ボタンのみ（トースト）"],
+ ["POST","/api/talk-preview","声の設定「試聴」","talk:previewVoice","「🔈 声の設定」",PART,"同上"],
+ ["POST","/api/talk-speech/ready","画面なし（ブラウザ読み上げ準備）","speech:initSpeech","画面なし（そのまま移植）",OK],
+ ["POST","/api/talk-speech/done","画面なし（読み上げ完了通知）","speech:onTalkSpeak","画面なし（そのまま移植）",OK],
+ ["POST","/api/say","画面なし（読み上げ）","speech","画面なし（そのまま移植）",OK,"スキルからも呼ばれる"],
+ // ---- UI 外
+ ["GET","/api/session","—","—","clerk-meeting-helper / clerk-talk スキル",EXT],
+ ["GET","/api/meeting-config/resolve","—","—","clerk-meeting-helper スキル（公開・調査）",EXT],
+ ["GET","/api/meeting-history","—","—","clerk-meeting-helper / clerk-practice スキル",EXT],
+ ["GET","/api/watch","—","—","スキル（文字起こしの監視）",EXT],
+ ["GET/POST","/api/generated","—","—","スキルが書き、AI タブに出る",EXT],
+ ["GET","/api/speaking","—","—","clerk-talk スキル",EXT],
+ ["GET/POST","/api/misheard","—","—","clerk-meeting-helper / clerk-talk スキル",EXT],
+ ["GET","/api/speaker-roster","—","—","clerk-meeting-helper スキル（終了処理）",EXT],
+ ["GET/POST","/api/pronounce","—","—","clerk-practice スキル",EXT],
+ ["POST","/api/talk-end","—","—","clerk-talk / clerk-practice スキル",EXT],
+ ["POST","/api/language","—","—","clerk-talk / clerk-practice スキル",EXT],
+ ["POST","/api/meeting","—","—","スキル（会議の開始・終了）",EXT],
+ ["POST","/api/mute","—","—","clerk-practice スキル",EXT],
+ ["POST","/api/summary/notify","—","—","clerk-util（CLI）",EXT],
+ ["POST","/api/screenshot","—","—","ブラウザ拡張（extension/background.js）",EXT],
+ ["GET","/","ダッシュボード本体","—","新 UI の HTML",OK],
+];
+const CMDS=[
+ ["start_meeting / end_meeting","ヘッダ「会議開始」","core:togMeeting","ヘッダ「会議開始」トグル＋開始モーダル",OK],
+ ["mute_mic / unmute_mic","Transcript 見出し 🎤","core:togMute","ヘッダ 🎤 トグル（レベルメーター付き）",OK],
+ ["mute_monitor / unmute_monitor","Transcript 見出し 🔊","core:togMute","ヘッダ 🔊 トグル（レベルメーター付き）",OK],
+ ["translate_start / translate_stop","ヘッダ「翻訳開始」","core:togTranslate","ヘッダ「翻訳」トグル",OK],
+ ["translate_regenerate","翻訳ペインの再生成","core:(regen)","翻訳の「作り直す」（確認あり）",OK],
+ ["ptt_on / ptt_off","ヘッダ PTT","core:togPTT","その他 ▾ →「⌨ 押して話す」（くわしく表示）",OK],
+ ["set_language / unset_language","ヘッダの言語セレクト","panels:onLangChange","その他 ▾ →「🗣 話す言語」／会議開始モーダル",OK],
+ ["カスタムコマンドの登録","ヘッダ「カスタムコマンド」","panels:openCustomCmds（/api/config）","その他 ▾ →「⚡ 音声コマンド」",PART,"登録・編集画面（説明文は訂正済み）。応答表示（LLM Response）の置き場所は未定"],
+];
+const esc=s=>String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const badge=s=>`<span class="b ${s}">${LABEL[s]}</span>`;
+let filter=null;
+function render(){
+  const count={ok:0,part:0,ng:0,ext:0};ROWS.forEach(r=>count[r[5]]++);
+  document.getElementById("cards").innerHTML=`<div class="card${filter?"":" act"}" data-f="">全部<b>${ROWS.length}</b></div>`
+    +Object.keys(LABEL).map(k=>`<div class="card${filter===k?" act":""}" data-f="${k}">${badge(k)}<b>${count[k]}</b></div>`).join("");
+  document.querySelector("#tbl tbody").innerHTML=ROWS.filter(r=>!filter||r[5]===filter).map(([m,p,cur,js,nu,s,n])=>
+    `<tr><td><span class="m">${m}</span><br><code>${p}</code></td><td>${esc(cur)}</td><td><code>${esc(js)}</code></td><td>${esc(nu)}${n?`<span class="note">${esc(n)}</span>`:""}</td><td>${badge(s)}</td></tr>`).join("");
+  document.querySelectorAll(".card").forEach(c=>c.onclick=()=>{filter=c.dataset.f||null;render();});
+}
+document.querySelector("#cmdtbl tbody").innerHTML=CMDS.map(([c,cur,js,nu,s,n])=>
+  `<tr><td><code>${c}</code></td><td>${esc(cur)}</td><td><code>${esc(js)}</code></td><td>${esc(nu)}${n?`<span class="note">${esc(n)}</span>`:""}</td><td>${badge(s)}</td></tr>`).join("");
+const TODO=[
+ ["ng","① 声紋の管理（voiceprints 系 8 本）に置き場所がない",["現行は 👥 話者モーダルの下半分に「覚えた声」一覧・内訳・移動・自分の声の登録・書き出し／読み込みがまとまっている","案：👥「話している人に名前を付ける」モーダルを現行どおり上下 2 段にし、下段を「覚えている声」として残す。または ⚙ 設定に「声の登録」ページを作る"]],
+ ["ng","② 話者の名前付けモーダルが未試作（speakers / provisional / undo / speaker-groups）",["👥 ボタンはあるがトーストのみ","仮の名前の候補、人のグループ、命名の取り消し、命名後の「議事録を作り直しますか？」まで含めて現行モーダルを移植する","取り消しは、切り出しで使っている取り消しトーストに揃える案"]],
+ ["ng","③ 起動時のスキル導入・更新モーダル（skill-status / skill-install）",["試作に入っていない。導線を変える必要はないので、現行のようこそ・更新モーダルをそのまま出す"]],
+ ["ng","④ AI 出力中のファイル名リンク（/api/screenshot GET と会議ファイルへのジャンプ）",["現行の linkifyFiles は、アドバイス・分析の文中の transcript-*.txt / shot-*.png をリンクにする","新 UI のアドバイス列・分析列でも同じ処理を通す"]],
+ ["ng","⑤ 参加者表示（/api/attendees）とモードの削除（/api/talk-presets/delete）",["参加者：議事録タブの見出し下に出す","モード削除：モードチップの「…」メニューか、保存ダイアログ側に置く"]],
+ ["part","⑥ 入口だけあって中身が現行モーダル流用のもの",["⚙ 設定（config / models / config-presets / forbid-analyze / audio-devices）","📖 用語集、📅 今日の予定、🔈 声の設定（talk-voices / talk-preview）、ペルソナ編集","🗑 会議ファイルの削除と「日次ファイルに戻す」（delete-file / merge-to-daily）"]],
+ ["part","⑦ カスタムコマンドの応答表示",["実行結果を出す LLM Response パネルの置き場所が新 UI にない（案：トースト、長いものは下ドロワーのタブ）"]],
+];
+document.getElementById("todo").innerHTML=TODO.map(([k,h,items])=>`<div class="todo${k==="part"?" p":""}"><h3>${esc(h)}</h3><ul>${items.map(i=>`<li>${esc(i)}</li>`).join("")}</ul></div>`).join("");
+render();
+</script>
+</body>
+</html>
