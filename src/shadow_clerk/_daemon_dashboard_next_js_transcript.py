@@ -136,9 +136,9 @@ function nxTxHtml(chunks){
 }
 /* 見出しの横に、transcript と翻訳をそのまま別タブで開くリンク（旧 UI のファイル名リンク） */
 function nxRenderFileOpen(){
-  const tx=nxFiles.some(x=>x.name===nxTxFile)?nxTxFile:'',el=nxEl('nxFileOpen'),k=tx+'\t'+nxTrFile;
+  const tx=nxFiles.some(x=>x.name===nxTxFile)?nxTxFile:'',tr=nxTrMap.size?nxTrFile:'',el=nxEl('nxFileOpen'),k=tx+'\t'+tr;
   if(el.dataset.k===k)return;
-  el.dataset.k=k;el.innerHTML=nxOpenLink(tx)+nxOpenLink(nxTrFile,'nx.open_tr');
+  el.dataset.k=k;el.innerHTML=nxOpenLink(tx)+nxOpenLink(tr,'nx.open_tr');
 }
 function nxRenderColHead(){
   const v=nxState.view,show=v==='TR'||v==='R',h=nxEl('nxColHead');
