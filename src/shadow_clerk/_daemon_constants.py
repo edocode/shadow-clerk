@@ -143,6 +143,8 @@ DEFAULT_CONFIG = {
     "default_language": None,
     "default_model": "small",
     "output_directory": None,
+    # 文字起こしの置き場所の区分。先頭が既定（非公開側）で、会議名のない記録もそこに入る
+    "transcript_categories": ["private", "sharable", "isolated"],
     "llm_provider": "claude",
     "api_endpoint": None,
     "api_model": None,
@@ -227,6 +229,8 @@ DEFAULT_CONFIG = {
     "ai_assistant_args": "",
     "ai_assistant_init_prompt": "/clerk-meeting-helper {transcript} {lang}",
     "ai_assistant_workdir": "",
+    # 会議中の AI が、会議のフォルダのほかに参考にしてよいフォルダ（全会議共通）。相対パスはデータフォルダから
+    "ai_reference_dirs": [],
     # 任意パスの配布先を覚える。組み込み (claude/agents) は常に見るので入らない
     "skill_install_targets": [],
     # Welcome モーダルで「再度表示しない」が選ばれたか。config.yaml の有無は

@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 import sys
 import tempfile
 import threading
@@ -13,6 +14,7 @@ os.environ["SHADOW_CLERK_DATA_DIR"] = DATA
 
 import pytest  # noqa: E402
 
+from shadow_clerk._transcript_layout import TranscriptLayout  # noqa: E402
 from shadow_clerk._daemon_dashboard_ops import _DashboardHandlerOps  # noqa: E402
 from shadow_clerk._daemon_dashboard_ops_speaker_groups import _DashboardHandlerSpeakerGroupOps  # noqa: E402
 from shadow_clerk._daemon_dashboard_ops_speakers import _DashboardHandlerSpeakerOps  # noqa: E402
@@ -55,13 +57,13 @@ def sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
     import shadow_clerk._daemon_speaker_names as names_mod
     import shadow_clerk._daemon_dashboard_ops_speaker_groups as groups_mod
     for f in os.listdir(DATA):
-        os.remove(os.path.join(DATA, f))
+        (shutil.rmtree if os.path.isdir(os.path.join(DATA, f)) else os.remove)(os.path.join(DATA, f))
     monkeypatch.setattr(names_mod, "SPEAKER_NAMES_FILE", os.path.join(DATA, "speaker_names.json"))
     import shadow_clerk._daemon_voiceprint_store as store_mod
     monkeypatch.setattr(store_mod, "VOICEPRINTS_FILE", os.path.join(DATA, "voiceprints.json"))
     monkeypatch.setattr(groups_mod, "load_config", lambda: dict(CFG))
     assert os.path.dirname(SpeakerNameBook().path) == DATA
-    with open(os.path.join(DATA, MTG), "w", encoding="utf-8") as f:
+    with open(TranscriptLayout(DATA).path(MTG) or "", "w", encoding="utf-8") as f:
         f.write("[2026-10-15 10:00:01] [太郎] よろしく\n[2026-10-15 10:00:02] [自分] どうも\n")
 
 

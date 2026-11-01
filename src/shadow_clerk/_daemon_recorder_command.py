@@ -13,6 +13,7 @@ import threading
 import time
 
 from shadow_clerk.i18n import t
+from shadow_clerk._transcript_layout import TranscriptLayout
 from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name
 from shadow_clerk.domain import MEETING_END_MARKER, MeetingSession, meeting_start_marker
 from shadow_clerk.domain.meeting_config import MeetingConfig
@@ -240,7 +241,7 @@ class _RecorderCommandMixin:
         if tn is None:
             logger.warning("_auto_summarize: TranscriptName パース失敗: %s", basename)
             return
-        summary_path = os.path.join(self._output_dir, tn.summary_filename)
+        summary_path = os.path.join(os.path.dirname(transcript_path), tn.summary_filename)
         summary_name = tn.summary_filename
 
         # summary_source に応じてソースファイルを切り替え
@@ -468,11 +469,15 @@ class _RecorderCommandMixin:
                 except Exception:
                     pass
 
+    def _transcript_path(self, filename: str) -> str:
+        """回に属するファイル名を、その回のフォルダ（区分 / 会議名）のパスにする"""
+        return TranscriptLayout.from_config(root=self._output_dir).path(filename) or os.path.join(self._output_dir, filename)
+
     def _resolve_translate_target(self, date_arg: str) -> str | None:
         """date_arg が指定されていれば transcript パスに解決。空なら None（→ self.output_path を使用）。"""
         if not date_arg.strip():
             return None
-        path = os.path.join(self._output_dir, TranscriptName.from_date_str(date_arg.strip()).filename)
+        path = self._transcript_path(TranscriptName.from_date_str(date_arg.strip()).filename)
         logger.info("翻訳対象ファイル指定: %s", os.path.basename(path))
         return path
 
@@ -535,10 +540,8 @@ class _RecorderCommandMixin:
         talk の Claude が自分で Advice / Analysis を書くので、アシスタントを立てると記入が二重になる
         """
         now = datetime.datetime.now()
-        name_suffix = f"@{meeting_name}" if meeting_name else ""
-        filename = now.strftime(f"transcript-%Y%m%d%H%M{name_suffix}.txt")
         with self.transcript_lock:
-            self.output_path = os.path.join(self._output_dir, filename)
+            self.output_path = self._transcript_path(TranscriptName(now.strftime("%Y%m%d%H%M"), meeting_name).filename)
             with open(self.output_path, "a", encoding="utf-8") as f:
                 f.write(meeting_start_marker(now))
             self.current_session = MeetingSession.start(self.output_path, now, analyze)

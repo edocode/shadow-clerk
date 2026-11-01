@@ -244,6 +244,9 @@ def main() -> None:
     from shadow_clerk.skill_install import migrate_init_prompt
     migrate_legacy()
     migrate_init_prompt()
+    from shadow_clerk._transcript_layout import migrate_flat_files
+    from shadow_clerk._daemon_constants import SESSION_FILE
+    migrate_flat_files(SESSION_FILE)
 
     # PID ファイルを書き込む（clerk-util recorder-status で使用）
     _write_pid_file()

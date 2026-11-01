@@ -73,7 +73,7 @@ _NEXT_HTML_TEMPLATE = (
     "    <div id=\"nxSearch\" style=\"display:none\"></div>\n"
     "  </aside>\n"
     "  <main id=\"nxMain\">\n"
-    "    <div class=\"mhead\" id=\"nxMainHead\"><h2 id=\"nxFileTitle\"></h2>"
+    "    <div class=\"mhead\" id=\"nxMainHead\"><h2 id=\"nxFileTitle\"></h2><span id=\"nxFileOpen\"></span>"
     "<button class=\"lbtn\" id=\"nxSpeakersBtn\" title=\"{{i18n:nx.spk_btn_title}}\">{{i18n:nx.spk_btn}}</button>"
     "<button class=\"lbtn\" id=\"nxMeetingNameBtn\" title=\"{{i18n:nx.rec_name_title}}\">{{i18n:nx.rec_name_btn}}</button>"
     "<button class=\"lbtn adv-only\" id=\"nxFileDelBtn\" title=\"{{i18n:nx.fd_btn_title}}\">🗑</button></div>\n"

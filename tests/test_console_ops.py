@@ -19,6 +19,12 @@ from shadow_clerk._daemon_dashboard_ops_console import (  # noqa: E402
 results: list[bool] = []
 
 
+
+def _at(root: str, name: str) -> str:
+    """記録のファイルはその回のフォルダ（区分 / 会議名）、それ以外は root 直下"""
+    from shadow_clerk._transcript_layout import TranscriptLayout
+    return TranscriptLayout(root).path(name) or os.path.join(root, name)
+
 def check(label: str, ok: bool, detail: str = "") -> None:
     print(f"[{'PASS' if ok else 'FAIL'}] {label} {detail}")
     results.append(ok)
@@ -51,15 +57,21 @@ class _FakeHandler(Ops):
 class _FakeConsole:
     """start_console_for のロジックだけを検証するための偽 ConsoleSession"""
 
-    def __init__(self, running: bool) -> None:
+    def __init__(self, running: bool, workdir: str = "") -> None:
         self.running = running
         self.calls: list[str] = []
+        self.workdir = workdir or os.path.expanduser("~")
+        self.argv: list[str] = []
 
     def is_running(self) -> bool:
         return self.running
 
+    def stop(self) -> None:
+        self.running = False
+        self.calls.append("stop")
+
     def start_if_stopped(self, argv: list[str], workdir: str) -> tuple[bool, bool]:
-        self.workdir = workdir
+        self.workdir, self.argv = workdir, argv
         started = not self.running
         self.running = True
         self.calls.append("start_if_stopped")
@@ -138,7 +150,7 @@ def test_start_console_rejects_path_escape() -> None:
         h = _FakeHandler({"transcript": good})
         h._start_console()
         check("正常なファイル名は output_dir を前置する",
-              recorded[-1] == os.path.join(_OUTPUT_DIR, good), recorded[-1])
+              recorded[-1] == _at(_OUTPUT_DIR, good), recorded[-1])
 
         for bad in ("..", ".", "/etc/passwd", "notes.md", "../../etc/passwd",
                     "transcript-202609071200@a/b.txt"):
@@ -173,6 +185,28 @@ def test_start_console_for_always_uses_send_after_ready() -> None:
                   not any(c.startswith("write:") for c in fake.calls), str(fake.calls))
         finally:
             _console_mod.get_console = orig_get_console
+
+
+def test_start_console_in_meeting_folder() -> None:
+    """会議中のアシスタントは会議のフォルダで起動し、参考フォルダを --add-dir で渡す。別の会議のフォルダで動いていれば起動し直す"""
+    import shadow_clerk._daemon_console as _console_mod
+    from shadow_clerk._transcript_layout import TranscriptLayout
+    root = os.path.join(os.environ["SHADOW_CLERK_DATA_DIR"], "layout")
+    ref = os.path.join(root, "sharable")
+    os.makedirs(ref, exist_ok=True)
+    path = TranscriptLayout(root).path("transcript-202610011000@acme.txt") or ""
+    orig_get_console, orig_load = _console_mod.get_console, _console_mod.load_config
+    fake = _FakeConsole(running=True, workdir="/elsewhere")
+    _console_mod.get_console = lambda: fake
+    _console_mod.load_config = lambda: {"output_directory": root, "ai_reference_dirs": ["sharable"],
+                                        "ai_assistant_command": "claude"}
+    try:
+        _console_mod.start_console_for(path)
+        check("会議のフォルダで起動する", fake.workdir == os.path.dirname(path), fake.workdir)
+        check("別のフォルダのアシスタントは起動し直す", "stop" in fake.calls, str(fake.calls))
+        check("参考フォルダを --add-dir で渡す", fake.argv[-2:] == ["--add-dir", ref], str(fake.argv))
+    finally:
+        _console_mod.get_console, _console_mod.load_config = orig_get_console, orig_load
 
 
 def test_start_console_can_skip_the_prompt() -> None:
@@ -313,6 +347,7 @@ def main() -> int:
     test_stop_when_not_running()
     test_start_console_rejects_path_escape()
     test_start_console_for_always_uses_send_after_ready()
+    test_start_console_in_meeting_folder()
     test_start_console_can_skip_the_prompt()
     test_start_console_for_without_prompt_writes_nothing()
     test_launch_button_is_on_the_console()

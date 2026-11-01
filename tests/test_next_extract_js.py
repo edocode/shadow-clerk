@@ -19,6 +19,7 @@ import threading
 
 os.environ["SHADOW_CLERK_DATA_DIR"] = tempfile.mkdtemp(prefix="shadow-clerk-extract-")
 
+from shadow_clerk._transcript_layout import TranscriptLayout  # noqa: E402
 from shadow_clerk._daemon_dashboard_handler import DashboardHandler  # noqa: E402
 from shadow_clerk._daemon_dashboard_next_js_core import _NEXT_JS_CORE  # noqa: E402
 from shadow_clerk._daemon_dashboard_next_js_extract import _NEXT_JS_EXTRACT  # noqa: E402
@@ -82,13 +83,18 @@ class _Noop:
         return lambda *a, **k: None
 
 
+def _at(out_dir: str, name: str) -> str:
+    """記録のファイルの置き場所（区分 / 会議名のフォルダ）"""
+    return TranscriptLayout(out_dir).path(name) or ""
+
+
 class _Rec:
     def __getattr__(self, name: str) -> object:
         return _Noop()
 
     def __init__(self, out_dir: str) -> None:
         self._output_dir = out_dir
-        self.output_path = os.path.join(out_dir, "transcript-20261031.txt")
+        self.output_path = _at(out_dir, "transcript-20261031.txt")
         self.transcript_lock = threading.Lock()
 
     def _execute_command(self, cmd: str) -> None:
@@ -116,7 +122,7 @@ class _Handler(DashboardHandler):
 def _server_split(lines: list[str], minutes: int, rng: list[int] | None) -> dict:
     """server の split-by-silence を一時ディレクトリで実行し、できた会議ファイルの先頭・末尾の時刻を返す"""
     out_dir = tempfile.mkdtemp(prefix="split-", dir=os.environ["SHADOW_CLERK_DATA_DIR"])
-    daily = os.path.join(out_dir, "transcript-20261031.txt")
+    daily = _at(out_dir, "transcript-20261031.txt")
     with open(daily, "w", encoding="utf-8") as f:
         f.write("".join(l + "\n" for l in lines))
     body: dict = {"file": "transcript-20261031.txt", "min_silence_minutes": minutes}
@@ -129,11 +135,11 @@ def _server_split(lines: list[str], minutes: int, rng: list[int] | None) -> dict
         return {"segs": None}
     # 応答の files（作った会議ファイル名）だけを読む。ディレクトリにできたものと一致すること
     files = h.sent.get("files")
-    if files != sorted(n for n in os.listdir(out_dir) if re.fullmatch(r"transcript-\d{12}\.txt", n)):
+    if files != sorted(n for n in TranscriptLayout(out_dir).files() if re.fullmatch(r"transcript-\d{12}\.txt", n)):
         return {"segs": "files mismatch", "files": files}
     segs = []
     for name in files:
-        with open(os.path.join(out_dir, name), encoding="utf-8") as f:
+        with open(_at(out_dir, name), encoding="utf-8") as f:
             got = [m.group(1) for l in f if (m := _TS.match(l))]
         segs.append([got[0], got[-1]])
     left = []
@@ -147,16 +153,16 @@ def _server_split(lines: list[str], minutes: int, rng: list[int] | None) -> dict
 def _server_extract(target: str, name: str) -> tuple[dict, list[str]]:
     """server の extract-meeting を一時ディレクトリで実行し、応答とディレクトリの会議ファイル名を返す"""
     out_dir = tempfile.mkdtemp(prefix="extract-", dir=os.environ["SHADOW_CLERK_DATA_DIR"])
-    with open(os.path.join(out_dir, "transcript-20261031.txt"), "w", encoding="utf-8") as f:
+    with open(_at(out_dir, "transcript-20261031.txt"), "w", encoding="utf-8") as f:
         f.write("".join(l + "\n" for l in _DAILY))
     if target != "new":
-        with open(os.path.join(out_dir, target), "w", encoding="utf-8") as f:
+        with open(_at(out_dir, target), "w", encoding="utf-8") as f:
             f.write("[2026-10-31 09:00:00] [alice] earlier\n")
     h = _Handler(out_dir, "/api/transcript/extract-meeting", {
         "file": "transcript-20261031.txt", "start_ts": "2026-10-31 10:00:00", "end_ts": "2026-10-31 10:24:00",
         "target": target, "name": name})
     h.do_POST()
-    return h.sent, sorted(n for n in os.listdir(out_dir) if re.fullmatch(r"transcript-\d{12}(@[^.]+)?\.txt", n))
+    return h.sent, sorted(n for n in TranscriptLayout(out_dir).files() if re.fullmatch(r"transcript-\d{12}(@[^.]+)?\.txt", n))
 
 
 _FILES = {

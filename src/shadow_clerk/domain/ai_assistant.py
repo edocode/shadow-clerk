@@ -5,6 +5,7 @@ import os
 import re
 import shlex
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from shadow_clerk._daemon_constants import DEFAULT_CONFIG
@@ -57,8 +58,18 @@ class AiAssistantConfig:
             workdir=_get("ai_assistant_workdir"),
         )
 
-    def argv(self) -> list[str]:
-        return [self.command, *self.args]
+    def argv(self, add_dirs: Iterable[str] = (), settings_from: str = "") -> list[str]:
+        """起動コマンド。add_dirs は作業ディレクトリのほかに読んでよいフォルダ（--add-dir）。
+        settings_from に .claude/settings.json があれば --settings で読ませる——会議のフォルダで起動しても、
+        従来の作業ディレクトリで許可したスキルのコマンドが承認プロンプトで止まらない。
+        どちらも Claude Code にだけ渡す（ほかの CLI は同じ引数を持たない）"""
+        if not os.path.basename(self.command).startswith("claude"):
+            return [self.command, *self.args]
+        # ホームの .claude/settings.json はユーザー設定そのもので、もともと読まれる
+        home = settings_from == os.path.expanduser("~")
+        settings = os.path.join(settings_from, ".claude", "settings.json") if settings_from and not home else ""
+        return [self.command, *self.args, *(a for d in add_dirs for a in ("--add-dir", d)),
+                *(("--settings", settings) if os.path.isfile(settings) else ())]
 
     def resolve_init_prompt(self, transcript: str, meeting: str, lang: str = "") -> str:
         """{transcript} {meeting} {lang} を展開する。未知のキーは literal のまま残す。
@@ -69,6 +80,12 @@ class AiAssistantConfig:
         """
         values = {"transcript": transcript, "meeting": meeting, "lang": lang}
         return _PLACEHOLDER.sub(lambda m: values[m.group(1)], self.init_prompt)
+
+    def meeting_workdir(self, meeting: str) -> str:
+        """会議ごとの作業ディレクトリ設定 → 全体の設定 → ホーム。会議中のアシスタントは会議のフォルダで起動し、
+        これは参考フォルダとして足す（Git リポジトリなど）"""
+        from shadow_clerk.domain.meeting_config import MeetingConfig
+        return self.resolve_workdir(MeetingConfig.load().resolve_workdir(meeting))
 
     def resolve_workdir(self, override: str = "") -> str:
         """起動ディレクトリを決める。override → 設定 → ホーム の順"""

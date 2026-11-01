@@ -81,6 +81,8 @@ class MeetingSettings:
     notion_url: str | None = None
     publish_advice: bool | None = None
     analyze: bool | Literal["default"] | None = None
+    category: str | None = None
+    reference_dirs: tuple[str, ...] | None = None
 
     @classmethod
     def parse(cls, data: object) -> "MeetingSettings":
@@ -100,12 +102,20 @@ class MeetingSettings:
         if notion_url is not None and not (isinstance(notion_url, str) and (
                 not notion_url.strip() or notion_url.strip().startswith("https://"))):
             raise ValueError("notion_url must be an https URL")
+        category, refs = data.get("category"), data.get("reference_dirs")
+        if category is not None and not isinstance(category, str):
+            raise ValueError("category must be a string")
+        if refs is not None and not (isinstance(refs, list) and all(isinstance(r, str) for r in refs)):
+            raise ValueError("reference_dirs must be a list of strings")
         return cls(publish, workdir.strip() if workdir is not None else None, publish_to,
-                   notion_url.strip() if notion_url is not None else None, publish_advice, analyze)
+                   notion_url.strip() if notion_url is not None else None, publish_advice, analyze,
+                   category.strip() if category is not None else None,
+                   tuple(r.strip() for r in refs if r.strip()) if refs is not None else None)
 
     def fields(self) -> dict:
-        """書く値（None と "default" を除く）"""
-        return {k: v for k, v in vars(self).items() if v is not None and v != "default"}
+        """書く値（None と "default" を除く）。YAML に書くので tuple は list にする"""
+        return {k: list(v) if isinstance(v, tuple) else v
+                for k, v in vars(self).items() if v is not None and v != "default"}
 
     def cleared(self) -> list[str]:
         """会議のルールから消して既定に戻すキー"""
@@ -166,7 +176,8 @@ class MeetingConfig:
     #: `analyze` の None は未指定で、AI アシスタントを起動するかは全体の auto_analyze に従う
     DEFAULTS = {"analyze": None, "verbosity": "normal", "interval": 25,
                 "publish": True, "publish_to": "artifact", "notion_url": "", "publish_advice": False,
-                "workdir": "", "history": 3, "research": []}
+                "workdir": "", "history": 3, "research": [],
+                "category": "", "reference_dirs": []}
 
     def _first_match(self, meeting_name: str) -> tuple[int, dict | None]:
         """meetings[] を上から照合し、最初に一致したルールと raw 上の位置を返す"""
@@ -204,6 +215,9 @@ class MeetingConfig:
         resolved["workdir"] = (os.path.expanduser(str(resolved["workdir"]))
                                if resolved["workdir"] else "")
         resolved["research"] = self._research(resolved.get("research"))
+        refs = resolved.get("reference_dirs")
+        resolved["reference_dirs"] = [str(r) for r in refs if r] if isinstance(refs, list) else []
+        resolved["category"] = str(resolved.get("category") or "")
         glossary = self.raw.get("glossary")
         return {**resolved, "matched": matched, "note": note,
                 "config_path": self.path,

@@ -5,6 +5,7 @@ import io
 import json
 import os
 import sys
+import shutil
 import tempfile
 import threading
 
@@ -42,7 +43,7 @@ LINES = [
 class _Rec:
     def __init__(self, active: str = "") -> None:
         self._output_dir = DATA
-        self.output_path = os.path.join(DATA, active) if active else ""
+        self.output_path = _p(active) if active else ""
         self.transcript_lock = threading.Lock()
         self.rewrite_journal = TranscriptRewriteJournal()
         self.translating: set[str] = set()
@@ -78,7 +79,9 @@ def _vec(seed: int) -> np.ndarray:
 
 
 def _p(name: str) -> str:
-    return os.path.join(DATA, name)
+    """記録のファイルはその回のフォルダ（区分 / 会議名）、それ以外はデータフォルダ直下"""
+    from shadow_clerk._transcript_layout import TranscriptLayout
+    return TranscriptLayout(DATA).path(name) or os.path.join(DATA, name)
 
 
 @pytest.fixture(autouse=True)
@@ -99,7 +102,7 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
 def meeting(isolated: None) -> None:
     for f in os.listdir(DATA):
         if f != "config.yaml":
-            os.remove(_p(f))
+            (shutil.rmtree if os.path.isdir(os.path.join(DATA, f)) else os.remove)(os.path.join(DATA, f))
     with open(_p(MTG), "w", encoding="utf-8") as f:
         f.writelines(LINES)
     with open(_p(TR), "w", encoding="utf-8") as f:

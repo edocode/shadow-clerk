@@ -34,6 +34,12 @@ from shadow_clerk.domain.transcript_rewrite import REWRITE_HISTORY  # noqa: E402
 results: list[bool] = []
 
 
+
+def _at(root: str, name: str) -> str:
+    """記録のファイルはその回のフォルダ（区分 / 会議名）、それ以外は root 直下"""
+    from shadow_clerk._transcript_layout import TranscriptLayout
+    return TranscriptLayout(root).path(name) or os.path.join(root, name)
+
 def check(label: str, ok: bool, detail: str = "") -> None:
     print(f"[{'PASS' if ok else 'FAIL'}] {label} {detail}")
     results.append(ok)
@@ -113,7 +119,7 @@ L = [f"[2026-10-04 10:0{i}:00] [自分] 発言その{i}です\n" for i in range(
 
 
 def test_delete_records_rewrite_and_remaps_offset() -> None:
-    path = os.path.join(DATA, "transcript-20261001.txt")
+    path = _at(DATA, "transcript-20261001.txt")
     _write(path, "".join(L[:4]))
     _write(path + ".translate_offset", str(_b("".join(L[:3]))))
     rec = _Rec(path)
@@ -125,7 +131,7 @@ def test_delete_records_rewrite_and_remaps_offset() -> None:
 
 
 def test_extract_meeting_records_rewrite() -> None:
-    path = os.path.join(DATA, "transcript-20261004.txt")
+    path = _at(DATA, "transcript-20261004.txt")
     _write(path, "".join(L[:4]))
     _write(path + ".translate_offset", str(_b("".join(L[:3]))))
     rec = _Rec(path)
@@ -152,7 +158,7 @@ def _run_watch(rec: _Rec, during: callable) -> str:
 
 def test_watch_after_shrinking_delete_no_resend() -> None:
     """消した分が大きく、ファイルが読み位置より短くなっても全体を送り直さない"""
-    path = os.path.join(DATA, "transcript-20261002.txt")
+    path = _at(DATA, "transcript-20261002.txt")
     _write(path, "".join(L[:5]))
     rec = _Rec(path)
     new = "[2026-10-04 10:09:00] [自分] 新しい\n"
@@ -163,7 +169,7 @@ def test_watch_after_shrinking_delete_no_resend() -> None:
 
 def test_watch_after_small_delete_no_partial() -> None:
     """消した分が小さく、読み位置がずれた中身を指しても断片を送らない"""
-    path = os.path.join(DATA, "transcript-20261003.txt")
+    path = _at(DATA, "transcript-20261003.txt")
     _write(path, "".join(L[:5]))
     rec = _Rec(path)
     new = "[2026-10-04 10:09:00] [自分] 新しい長めの発言がここに入ります\n"
@@ -173,11 +179,11 @@ def test_watch_after_small_delete_no_partial() -> None:
 
 
 def _translate_env(name: str, lines: list[str], done: int) -> tuple[_Rec, str, str]:
-    path = os.path.join(DATA, name)
+    path = _at(DATA, name)
     _write(path, "".join(lines))
     _write(path + ".translate_offset", str(done))
     lang = load_config().get("translate_language", "ja")
-    tr_path = os.path.join(DATA, TranscriptName.parse(name).translation_filename(lang))
+    tr_path = os.path.join(os.path.dirname(path), TranscriptName.parse(name).translation_filename(lang))
     _write(tr_path, "訳0\n")
     return _Rec(path), path, tr_path
 
@@ -242,8 +248,8 @@ def test_translate_discards_after_invalidate() -> None:
 
 def test_merge_to_daily_records_invalidate() -> None:
     """録音先の日次ファイルへ会議をマージしても、監視ストリームは会議を送り直さない"""
-    daily = os.path.join(DATA, "transcript-20261009.txt")
-    mtg = os.path.join(DATA, "transcript-202610090900@acme.txt")
+    daily = _at(DATA, "transcript-20261009.txt")
+    mtg = _at(DATA, "transcript-202610090900@acme.txt")
     _write(daily, "[2026-10-09 08:00:00] [自分] 朝の行\n[2026-10-09 10:00:00] [自分] 後の行\n")
     _write(mtg, "--- 会議開始 ---\n[2026-10-09 09:00:00] [相手] 会議の発言です\n--- 会議終了 ---\n")
     rec = _Rec(daily)

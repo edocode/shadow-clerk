@@ -255,7 +255,7 @@ def main() -> None:
         "summary-202610201529@ad-hoc.md", "#transcript-202610201529%40ad-hoc.txt", "",
         "transcript-202610201529@ad-hoc.txt", "sum"]], repr(links[0]))
     check("キャプチャは /api/screenshot?file= を別タブ", links[1] == [[
-        "shot-202609081610@勉強会-161622.png", f"/api/screenshot?file=shot-202609081610%40{enc}-161622.png", "_blank",
+        "shot-202609081610@勉強会-161622.png", f"/api/screenshot?file=shot-202609081610%40{enc}-161622.png&transcript=transcript-20261020.txt", "_blank",
         "transcript-20261020.txt", "x"]], repr(links[1]))
     check("翻訳は元の transcript へ、表示中なら開き直さない",
           links[2][0] == ["transcript-20261020-en.txt", "#transcript-20261020.txt", "", "transcript-20261020.txt", "x"],

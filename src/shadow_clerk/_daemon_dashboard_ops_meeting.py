@@ -7,8 +7,9 @@ import logging
 import os
 import re
 from shadow_clerk.i18n import t
-from shadow_clerk._daemon_dashboard_base import transcript_path_in
+from shadow_clerk._daemon_dashboard_base import transcript_file, transcript_path_in
 from shadow_clerk._daemon_config import load_config
+from shadow_clerk._transcript_layout import carry_shots
 from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name
 from shadow_clerk.domain import MEETING_END_MARKER, TranscriptRewrite, meeting_start_marker
 from shadow_clerk._daemon_naming_history import NamingHistoryError, split_history
@@ -61,7 +62,6 @@ class _DashboardHandlerMeetingOps:
             self.send_error(400)
             return
 
-        output_dir = self.recorder._output_dir
         t_path = transcript_path_in(self.recorder._output_dir, file_param) or ""
         if not t_path or not os.path.exists(t_path):
             self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
@@ -97,17 +97,21 @@ class _DashboardHandlerMeetingOps:
             if target == "new":
                 meeting_ts = start_ts.replace("-", "").replace(" ", "").replace(":", "")[:12]
                 meeting_name = TranscriptName(meeting_ts, name or None).filename
-                meeting_path = os.path.join(output_dir, meeting_name)
+                meeting_path = transcript_file(self.recorder, meeting_name)
                 # 会議開始/終了マーカー付きで作成
                 with open(meeting_path, "w", encoding="utf-8") as f:
                     f.write(_start_marker_at(start_ts))
                     f.writelines(extracted)
                     f.write(MEETING_END_MARKER)
                 self._move_naming_to(t_path, meeting_path, start_ts, end_ts)
+                carry_shots(extracted, os.path.dirname(t_path), os.path.dirname(meeting_path))
             else:
                 # 既存会議ファイルにマージ
                 meeting_name = os.path.basename(target)
-                meeting_path = os.path.join(output_dir, meeting_name)
+                meeting_path = transcript_path_in(self.recorder._output_dir, meeting_name)
+                if not meeting_path:
+                    self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
+                    return
                 existing_lines = []
                 if os.path.exists(meeting_path):
                     with open(meeting_path, "r", encoding="utf-8") as f:
@@ -115,6 +119,7 @@ class _DashboardHandlerMeetingOps:
                 merged = self._merge_meeting_lines(existing_lines, extracted)
                 with open(meeting_path, "w", encoding="utf-8") as f:
                     f.writelines(merged)
+                carry_shots(extracted, os.path.dirname(t_path), os.path.dirname(meeting_path))
 
             # 日次 transcript から抽出行を削除（一時ファイル→rename で安全に書き戻し）
             self._atomic_write_lines(t_path, remaining)
@@ -127,8 +132,8 @@ class _DashboardHandlerMeetingOps:
             lang = config.get("translate_language", "ja")
             _src_tn = TranscriptName.parse(os.path.basename(t_path))
             _meeting_tn = TranscriptName.parse(meeting_name)
-            tr_path = os.path.join(output_dir, _src_tn.translation_filename(lang)) if _src_tn else None
-            meeting_tr_path = os.path.join(output_dir, _meeting_tn.translation_filename(lang)) if _meeting_tn else None
+            tr_path = os.path.join(os.path.dirname(t_path), _src_tn.translation_filename(lang)) if _src_tn else None
+            meeting_tr_path = transcript_file(self.recorder, _meeting_tn.translation_filename(lang)) if _meeting_tn else None
             # meeting_tr_path が None（会議ファイル名がパース不能）の場合は
             # open(None) で落とさず翻訳の移動をスキップする
             if tr_path and meeting_tr_path and os.path.exists(tr_path):
@@ -243,7 +248,6 @@ class _DashboardHandlerMeetingOps:
             self.send_error(400)
             return
 
-        output_dir = self.recorder._output_dir
         t_path = transcript_path_in(self.recorder._output_dir, file_param) or ""
         if not t_path or not os.path.exists(t_path):
             self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
@@ -362,13 +366,14 @@ class _DashboardHandlerMeetingOps:
                     continue
                 meeting_ts = first_ts.replace("-", "").replace(" ", "").replace(":", "")[:12]
                 meeting_name = TranscriptName(meeting_ts, None).filename
-                meeting_path = os.path.join(output_dir, meeting_name)
+                meeting_path = transcript_file(self.recorder, meeting_name)
                 with open(meeting_path, "w", encoding="utf-8") as f:
                     f.write(_start_marker_at(first_ts))
                     f.writelines(l for _, l in seg)
                     f.write(MEETING_END_MARKER)
                 seg_ts = [m.group(1) for _, l in seg if (m := ts_pattern.match(l))]
                 self._move_naming_to(t_path, meeting_path, seg_ts[0], seg_ts[-1])
+                carry_shots((l for _, l in seg), os.path.dirname(t_path), os.path.dirname(meeting_path))
                 created.append(meeting_name)
 
             # 元ファイルから分割済み行を削除（一時ファイル→rename で安全に書き戻し）
@@ -377,14 +382,14 @@ class _DashboardHandlerMeetingOps:
             self._record_rewrite(t_path, TranscriptRewrite.removing(all_lines, list(consumed)), old_offset)
 
             # 翻訳ファイルを各セグメントのタイムスタンプ範囲で分割
-            tr_path = os.path.join(output_dir, _src_tn.translation_filename(lang)) if _src_tn else None
+            tr_path = os.path.join(os.path.dirname(t_path), _src_tn.translation_filename(lang)) if _src_tn else None
             if tr_path and os.path.exists(tr_path):
                 for meeting_name, seg in zip(created, segments):
                     seg_ts_list = [ts_pattern.match(l).group(1) for _, l in seg if ts_pattern.match(l)]
                     if not seg_ts_list:
                         continue
                     _meeting_tn = TranscriptName.parse(meeting_name)
-                    meeting_tr_path = os.path.join(output_dir, _meeting_tn.translation_filename(lang)) if _meeting_tn else None
+                    meeting_tr_path = transcript_file(self.recorder, _meeting_tn.translation_filename(lang)) if _meeting_tn else None
                     self._extract_translation_lines(tr_path, meeting_tr_path, min(seg_ts_list), max(seg_ts_list), is_new=True)
 
         # FileWatcher の SSE オフセットは新サイズに合わせる
@@ -396,7 +401,7 @@ class _DashboardHandlerMeetingOps:
         source_deleted = self._check_and_cleanup_empty_transcript(t_path)
 
         # 自動要約・翻訳トリガー
-        created_paths = [os.path.join(output_dir, name) for name in created]
+        created_paths = [transcript_file(self.recorder, name) for name in created]
         self._trigger_auto_jobs_for_meetings(created_paths, is_new=True)
 
         resp: dict = {

@@ -22,10 +22,10 @@ from shadow_clerk._daemon_constants import (
     CONSOLE_TYPE_MAX_RETRIES, CONSOLE_TYPE_SCAN_ROWS, CONSOLE_TYPE_VERIFY_SEC,
     CONSOLE_COLS_FILE, CONSOLE_PTY_ROWS, DEFAULT_COLS, VIRTUAL_ROWS,
 )
+from shadow_clerk._transcript_layout import TranscriptLayout
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain import ConsoleRole
 from shadow_clerk.domain.ai_assistant import AiAssistantConfig
-from shadow_clerk.domain.meeting_config import MeetingConfig
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -652,25 +652,24 @@ def start_console_for(transcript_path: str, auto: bool = False,
     `/resume` で拾い直したいときに要る——初期プロンプトが入ると、拾う前に
     新しい会話が始まってしまう。
 
-    ここは HTTP ハンドラではなくオーケストレーション処理なので
-    _daemon_console.py に置く。以前はダッシュボードの HTTP 層
-    (_daemon_dashboard_ops_console.py) に置かれており、録音経路
-    (_daemon_recorder_command.py) が録音とは無関係な HTTP ハンドラ層に
-    依存する層の逆転が起きていた。加えて _daemon_log_buffer.py は同じ
-    関数を _poll() の中で遅延 import しており(こちらは advice/analysis の
-    ファイル名ヘルパのためで、循環 import になるため今もそのまま)、
-    同じ関数の import 方針がモジュールごとに矛盾していた。
-    ConsoleSession 自体(および pyte)への依存は録音がこの機能を呼び出す
-    以上もともと避けられない
+    作業ディレクトリはその回のフォルダ（同じ会議の過去回が見える）。参考フォルダ（全体 + 会議ごと）と従来の
+    作業ディレクトリ設定（Git リポジトリなど）を足す。別の会議のフォルダで動くアシスタントは起動し直す
     """
     config = load_config()
     ai = AiAssistantConfig.from_config(config)
     tn = TranscriptName.parse(os.path.basename(transcript_path)) if transcript_path else None
     meeting = (tn.meeting_name or "") if tn else ""
-    workdir = ai.resolve_workdir(MeetingConfig.load().resolve_workdir(meeting))
+    layout = TranscriptLayout.from_config(config)
+    legacy = ai.meeting_workdir(meeting)
+    folder = os.path.dirname(transcript_path) if tn else ""
+    workdir = folder if os.path.isdir(folder) else legacy
+    refs = [d for d in layout.reference_dirs(meeting, [legacy]) if d != workdir]
 
     console = get_console()
-    ok, _started = console.start_if_stopped(ai.argv(), workdir)
+    if console.is_running() and console.workdir != workdir:
+        logger.info("AI コンソールを会議のフォルダで起動し直します (%s -> %s)", console.workdir, workdir)
+        console.stop()
+    ok, _started = console.start_if_stopped(ai.argv(refs, legacy), workdir)
     if not ok:
         return False
     console.transcript = os.path.basename(transcript_path)  # /api/status の console_transcript

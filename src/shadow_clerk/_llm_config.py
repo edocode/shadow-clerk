@@ -57,17 +57,11 @@ def load_dotenv() -> None:
 def resolve_path(filename: str, config: dict) -> str:
     """ファイル名からフルパスを解決する。
 
-    transcript-*/summary-* → output_directory（設定時）またはデータディレクトリ
+    会議の回に属するファイル（transcript-* / summary-* など）→ その回のフォルダ
     それ以外 → データディレクトリ
     """
-    output_dir = DATA_DIR
-    out_config = config.get("output_directory")
-    if out_config:
-        output_dir = os.path.expanduser(out_config)
-
-    if filename.startswith("transcript-") or filename.startswith("summary-"):
-        return os.path.join(output_dir, filename)
-    return os.path.join(DATA_DIR, filename)
+    from shadow_clerk._transcript_layout import TranscriptLayout
+    return TranscriptLayout.from_config(config).path(filename) or os.path.join(DATA_DIR, filename)
 
 
 # --- reasoning/thinking モデル対応 ---

@@ -17,7 +17,7 @@ let nxAiBusy=false;
 const nxFileRefRe=/(?<![\w-])(?:(transcript|summary|analysis|advice)-(\d{8}(?:\d{4})?(?:@[^\s`'"|\/\\<>()（）「」、。,]+?)?)(?:-[a-z]{2})?\.(?:txt|md)|shot-\d{8}[^\s`'"|\/\\<>()（）「」、。,]*?\.png)/g;
 function nxFileRefLink(m){
   const a=document.createElement('a');a.textContent=m[0];
-  if(!m[1]){a.href='/api/screenshot?file='+encodeURIComponent(m[0]);a.target='_blank';a.rel='noopener';return a;}
+  if(!m[1]){a.href='/api/screenshot?file='+encodeURIComponent(m[0])+'&transcript='+encodeURIComponent(nxState.cur||'');a.target='_blank';a.rel='noopener';return a;}
   // 翻訳 (transcript-…-en.txt) は元の transcript に寄せる
   const f=[m[1]==='transcript'&&m[0],'transcript-'+m[2]+'.txt'].find(c=>c&&nxFiles.some(x=>x.name===c));
   if(!f)return null;
@@ -136,10 +136,6 @@ function nxP(key){return nxEsc(I18N[key]).replace(/\n/g,'<br>');}
 function nxEmptyHtml(ic,h,p,btn){
   return '<div class="empty">'+(ic?'<div class="ic">'+ic+'</div>':'<div class="spinner"></div>')+'<h3>'+nxEsc(I18N[h])+'</h3>'
     +'<p>'+nxP(p)+'</p>'+(btn||'')+'</div>';
-}
-function nxOpenLink(name){
-  return name?'<a class="lbtn sm" href="/api/file?name='+encodeURIComponent(name)+'" target="_blank" rel="noopener" title="'
-    +nxEsc(name)+'">'+nxEsc(I18N['nx.open'])+'<span class="fname adv-only"> '+nxEsc(name)+'</span></a>':'';
 }
 function nxAttHtml(){
   const l=nxRt.att;
