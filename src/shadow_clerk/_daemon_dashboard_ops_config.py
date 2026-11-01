@@ -9,7 +9,7 @@ import urllib.parse
 import urllib.request
 import yaml
 from shadow_clerk.i18n import t
-from shadow_clerk._daemon_constants import GLOSSARY_FILE, CONFIG_PRESETS_FILE, TALK_PRESETS_FILE, DEFAULT_CONFIG
+from shadow_clerk._daemon_constants import GLOSSARY_FILE, CONFIG_PRESETS_FILE, TALK_PRESETS_FILE, DEFAULT_CONFIG, BUILTIN_TALK_PRESETS
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_voiceprint_store import VoiceprintStore, VoiceprintStoreError
 from shadow_clerk._transcript_layout import TranscriptLayout, carry_shots
@@ -141,12 +141,16 @@ class _DashboardHandlerConfigOps:
         logger.info("ダッシュボードから設定変更")
         self._send_json({"config": config, "warnings": _path_warnings(config)})
 
-    def _read_presets(self, path: str) -> list:
+    @staticmethod
+    def _read_presets_file(path: str) -> dict:
         try:
             with open(path, "r", encoding="utf-8") as f:
-                return (yaml.safe_load(f) or {}).get("presets", [])
+                return yaml.safe_load(f) or {}
         except OSError:
-            return []
+            return {}
+
+    def _read_presets(self, path: str) -> list:
+        return self._read_presets_file(path).get("presets", [])
 
     def _write_presets(self, path: str, presets: list) -> None:
         self._atomic_write_lines(
@@ -190,8 +194,22 @@ class _DashboardHandlerConfigOps:
         logger.info("設定プリセット削除: %s", name)
         self._send_json({"status": "ok"})
 
+    def _read_talk_presets(self) -> tuple[list, list]:
+        """(保存したモード, 消した組み込みモードの名前)"""
+        data = self._read_presets_file(TALK_PRESETS_FILE)
+        return data.get("presets") or [], data.get("removed_builtins") or []
+
+    def _write_talk_presets(self, presets: list, removed: list) -> None:
+        data: dict = {"presets": presets}
+        if removed:
+            data["removed_builtins"] = removed
+        self._atomic_write_lines(TALK_PRESETS_FILE, [yaml.dump(data, default_flow_style=False, allow_unicode=True)])
+
     def _serve_talk_presets(self) -> None:
-        self._send_json({"presets": self._read_presets(TALK_PRESETS_FILE)})
+        presets, removed = self._read_talk_presets()
+        names = {p.get("name") for p in presets}
+        builtins = [dict(p) for p in BUILTIN_TALK_PRESETS if p["name"] not in names and p["name"] not in removed]
+        self._send_json({"presets": builtins + presets})
 
     def _save_talk_preset(self) -> None:
         try:
@@ -205,9 +223,10 @@ class _DashboardHandlerConfigOps:
         if not name or not isinstance(fields, dict):
             self.send_error(400)
             return
-        existing = [p for p in self._read_presets(TALK_PRESETS_FILE) if p.get("name") != name]
+        presets, removed = self._read_talk_presets()
+        existing = [p for p in presets if p.get("name") != name]
         existing.append({"name": name, "fields": fields})
-        self._write_presets(TALK_PRESETS_FILE, existing)
+        self._write_talk_presets(existing, removed)
         logger.info("Talkプリセット保存: %s", name)
         self._send_json({"status": "ok"})
 
@@ -222,8 +241,10 @@ class _DashboardHandlerConfigOps:
         if not name:
             self.send_error(400)
             return
-        existing = [p for p in self._read_presets(TALK_PRESETS_FILE) if p.get("name") != name]
-        self._write_presets(TALK_PRESETS_FILE, existing)
+        presets, removed = self._read_talk_presets()
+        if any(p["name"] == name for p in BUILTIN_TALK_PRESETS) and name not in removed:
+            removed = [*removed, name]
+        self._write_talk_presets([p for p in presets if p.get("name") != name], removed)
         logger.info("Talkプリセット削除: %s", name)
         self._send_json({"status": "ok"})
 

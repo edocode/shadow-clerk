@@ -276,6 +276,14 @@ LOG_FILE = os.path.join(DATA_DIR, "daemon.log")
 GLOSSARY_FILE = os.path.join(DATA_DIR, "glossary.txt")
 CONFIG_PRESETS_FILE = os.path.join(DATA_DIR, "config-presets.yaml")
 TALK_PRESETS_FILE = os.path.join(DATA_DIR, "talk-presets.yaml")
+# 最初から入っている「Claude と会話」のモード。消すと talk-presets.yaml の removed_builtins に残り、出なくなる。
+# 同じ名前で保存すれば、保存したほうが使われる
+BUILTIN_TALK_PRESETS: tuple[dict, ...] = (
+    {"name": "英語の練習", "fields": {"topic": "英語の練習をしたい", "skill": "clerk-practice"}},
+    {"name": "Japanese Lesson", "fields": {"topic": "I want to practice Japanese.", "skill": "clerk-practice"}},
+    {"name": "会議の振り返り", "fields": {"topic": "会議での自分の話し方を振り返りたい",
+                                        "skill": "clerk-conversation-retrospective"}},
+)
 
 # 音声コマンド検出パターン生成
 # 既知のウェイクワードには Whisper の誤認識揺れを許容するパターンを用意

@@ -10,6 +10,7 @@ from shadow_clerk._daemon_talk import TalkStartError
 from shadow_clerk._daemon_tts import TtsError
 from shadow_clerk.domain import Language, PronunciationTask, SpeechTab, TalkVoice
 from shadow_clerk.i18n import t
+from shadow_clerk.skill_install import TALK_SUB_SKILLS
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -73,13 +74,13 @@ class _DashboardHandlerTalkOps:
         self._send_json({"status": "ok"})
 
     def _set_talk_mode(self) -> None:
-        """POST /api/talk-mode {on, topic?, persona?, workdir?, route?, glossary?, early_reply?} — persona は null で既定、"" で persona なし"""
+        """POST /api/talk-mode {on, topic?, persona?, workdir?, route?, glossary?, early_reply?, skill?} — persona は null で既定、"" で persona なし"""
         data = read_local_json_body(self, "talk")
         if data is None:
             return
         on, topic, persona = data.get("on"), data.get("topic", ""), data.get("persona")
         workdir, route = data.get("workdir"), data.get("route")
-        glossary, early_reply = data.get("glossary", True), data.get("early_reply", True)
+        glossary, early_reply, skill = data.get("glossary", True), data.get("early_reply", True), data.get("skill", "")
         if not isinstance(on, bool):
             self._send_json({"status": "error", "message": "on must be a boolean"})
             return
@@ -95,6 +96,9 @@ class _DashboardHandlerTalkOps:
         if route is not None and (not isinstance(route, str) or len(route) > _MAX_ROUTE_CHARS):
             self._send_json({"status": "error", "message": "route must be a short string"})
             return
+        if skill not in ("", *TALK_SUB_SKILLS):
+            self._send_json({"status": "error", "message": f"skill must be one of {', '.join(TALK_SUB_SKILLS)}"})
+            return
         for key, value in (("glossary", glossary), ("early_reply", early_reply)):
             if not isinstance(value, bool):
                 self._send_json({"status": "error", "message": f"{key} must be a boolean"})
@@ -104,7 +108,7 @@ class _DashboardHandlerTalkOps:
             talk.stop()
         else:
             try:
-                talk.start(topic.strip(), persona, workdir, route or None, glossary, early_reply)
+                talk.start(topic.strip(), persona, workdir, route or None, glossary, early_reply, skill)
             except TalkStartError as e:
                 self._send_json({"status": "error", "message": str(e)})
                 return
