@@ -231,6 +231,7 @@ function nxRightInit(){
   nxOn('console',nxOnConsoleSse);
   // 議事録の完了通知（現行と同じ alert、本文に summary-<stem>.md）。開いているファイルの議事録を名指ししたときだけ読み直す
   nxOn('alert',d=>{
+    if(d.kind==='command_api_error'){if(d.message)alert(d.message);return;}
     if(d.message)nxToast(d.message);
     const f=nxRt.file,sum=f&&f.replace(/^transcript-/,'summary-').replace(/\.txt$/,'.md');
     if(sum&&(d.message||'').includes(sum))nxLoadRight(f,false);

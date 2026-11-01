@@ -42,7 +42,7 @@ class _RecorderCommandMixin:
             return suffix.sub("", text).strip()
         return None
 
-    def _match_command_body(self, text: str) -> str | None:
+    def _match_command_body(self, text: str, *, llm_fallback: bool = True) -> str | None:
         """プレフィックス/サフィックスなしでコマンドマッチ（Push-to-Talk 用）"""
         body = text.strip()
         if not body:
@@ -57,9 +57,18 @@ class _RecorderCommandMixin:
                 return f"custom_exec {action}"
         # 3. LLM フォールバック（API 設定済み or claude プロバイダの場合）
         config = load_config()
-        if body and (config.get("api_endpoint") or config.get("llm_provider") == "claude"):
+        if llm_fallback and (config.get("api_endpoint") or config.get("llm_provider") == "claude"):
             return f"llm_query {body}"
         return None
+
+    def _execute_local_command(self, text: str) -> bool:
+        """定型コマンドは外部 API の可用性に依存せず実行する。"""
+        command = self._match_command_body(text, llm_fallback=False)
+        if command is None:
+            return False
+        logger.info("音声コマンド検出 (local): %s → %s", text, command)
+        self._execute_command(command)
+        return True
 
     def _get_command_list(self) -> list[str]:
         """ビルトイン + カスタムコマンドのパターン説明リストを生成"""
@@ -70,6 +79,8 @@ class _RecorderCommandMixin:
 
     def _spell_and_match(self, text: str, timestamp: str = "", display_speaker: str = "") -> None:
         """spell-check で誤字訂正してからパターンマッチを実行する"""
+        if self._execute_local_command(text):
+            return
         corrected = text
         try:
             result = subprocess.run(
@@ -96,8 +107,18 @@ class _RecorderCommandMixin:
             logger.info("音声コマンド不一致 (PTT+spell): '%s' (訂正後: '%s')", text, corrected)
             logger.info(t("rec.voice_cmd_fail", text=text, confidence=0))
 
+    def _notify_command_api_error(self, text: str) -> None:
+        """聞き取り成功後の判定エラーをダッシュボードにも伝える。"""
+        message = t("dash.alert_cmd_api_error", text=text)
+        logger.warning(message)
+        if watcher := getattr(self, "_file_watcher", None):
+            watcher._broadcast("alert", json.dumps({"message": message, "kind": "command_api_error"}, ensure_ascii=False))
+
     def _llm_match_and_execute(self, text: str) -> None:
         """LLM にコマンドマッチングを依頼し、confidence が高ければ実行する"""
+        if self._execute_local_command(text):
+            return
+        logger.info("音声コマンド認識: %s (API で判定)", text)
         commands = self._get_command_list()
         payload = json.dumps({"text": text, "commands": commands}, ensure_ascii=False)
 
@@ -109,13 +130,16 @@ class _RecorderCommandMixin:
             )
             if result.returncode != 0:
                 logger.warning("match-command 失敗: %s", result.stderr.strip())
+                self._notify_command_api_error(text)
                 return
             response = json.loads(result.stdout.strip())
         except subprocess.TimeoutExpired:
             logger.warning("match-command タイムアウト")
+            self._notify_command_api_error(text)
             return
         except (json.JSONDecodeError, Exception) as e:
             logger.warning("match-command レスポンスエラー: %s", e)
+            self._notify_command_api_error(text)
             return
 
         command = response.get("command", "")
