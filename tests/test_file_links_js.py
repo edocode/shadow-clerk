@@ -66,7 +66,7 @@ def main() -> None:
         [["sel", "transcript-202610201529@ad-hoc.txt"], ["tab", "summary"]]]], repr(out[0]))
     check("キャプチャは画像を別タブで開く", out[1] == [[
         "shot-202609081610@勉強会-161622.png",
-        f"/api/screenshot?file=shot-202609081610%40{enc}-161622.png", "_blank", []]], repr(out[1]))
+        f"/api/screenshot?file=shot-202609081610%40{enc}-161622.png&transcript=transcript-20261020.txt", "_blank", []]], repr(out[1]))
     check("翻訳は元の transcript へ、表示中なら選び直さない",
           out[2][0] == ["transcript-20261020-en.txt", "#transcript-20261020.txt", "", []], repr(out[2]))
     check("analysis / advice は AI タブを出す",

@@ -16,9 +16,11 @@ from urllib.parse import urlparse, parse_qs
 
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_constants import SESSION_FILE
-from shadow_clerk._daemon_dashboard_base import is_localhost_client, read_local_json_body
+from shadow_clerk._daemon_dashboard_base import is_localhost_client, read_local_json_body, transcript_file
+from shadow_clerk._transcript_layout import TranscriptLayout
 from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name
 from shadow_clerk.domain import Language, Speaker, TranscriptLine
+from shadow_clerk.domain.ai_assistant import AiAssistantConfig
 from shadow_clerk.domain.meeting_config import MeetingConfig
 
 logger = logging.getLogger("shadow-clerk")
@@ -127,7 +129,7 @@ class _DashboardHandlerSkillOps:
             return
         path = self.recorder.output_path
         tn = TranscriptName.parse(os.path.basename(path))
-        out_dir = self.recorder._output_dir
+        out_dir = os.path.dirname(path)
         try:
             st = os.stat(path)
             with open(path, "rb") as f:
@@ -167,6 +169,11 @@ class _DashboardHandlerSkillOps:
             return
         meeting = (self._skill_query().get("meeting") or [""])[0]
         resolved = MeetingConfig.load().resolve(meeting)
+        layout = TranscriptLayout.from_config(root=self.recorder._output_dir)
+        # 会議中の AI の作業ディレクトリと、それ以外に読んでよいフォルダ
+        resolved["folder"] = layout.meeting_folder(meeting) if meeting else ""
+        resolved["reference_dirs"] = layout.reference_dirs(
+            meeting, [AiAssistantConfig.from_config(load_config()).meeting_workdir(meeting)])
         # 進行中の会議にこの回だけの指定（開始モーダル・clerk-practice）があればそれを返す。
         # スキルは「analyze が偽なら監視しない」と読むので、未指定（None）は監視する側に倒す
         session = getattr(self.recorder, "current_session", None)
@@ -196,14 +203,10 @@ class _DashboardHandlerSkillOps:
         if not meeting or count == 0:
             self._send_json({"status": "ok", "meetings": []})
             return
-        out_dir = self.recorder._output_dir
+        paths = TranscriptLayout.from_config(root=self.recorder._output_dir).files()
         target = _norm(meeting)
         rows = []
-        try:
-            names = os.listdir(out_dir)
-        except OSError:
-            names = []
-        for name in names:
+        for name in paths:
             tn = TranscriptName.parse(name)
             if tn is None or not tn.meeting_name or _norm(tn.meeting_name) != target:
                 continue
@@ -215,8 +218,7 @@ class _DashboardHandlerSkillOps:
             if tn.filename == current:
                 continue          # 進行中の回は履歴ではない
             def _p(fname: str) -> str:
-                full = os.path.join(out_dir, fname)
-                return full if os.path.isfile(full) else ""
+                return paths.get(fname, "")
             row: dict[str, object] = {
                 "datetime": tn.label,
                 "meeting": tn.meeting_name,
@@ -415,9 +417,7 @@ class _DashboardHandlerSkillOps:
                        min(WATCH_INTERVAL_RANGE[1], _int("interval", WATCH_INTERVAL_DEFAULT)))
         idle_alert = max(0, _int("idle", WATCH_IDLE_DEFAULT))
         name = (q.get("file") or [""])[0]
-        path = (os.path.join(self.recorder._output_dir, name)
-                if name and os.path.basename(name) == name
-                else self.recorder.output_path)
+        path = (transcript_file(self.recorder, name) if name else "") or self.recorder.output_path
         follow = not name
         kind = (q.get("kind") or ["transcript"])[0]
         want_interim = (q.get("interim") or ["0"])[0] in ("1", "true")

@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlparse
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_constants import SELF_ENROLL_SEC
-from shadow_clerk._daemon_dashboard_base import read_local_json_body
+from shadow_clerk._daemon_dashboard_base import read_local_json_body, transcript_file
 from shadow_clerk._daemon_naming_history import NamingHistoryError, read_history
 from shadow_clerk._daemon_speaker_naming import relabel_lines_where
 from shadow_clerk._daemon_voice_sidecar import mark_no_enroll, read_voices
@@ -98,7 +98,7 @@ class _DashboardHandlerVoiceprintOps:
     def _history_labels(self, source: str, name: str, timestamps: set[str]) -> list[str]:
         """名前付け履歴から分かる、そのサンプルを name に足したときの元のラベル。履歴が無い・読めなければ空"""
         try:
-            records = read_history(os.path.join(self.recorder._output_dir, source))
+            records = read_history(transcript_file(self.recorder, source))
         except NamingHistoryError as e:
             logger.warning("名前付けの履歴を読めない: %s", e)
             return []
@@ -152,7 +152,7 @@ class _DashboardHandlerVoiceprintOps:
         with self.recorder.transcript_lock:
             for source, ts in _timestamps_by_source(keys).items():
                 try:
-                    mark_no_enroll(os.path.join(self.recorder._output_dir, source), name, ts)
+                    mark_no_enroll(transcript_file(self.recorder, source), name, ts)
                 except OSError as e:
                     logger.error("サイドカーに印を付けられない: %s", e)
         self._send_json({"status": "ok", "removed": removed, "message": t("dash.vp_deleted_samples", count=removed)})

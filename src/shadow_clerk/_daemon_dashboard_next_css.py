@@ -122,7 +122,7 @@ header { display:flex; align-items:center; gap:10px; padding:10px 14px; border-b
 .app.aimode .rbody { padding:18px 28px; }
 main.narrow .tx { padding-left:10px; padding-right:10px; }
 /* 細い列では 時刻・話した人 を 1 段目、本文（と翻訳）を 2 段目に置く */
-main.narrow .ln, main.narrow .ln.tr, main.narrow .ln.ro { grid-template-columns:18px 40px minmax(0,1fr) 22px; row-gap:0; }
+main.narrow .ln, main.narrow .ln.tr, main.narrow .ln.ro { grid-template-columns:18px 58px minmax(0,1fr) 22px; row-gap:0; }
 main.narrow .ln .ts { grid-column:2; grid-row:1; } main.narrow .ln .who { grid-column:3; grid-row:1; }
 main.narrow .ln .txt, main.narrow .ln .trn { grid-column:2 / 4; } main.narrow .ln .more { grid-column:4; grid-row:1; }
 aside { background:var(--panel); border-right:1px solid var(--line); overflow:auto; padding:8px; }
@@ -261,14 +261,14 @@ main { container-type:inline-size; }
 .banner { margin:8px 16px 0; padding:8px 12px; border-radius:8px; font-size:12.5px; display:none; }
 .banner.show { display:block; }
 .banner.warn { background:rgba(245,158,11,.14); color:var(--warn-fg); border:1px solid rgba(245,158,11,.35); }
-.colhead { display:none; grid-template-columns:18px 46px 70px 1fr 1fr 28px; gap:8px; font-size:11px; color:var(--muted); padding:6px 16px 0; }
-.colhead.show { display:grid; } .colhead.ro { grid-template-columns:18px 46px 70px 1fr 28px; }
+.colhead { display:none; grid-template-columns:18px 62px 70px 1fr 1fr 28px; gap:8px; font-size:11px; color:var(--muted); padding:6px 16px 0; }
+.colhead.show { display:grid; } .colhead.ro { grid-template-columns:18px 62px 70px 1fr 28px; }
 /* 行の右端の ⋯ の列までまたいで、ボタンを右端に寄せる */
 .trh { display:flex; align-items:center; gap:4px; white-space:nowrap; grid-column:span 2; }
 .trh a { color:inherit; text-decoration:none; }
-.ln { display:grid; grid-template-columns:18px 46px 70px 1fr 28px; gap:8px; padding:4px 0 4px 4px; line-height:1.6;
+.ln { display:grid; grid-template-columns:18px 62px 70px 1fr 28px; gap:8px; padding:4px 0 4px 4px; line-height:1.6;
   border-radius:6px; cursor:pointer; user-select:none; position:relative; }
-.ln.tr { grid-template-columns:18px 46px 70px 1fr 1fr 28px; }
+.ln.tr { grid-template-columns:18px 62px 70px 1fr 1fr 28px; }
 .ln:hover { background:var(--chip); }
 .ln .ts { color:var(--muted); font-size:.92em; font-variant-numeric:tabular-nums; }
 .ln .who { font-weight:bold; font-size:.96em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

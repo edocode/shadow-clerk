@@ -26,6 +26,12 @@ from shadow_clerk.domain import TranscriptRewriteJournal  # noqa: E402
 results: list[bool] = []
 
 
+
+def _at(root: str, name: str) -> str:
+    """記録のファイルはその回のフォルダ（区分 / 会議名）、それ以外は root 直下"""
+    from shadow_clerk._transcript_layout import TranscriptLayout
+    return TranscriptLayout(root).path(name) or os.path.join(root, name)
+
 def check(label: str, ok: bool, detail: str = "") -> None:
     print(f"[{'PASS' if ok else 'FAIL'}] {label} {detail}")
     results.append(ok)
@@ -41,7 +47,7 @@ class _Handler(Ops):
         self.sent: dict = {}
         self.recorder = type("_Rec", (), {
             "_output_dir": DATA,
-            "output_path": os.path.join(DATA, active),
+            "output_path": _at(DATA, active),
             "output_switch_offset": {},
             "stop_event": threading.Event(),
             "transcript_lock": threading.Lock(),
@@ -53,7 +59,7 @@ class _Handler(Ops):
 
 
 def _touch(name: str, body: str = "x\n") -> str:
-    p = os.path.join(DATA, name)
+    p = _at(DATA, name)
     with open(p, "w", encoding="utf-8") as f:
         f.write(body)
     return p
@@ -87,7 +93,7 @@ def test_session_returns_generated_paths() -> None:
     h._serve_session()
     check("会議名を返す", h.sent.get("meeting") == "週次定例", repr(h.sent.get("meeting")))
     check("advice の絶対パス",
-          h.sent.get("advice") == os.path.join(DATA, "advice-202609081132@週次定例.md"),
+          h.sent.get("advice") == _at(DATA, "advice-202609081132@週次定例.md"),
           repr(h.sent.get("advice")))
     check("存在しない attendees は空",
           h.sent.get("attendees") == "", repr(h.sent.get("attendees")))
@@ -323,7 +329,7 @@ def test_watch_interim_streams_changes_only_when_asked() -> None:
 
 
 def _append(name: str, body: str) -> None:
-    with open(os.path.join(DATA, name), "a", encoding="utf-8") as f:
+    with open(_at(DATA, name), "a", encoding="utf-8") as f:
         f.write(body)
 
 
@@ -371,7 +377,7 @@ def test_watch_follows_output_path() -> None:
     th.start()
     time.sleep(0.3)
     _touch(new, "[2026-10-04 00:00:01] [自分] 次の日\n")
-    h.recorder.output_path = os.path.join(DATA, new)
+    h.recorder.output_path = _at(DATA, new)
     time.sleep(1.2)
     _append(new, "[2026-10-04 00:00:05] [自分] 続き\n")
     time.sleep(1.2)
@@ -388,7 +394,7 @@ def test_watch_follows_output_path() -> None:
 
 def _switch(h: _Stream, name: str) -> None:
     """recorder が書き込み先を変えるのを真似る。移った時点の大きさを覚える"""
-    p = os.path.join(DATA, name)
+    p = _at(DATA, name)
     h.recorder.output_switch_offset[p] = os.path.getsize(p) if os.path.exists(p) else 0
     h.recorder.output_path = p
 
@@ -444,7 +450,7 @@ def test_recorder_records_size_at_switch() -> None:
     r.output_switch_offset = {}
     existing = _touch("transcript-20261009.txt", "abc\n")
     r.output_path = existing
-    missing = os.path.join(DATA, "transcript-20261010.txt")
+    missing = _at(DATA, "transcript-20261010.txt")
     r.output_path = missing
     check("移った時点の大きさを覚える", r.output_switch_offset == {existing: 4, missing: 0}
           and r.output_path == missing, repr(r.output_switch_offset))
@@ -459,7 +465,7 @@ def test_watch_with_file_stays() -> None:
     th = threading.Thread(target=h._serve_watch, daemon=True)
     th.start()
     time.sleep(0.3)
-    h.recorder.output_path = os.path.join(DATA, b)
+    h.recorder.output_path = _at(DATA, b)
     _append(b, "[2026-10-06 10:00:00] [自分] 別のファイル\n")
     _append(a, "[2026-10-05 10:00:00] [自分] 指定のファイル\n")
     time.sleep(1.2)

@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlparse
 
 from shadow_clerk.i18n import t
 from shadow_clerk._daemon_config import load_config
-from shadow_clerk._daemon_dashboard_base import read_local_json_body
+from shadow_clerk._daemon_dashboard_base import read_local_json_body, transcript_file
 from shadow_clerk._transcript_attendees import read_attendees
 from shadow_clerk._daemon_provisional_naming import ProvisionalNamingError, read_provisional, write_provisional
 from shadow_clerk._daemon_naming_history import NamingHistoryError, append_history, mark_undone, read_history
@@ -25,6 +25,7 @@ from shadow_clerk._daemon_voice_sidecar import (
 )
 from shadow_clerk._daemon_voiceprint_clusters import voiceprint_number
 from shadow_clerk._daemon_voiceprint_store import StoreChange, VoiceprintStore, VoiceprintStoreError
+from shadow_clerk._transcript_layout import TranscriptLayout
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain.naming_history import NamingRecord
 from shadow_clerk.domain.provisional_naming import ProvisionalNaming
@@ -60,7 +61,7 @@ class _DashboardHandlerSpeakerOps:
         base = os.path.basename(file_param)
         if TranscriptName.parse(base) is None:
             return None
-        path = os.path.join(self.recorder._output_dir, base)
+        path = transcript_file(self.recorder, base)
         return path if os.path.isfile(path) else None
 
     def _is_active_transcript(self, path: str) -> bool:
@@ -565,10 +566,9 @@ class _DashboardHandlerSpeakerOps:
         """全サイドカーから name の埋め込みを消し、消した件数を返す"""
         removed = 0
         with self.recorder.transcript_lock:
-            for f in sorted(os.listdir(self.recorder._output_dir)):
+            for f, vp in sorted(TranscriptLayout.from_config(root=self.recorder._output_dir).files().items()):
                 if not f.endswith(".voices.jsonl"):
                     continue
-                vp = os.path.join(self.recorder._output_dir, f)
                 try:
                     kept = voice_lines_without_label(vp, name)
                     if kept is None:

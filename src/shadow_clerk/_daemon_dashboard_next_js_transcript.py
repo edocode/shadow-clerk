@@ -92,7 +92,7 @@ function nxTrCell(l,only){
 function nxLineHtml(l,i){
   const v=nxState.view,showTr=v==='TR'||v==='R',only=v==='R';
   return '<div class="ln'+(only?' ro':showTr?' tr':'')+(nxSel.has(i)?' sel':'')+'" data-i="'+i+'"><span class="cb"></span>'
-    +'<span class="ts" title="'+nxEsc(l.ts)+'">'+nxEsc(nxHm(l))+'</span>'
+    +'<span class="ts" title="'+nxEsc(l.ts)+'">'+nxEsc(l.ts.slice(11,19))+'</span>'
     +'<span class="who '+l.cls+'" title="'+nxEsc(nxWho(l))+'">'+nxEsc(nxWho(l))+'</span>'
     +(only?'':'<span class="txt">'+nxEsc(l.text)+'</span>')+(showTr?nxTrCell(l,only):'')
     +'<button class="more" data-more="'+i+'" title="'+nxEsc(I18N['nx.line_actions'])+'">⋯</button>'
@@ -134,6 +134,12 @@ function nxTxHtml(chunks){
       +nxChunkHead(c,ci)+nxRangeHtml(c.from,c.to);
   }).join('')+tail;
 }
+/* 見出しの横に、transcript と翻訳をそのまま別タブで開くリンク（旧 UI のファイル名リンク） */
+function nxRenderFileOpen(){
+  const tx=nxFiles.some(x=>x.name===nxTxFile)?nxTxFile:'',el=nxEl('nxFileOpen'),k=tx+'\t'+nxTrFile;
+  if(el.dataset.k===k)return;
+  el.dataset.k=k;el.innerHTML=nxOpenLink(tx)+nxOpenLink(nxTrFile,'nx.open_tr');
+}
 function nxRenderColHead(){
   const v=nxState.view,show=v==='TR'||v==='R',h=nxEl('nxColHead');
   h.className='colhead'+(show?' show':'')+(v==='R'?' ro':'');
@@ -174,7 +180,7 @@ function nxRenderTx(follow){
   const tx=nxEl('nxTranscript'),top=tx.scrollTop,chunks=nxChunks();
   tx.innerHTML=nxTxHtml(chunks);
   tx.scrollTop=follow?tx.scrollHeight:top;
-  nxRenderColHead();nxRenderSuggest(chunks);nxRenderSelBar();nxRenderMuteBand();
+  nxRenderColHead();nxRenderFileOpen();nxRenderSuggest(chunks);nxRenderSelBar();nxRenderMuteBand();
 }
 function nxRenderTranscript(){
   if((nxState.cur||'')!==nxTxFile)nxLoadTranscript(nxState.cur||'');

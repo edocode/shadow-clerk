@@ -24,6 +24,12 @@ from shadow_clerk._i18n_en import STRINGS_EN as _EN  # noqa: E402
 results: list[bool] = []
 
 
+
+def _at(root: str, name: str) -> str:
+    """記録のファイルはその回のフォルダ（区分 / 会議名）、それ以外は root 直下"""
+    from shadow_clerk._transcript_layout import TranscriptLayout
+    return TranscriptLayout(root).path(name) or os.path.join(root, name)
+
 def check(label: str, ok: bool, detail: str = "") -> None:
     print(f"[{'PASS' if ok else 'FAIL'}] {label} {detail}")
     results.append(ok)
@@ -37,7 +43,7 @@ class _FakeHandler(Ops):
         self.rfile = io.BytesIO(b"")
         self.sent: dict = {}
         self.recorder = type("_Rec", (), {
-            "output_path": os.path.join(DATA, "transcript-202608271610@Board.txt"),
+            "output_path": _at(DATA, "transcript-202608271610@Board.txt"),
             "_output_dir": DATA})()
 
     def _send_json(self, data: dict) -> None:
@@ -61,11 +67,11 @@ def test_generated_paths_endpoint() -> None:
     d = h.sent
     check("status ok", d.get("status") == "ok", repr(d))
     check("summary の絶対パス",
-          d.get("summary") == os.path.join(DATA, "summary-202608271610@Board.md"), repr(d))
+          d.get("summary") == _at(DATA, "summary-202608271610@Board.md"), repr(d))
     check("advice の絶対パス",
-          d.get("advice") == os.path.join(DATA, "advice-202608271610@Board.md"), repr(d))
+          d.get("advice") == _at(DATA, "advice-202608271610@Board.md"), repr(d))
     check("analysis の絶対パス",
-          d.get("analysis") == os.path.join(DATA, "analysis-202608271610@Board.md"), repr(d))
+          d.get("analysis") == _at(DATA, "analysis-202608271610@Board.md"), repr(d))
     check("会議名を返す", d.get("meeting") == "Board", repr(d.get("meeting")))
     check("exists に4種そろう", set(d.get("exists", {})) ==
           {"transcript", "summary", "advice", "analysis"}, repr(d.get("exists")))
@@ -87,7 +93,7 @@ def test_generated_paths_rejects_remote() -> None:
 
 
 def test_serve_advice_reads_file() -> None:
-    path = os.path.join(DATA, "advice-202608271610@Board.md")
+    path = _at(DATA, "advice-202608271610@Board.md")
     with open(path, "w", encoding="utf-8") as f:
         f.write("## 未解決\n- 期限が未定\n")
     h = _FakeHandler("file=transcript-202608271610@Board.txt")
@@ -107,7 +113,7 @@ def test_serve_advice_missing_is_empty() -> None:
 
 
 def test_serve_analysis_renders_markdown() -> None:
-    path = os.path.join(DATA, "analysis-202608271610@Board.md")
+    path = _at(DATA, "analysis-202608271610@Board.md")
     with open(path, "w", encoding="utf-8") as f:
         f.write("## 16:10\n- 決定した\n")
     h = _FakeHandler("file=transcript-202608271610@Board.txt")
@@ -119,7 +125,7 @@ def test_serve_analysis_renders_markdown() -> None:
 
 def test_generated_html_escapes_raw_html() -> None:
     """生成物は AI が書いた任意テキスト。ソース中の生 HTML を通してはならない"""
-    path = os.path.join(DATA, "advice-202608271610@Board.md")
+    path = _at(DATA, "advice-202608271610@Board.md")
     with open(path, "w", encoding="utf-8") as f:
         f.write("- <script>alert(1)</script>\n- <img src=x onerror=alert(1)>\n")
     h = _FakeHandler("file=transcript-202608271610@Board.txt")
@@ -136,7 +142,7 @@ def test_generated_html_renders_tables() -> None:
     その場合 CommonMark が段落内の改行を空白に潰すため、テーブルが
     「| 時刻 | 発言 | |---|---| | 08:18 | …」の 1 行に崩れる（実際に起きた）。
     """
-    path = os.path.join(DATA, "advice-202608271610@Board.md")
+    path = _at(DATA, "advice-202608271610@Board.md")
     with open(path, "w", encoding="utf-8") as f:
         f.write("| 時刻 | 発言 |\n|---|---|\n| 08:18 | あえて利上げ |\n| 08:29 | 利下げ |\n")
     h = _FakeHandler("file=transcript-202608271610@Board.txt")
@@ -167,7 +173,7 @@ class _FakeSummaryHandler(Base):
 
 def test_summary_is_delivered_as_html() -> None:
     """議事録も Markdown。画面には HTML を出すが、コピー用に生も要る"""
-    with open(os.path.join(DATA, "summary-202608271610@Board.md"),
+    with open(_at(DATA, "summary-202608271610@Board.md"),
               "w", encoding="utf-8") as f:
         f.write("# 議事録\n\n- 決めたこと\n")
     h = _FakeSummaryHandler("file=transcript-202608271610@Board.txt")

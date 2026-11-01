@@ -24,6 +24,7 @@ from shadow_clerk._daemon_dashboard_ops_console import (  # noqa: E402
 results: list[bool] = []
 
 
+
 def check(label: str, ok: bool, detail: str = "") -> None:
     print(f"[{'PASS' if ok else 'FAIL'}] {label} {detail}")
     results.append(ok)
@@ -37,6 +38,7 @@ class _FakeHandler(Ops):
         self.headers = {"Content-Length": str(len(raw))}
         self.rfile = io.BytesIO(raw)
         self.sent: dict = {}
+        self.recorder = type("R", (), {"_output_dir": DATA, "output_path": ""})()
 
     def _send_json(self, data: dict) -> None:
         self.sent = data
@@ -90,6 +92,35 @@ def test_remote_rejected() -> None:
     check("外部からの保存を拒否する", h.sent.get("status") == "error", repr(h.sent))
 
 
+def test_meeting_category_moves_folder() -> None:
+    import shutil
+    from shadow_clerk._transcript_layout import TranscriptLayout
+    for category in ("private", "sharable"):
+        shutil.rmtree(os.path.join(DATA, category), ignore_errors=True)
+    layout = TranscriptLayout(DATA)
+    src = layout.path("transcript-202610011000@区分テスト.txt") or ""
+    with open(src, "w", encoding="utf-8") as f:
+        f.write("x\n")
+    check("新しい会議は既定の区分に置く", os.path.dirname(src) == os.path.join(DATA, "private", "区分テスト"), src)
+    h = _FakeHandler({"meetings": ["区分テスト"], "set": {"category": "sharable"}})
+    h._save_meeting_settings()
+    moved = os.path.join(DATA, "sharable", "区分テスト", "transcript-202610011000@区分テスト.txt")
+    check("区分を変えるとフォルダごと移る", h.sent.get("status") == "ok" and os.path.isfile(moved)
+          and not os.path.exists(os.path.dirname(src)), repr(h.sent))
+    h = _FakeHandler()
+    h.path = "/api/meeting-settings?meeting=%E5%8C%BA%E5%88%86%E3%83%86%E3%82%B9%E3%83%88"
+    h._serve_meeting_settings()
+    check("区分と区分の一覧を返す", h.sent["meetings"][0]["category"] == "sharable"
+          and h.sent["categories"] == ["private", "sharable", "isolated"], repr(h.sent))
+    h = _FakeHandler({"meetings": ["区分テスト"], "set": {"category": "nope"}})
+    h._save_meeting_settings()
+    check("知らない区分は拒否する", h.sent.get("status") == "error", repr(h.sent))
+    h = _FakeHandler({"meetings": ["区分テスト"], "set": {"category": "private"}})
+    h.recorder.output_path = moved
+    h._save_meeting_settings()
+    check("記録中の会議は移さない", h.sent.get("status") == "error" and os.path.isfile(moved), repr(h.sent))
+
+
 def test_meeting_settings() -> None:
     h = _FakeHandler({"meetings": ["週次定例", "1on1 alice"], "set": {"publish": False, "publish_advice": True, "analyze": False}})
     h._save_meeting_settings()
@@ -124,6 +155,7 @@ def test_meeting_settings() -> None:
 
 def main() -> int:
     test_meeting_settings()
+    test_meeting_category_moves_folder()
     test_serve_shape()
     test_upsert_then_read_back()
     test_delete()

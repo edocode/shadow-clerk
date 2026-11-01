@@ -14,8 +14,7 @@ os.environ["SHADOW_CLERK_DATA_DIR"] = tempfile.mkdtemp(prefix="shadow-clerk-cfgk
 
 from shadow_clerk._daemon_constants import DEFAULT_CONFIG  # noqa: E402
 from shadow_clerk._daemon_dashboard_js_settings import _JS_TEMPLATE_SETTINGS  # noqa: E402
-from shadow_clerk._i18n_en import STRINGS_EN  # noqa: E402
-from shadow_clerk._i18n_ja import STRINGS_JA  # noqa: E402
+from shadow_clerk.i18n import STRINGS  # noqa: E402
 
 SRC = Path(__file__).resolve().parent.parent / "src" / "shadow_clerk"
 
@@ -93,7 +92,8 @@ check("modal keys are in DEFAULT_CONFIG", not (modal_keys - non_config - default
 for k, why in PENDING_KEYS.items():
     print(f"[WARN] {k}: {why}")
 
-for lang, table in (("ja", STRINGS_JA), ("en", STRINGS_EN)):
+# ラベルは分割したどの表にあってもよい（i18n.STRINGS が束ねる）
+for lang, table in STRINGS.items():
     lack = sorted(k for k in modal_keys if f"cfg.{k}" not in table)
     check(f"modal keys have cfg.<key> label in {lang}", not lack, str(lack))
 

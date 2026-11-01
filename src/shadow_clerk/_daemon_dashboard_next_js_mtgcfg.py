@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 # API は GET/POST /api/meeting-settings（現行 _daemon_dashboard_js_meeting_settings.py と同じ扱い）。
-# 変えられるのは 6 項目だけ。既定（defaults）の編集やルールの並べ替えは API に無いので描かない。
+# 変えられるのは 8 項目だけ。区分を変えると会議のフォルダがその区分へ移る。既定（defaults）の編集やルールの並べ替えは API に無いので描かない。
 # pend は保存前の変更で、API に送る形（analyze は true / false / "default"）のまま持つ
 _NEXT_JS_MTGCFG = r"""
 /* --- 会議ごとの設定: 会議をチェックで選び、選んだ会議にまとめて値を設定する --- */
-const nxMc={rows:[],sel:new Set(),pend:{},path:'',auto:false,after:null,loadErr:false};
+const nxMc={rows:[],sel:new Set(),pend:{},path:'',auto:false,after:null,loadErr:false,cats:[]};
 const nxMcFields=[
   ['nx.mc_g_ai',[['analyze','analyze'],['workdir','text']]],
+  ['nx.mc_g_place',[['category','category'],['reference_dirs','dirs']]],
   ['nx.mc_g_publish',[['publish','bool'],['publish_to','dest'],['notion_url','text'],['publish_advice','bool']]],
 ];
 const nxMcTypes=Object.fromEntries(nxMcFields.flatMap(g=>g[1]));
@@ -16,16 +17,18 @@ function nxMcOptions(type){
   if(type==='analyze')return [['default',nxFmt('nx.mc_analyze_default',{v:I18N[nxMc.auto?'nx.mc_on':'nx.mc_off']})],
     ['true',I18N['nx.mc_on']],['false',I18N['nx.mc_off']]];
   if(type==='bool')return [['1',I18N['nx.mc_yes']],['0',I18N['nx.mc_no']]];
+  if(type==='category')return nxMc.cats.map(c=>[c,c]);
   return [['artifact',I18N['nx.mc_to_artifact']],['notion',I18N['nx.mc_to_notion']]];
 }
 /* 値 ⇔ 画面の文字列。analyze の null（会議ごとの指定なし）は "default" と同じ */
 function nxMcEnc(k,v){
   const t=nxMcTypes[k];
-  return t==='analyze'?(v==null?'default':String(v)):t==='bool'?(v?'1':'0'):(v||'');
+  return t==='analyze'?(v==null?'default':String(v)):t==='bool'?(v?'1':'0'):t==='dirs'?(v||[]).join(', '):(v||'');
 }
 function nxMcDec(k,s){
   const t=nxMcTypes[k];
-  return t==='analyze'?(s==='default'?'default':s==='true'):t==='bool'?s==='1':t==='text'?s.trim():s;
+  return t==='analyze'?(s==='default'?'default':s==='true'):t==='bool'?s==='1':t==='text'?s.trim()
+    :t==='dirs'?s.split(',').map(x=>x.trim()).filter(Boolean):s;
 }
 function nxMcSelRows(){return [...nxMc.sel].map(n=>nxMc.rows.find(r=>r.name===n)).filter(Boolean);}
 /* 選んだ会議での値: 保存前の変更があればそれ、なければ今の値。会議によって違えば same:false */
@@ -38,7 +41,7 @@ function nxMcValue(k){
 function nxMcEdit(k,raw){
   const v=nxMcDec(k,raw),r=nxMcValue(k);
   delete nxMc.pend[k];
-  if(r.curSame?nxMcEnc(k,v)!==r.cur:!(nxMcTypes[k]==='text'&&v===''))nxMc.pend[k]=v;
+  if(r.curSame?nxMcEnc(k,v)!==r.cur:!(nxMcText(k)&&nxMcEnc(k,v)===''))nxMc.pend[k]=v;
   nxMcRenderEd();
 }
 function nxMcVisible(){
@@ -60,10 +63,11 @@ function nxMcRenderList(){
   }).join('')||'<div class="hint">'+nxEsc(I18N[nxMc.loadErr?'nx.mc_load_failed':'nx.mc_none_match'])+'</div>';
   nxEl('nxMcAll').checked=vis.length>0&&vis.every(r=>nxMc.sel.has(r.name));
 }
+function nxMcText(k){return nxMcTypes[k]==='text'||nxMcTypes[k]==='dirs';}
 function nxMcCtl(k,r){
   const type=nxMcTypes[k],mixed=!r.same;
-  if(type==='text'){
-    const ph=mixed?I18N['nx.mc_mixed_ph']:k==='workdir'?I18N['nx.mc_workdir_ph']:'https://';
+  if(nxMcText(k)){
+    const ph=mixed?I18N['nx.mc_mixed_ph']:k==='workdir'?I18N['nx.mc_workdir_ph']:k==='reference_dirs'?I18N['nx.mc_reference_dirs_ph']:'https://';
     return '<input data-k="'+k+'" value="'+nxEsc(mixed?'':r.v)+'" placeholder="'+nxEsc(ph)+'">';
   }
   return '<select data-k="'+k+'">'+(mixed?'<option selected disabled>'+nxEsc(I18N['nx.mc_mixed'])+'</option>':'')
@@ -96,7 +100,7 @@ async function nxMcLoad(extra){
   if(extra&&!groups.has(extra))names.unshift(extra);
   const q=names.map(n=>'meeting='+encodeURIComponent(n)).join('&');
   const [d,auto]=await Promise.all([names.length?nxApi('/api/meeting-settings?'+q).catch(()=>null):null,nxAutoAnalyze()]);
-  nxMc.auto=auto;nxMc.path=d&&d.path||'';nxMc.loadErr=names.length>0&&!(d&&d.meetings);
+  nxMc.auto=auto;nxMc.path=d&&d.path||'';nxMc.cats=d&&d.categories||[];nxMc.loadErr=names.length>0&&!(d&&d.meetings);
   nxMc.rows=(d&&d.meetings||[]).map(m=>{
     const fs=groups.get(m.name);
     return {...m,last:fs?nxFmtDt(fs[0].dt):I18N['nx.mc_no_record']};
@@ -154,7 +158,7 @@ function nxMtgCfgInit(){
   // 文字の項目の Enter で保存する。change より先に来るので値をここで取り込む。日本語入力の確定の Enter は除く
   nxEl('nxMcEd').addEventListener('keydown',e=>{
     const k=e.target.dataset&&e.target.dataset.k;
-    if(e.key!=='Enter'||e.isComposing||nxMcTypes[k]!=='text')return;
+    if(e.key!=='Enter'||e.isComposing||!nxMcText(k))return;
     e.preventDefault();nxMcEdit(k,e.target.value);nxMcSave();
   });
   nxEl('nxMcClose').addEventListener('click',nxMcClose);

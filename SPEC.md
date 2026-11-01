@@ -147,7 +147,7 @@ clerk-daemon に統合された Web ダッシュボード。ブラウザから t
 ダッシュボードの「AI アシスタントの画面」（下部のドロワー、または表示の切り替えで中央）で、AI アシスタント（`claude` / `codex`）を PTY 上で動かし、会議の文字起こしを監視させて生成物を書かせる。
 
 - **PTY セッション**: `_daemon_console.py` が子プロセスを PTY 上で起動し、`pyte.Screen` の 10000 行仮想 grid（`VIRTUAL_ROWS`）に描画内容を蓄積する。`_daemon_console_render.py` が grid を配信用の差分ペイロードに変換する
-- **起動**: 会議開始時（`auto_analyze: true`）、会議開始モーダルのチェック、または右ペイン「AI のアドバイス」タブのボタンで起動。起動コマンドは `ai_assistant_command` + `ai_assistant_args`（`domain/ai_assistant.py` の値オブジェクトで保持）、既定の起動ディレクトリは `ai_assistant_workdir`（会議ごとの上書きは `DATA_DIR/meeting.yaml` の `meetings[].workdir`、`domain/meeting_config.py` で表現）
+- **起動**: 会議開始時（`auto_analyze: true`）、会議開始モーダルのチェック、または右ペイン「AI のアドバイス」タブのボタンで起動。起動コマンドは `ai_assistant_command` + `ai_assistant_args`（`domain/ai_assistant.py` の値オブジェクトで保持）、起動ディレクトリはその回のフォルダ（「データディレクトリ」節）。`ai_assistant_workdir`（会議ごとの上書きは `DATA_DIR/meeting.yaml` の `meetings[].workdir`、`domain/meeting_config.py` で表現）は参考フォルダとして `--add-dir` で渡す
 - **会議ごとの設定**（`GET /api/meeting-settings?meeting=…` / `POST /api/meeting-settings`、`_daemon_dashboard_js_meeting_settings.py`）: GET は会議ごとの `analyze` / `publish` / `workdir` / `publish_to` / `notion_url` / `publish_advice` と一致したルール（`shared` はほかの会議にも当たるルールか）。POST `{meetings, set}` は `MeetingSettings.parse` で検証し、`MeetingConfig.apply` で会議ごとに書く（会議名だけのルールは更新、広いルールに一致していれば値を写した `^名前$` を直前に挿入、無ければ末尾）。localhost のみ。`publish_advice` が真なら clerk-meeting-helper が会議中の Advice を公開先にも載せる。`analyze` は3状態: 未指定（`None`、新しいモーダルの「既定」）は `auto_analyze` に従い、真は `auto_analyze` が無効でも起動し、偽は有効でも起動しない（`_maybe_start_analysis`）。会議開始モーダル・clerk-practice の `POST /api/meeting {analyze}` はこの回だけの上書きで、`MeetingSession.analyze`（メモリ上のみ）に持つ。`GET /api/meeting-config/resolve` は進行中の会議の名前ならこの上書きを返し、無ければ設定の値（未指定は真）を返す。進行中の会議の transcript に対する手動の `POST /api/console/start` は、この回の上書きや会議設定がオフでも上書きを真にする（手で頼んだのにスキルが監視しないことを防ぐ）。以前のモーダルは単独保存で `analyze: true` を書いていたので、その会議はいまは「オン」として扱われる（README のアップグレード時の注意）
 - **初期プロンプト**: TUI 準備完了後に `ai_assistant_init_prompt`（デフォルト `/clerk-meeting-helper {transcript}`）を PTY に送る。`{transcript}` / `{meeting}` はアクティブなファイルパスに置換される
 - **生成物**: アシスタントは `advice-<stem>.md`（未解決の提案、上書き更新）と `analysis-<stem>.md`（確定した事実、追記）の2種類を書く。ダッシュボードの右ペインは `[議事録][AI のアドバイス]` の2タブで、AI のアドバイスのタブが提案（上）と分析（下）を並べる。表示を「議事録・AI のアドバイスを大きく」にすると右ペインが中央に来て、提案と分析を 2 カラム（狭いときは上下）に並べる。
@@ -609,7 +609,16 @@ sequenceDiagram
 
 ## データディレクトリ
 
-`~/.local/share/shadow-clerk/` にランタイムデータを保存する（`output_directory` 設定時、transcript/summary は指定ディレクトリに保存）:
+`~/.local/share/shadow-clerk/` にランタイムデータを保存する（`output_directory` 設定時、会議の記録は指定ディレクトリに保存）。
+
+会議の回に属するファイル（`transcript-*`・翻訳・offset・`summary-*`・`advice-*`・`analysis-*`・`minutes-*`・attendees・voices・naming・provisional・`shot-*`）は直下ではなく、`_transcript_layout.TranscriptLayout` が決めるフォルダに置く:
+
+- `<区分>/<会議名>/` — 会議名の付いた回。会議名は `sanitize_meeting_name` 済みの名前
+- `<先頭の区分>/@dates/YYYY-MM/` — 会議名のない記録（日次・名前なしの会議）。`@` は会議名に残らないので衝突しない
+
+ファイル名は `@会議名` を含んだまま（どのフォルダにあってもファイル名だけで回が決まる）なので、API は従来どおりファイル名を受け、`TranscriptLayout.path()` でフルパスにする。区分（`transcript_categories`）は置き場所にすぎない。会議の区分はフォルダがあればその場所、無ければ `meeting.yaml` の `category`、それも無ければ先頭。会議ごとの設定で区分を変えるとフォルダを移す（記録中の会議は拒否）。起動時に `migrate_flat_files()` が直下に残るフラットなファイルを移す（残存ファイルで判定するので冪等。`.clerk_session` が指すパスも付け替える）。
+
+AI アシスタントは会議のフォルダで起動し、`TranscriptLayout.reference_dirs()`（`ai_reference_dirs` + 会議ごとの `reference_dirs` + 従来の作業ディレクトリ）を `--add-dir` で渡す。別の会議のフォルダで動いているアシスタントは起動し直す。
 
 | ファイル | 説明 |
 |---|---|
