@@ -29,6 +29,7 @@ STRINGS_JA_NEXT: dict[str, str] = {
     "nx.cmd_failed": "操作を daemon に送れませんでした",
     "nx.drawer_toggle": "下のパネルを開閉",
     "nx.drawer_resize": "ドラッグで高さを変える",
+    "nx.ai_split_resize": "ドラッグでアドバイスと分析の大きさを変える",
     "nx.tab_date": "日付",
     "nx.tab_meeting": "会議",
     "nx.tab_search": "🔍 検索",

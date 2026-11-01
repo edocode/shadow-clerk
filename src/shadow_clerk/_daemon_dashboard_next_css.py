@@ -160,13 +160,26 @@ main { display:flex; flex-direction:column; overflow:hidden; position:relative; 
 .astat .dot { width:8px; height:8px; border-radius:50%; background:var(--ok); animation:nxblink 1.6s infinite; }
 .aiother { margin:-4px 2px 10px; }
 .empty .aiother { margin-top:12px; }
-/* アドバイスと分析は 2 カラム。ペインの幅が 620px 以下なら上下に積む */
-.aigrid { display:grid; grid-template-columns:1fr 1fr; gap:0 24px; align-items:start; }
-.aicol { min-width:0; }
-.aicol + .aicol { border-left:1px solid var(--line); padding-left:24px; }
+/* アドバイスと分析は左右に並べ、それぞれの中でスクロールする。ペインの幅が 620px 以下なら上下に積む。
+   仕切り .aisep はドラッグで動かせ、割合は rbody の --ais-h（左右）/ --ais-v（上下）*/
+.rbody.aisplit { display:flex; flex-direction:column; overflow:hidden; }
+.rbody.aisplit > :not(.aigrid) { flex:none; }
+.aigrid { flex:1; min-height:0; display:flex; }
+.aicol { min-width:0; min-height:0; display:flex; flex-direction:column; flex:1 1 0; }
+.aicol:first-child { flex:0 0 calc(var(--ais-h,50%) - 6px); }
+.aicol .secttl { margin-top:0; }
+.aiscroll { flex:1; min-height:0; overflow:auto; }
+.aiscroll .card { margin-bottom:0; }
+.aisep { flex:0 0 12px; cursor:ew-resize; position:relative; }
+.aisep::before { content:''; position:absolute; top:0; bottom:0; left:5px; width:1px; background:var(--line); }
+.aisep:hover::before, .rbody.aidrag .aisep::before { background:var(--accent); left:4px; width:3px; opacity:.6; }
+.rbody.aidrag { user-select:none; }
 @container (max-width:620px) {
-  .aigrid { grid-template-columns:1fr; }
-  .aicol + .aicol { border-left:none; padding-left:0; border-top:1px solid var(--line); margin-top:8px; }
+  .aigrid { flex-direction:column; }
+  .aicol:first-child { flex-basis:calc(var(--ais-v,50%) - 6px); }
+  .aisep { cursor:ns-resize; }
+  .aisep::before { left:0; right:0; top:5px; bottom:auto; width:auto; height:1px; }
+  .aisep:hover::before, .rbody.aidrag .aisep::before { left:0; top:4px; width:auto; height:3px; }
 }
 .md-body { overflow-wrap:anywhere; line-height:1.6; }
 .md-body h1, .md-body h2, .md-body h3, .md-body h4 { margin:12px 0 4px; font-size:1.05em; color:var(--other); }

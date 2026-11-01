@@ -29,6 +29,7 @@ STRINGS_EN_NEXT: dict[str, str] = {
     "nx.cmd_failed": "Could not send the command to the daemon",
     "nx.drawer_toggle": "Toggle the bottom panel",
     "nx.drawer_resize": "Drag to resize",
+    "nx.ai_split_resize": "Drag to resize advice and analysis",
     "nx.tab_date": "Dates",
     "nx.tab_meeting": "Meetings",
     "nx.tab_search": "🔍 Search",

@@ -162,8 +162,8 @@ function nxSumHtml(){
 }
 function nxAiCol(title,tag,g,emptyKey){
   return '<div class="aicol"><div class="secttl"><span>'+nxEsc(I18N[title])+' <span class="muted aitag">'+nxEsc(I18N[tag])+'</span></span>'
-    +nxOpenLink(g.file)+'</div><div class="card">'+(g.html.trim()?'<div class="md-body">'+g.html+'</div>'
-    :'<span class="muted">'+nxEsc(I18N[emptyKey])+'</span>')+'</div></div>';
+    +nxOpenLink(g.file)+'</div><div class="aiscroll"><div class="card">'+(g.html.trim()?'<div class="md-body">'+g.html+'</div>'
+    :'<span class="muted">'+nxEsc(I18N[emptyKey])+'</span>')+'</div></div></div>';
 }
 function nxAiHtml(){
   const cur=nxRt.file,aiFor=nxAssistantFor(),running=!!(nxState.status&&nxState.status.console_running),
@@ -177,7 +177,7 @@ function nxAiHtml(){
     :'<div class="astat off"><span class="muted">'+nxEsc(I18N[other?'nx.ai_other_status':'nx.ai_stopped'])+'</span>'
       +'<span class="spacer"></span>'+startBtn('lbtn')+'</div>'+hint;
   return stat+'<div class="aigrid">'+nxAiCol('nx.ai_adv_title','nx.ai_adv_tag',nxRt.adv,'dash.no_advice')
-    +nxAiCol('nx.ai_ana_title','nx.ai_ana_tag',nxRt.ana,'dash.no_analysis')+'</div>';
+    +'<div class="aisep" title="'+nxEsc(I18N['nx.ai_split_resize'])+'"></div>'+nxAiCol('nx.ai_ana_title','nx.ai_ana_tag',nxRt.ana,'dash.no_analysis')+'</div>';
 }
 function nxRightHtml(){
   if(!nxState.cur)return '<div class="empty"><p>'+nxEsc(I18N['nx.no_file'])+'</p></div>';
@@ -188,8 +188,10 @@ function nxRenderRight(){
   nxEl('nxRtabs').querySelectorAll('button').forEach(b=>b.classList.toggle('act',b.dataset.rt===nxState.rtab));
   const rb=nxEl('nxRightBody'),html=nxRightHtml();
   if(html===nxRtHtml)return;
-  const top=rb.scrollTop;
+  const top=rb.scrollTop,colTops=[...rb.querySelectorAll('.aiscroll')].map(c=>c.scrollTop);
   nxRtHtml=html;rb.innerHTML=html;
+  rb.classList.toggle('aisplit',!!rb.querySelector('.aigrid'));
+  rb.querySelectorAll('.aiscroll').forEach((c,i)=>{c.scrollTop=colTops[i]||0;});
   // AI分析 の 🔊 の例文をクリックで読む（流用する _JS_TEMPLATE_SPEECH の decorateSay。現行も生成物にだけ付ける）
   if(nxState.rtab==='ai')decorateSay(rb);
   nxLinkifyFiles(rb);
@@ -218,8 +220,32 @@ function nxOnGenerated(kind,d){
   nxRt[kind]={file:d.file,html:d.html||''};
   nxRenderRight();
 }
+/* アドバイスと分析の仕切り。上下に積むとき（右ペイン）と左右に並べるとき（中央）で別々に割合を覚える。
+   rbody に CSS 変数で持つので描き直しても残る。割合は同じ座標系どうしの比なので zoom で割らなくてよい */
+function nxAiSplitSet(axis,pct){nxEl('nxRightBody').style.setProperty('--ais-'+axis,pct.toFixed(1)+'%');}
+function nxAiSplitDrag(e){
+  const sep=e.target.closest('.aisep');
+  if(!sep||e.button!==0)return;
+  e.preventDefault();
+  const rb=nxEl('nxRightBody'),axis=getComputedStyle(sep.parentNode).flexDirection==='column'?'v':'h';
+  let pct=0;
+  const move=ev=>{
+    const g=rb.querySelector('.aigrid');if(!g)return;
+    const r=g.getBoundingClientRect(),[p,a,len]=axis==='v'?[ev.clientY,r.top,r.height]:[ev.clientX,r.left,r.width];
+    pct=Math.max(10,Math.min(90,(p-a)/len*100));nxAiSplitSet(axis,pct);
+  };
+  const up=()=>{
+    window.removeEventListener('mousemove',move);window.removeEventListener('mouseup',up);
+    rb.classList.remove('aidrag');document.body.style.cursor='';
+    if(pct)nxStoreSet('nxAiSplit'+axis,pct.toFixed(1));
+  };
+  rb.classList.add('aidrag');document.body.style.cursor=getComputedStyle(sep).cursor;
+  window.addEventListener('mousemove',move);window.addEventListener('mouseup',up);
+}
 function nxRightInit(){
   nxRenderers.push(nxRenderRightPane);
+  ['v','h'].forEach(axis=>{const n=parseFloat(nxStoreGet('nxAiSplit'+axis)||'');if(n>=10&&n<=90)nxAiSplitSet(axis,n);});
+  nxEl('nxRightBody').addEventListener('mousedown',nxAiSplitDrag);
   nxEl('nxRtabs').querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{nxState.rtab=b.dataset.rt;nxRenderRight();}));
   nxEl('nxRightBody').addEventListener('click',nxOnRightClick);
   nxOn('advice',d=>nxOnGenerated('adv',d));
