@@ -275,7 +275,7 @@ console.log(JSON.stringify(out));
 
 
 def main() -> None:
-    r = subprocess.run(["node", "-e", _PRE + _NEXT_JS_CORE + _NEXT_JS_LIST + _NEXT_JS_TRANSCRIPT + _BODY],
+    r = subprocess.run(["node"], input=_PRE + _NEXT_JS_CORE + _NEXT_JS_LIST + _NEXT_JS_TRANSCRIPT + _BODY,
                        capture_output=True, text=True, timeout=30)
     if r.returncode != 0:
         check("node で実行できる", False, r.stderr[-1200:])

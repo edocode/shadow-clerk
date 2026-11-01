@@ -111,13 +111,22 @@ async function saveCustomCmds(){
 }
 """
 _JS_TEMPLATE_HELP_GCAL = """\
+let helpReturnFocus=null;
 function openHelp(){
-  document.getElementById('helpContent').textContent=I18N['dash.help_body'];
-  const lang=cfgData&&cfgData.ui_language||'en';
-  document.getElementById('helpReadmeLink').href='https://github.com/edocode/shadow-clerk/blob/main/'+(lang==='ja'?'README.ja.md':'README.md');
+  helpReturnFocus=document.activeElement;
+  const content=document.getElementById('helpContent');
+  if(!content.dataset.guide){
+    content.textContent=I18N['dash.help_body'];
+    const lang=cfgData&&cfgData.ui_language||'en';
+    document.getElementById('helpReadmeLink').href='https://github.com/edocode/shadow-clerk/blob/main/'+(lang==='ja'?'README.ja.md':'README.md');
+  }
   document.getElementById('helpModal').classList.add('open');
+  document.getElementById('helpModal').querySelector('button')?.focus();
 }
-function closeHelp(){document.getElementById('helpModal').classList.remove('open');}
+function closeHelp(){
+  document.getElementById('helpModal').classList.remove('open');
+  if(helpReturnFocus)helpReturnFocus.focus();
+}
 async function openGcal(){
   const body=document.getElementById('gcalBody');
   body.textContent=I18N['dash.loading']||'...';

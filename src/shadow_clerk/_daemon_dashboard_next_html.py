@@ -1,10 +1,31 @@
 """Shadow-clerk daemon: /next ダッシュボード HTML テンプレート（骨組み。中身の描画は JS が担う）"""
 from __future__ import annotations
 
-from shadow_clerk._daemon_dashboard_html import (_HTML_CFG_MODALS, _HTML_GCAL_MODAL, _HTML_HELP_MODALS, _HTML_SPEAKER_MODAL,
+from shadow_clerk._daemon_dashboard_html import (_HTML_CFG_MODALS, _HTML_GCAL_MODAL, _HTML_CUSTOM_CMD_MODAL, _HTML_SPEAKER_MODAL,
                                                  _HTML_TALK_MODALS)
 from shadow_clerk._daemon_dashboard_next_css import _NEXT_CSS
 from shadow_clerk._daemon_dashboard_next_js import _NEXT_JS
+
+_NEXT_HELP_MODAL = """<div class="modal-overlay" id="helpModal" onclick="if(event.target===this)closeHelp()" onkeydown="nxHelpKey(event)">
+  <div class="modal nx-help" role="dialog" aria-modal="true" aria-labelledby="nxHelpTitle">
+    <div class="modal-head"><h2 id="nxHelpTitle">{{i18n:nx.mi_help}}</h2>
+      <button onclick="closeHelp()" aria-label="{{i18n:nx.close}}">&times;</button></div>
+    <div class="modal-body" id="helpContent" data-guide="current">
+      <p class="nx-help-intro">{{i18n:nx.help_intro}}</p>
+      <h3>{{i18n:nx.help_quick}}</h3><ol class="nx-help-steps">
+""" + "".join(
+    '<li><h4>{{i18n:nx.help_' + topic + '_title}}</h4><p>{{i18n:nx.help_' + topic + '_body}}</p></li>'
+    for topic in ("start", "read", "review")
+) + """</ol><h3>{{i18n:nx.help_topics}}</h3><div class="nx-help-topics">
+""" + "".join(
+    '<details><summary>{{i18n:nx.help_' + topic + '_title}}</summary><p>{{i18n:nx.help_' + topic + '_body}}</p></details>'
+    for topic in ("view", "find", "audio", "ai", "more", "advanced")
+) + """</div></div>
+    <div class="modal-foot"><a id="helpReadmeLink" href="{{i18n:nx.help_readme_url}}" target="_blank" rel="noopener">{{i18n:nx.help_docs}} ↗</a>
+      <button onclick="closeHelp()">{{i18n:nx.close}}</button></div>
+  </div>
+</div>
+"""
 
 _NEXT_HTML_TEMPLATE = (
     "<!DOCTYPE html>\n"
@@ -154,8 +175,8 @@ _NEXT_HTML_TEMPLATE = (
     "<button class=\"cta\" id=\"nxTpOk\">{{i18n:nx.save}}</button></div></div></div>\n"
     # 声の設定・ペルソナ編集は現行のモーダルをそのまま（inline の onclick も現行のまま）
     + _HTML_TALK_MODALS
-    # 設定・ようこそ・スキル更新・用語集・使い方・音声コマンド・今日の予定も現行のモーダルをそのまま（流用する現行の JS が開く）
-    + _HTML_CFG_MODALS + _HTML_HELP_MODALS + _HTML_GCAL_MODAL
+    # 使い方は現行 UI 専用。設定・音声コマンド・今日の予定などは共用する
+    + _HTML_CFG_MODALS + _NEXT_HELP_MODAL + _HTML_CUSTOM_CMD_MODAL + _HTML_GCAL_MODAL
     # 話者の名前付け（下段は覚えている声）も現行のモーダルをそのまま。中央の見出しの 👥 から開く
     + _HTML_SPEAKER_MODAL
     + "<div class=\"modal-bg\" id=\"nxCfModal\"><div class=\"modal\">"

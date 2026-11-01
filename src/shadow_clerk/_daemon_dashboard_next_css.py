@@ -410,6 +410,33 @@ main { container-type:inline-size; }
 .modal .err:empty { display:none; }
 .cta.talk { background:var(--claude); }
 details.more summary { cursor:pointer; color:var(--muted); font-size:12px; margin-top:12px; }
+/* Help */
+#helpModal .nx-help { max-width:820px; max-height:88dvh; border-radius:16px; box-shadow:0 24px 80px #0005; }
+#helpModal .modal-head, #helpModal .modal-foot { padding:18px 24px; flex-shrink:0; }
+#helpModal h2 { margin:0; font-size:20px; letter-spacing:.02em; }
+#helpModal .modal-body { padding:4px 24px 24px; min-height:0; line-height:1.8; }
+#helpModal .nx-help-intro { color:var(--muted); margin:12px 0 24px; }
+#helpModal h3 { margin:20px 0 12px; font-size:13px; color:var(--muted); font-weight:600; }
+.nx-help-steps { list-style:none; counter-reset:help-step; padding:0; margin:0; display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+.nx-help-steps li { counter-increment:help-step; padding:18px; background:var(--panel2); border:1px solid var(--line); border-radius:12px; }
+.nx-help-steps li::before { content:counter(help-step,decimal-leading-zero); color:var(--cu-fg); font-size:12px; font-weight:700; }
+#helpModal h4 { font-size:14px; margin:10px 0 8px; }
+#helpModal p { font-size:13px; }
+.nx-help-steps p { margin:0; color:var(--muted); }
+.nx-help-topics { border-top:1px solid var(--line); }
+.nx-help-topics details { border-bottom:1px solid var(--line); }
+.nx-help-topics summary { cursor:pointer; padding:14px 0; font-weight:600; }
+.nx-help-topics details[open] summary { color:var(--cu-fg); }
+.nx-help-topics p { margin:0 0 16px; color:var(--muted); }
+#helpModal .modal-foot { justify-content:space-between; gap:16px; }
+#helpModal .modal-foot a { color:var(--cu-fg); font-size:12px; text-decoration:none; }
+#helpModal .modal-foot a:hover { text-decoration:underline; }
+#helpModal :focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+@media (max-width:640px) {
+  .nx-help-steps { grid-template-columns:1fr; }
+  #helpModal .modal-head, #helpModal .modal-foot { padding:14px 18px; }
+  #helpModal .modal-body { padding:0 18px 18px; }
+}
 /* 流用する現行のモーダル（声の設定・ペルソナ編集）。トークンに合わせて現行の見た目を写す */
 .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:35; align-items:center; justify-content:center; }
 .modal-overlay.open { display:flex; }
