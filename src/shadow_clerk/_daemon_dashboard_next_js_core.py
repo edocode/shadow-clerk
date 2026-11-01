@@ -13,7 +13,7 @@ let nxEs=null;
 /* ファイルの中身をそのまま別タブで開くリンク */
 function nxOpenLink(name,key){
   return name?'<a class="lbtn sm" href="/api/file?name='+encodeURIComponent(name)+'" target="_blank" rel="noopener" title="'
-    +nxEsc(name)+'">'+nxEsc(I18N[key||'nx.open'])+'<span class="fname adv-only"> '+nxEsc(name)+'</span></a>':'';
+    +nxEsc(name)+'">'+nxEsc(I18N[key||'nx.open'])+'</a>':'';
 }
 let nxToastTimer=null;
 const nxReconnectMs=3000;

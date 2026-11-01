@@ -48,7 +48,7 @@ header { display:flex; align-items:center; gap:10px; padding:10px 14px; border-b
 .status.stopped .dot, .status.disconnected .dot { background:var(--muted); }
 .status.disconnected { background:rgba(245,158,11,.14); color:var(--amber); }
 @keyframes nxblink { 50% { opacity:.3 } }
-.primary { background:var(--green); color:#fff; border:none; border-radius:8px; padding:8px 18px; font-weight:bold; font-size:14px; }
+.primary { white-space:nowrap; background:var(--green); color:#fff; border:1px solid transparent; border-radius:8px; padding:7px 12px; font-weight:bold; }
 .primary.stop { background:var(--red); }
 .tbtn { white-space:nowrap; display:flex; align-items:center; gap:6px; background:var(--chip);
   border:1px solid var(--line); border-radius:8px; padding:7px 12px; }
@@ -149,7 +149,6 @@ main { display:flex; flex-direction:column; overflow:hidden; position:relative; 
   margin:-14px -16px 10px; padding:14px 16px 8px; background:var(--panel); }
 .app.aimode .rtools { top:-18px; margin:-18px -28px 10px; padding:18px 28px 8px; }
 .lbtn { text-decoration:none; }
-.fname { color:var(--muted); font-family:ui-monospace,monospace; font-size:10.5px; }
 .att { border:1px solid var(--line); border-radius:8px; padding:6px 10px; margin:6px 0 10px; font-size:12px; background:var(--panel2); }
 .att small { display:block; color:var(--muted); font-size:11px; margin-top:2px; }
 .sumraw { white-space:pre-wrap; font:inherit; margin:0; }
