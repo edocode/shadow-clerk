@@ -267,7 +267,7 @@ async function maybeShowWelcome(){
     const cfg=await(await fetch('/api/config')).json();
     if(cfg.welcome_dismissed)return;
   }catch(e){return;}
-  const st=await _skillStatus();if(!st)return;
+  const st=await _skillStatus();
   // おすすめ設定は案内だけにする。初回に無断で値を書き換えると、あとから
   // 挙動の原因を追えなくなる
   // gcal だけは設定に Google Cloud 側の準備が要るので、手順書へ導く
@@ -276,12 +276,20 @@ async function maybeShowWelcome(){
       ?' — '+docLink('cfg.gcal_setup_url','cfg.gcal_setup_link'):'';
     return `<div class="wc-li">・${esc(I18N['welcome.'+k])}${doc}</div>`;
   }).join('');
+  const features=['transcript','translation','minutes','talk'].map(k=>
+    `<div class="wc-feature"><h3>${esc(I18N['welcome.'+k+'_title'])}</h3>`
+    +`<p>${esc(I18N['welcome.'+k+'_body'])}</p></div>`).join('');
   document.getElementById('welcomeBody').innerHTML=
-    `<div style="font-size:12px;line-height:1.7">${esc(I18N['welcome.intro'])}</div>`
+    `<h2 class="wc-catch">${esc(I18N['welcome.catch'])}</h2>`
+    +`<p class="wc-intro">${esc(I18N['welcome.intro'])}</p>`
+    +`<div class="wc-features">${features}</div>`
+    +`<p class="wc-start">${esc(I18N['welcome.start'])}</p>`
+    +`<details class="wc-setup"><summary>${esc(I18N['welcome.setup'])}</summary>`
     +`<div class="wc-opt">${esc(I18N['welcome.optional_ai'])}</div>`
-    +`<div class="wc-h">${esc(I18N['welcome.skill_where'])}</div>${_skillRows(st.targets)}`
-    +`<div class="wc-h">${esc(I18N['welcome.recommend'])}</div>${recs}`;
+    +(st?`<div class="wc-h">${esc(I18N['welcome.skill_where'])}</div>${_skillRows(st.targets)}`:'')
+    +`<div class="wc-h">${esc(I18N['welcome.recommend'])}</div>${recs}</details>`;
   document.getElementById('welcomeModal').classList.add('open');
+  return true;
 }
 
 function closeWelcome(){document.getElementById('welcomeModal').classList.remove('open');}
