@@ -100,6 +100,7 @@ STRINGS_JA: dict[str, str] = {
     "dash.summary_started": "要約生成を開始しました。完了後に通知されます。",
     "dash.summary_prefix": "要約: ",
     "dash.no_summary": "(要約がありません)",
+    "dash.alert_cmd_api_error": '音声「{text}」は認識しましたが、API でのコマンド判定に失敗しました。コマンドは実行していません。API の接続状態を確認してください。',
     "dash.alert_cmd_fail": "コマンドを聞き取れませんでした: {text}",
     "dash.alert_summary_done": "議事録を生成しました: {name}",
     "dash.transcript_not_found": "transcript が見つかりません",

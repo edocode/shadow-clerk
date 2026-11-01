@@ -100,6 +100,7 @@ STRINGS_EN: dict[str, str] = {
     "dash.summary_started": "Summary generation started. You will be notified when complete.",
     "dash.summary_prefix": "Summary: ",
     "dash.no_summary": "(No summary available)",
+    "dash.alert_cmd_api_error": 'Recognized "{text}", but API command matching failed. No command was executed. Check the API connection.',
     "dash.alert_cmd_fail": "Could not recognize command: {text}",
     "dash.alert_summary_done": "Summary generated: {name}",
     "dash.transcript_not_found": "Transcript not found",

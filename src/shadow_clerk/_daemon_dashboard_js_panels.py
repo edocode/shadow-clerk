@@ -323,7 +323,7 @@ es.addEventListener('response',e=>{
     document.getElementById('resp').classList.add('show');}
 });
 es.addEventListener('alert',e=>{
-  const d=JSON.parse(e.data);if(d.message){alert(d.message);loadS(curFile);openSumPane();}
+  const d=JSON.parse(e.data);if(d.message){alert(d.message);if(d.kind!=='command_api_error'){loadS(curFile);openSumPane();}}
 });
 // 会議終了時に仮登録を本登録した。見ている会議なら書き換わった transcript を読み直す
 es.addEventListener('provisional_applied',e=>{
