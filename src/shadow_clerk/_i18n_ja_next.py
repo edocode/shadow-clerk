@@ -418,4 +418,6 @@ STRINGS_JA_NEXT: dict[str, str] = {
     "nx.help_advanced_body": "「くわしく」に切り替えると、押して話す（PTT）・音声コマンド・ファイル削除・下部のコンソールやログが使えます。PTT キーは設定で変更できます。以前のセッションを /resume する場合は「その他 → 以前のダッシュボード」を開いてください。",
     "nx.help_docs": "詳しい使い方は README へ",
     "nx.help_readme_url": "https://github.com/edocode/shadow-clerk/blob/main/README.ja.md",
+    "nx.help_tour": "画像で見る機能紹介",
+    "nx.help_tour_url": "https://github.com/edocode/shadow-clerk/blob/main/docs/feature-tour.md",
 }

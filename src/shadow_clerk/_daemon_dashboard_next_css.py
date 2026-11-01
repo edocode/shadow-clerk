@@ -429,6 +429,8 @@ details.more summary { cursor:pointer; color:var(--muted); font-size:12px; margi
 .nx-help-topics details[open] summary { color:var(--cu-fg); }
 .nx-help-topics p { margin:0 0 16px; color:var(--muted); }
 #helpModal .modal-foot { justify-content:space-between; gap:16px; }
+.nx-help-links { display:flex; flex-wrap:wrap; gap:4px 20px; }
+#helpModal .modal-foot > button { flex-shrink:0; }
 #helpModal .modal-foot a { color:var(--cu-fg); font-size:12px; text-decoration:none; }
 #helpModal .modal-foot a:hover { text-decoration:underline; }
 #helpModal :focus-visible { outline:2px solid var(--accent); outline-offset:3px; }

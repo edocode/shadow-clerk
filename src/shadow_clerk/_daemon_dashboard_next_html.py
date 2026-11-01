@@ -21,7 +21,8 @@ _NEXT_HELP_MODAL = """<div class="modal-overlay" id="helpModal" onclick="if(even
     '<details><summary>{{i18n:nx.help_' + topic + '_title}}</summary><p>{{i18n:nx.help_' + topic + '_body}}</p></details>'
     for topic in ("view", "find", "audio", "ai", "more", "advanced")
 ) + """</div></div>
-    <div class="modal-foot"><a id="helpReadmeLink" href="{{i18n:nx.help_readme_url}}" target="_blank" rel="noopener">{{i18n:nx.help_docs}} ↗</a>
+    <div class="modal-foot"><div class="nx-help-links"><a href="{{i18n:nx.help_tour_url}}" target="_blank" rel="noopener">{{i18n:nx.help_tour}} ↗</a>
+      <a id="helpReadmeLink" href="{{i18n:nx.help_readme_url}}" target="_blank" rel="noopener">{{i18n:nx.help_docs}} ↗</a></div>
       <button onclick="closeHelp()">{{i18n:nx.close}}</button></div>
   </div>
 </div>

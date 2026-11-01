@@ -418,4 +418,6 @@ STRINGS_EN_NEXT: dict[str, str] = {
     "nx.help_advanced_body": "Switch to “Advanced” for push-to-talk (PTT), voice commands, file deletion, and the console and logs in the bottom drawer. Change the PTT key in settings. To /resume an earlier session, open “More → Previous dashboard”.",
     "nx.help_docs": "Read the full guide in README",
     "nx.help_readme_url": "https://github.com/edocode/shadow-clerk/blob/main/README.md",
+    "nx.help_tour": "Feature tour with screenshots",
+    "nx.help_tour_url": "https://github.com/edocode/shadow-clerk/blob/main/docs/feature-tour.en.md",
 }
