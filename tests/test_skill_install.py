@@ -220,6 +220,9 @@ def _check_curl_forms(skill: str) -> None:
         check(f"{skill}: allowed-tools に Bash({prefix}*)", f"Bash({prefix}*)" in rules, repr(rules))
     check(f"{skill}: allowed-tools に Monitor", "Monitor" in rules, repr(rules))
     calls = [body[m.start():].split("\n", 1)[0] for m in re.finditer(r"curl\s", body)]
+    for reference in sorted((skill_install.bundled_skill_dir(skill) / "references").glob("*.md")):
+        text = reference.read_text(encoding="utf-8")
+        calls.extend(text[m.start():].split("\n", 1)[0] for m in re.finditer(r"curl\s", text))
     check(f"{skill}: 本文に curl の呼び出しがある", len(calls) >= 3, repr(calls))
     for call in calls:
         check(f"{skill}: 許可した形で呼ぶ: {call[:40]}", call.startswith(_TALK_CURL_PREFIXES), call)
@@ -241,6 +244,10 @@ def test_practice_skill() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         skill_install.install(tmp)
         check("clerk-practice も配られた", (pathlib.Path(tmp) / practice / "SKILL.md").is_file())
+        reference = pathlib.Path("references/english-practice.md")
+        installed_reference = pathlib.Path(tmp) / practice / reference
+        check("英語のガイドも内容を保って配られた", installed_reference.is_file() and
+              installed_reference.read_bytes() == (skill_install.bundled_skill_dir(practice) / reference).read_bytes())
     front, body = _skill_parts(practice)
     talk_front, talk_body = _skill_parts(skill_install.TALK_SKILL_NAME)
     check("allowed-tools は clerk-talk と同じ", front.get("allowed-tools") == talk_front.get("allowed-tools"),
@@ -248,8 +255,8 @@ def test_practice_skill() -> None:
     _check_curl_forms(practice)
     for needle in ('/api/meeting"', '"analyze":false', '/api/language"', '/api/mute"', '`previous`',
                    '/api/meeting-history?meeting=', "tail=15", '/api/generated"', '"kind":"advice","mode":"replace"',
-                   '"kind":"analysis","mode":"append"', '"lang":"en"', "🔊 ", "今日の練習のまとめ: ", '/api/talk-end"',
-                   '"display":"ターン ライト（右に曲がって）"'):
+                   '"kind":"analysis","mode":"append"', '"lang":"<lang>"', "🔊 ", "今日の練習のまとめ: ", '/api/talk-end"',
+                   '"display":"（問題1・<意味>）"'):
         check(f"clerk-practice が {needle} を使う", needle in body)
     check("clerk-talk が clerk-practice に切り替える", "/clerk-practice" in talk_body)
     check("clerk-talk が /api/say の lang を知っている", '"lang":"en"' in talk_body)
