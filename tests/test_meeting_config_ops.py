@@ -8,6 +8,8 @@ import json
 import os
 import tempfile
 
+import yaml
+
 DATA = os.path.join(tempfile.gettempdir(), "shadow-clerk-meetingcfg-test")
 os.makedirs(DATA, exist_ok=True)
 os.environ.setdefault("SHADOW_CLERK_DATA_DIR", DATA)
@@ -100,7 +102,16 @@ def test_meeting_settings() -> None:
           got["週次定例"]["publish"] is False and got["週次定例"]["publish_advice"] is True
           and got["週次定例"]["shared"] is False and got["other"]["matched"] == "(defaults)"
           and got["other"]["publish_advice"] is False, repr(got))
-    check("AI分析の有無を返す", got["週次定例"]["analyze"] is False and got["other"]["analyze"] is True, repr(got))
+    check("AI分析の有無を返す", got["週次定例"]["analyze"] is False and got["other"]["analyze"] is None, repr(got))
+    h = _FakeHandler({"meetings": ["週次定例"], "set": {"analyze": "default"}})
+    h._save_meeting_settings()
+    with open(os.environ["MEETING_CONFIG"], encoding="utf-8") as f:
+        rule = next(m for m in yaml.safe_load(f)["meetings"] if m["pattern"] == "^週次定例$")
+    check("analyze: default で会議のルールから analyze を消す", h.sent.get("status") == "ok" and "analyze" not in rule, repr(rule))
+    h = _FakeHandler()
+    h.path = "/api/meeting-settings?meeting=%E9%80%B1%E6%AC%A1%E5%AE%9A%E4%BE%8B"
+    h._serve_meeting_settings()
+    check("消したあとの GET は analyze: null", h.sent["meetings"][0]["analyze"] is None, repr(h.sent))
     for body, label in (({"meetings": [], "set": {}}, "会議なし"), ({"meetings": ["x"], "set": {"publish_to": "x"}}, "不正な値"),
                         ({"meetings": [3], "set": {}}, "文字列でない会議名")):
         h = _FakeHandler(body)

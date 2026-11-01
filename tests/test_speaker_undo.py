@@ -60,6 +60,13 @@ def test_assign_records_history_per_label() -> None:
     assert recs["相手B"].lines == (B1,) and recs["相手B"].added == (B1,)
 
 
+def test_assign_returns_history_ids() -> None:
+    """/next の「元に戻す」が使う。履歴に残した順（ラベルの順）の id"""
+    r = _assign({"相手A": "alice", "相手B": "bob"})
+    ids = {h["label"]: h["id"] for h in _history()}
+    assert r["history_ids"] == [ids["相手A"], ids["相手B"]]
+
+
 def test_history_is_newest_first() -> None:
     _assign({"相手A": "alice"})
     _assign({"相手B": "bob"})
@@ -213,6 +220,14 @@ def test_assign_warns_when_history_not_saved(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(mod, "append_history", fail)
     r = _assign({"相手A": "alice"})
     assert t("dash.naming_history_not_saved") in r["message"] and "[alice]" in _read(MTG)
+    assert r["history_ids"] == []
+
+
+def test_assign_no_ids_without_history_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    """履歴ファイルを決められない（naming_path が None）なら何も残らないので、取り消し用の id も返さない"""
+    monkeypatch.setattr(sys.modules["shadow_clerk._daemon_naming_history"], "naming_path", lambda _p: None)
+    r = _assign({"相手A": "alice"})
+    assert "[alice]" in _read(MTG) and r["history_ids"] == []
 
 
 def _enrollment(monkeypatch: pytest.MonkeyPatch, on: bool) -> None:

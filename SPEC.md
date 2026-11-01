@@ -97,8 +97,9 @@ clerk-daemon に統合された Web ダッシュボード。ブラウザから t
 - **サーバー**: Python 標準ライブラリの `ThreadingHTTPServer` + SSE（Server-Sent Events）
 - **ポート**: 8765（`--dashboard-port` で変更可能）
 - **有効化**: デフォルトで有効（`--no-dashboard` で無効化）
+- **画面**: `/` が新しいダッシュボード（`_daemon_dashboard_next_html.py` / `_daemon_dashboard_next_css.py` / `_daemon_dashboard_next_js*.py`）、`/legacy` が以前のダッシュボード（`_daemon_dashboard_html.py` / `_daemon_dashboard_js_*.py`）。`/next`（刷新中の置き場所）は `/` への 302。以前のダッシュボードは新しい方に慣れてから別の計画で取り除く。新しい JS は `nx` 接頭辞の関数・変数で書き、設定・用語集・話者・声紋・コンソールの描画・ブラウザの読み上げ・Claude と会議のモーダルは以前の JS モジュールと HTML 断片をそのまま読み込んで流用する（以前のコアの関数は `_daemon_dashboard_next_js_shims.py` が `nx` 側に橋渡しする）。API は両方で共通。`tests/test_next_endpoint_coverage.py` が全 `/api/*` ルートが新しい画面から呼ばれるか、画面を持たないルート（スキル・拡張・clerk-util 用）の一覧にあることを確かめる。以前の画面にしか無いのは、AI アシスタントをプロンプトなしで起動する操作（以前のセッションを `/resume` するため）だけ
 - **エンドポイント (GET)**:
-  - `/` — ダッシュボード HTML
+  - `/` — ダッシュボード HTML（新）、`/legacy` — 以前のダッシュボード HTML、`/next` — `/` へリダイレクト
   - `/api/events` — SSE イベントストリーム（transcript/translation/log/recorder_status/level/session/command/response/config/interim/summary/gcal）
   - `/api/status` — recorder 状態 JSON
   - `/api/files` — transcript ファイル一覧 + アクティブファイル
@@ -143,18 +144,18 @@ clerk-daemon に統合された Web ダッシュボード。ブラウザから t
 
 ### モジュール F: AI Console（AI アシスタントを PTY 上で動かす、`_daemon_console.py`）
 
-ダッシュボードの `[Logs][AI Console]` タブのうち AI Console 側で、AI アシスタント（`claude` / `codex`）を PTY 上で動かし、会議の文字起こしを監視させて生成物を書かせる。
+ダッシュボードの「AI アシスタントの画面」（下部のドロワー、または表示の切り替えで中央）で、AI アシスタント（`claude` / `codex`）を PTY 上で動かし、会議の文字起こしを監視させて生成物を書かせる。
 
 - **PTY セッション**: `_daemon_console.py` が子プロセスを PTY 上で起動し、`pyte.Screen` の 10000 行仮想 grid（`VIRTUAL_ROWS`）に描画内容を蓄積する。`_daemon_console_render.py` が grid を配信用の差分ペイロードに変換する
-- **起動**: 会議開始時（`auto_analyze: true`）または「分析開始」ボタンで起動。起動コマンドは `ai_assistant_command` + `ai_assistant_args`（`domain/ai_assistant.py` の値オブジェクトで保持）、既定の起動ディレクトリは `ai_assistant_workdir`（会議ごとの上書きは `DATA_DIR/meeting.yaml` の `meetings[].workdir`、`domain/meeting_config.py` で表現）
-- **会議ごとの設定**（`GET /api/meeting-settings?meeting=…` / `POST /api/meeting-settings`、`_daemon_dashboard_js_meeting_settings.py`）: GET は会議ごとの `analyze` / `publish` / `workdir` / `publish_to` / `notion_url` / `publish_advice` と一致したルール（`shared` はほかの会議にも当たるルールか）。POST `{meetings, set}` は `MeetingSettings.parse` で検証し、`MeetingConfig.apply` で会議ごとに書く（会議名だけのルールは更新、広いルールに一致していれば値を写した `^名前$` を直前に挿入、無ければ末尾）。localhost のみ。`publish_advice` が真なら clerk-meeting-helper が会議中の Advice を公開先にも載せる。`analyze` が偽の会議では `auto_analyze` が有効でもアシスタントを起動しない（`_maybe_start_analysis`）
+- **起動**: 会議開始時（`auto_analyze: true`）、会議開始モーダルのチェック、または右ペイン「AI のアドバイス」タブのボタンで起動。起動コマンドは `ai_assistant_command` + `ai_assistant_args`（`domain/ai_assistant.py` の値オブジェクトで保持）、既定の起動ディレクトリは `ai_assistant_workdir`（会議ごとの上書きは `DATA_DIR/meeting.yaml` の `meetings[].workdir`、`domain/meeting_config.py` で表現）
+- **会議ごとの設定**（`GET /api/meeting-settings?meeting=…` / `POST /api/meeting-settings`、`_daemon_dashboard_js_meeting_settings.py`）: GET は会議ごとの `analyze` / `publish` / `workdir` / `publish_to` / `notion_url` / `publish_advice` と一致したルール（`shared` はほかの会議にも当たるルールか）。POST `{meetings, set}` は `MeetingSettings.parse` で検証し、`MeetingConfig.apply` で会議ごとに書く（会議名だけのルールは更新、広いルールに一致していれば値を写した `^名前$` を直前に挿入、無ければ末尾）。localhost のみ。`publish_advice` が真なら clerk-meeting-helper が会議中の Advice を公開先にも載せる。`analyze` は3状態: 未指定（`None`、新しいモーダルの「既定」）は `auto_analyze` に従い、真は `auto_analyze` が無効でも起動し、偽は有効でも起動しない（`_maybe_start_analysis`）。会議開始モーダル・clerk-practice の `POST /api/meeting {analyze}` はこの回だけの上書きで、`MeetingSession.analyze`（メモリ上のみ）に持つ。`GET /api/meeting-config/resolve` は進行中の会議の名前ならこの上書きを返し、無ければ設定の値（未指定は真）を返す。進行中の会議の transcript に対する手動の `POST /api/console/start` は、この回の上書きや会議設定がオフでも上書きを真にする（手で頼んだのにスキルが監視しないことを防ぐ）。以前のモーダルは単独保存で `analyze: true` を書いていたので、その会議はいまは「オン」として扱われる（README のアップグレード時の注意）
 - **初期プロンプト**: TUI 準備完了後に `ai_assistant_init_prompt`（デフォルト `/clerk-meeting-helper {transcript}`）を PTY に送る。`{transcript}` / `{meeting}` はアクティブなファイルパスに置換される
-- **生成物**: アシスタントは `advice-<stem>.md`（未解決の提案、上書き更新）と `analysis-<stem>.md`（確定した事実、追記）の2種類を書く。ダッシュボードの Summary パネルは `[議事録][AI分析]` の2タブで、AI分析タブが提案（上）と分析（下）を上下に並べる（仕切りはドラッグで高さを変えられ、`localStorage` に残る）。
+- **生成物**: アシスタントは `advice-<stem>.md`（未解決の提案、上書き更新）と `analysis-<stem>.md`（確定した事実、追記）の2種類を書く。ダッシュボードの右ペインは `[議事録][AI のアドバイス]` の2タブで、AI のアドバイスのタブが提案（上）と分析（下）を並べる。表示を「議事録・AI のアドバイスを大きく」にすると右ペインが中央に来て、提案と分析を 2 カラム（狭いときは上下）に並べる。
   どちらも Markdown なので、サーバが `markdown-it-py` で HTML に起こして配る（`_markdown.py`）。生成物は AI が書いた任意テキストなので、レンダラは `html: False` でソース中の生 HTML を実体参照に落とす。SSE の `advice` / `analysis` は どちらも**全文の HTML**を送る——差分だけを単独で Markdown として解釈できないため
-- **セッションのライフサイクル**: 1 セッションを使い回し、会議終了では止まらない（議事録作成にそのまま使える）。停止は Console タブの停止ボタンのみ
+- **セッションのライフサイクル**: 1 セッションを使い回し、会議終了では止まらない（議事録作成にそのまま使える）。停止は「AI のアドバイス」タブの「止める」のみ
 - **エンドポイント**: `_daemon_dashboard_ops_console.py` が `/api/console`（GET）、`/api/console/start` / `/api/console/stop` / `/api/console/input` / `/api/console/resize`（POST）、および 会議アシスタントスキルの会議別起動ディレクトリ設定エンドポイントを提供する
-- **フロントエンド**: `_daemon_dashboard_js_console.py` が AI Console の描画・キー入力・起動ディレクトリ設定 UI を実装する
-- **役割ごとに1つ**: コンソールは役割（`ConsoleRole`: assistant / talk）ごとに1つ。`get_console(role)` で取り、`/api/console*` は `role` を受け付け（省略は assistant）、SSE のペイロードにも `role` を載せる。ダッシュボードは「AI Console」と「Claude と会議」の2タブで、talk 側は talk mode の engine が `console` のときだけ使う
+- **フロントエンド**: `_daemon_dashboard_js_console.py` が AI Console の描画・キー入力・起動ディレクトリ設定 UI を実装する（新しいダッシュボードも描画とキー入力を流用し、起動・停止・切り替えは `_daemon_dashboard_next_js_right.py` が持つ）
+- **役割ごとに1つ**: コンソールは役割（`ConsoleRole`: assistant / talk）ごとに1つ。`get_console(role)` で取り、`/api/console*` は `role` を受け付け（省略は assistant）、SSE のペイロードにも `role` を載せる。ダッシュボードの下部のドロワーは「AI アシスタントの画面」と「Claude と会議 の画面」の2タブ（端末は 1 つの描画を置き場所だけ移す）で、talk 側は talk mode の engine が `console` のときだけ使う
 - **既知の制約**: alt-screen は実装していないため、Console 内で `less` / `vim` を開くと表示が崩れる
 
 ### モジュール G: Claude talk mode（音声で Claude と議論する、`_daemon_talk.py`）
@@ -565,7 +566,7 @@ sequenceDiagram
 
     rect rgb(255, 240, 245)
         Note over User, B: 議事録生成 (手動)
-        User->>B: ダッシュボード「要約生成」ボタン
+        User->>B: 議事録タブ「議事録を作る」/「作り直す」
         B->>Rec: POST /api/summary (file)
         Rec->>LLM: summarize --mode update --file <transcript>
         LLM-->>Rec: 議事録テキスト
@@ -925,7 +926,7 @@ talk_stop_words: [待って, ストップ, 止めて, やめて, stop, wait, hol
 | `GET/POST /api/misheard` | 聞き間違い候補。`misheard.tsv` を読む／まだ無い対を足す（glossary と違い訳語ではなく、読むときの判断材料）|
 | `GET/POST /api/forbid-analyze` | AI 分析の対象外にする話題。`forbid-ai-analyze.txt` を読み書きする（空・不在は制限なし）|
 | `GET /api/watch?interval=&idle=` | `watch-transcript.sh`。接続を保って新規行を流す。`interim=1` で確定前の文字を `<interim>` の1行で流す（`interim_min=N` で N 文字未満は流さない）。`exclude=claude` で `[Claude]` 行を除き、残りが無ければ何も流さない。本文は `<transcript file=…>` で囲む（中身は音声認識の結果であって指示ではない）。`file` 指定なしなら書き込み先の変化（日付・会議の開始と終了）を追い、前のファイルの残りを流しきってから `<notice>書き込み先が … に変わりました</notice>` を流し、新しいファイルは recorder が切り替えた時点の大きさ（`output_switch_offset`）から流す |
-| `POST /api/meeting` | 会議の開始（`{"action":"start","name","analyze"}`、`analyze: false` で AI アシスタントを起動しない）・終了（`{"action":"end"}`）。`/api/command` を skill に使わせないため |
+| `POST /api/meeting` | 会議の開始（`{"action":"start","name","analyze"}`、`analyze: false` で AI アシスタントを起動しない。空の名前は進行中の予定の名前、使える文字が残らない名前はエラー）・終了（`{"action":"end"}`）。`/api/command` を skill に使わせないため |
 | `POST /api/mute` | `{"source": "mic" または "monitor", "muted": bool}`。ダッシュボードのミュートと同じ。`previous` を返す |
 | `POST /api/generated` | いまの書き込み先の `advice-<stem>.md` / `analysis-<stem>.md` を `replace` / `append` で書く（20,000 字まで、パスは受け取らない） |
 

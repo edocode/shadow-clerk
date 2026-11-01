@@ -12,6 +12,8 @@ from shadow_clerk._i18n_ja_speakers import STRINGS_JA_SPEAKERS
 from shadow_clerk._i18n_en_speakers import STRINGS_EN_SPEAKERS
 from shadow_clerk._i18n_ja_meeting import STRINGS_JA_MEETING
 from shadow_clerk._i18n_en_meeting import STRINGS_EN_MEETING
+from shadow_clerk._i18n_ja_next import STRINGS_JA_NEXT
+from shadow_clerk._i18n_en_next import STRINGS_EN_NEXT
 
 _current_lang = "ja"
 
@@ -72,6 +74,6 @@ def t_all() -> dict:
 
 
 STRINGS = {
-    "ja": {**STRINGS_JA, **STRINGS_JA_SPEAKERS, **STRINGS_JA_MEETING},
-    "en": {**STRINGS_EN, **STRINGS_EN_SPEAKERS, **STRINGS_EN_MEETING},
+    "ja": {**STRINGS_JA, **STRINGS_JA_SPEAKERS, **STRINGS_JA_MEETING, **STRINGS_JA_NEXT},
+    "en": {**STRINGS_EN, **STRINGS_EN_SPEAKERS, **STRINGS_EN_MEETING, **STRINGS_EN_NEXT},
 }

@@ -33,7 +33,7 @@ function msRender(){
     const dest=(m.publish_to==='notion'?'Notion':'Artifact')+(m.publish_advice?' + Advice':'');
     tr.innerHTML=`<td><input type="checkbox" ${_msSel.has(m.name)?'checked':''}></td>`
       +`<td>${esc(m.name)} <span style="color:var(--muted);font-size:11px">(${m.count})</span>${sub?`<small>${esc(sub)}</small>`:''}</td>`
-      +`<td><span class="ms-badge${m.analyze?' on':''}">${esc(I18N[m.analyze?'ms.analyze_on':'ms.analyze_off'])}</span></td>`
+      +`<td><span class="ms-badge${m.analyze?' on':''}">${esc(I18N[m.analyze==null?'ms.analyze_default':m.analyze?'ms.analyze_on':'ms.analyze_off'])}</span></td>`
       +`<td><span class="ms-badge${m.publish?' on':''}">${esc(I18N[m.publish?'ms.publish_on':'ms.publish_off'])}</span></td>`
       +`<td>${dest}${m.publish_to==='notion'&&m.notion_url?` <a href="${escAttr(m.notion_url)}" target="_blank" rel="noopener">↗</a>`:''}</td>`
       +`<td><button class="ms-gear" title="${escAttr(I18N['ms.edit_one'])}">⚙</button></td>`;
@@ -51,7 +51,8 @@ function msFillEdit(){
   $('msTitle').textContent=one?(I18N['ms.title_one']||'{name}').replace('{name}',one.name)
     :n?(I18N['ms.title_many']||'{n}').replace('{n}',n):I18N['ms.pick'];
   $('msChips').innerHTML=n>1?[..._msSel].map(x=>`<span>${esc(x)}</span>`).join(''):'';
-  $('msAnalyze').value=one?(one.analyze?'1':'0'):'';
+  // analyze が null（未指定・auto_analyze に従う）なら「変更しない」のまま。送らないので未指定が保たれる
+  $('msAnalyze').value=one&&one.analyze!=null?(one.analyze?'1':'0'):'';
   $('msPublish').value=one?(one.publish?'1':'0'):'';
   $('msWorkdir').value=one?one.workdir:'';
   $('msWorkdirHint').style.display=one?'none':'';

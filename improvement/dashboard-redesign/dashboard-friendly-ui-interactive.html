@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Dashboard Interactive Prototype</title>
+<link rel="stylesheet" href="dashboard-friendly-ui-interactive.css">
+</head>
+<body class="simple">
+
+<div class="demo">
+  <b>🧪 デモ操作</b>
+  <label>開始ボタンの文言
+    <select id="labelVariant">
+      <option value="start">会議を開始 / 会議を終了</option>
+      <option value="rec">会議を録音 / 録音を終了</option>
+    </select>
+  </label>
+  <button id="demoNewLine">相手の発言を1行追加</button>
+  <span>※ ボタン・左の会議・右のタブ・トグルはすべてクリックできます</span>
+</div>
+
+<header>
+  <span class="logo">🎙 Shadow-clerk</span>
+  <span class="status" id="status"><span class="dot"></span><span id="statusText">文字起こし中（今日のメモ）</span></span>
+  <button class="primary" id="meetingBtn">▶ 会議を開始</button>
+  <button class="tbtn" id="trBtn" title="相手の発言を翻訳して並べて表示"><span class="sw"></span>🌐 翻訳</button>
+  <button class="tbtn" id="talkBtn" title="Claude と声で会議"><span class="sw"></span>🤖 Claude と会議</button>
+  <span class="spacer"></span>
+  <button class="dev" id="micBtn" title="クリックでミュート / 解除"><span>🎤</span><span class="lbl">自分の声</span><span class="lv"><i id="micLv"></i></span></button>
+  <button class="dev" id="spkBtn" title="クリックでミュート / 解除"><span>🔊</span><span class="lbl">相手の声</span><span class="lv"><i id="spkLv"></i></span></button>
+  <div class="menu-wrap">
+    <button class="ibtn" id="moreBtn">その他 ▾</button>
+    <div class="menu" id="menu">
+      <div class="mi">📖<span>用語集<small>社内用語・人名の聞き間違いを直す</small></span></div>
+      <div class="mi">📅<span>今日の予定<small>カレンダーの会議を見る</small></span></div>
+      <div class="mi">Aあ<span>文字の大きさ</span></div>
+      <div class="mi adv-only">⌨<span>押して話す (PTT)<small>キーを押している間だけ音声コマンド</small></span></div>
+      <div class="mi adv-only">⚡<span>音声コマンド<small>「〜して」と話したときの操作を登録する</small></span></div>
+      <div class="mi adv-only">🗣<span>話す言語 / 認識モデル<small>日本語 · reazonspeech-k2</small></span></div>
+      <hr>
+      <div class="mi">⚙<span>設定</span></div>
+      <div class="mi">❓<span>使い方</span></div>
+    </div>
+  </div>
+  <div class="menu-wrap">
+    <button class="ibtn" id="viewBtn">🪟 表示 ▾</button>
+    <div class="menu view-menu" id="viewMenu"></div>
+  </div>
+  <div class="seg" id="modeSeg"><button data-m="simple" class="act">かんたん</button><button data-m="adv">くわしく</button></div>
+  <button class="ibtn" id="themeBtn" title="テーマ切替">🌙</button>
+</header>
+
+<div class="app" id="app">
+  <aside>
+    <div class="tabs" id="ltabs"><button data-lt="date">日付</button><button data-lt="mtg">会議</button><button data-lt="search">🔍 検索</button></div>
+    <div id="list"></div>
+  </aside>
+
+  <main>
+    <div class="mhead">
+      <div>
+        <h2 id="title"></h2>
+        <div class="sub" id="subtitle"></div>
+      </div>
+      <span class="spacer"></span>
+      <button class="lbtn" id="nameBtn" title="相手A などに名前を付ける">👥 話している人に名前を付ける</button>
+      <button class="lbtn" id="extractBtn" title="選んだ範囲、または全体を会議ファイルにする">✂ 会議として切り出す</button>
+      <button class="lbtn adv-only">🗑</button>
+      <button class="lbtn" id="linkBtn" title="この記録を会議名に紐付ける">📂 会議名</button>
+      <button id="txOpen"></button>
+    </div>
+    <div class="banner warn" id="muteBanner"></div>
+    <div class="suggest" id="suggest" style="display:none"></div>
+    <div class="mbody"><div class="aicon" id="aicon"></div><div class="txcol">
+    <div class="colhead" id="colhead"></div>
+    <div class="tx" id="tx"></div></div></div>
+    <button class="edge l" id="edgeL" title="会議の一覧を開閉（Alt+[）"></button>
+    <button class="edge r" id="edgeR" title="議事録・AI のアドバイスを開閉（Alt+]）"></button>
+    <div class="selbar" id="selbar">
+      <div class="info"><b id="selCount"></b><small id="selRange"></small></div>
+      <button class="sb pri" data-sa="extract">✂ 会議として切り出す</button>
+      <button class="sb" data-sa="speaker">👤 話した人を直す</button>
+      <button class="sb" data-sa="copy">📋 コピー</button>
+      <button class="sb danger" data-sa="delete">🗑 削除</button>
+      <button class="sb" data-sa="clear" title="選択をやめる（Esc）">✕</button>
+    </div>
+  </main>
+
+  <section class="right" id="right">
+    <div class="rtabs">
+      <button class="act" data-t="sum">📝 議事録</button>
+      <button data-t="ai">💡 AI のアドバイス</button>
+    </div>
+    <div class="rbody" id="rbody"></div>
+  </section>
+</div>
+
+<div class="talk" id="talk">
+  <div class="th"><b>🤖 Claude と会議中 <span class="mode" id="talkModeName"></span></b><span class="spacer"></span><button class="lbtn" id="talkEnd">終わる</button></div>
+  <div class="tb" id="talkBody"></div>
+  <div class="listen"><span class="wave"><i></i><i></i><i></i><i></i></span><span id="listenText">聞いています… 話しかけてください</span></div>
+</div>
+
+<div class="drawer adv-only" id="drawer">
+  <div class="dh">
+    <button class="act" data-d="ai">AI アシスタントの画面</button>
+    <button data-d="talk">Claude と会議 の画面</button>
+    <button data-d="log">動作ログ</button>
+    <span class="spacer"></span>
+    <span class="muted" id="drawerStat">待機中</span>
+    <button id="drawerToggle">▲</button>
+  </div>
+  <div class="db" id="drawerBody"></div>
+</div>
+
+<div class="modal-bg" id="modal">
+  <div class="modal">
+    <h3 id="modalTitle">会議を開始</h3>
+    <label>会議の名前</label>
+    <input id="mName" value="週次定例">
+    <div class="hint">📅 カレンダーの予定「週次定例 17:00〜」から入力しました</div>
+    <label>話す言語</label>
+    <select><option>日本語</option><option>英語</option><option>自動で判定</option></select>
+    <label><input type="checkbox" id="mAssist" checked style="width:auto"> AI アシスタントに会議を見守ってもらう</label>
+    <div class="hint">決まったこと・宿題・確認が必要な点を「AI のアドバイス」に書き出します</div>
+    <div class="row"><button class="cta ghost" id="mCancel">キャンセル</button><button class="cta" id="mOk">開始する</button></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="exModal">
+  <div class="modal" style="width:520px;max-height:90vh;overflow:auto">
+    <h3>会議として切り出す</h3>
+    <div class="step">① どこを切り出しますか？</div>
+    <div class="radio" data-mode="splitAll"><input type="radio" name="exm"><div style="flex:1"><b>今日のメモ全体を、会話の切れ目で自動で分ける</b>
+      <div class="inl"><select class="gapSel"></select> 分以上 会話が途切れたあとの会話から会議を探します</div>
+      <div class="hint adv-only">開始候補 → 1分以内の間隔が3分続いたら会議と確定 → 3分の沈黙で終了</div>
+      <div class="segs" data-segs="all"></div></div></div>
+    <div class="radio" data-mode="splitRange"><input type="radio" name="exm"><div style="flex:1"><b>選んだ範囲を、会話の切れ目で自動で分ける</b>
+      <div class="inl"><select class="gapSel"></select> 分以上 会話が途切れたあとの会話から会議を探します</div>
+      <div class="segs" data-segs="range"></div></div></div>
+    <div class="radio" data-mode="extractRange"><input type="radio" name="exm"><div style="flex:1"><b>選んだ範囲を、そのまま1つの会議にする</b>
+      <div class="muted" id="exSummary" style="font-size:12px;margin-top:4px"></div>
+      <div class="preview" id="exPreview" style="margin-top:6px"></div></div></div>
+
+    <div id="exTargetBox">
+      <div class="step">② どの会議として保存しますか？</div>
+      <div class="radio" data-tgt="new"><input type="radio" name="ext"><div style="flex:1"><b>新しい会議ファイルにする</b>
+        <div class="sub-opts">
+          <label class="opt"><input type="radio" name="exn" value="group"> いつもの会議の1回として <select id="exGroup"></select></label>
+          <div class="hint" id="exHint" style="margin:-2px 0 4px 22px"></div>
+          <label class="opt"><input type="radio" name="exn" value="newname"> 新しい会議名をつける <input id="exName" placeholder="例: 週次定例"></label>
+          <label class="opt"><input type="radio" name="exn" value="adhoc"> 名前をつけない（あとで付けられます）</label>
+        </div></div></div>
+      <div class="radio" data-tgt="existing"><input type="radio" name="ext"><div style="flex:1"><b>すでにある会議ファイルに付け足す</b>
+        <select id="exTarget" style="margin-top:6px"></select>
+        <div class="hint">会議が途中で切れてしまったときに、つなげるために使います。前後1日の会議ファイルから選べます</div></div></div>
+    </div>
+    <div class="hint" style="margin-top:10px" id="exFoot"></div>
+    <div class="row"><button class="cta ghost" id="exCancel">キャンセル</button><button class="cta" id="exOk">作成</button></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="spkModal">
+  <div class="modal" style="width:340px">
+    <h3>話した人を直す</h3>
+    <div class="muted" id="spkSummary" style="font-size:12.5px"></div>
+    <label>正しい人</label>
+    <select id="spkSel"><option>あなた</option><option>alice</option><option>bob</option><option>carol</option></select>
+    <div class="hint">選んだ行だけを書き換えます。同じ人を毎回まちがえる場合は「👥 話している人に名前を付ける」で声を覚えさせてください。</div>
+    <div class="row"><button class="cta ghost" id="spkCancel">キャンセル</button><button class="cta" id="spkOk">変更する</button></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="delModal">
+  <div class="modal" style="width:360px">
+    <h3>選んだ行を削除しますか？</h3>
+    <div class="muted" id="delSummary" style="font-size:12.5px;margin-bottom:8px"></div>
+    <div class="preview" id="delPreview"></div>
+    <div class="hint">翻訳がある場合は、翻訳の行も一緒に消えます。</div>
+    <div class="row"><button class="cta ghost" id="delCancel">キャンセル</button><button class="cta" id="delOk" style="background:var(--red)">削除する</button></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="talkModal">
+  <div class="modal" style="width:520px;max-height:90vh;overflow:auto">
+    <h3>Claude と会議を始める</h3>
+    <div class="step" style="margin-top:0">① どんな会議にしますか？</div>
+    <div class="tmodes" id="tmodes"></div>
+    <label>議題</label>
+    <input id="tTopic" placeholder="空なら Claude が最初に尋ねます">
+    <label>Claude の性格・話し方 <span class="muted">(persona)</span></label>
+    <div style="display:flex;gap:6px"><select id="tPersona"></select><button class="cta ghost" style="white-space:nowrap" onclick="toast('persona の編集画面（現行と同じ）')">編集</button></div>
+    <div class="step">② Claude の声をどこに流しますか？</div>
+    <div class="radio act" data-route="self"><input type="radio" name="tr" checked><div><b>自分にだけ聞こえる</b><div class="hint">一人で相談・練習するとき</div></div></div>
+    <div class="radio" data-route="app"><input type="radio" name="tr"><div style="flex:1"><b>会議アプリにも流す</b>
+      <div style="display:flex;gap:6px;margin-top:6px"><select id="tRouteApp"><option>Google Chrome</option><option>zoom</option></select><button class="cta ghost" onclick="toast('アプリ一覧を再読み込みしました')">↻</button></div>
+      <div class="hint">いま音を出しているアプリが並びます。会議に入ってから ↻ で読み直してください。相手にも Claude の声が聞こえます（Linux + PipeWire のみ。使えない環境では選べません）</div></div></div>
+    <button class="cta ghost" style="margin-top:10px" onclick="toast('声の設定画面（話者・速さ・高さを試聴しながら変更）')">🔈 声の設定</button>
+    <details class="more"><summary>くわしい設定</summary>
+      <label>モデル</label><select id="tModel"><option>既定（claude の既定）</option><option>opus</option><option>sonnet</option><option>haiku</option></select>
+      <label>作業ディレクトリ</label><input id="tWorkdir" value="~/work">
+      <div class="hint">Claude がファイルを読んだり書いたりする場所です</div>
+    </details>
+    <div class="row" style="justify-content:space-between">
+      <button class="cta ghost" id="tSave">今の設定をモードとして保存</button>
+      <span style="display:flex;gap:8px"><button class="cta ghost" id="tCancel">キャンセル</button><button class="cta" id="tOk" style="background:var(--claude)">開始</button></span>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="cfModal">
+  <div class="modal" style="width:360px">
+    <h3 id="cfTitle"></h3><div class="muted" id="cfText" style="font-size:12.5px;line-height:1.6"></div>
+    <div class="row"><button class="cta ghost" onclick="document.getElementById('cfModal').classList.remove('show')">キャンセル</button><button class="cta" id="cfOk"></button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="modal-bg" id="mcModal">
+  <div class="modal" style="width:480px">
+    <h3>会議名を変える</h3>
+    <label>会議名</label>
+    <input id="mcName">
+    <div class="hint" id="mcNameHint"></div>
+    <div class="row" style="justify-content:space-between">
+      <span></span>
+      <span style="display:flex;gap:8px"><button class="cta ghost" id="mcCancel">キャンセル</button><button class="cta" id="mcOk">保存</button></span>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="lkModal">
+  <div class="modal" style="width:400px">
+    <h3>この記録の会議名</h3>
+    <div class="muted" id="lkSummary" style="font-size:12.5px"></div>
+    <div class="radio act" data-lk="existing"><input type="radio" name="lk" checked><div style="flex:1"><b>いつもの会議から選ぶ</b><select id="lkSel" style="margin-top:6px"></select></div></div>
+    <div class="radio" data-lk="new"><input type="radio" name="lk"><div style="flex:1"><b>新しい会議名にする</b><input id="lkName" style="margin-top:6px" placeholder="空欄なら名前なし（ad-hoc）"></div></div>
+    <div class="row"><button class="cta ghost" id="lkCancel">キャンセル</button><button class="cta" id="lkOk">適用</button></div>
+  </div>
+</div>
+
+<script src="dashboard-friendly-ui-interactive.js"></script>
+<script src="dashboard-friendly-ui-search.js"></script>
+<script src="dashboard-friendly-ui-meetings.js"></script>
+<script src="dashboard-friendly-ui-mtgcfg.js"></script>
+</body>
+</html>

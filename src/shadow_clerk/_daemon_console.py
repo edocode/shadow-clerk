@@ -84,7 +84,8 @@ class ConsoleSession:
 
     def __init__(self, role: ConsoleRole = ConsoleRole.ASSISTANT) -> None:
         self.role = role
-        self.workdir = self.model = self.persona = ""  # model / persona: talk コンソールの起動時の --model と ペルソナ
+        # model / persona: talk コンソールの起動時の --model とペルソナ。transcript: assistant が見ている transcript の basename
+        self.workdir = self.model = self.persona = self.transcript = ""
         self.screen = pyte.Screen(DEFAULT_COLS, VIRTUAL_ROWS)
         self.screen.set_mode(pyte.modes.LNM)
         self._stream = pyte.Stream(self.screen)
@@ -664,16 +665,15 @@ def start_console_for(transcript_path: str, auto: bool = False,
     """
     config = load_config()
     ai = AiAssistantConfig.from_config(config)
-    meeting = ""
-    if transcript_path:
-        tn = TranscriptName.parse(os.path.basename(transcript_path))
-        meeting = (tn.meeting_name or "") if tn else ""
+    tn = TranscriptName.parse(os.path.basename(transcript_path)) if transcript_path else None
+    meeting = (tn.meeting_name or "") if tn else ""
     workdir = ai.resolve_workdir(MeetingConfig.load().resolve_workdir(meeting))
 
     console = get_console()
     ok, _started = console.start_if_stopped(ai.argv(), workdir)
     if not ok:
         return False
+    console.transcript = os.path.basename(transcript_path)  # /api/status の console_transcript
     if auto:
         # 自動起動はユーザーが見ていない場所で始まる。ダッシュボードが
         # 議事録ペインと AI コンソールを自分で開けるよう、手動起動と

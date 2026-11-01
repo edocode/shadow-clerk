@@ -1,6 +1,7 @@
 """Shadow-clerk daemon: ダッシュボード AI Console エンドポイント"""
 # pylint: disable=duplicate-code  # POST ボディ解析の定型は各ハンドラで共通形
 from __future__ import annotations
+import dataclasses
 import logging
 import os
 import re
@@ -94,6 +95,14 @@ class _DashboardHandlerConsoleOps:
             transcript = os.path.join(self.recorder._output_dir, transcript)
         else:
             transcript = self.recorder.output_path
+        # 開始モーダルで外した会議でも会議設定でオフの会議でも、手で頼んだならスキルの resolve が監視する側を返すようにする。
+        # 会議の開始・終了と同じ transcript_lock の中で読み替えて、終わった会議を書き戻さない
+        session = getattr(self.recorder, "current_session", None)
+        if session is not None and session.file_path == transcript and session.analyze is not True:
+            with self.recorder.transcript_lock:
+                session = self.recorder.current_session
+                if session is not None and session.file_path == transcript:
+                    self.recorder.current_session = dataclasses.replace(session, analyze=True)
         ok = start_console_for(transcript, send_prompt=data.get("prompt") is not False)
         self._send_json({"status": "ok" if ok else "error",
                          "running": get_console().is_running()})
@@ -307,7 +316,10 @@ class _DashboardHandlerConsoleOps:
         self._send_json({"status": "ok", "path": path})
 
     def _serve_meeting_settings(self) -> None:
-        """GET /api/meeting-settings?meeting=<名前>&… — 会議ごとの解決済みの設定（会議ごとの設定モーダル）"""
+        """GET /api/meeting-settings?meeting=<名前>&… — 会議ごとの解決済みの設定（会議ごとの設定モーダル）。
+
+        analyze は未指定なら null（auto_analyze に従う）
+        """
         cfg = MeetingConfig.load()
         out = []
         for name in parse_qs(urlparse(self.path).query).get("meeting", []):
@@ -322,6 +334,7 @@ class _DashboardHandlerConsoleOps:
         """POST /api/meeting-settings {meetings: [名前…], set: {analyze?, publish?, workdir?, publish_to?, notion_url?, publish_advice?}}
 
         選んだ会議に同じ値を書く（MeetingConfig.apply）。1 回の load→save にまとめるので、途中で失敗しても半端に残らない
+        analyze は true / false / "default"（会議のルールから消して auto_analyze に従わせる）
         """
         data = self._console_body()
         if data is None:

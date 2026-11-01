@@ -144,7 +144,7 @@ To start the daemon when you sign in, copy the **Shadow Clerk** shortcut into th
 
 **Minimal setup without LLM:** Transcription + LibreTranslate translation requires no external API or Claude Code. Everything runs locally.
 
-See the [Feature Tour](docs/feature-tour.en.md) for a visual walkthrough with screenshots.
+See the [Feature Tour](docs/feature-tour.en.md) for a visual walkthrough with screenshots (taken of the previous dashboard, now at `/legacy`).
 
 ## Setup
 
@@ -393,7 +393,7 @@ clerk-util write-config-value gcal_integration true
 clerk-util write-config-value gcal_credentials_file ~/credentials.json
 ```
 
-When enabled, clerk-daemon polls Google Calendar every 60 seconds. Events automatically trigger `start_meeting` / `end_meeting`, creating transcript files named `transcript-YYYYMMDDHHMM@EventTitle.txt`. The event's invitees are saved as the meeting's expected attendees and shown above its summary, and the 📅 button in the dashboard header lists today's events.
+When enabled, clerk-daemon polls Google Calendar every 60 seconds. Events automatically trigger `start_meeting` / `end_meeting`, creating transcript files named `transcript-YYYYMMDDHHMM@EventTitle.txt`. The event's invitees are saved as the meeting's expected attendees and shown above its summary, and **More ▾ → 📅 Today's schedule** in the dashboard lists today's events.
 
 See [docs/google-calendar-setup.md](docs/google-calendar-setup.md) for full setup instructions including how to obtain `credentials.json` from Google Cloud Console.
 
@@ -531,11 +531,15 @@ The dashboard (<http://localhost:8765>, `--dashboard-port` to change) shows the 
 
 | Area | What it holds |
 |---|---|
-| Header | Meeting and translation toggles, **Summary** (generate minutes), **Talk with Claude**, font size, transcript/translation layout, **Glossary**, PTT, custom **Commands**, 📅 today's Google Calendar events (only when the integration is on), ⚙ settings, ❓ help |
-| Left pane: **Dates** / **Meetings** / **Search** | Daily transcripts by date; meeting files grouped by name (sort by name or newest, rename a meeting group, ⚙ per-meeting working directory); search by year/month/day/hour and text across transcripts, translations and summaries |
-| Transcript / Translation | Live text with mute buttons and [level meters](#audio-level-meters). ⏱ turns part of a daily transcript into meetings: split it all (or a selection) at silences of a chosen length, or extract the selected lines. 📂 assigns a meeting file to an existing or new meeting name, 🗑 deletes the file or merges a meeting back into the daily transcript |
-| Right pane: **Summary** / **AI Analysis** | The minutes (copy, reload, regenerate; expected attendees from the calendar on top). **AI Analysis** shows the AI Console's Advice and Analysis documents and its **Start analysis** button |
-| Bottom pane: **AI Console** / **Talk with Claude** / **Logs** | The two [AI Console](#ai-console) terminals (meeting assistant and [talk](#talk-with-claude)) with the transcript beside them, and the daemon log |
+| Header | Status ("Transcribing (today's notes)", "In a meeting", "Disconnected"; click it to open the live transcript while another file is open), **▶ Start meeting** (meeting name, language and the AI assistant in one dialog), **🌐 Translate**, **Talk with Claude**, **🗣** the recognition language (`auto` / `ja` / `en` …, switches immediately), **Your voice** / **Their voice** mute buttons with [level meters](#audio-level-meters) (muting does not stop the recording), **More ▾** (glossary, 📅 today's schedule when the calendar integration is on, PTT, voice commands, spoken language, per-meeting settings, ⚙ settings, ❓ help, and a link to the previous dashboard; PTT, voice commands, spoken language and the link appear in **Advanced** only), **🪟 View ▾** (what to show in the centre, the side panels and text size), **Simple** / **Advanced**, and the light/dark theme switch |
+| Left pane: **Dates** / **Meetings** / **🔍 Search** | Daily transcripts by date; meeting files grouped by name (sort by name or newest, rename a meeting group); search by keyword, target and year/month/day/hour across transcripts, translations and summaries, with the hits grouped by meeting |
+| Centre | The open transcript. **🪟 View** switches it between Transcript, + Translation, Translation only, Minutes & AI advice (large) and the AI assistant screen. A daily transcript is shown in conversation chunks. Click (Shift+click for a range) to select lines, then **✂ Save as a meeting** (as one meeting, or split at pauses in the conversation; a whole daily transcript can be split too), **👤 Fix the speaker**, **📋 Copy** or **🗑 Delete**. **👥 Name the speakers** names the labels, **📂 Meeting name** assigns the file to an existing or new meeting, 🗑 deletes the file or moves a meeting back into the daily transcript |
+| Right pane: **📝 Minutes** / **💡 AI advice** | The minutes (copy, reload, regenerate; expected attendees from the calendar on top). **AI advice** shows the [AI assistant](#ai-console)'s advice and analysis and starts, stops or switches it. Only one assistant runs at a time |
+| Bottom drawer (**Advanced** only) | The two [AI Console](#ai-console) terminals (meeting assistant and [talk](#talk-with-claude)), the activity log and voice-command responses |
+
+**Simple** hides the tools most people don't need (PTT, voice commands, spoken language, file deletion and the bottom drawer); **Advanced** shows everything. Both the mode and the theme are remembered by the browser.
+
+The previous dashboard is still served at <http://localhost:8765/legacy> (**More ▾ → Previous dashboard** in **Advanced**) while the new one settles in; it will be removed later. `/next`, where the new dashboard was tried out, redirects to `/`. One thing only the previous dashboard can do: launch the AI assistant without a prompt (to `/resume` an earlier session).
 
 A **Welcome** dialog appears on first run: it offers to install the skill for an AI agent and points to the settings worth checking first ("Do not show this again" hides it). When the bundled skill is newer than the installed copy, a dialog offers to update it.
 
@@ -570,7 +574,7 @@ The separator (comma, space) between the wake word and command is optional. The 
 
 #### Custom voice commands
 
-You can register custom voice commands in `config.yaml` under `custom_commands` (or with the **Commands** button on the dashboard). They are evaluated after built-in commands:
+You can register custom voice commands in `config.yaml` under `custom_commands` (or with **More ▾ → Voice commands** on the dashboard, shown in **Advanced** only). They are evaluated after built-in commands:
 
 ```yaml
 custom_commands:
@@ -719,9 +723,9 @@ Requirements:
   voice does not come back as `[Others]` lines.
 
 Click **Talk with Claude** in the dashboard header, enter a topic (or leave it empty), pick a
-persona, and start. **Voice settings** in the same dialog picks the VOICEVOX speaker and adjusts speed, pitch, intonation and volume, with a preview button; changes apply from the next sentence. Unticking **Use the glossary** turns off the glossary replacements in the transcript for that conversation, and Claude does not read the glossary either (for conversations that do not need it, such as language practice; saved with presets). **Reply early** (on by default) lets Claude answer from the in-progress transcription before the final line arrives, which is faster but may answer a misheard line; untick it to have Claude wait for final lines. By default Claude runs in a second AI Console (**Talk with Claude** tab) with the `clerk-talk` skill,
+persona, and start. **Voice settings** in the same dialog picks the VOICEVOX speaker and adjusts speed, pitch, intonation and volume, with a preview button; changes apply from the next sentence. Unticking **Use the glossary** turns off the glossary replacements in the transcript for that conversation, and Claude does not read the glossary either (for conversations that do not need it, such as language practice; saved with presets). **Reply early** (on by default) lets Claude answer from the in-progress transcription before the final line arrives, which is faster but may answer a misheard line; untick it to have Claude wait for final lines. By default Claude runs in a second AI Console (the **Talk with Claude screen** in the bottom drawer) with the `clerk-talk` skill,
 so it can edit files and run commands with the usual permission prompts, and the meeting helper keeps
-running in the **AI Console** tab. Set `talk_engine: headless` to use a background `claude -p` process
+running in the **AI assistant screen**. Set `talk_engine: headless` to use a background `claude -p` process
 instead: it answers a little faster but cannot ask for permission, so it only gets the tools in
 `talk_allowed_tools`. Install the skills with `clerk-util install-skill` (all of them are installed together).
 The `clerk-talk` skill pre-approves only its own `curl` calls to `http://localhost` (and `Monitor` and `Agent`); if
@@ -779,8 +783,8 @@ which would turn English into katakana), just tell Claude: it switches the recog
 Claude switches to the bundled `clerk-practice` skill: it starts a practice meeting (`英語練習` for English) without
 the meeting assistant, reads the end of the last few practice sessions to suggest what to do today, asks how many minutes to
 practice (and, a minute before time is up, whether to stop or keep going), and runs
-pronunciation, conversation, listening or immersion practice (practice language only; corrections are written to the AI analysis tab instead of spoken). Corrections go to **Advice** and the practice log with example
-sentences to **Analysis** in the AI analysis tab; lines starting with 🔊 are read aloud when you click them, in the
+pronunciation, conversation, listening or immersion practice (practice language only; corrections are written to the 💡 AI advice tab instead of spoken). Corrections go to **Advice** and the practice log with example
+sentences to **Analysis** in the 💡 AI advice tab; lines starting with 🔊 are read aloud when you click them, in the
 language tagged after it (`🔊[en] …`); `🔊[en|sentence] Question 1` shows only "Question 1" and reads the hidden sentence (listening practice). Claude speaks practice-language sentences with the browser's voice (Web Speech API)
 instead of VOICEVOX, so keep the dashboard open and click it once (browsers only allow speech after a user action);
 without such a tab those sentences fall back to VOICEVOX. The speaker (monitor) is muted while practising, and
@@ -790,7 +794,7 @@ The skill uses these localhost-only endpoints, which you can also call yourself:
 
 | Endpoint | Body / query | Effect |
 |---|---|---|
-| `POST /api/meeting` | `{"action": "start", "name": "…", "analyze": false}` or `{"action": "end"}` | Start or end a meeting; `analyze: false` skips the AI assistant even with `auto_analyze` |
+| `POST /api/meeting` | `{"action": "start", "name": "…", "analyze": false}` or `{"action": "end"}` | Start or end a meeting; `analyze: false` skips the AI assistant even with `auto_analyze`; an empty name takes the ongoing calendar event's name, and a name with no usable characters (e.g. `///`) is an error |
 | `POST /api/mute` | `{"source": "mic" or "monitor", "muted": true}` | Same as the mute buttons; returns `previous` |
 | `POST /api/generated` | `{"kind": "advice" or "analysis", "mode": "replace" or "append", "text": "…"}` | Write the current transcript's advice/analysis (up to 20,000 characters) |
 | `GET /api/meeting-history` | `?meeting=…&count=3&tail=15` | `tail` (0–50) adds the last lines of each past transcript |
@@ -842,7 +846,7 @@ clerk-util command translate_start                 # Start translation loop
 clerk-util command translate_stop                  # Stop translation loop
 ```
 
-Meeting start/end is also available via **voice commands** ("sheruku, start meeting" / "sheruku, end meeting") or **dashboard buttons**. The dashboard's **Summary** button can trigger minutes generation at any time.
+Meeting start/end is also available via **voice commands** ("sheruku, start meeting" / "sheruku, end meeting") or **dashboard buttons**. The dashboard's **📝 Minutes** tab can generate (or regenerate) the minutes at any time.
 
 When `auto_summary` is on and the [AI Console](#ai-console) is running at meeting end, the minutes are written by the assistant in the console instead (`auto_summary_via_console`, on by default); otherwise the configured LLM writes them.
 
@@ -850,7 +854,7 @@ Generated meeting minutes are saved to `~/.local/share/shadow-clerk/summary-YYYY
 
 ### AI Console
 
-An AI assistant (`claude` or `codex`) can run inside a PTY under the dashboard's **AI Console** tab (next to **Logs**), watching the meeting transcript and writing generated documents back for the dashboard to display.
+An AI assistant (`claude` or `codex`) can run inside a PTY on the dashboard's **AI assistant screen** (in the bottom drawer, or in the centre via **🪟 View ▾**), watching the meeting transcript and writing generated documents back for the dashboard to display.
 
 - **Installing the skill**: the assistant runs a bundled skill (`clerk-meeting-helper`; `clerk-talk`, `clerk-practice` and `voicevox-sing` for [talk mode](#talk-with-claude) are installed with it) that has to be copied into the agent's own skills directory. The Welcome dialog offers this on a first run, and the command does the same:
 
@@ -862,9 +866,9 @@ An AI assistant (`claude` or `codex`) can run inside a PTY under the dashboard's
   ```
 
   A destination holding a skill shadow-clerk did not write is left alone unless you pass `--force`.
-- **Starting**: automatically when a meeting starts (`auto_analyze: true`), or manually with the **Start analysis** button (AI Analysis tab) or the console's **Launch** button. Either way, `ai_assistant_init_prompt` (default `/clerk-meeting-helper {transcript} {lang}`) is sent to the PTY once the assistant's TUI is ready — `{transcript}` and `{meeting}` are substituted with the active file paths, and `{lang}` with `translate_language`, so the skill writes in the language you read.
+- **Starting**: automatically when a meeting starts (`auto_analyze: true`), or manually with **Ask the AI assistant to follow** in the **💡 AI advice** tab. Either way, `ai_assistant_init_prompt` (default `/clerk-meeting-helper {transcript} {lang}`) is sent to the PTY once the assistant's TUI is ready — `{transcript}` and `{meeting}` are substituted with the active file paths, and `{lang}` with `translate_language`, so the skill writes in the language you read.
 - **Reaching the dashboard**: the assistant calls the dashboard's HTTP API at `$SHADOW_CLERK_URL`, which the console puts in its environment, so it never has to guess the port.
-- **Generated documents**: shown in the right pane's **AI Analysis** tab:
+- **Generated documents**: shown in the right pane's **💡 AI advice** tab:
   - `advice-<stem>.md` — open questions and suggestions (overwritten each time)
   - `analysis-<stem>.md` — confirmed facts (appended)
 
@@ -873,7 +877,9 @@ An AI assistant (`claude` or `codex`) can run inside a PTY under the dashboard's
 - **Minutes**: with `auto_summary: true` and `auto_summary_via_console: true` (the default), the minutes at meeting end are written by the assistant while it is running.
 - **Session lifecycle**: one PTY session is reused for the whole run; it is **not** stopped when the meeting ends, so it stays available for writing up minutes afterward. Stop it from the Console tab's stop button.
 - **Working directory**: `ai_assistant_workdir` sets the default launch directory. Per-meeting overrides live in `DATA_DIR/meeting.yaml` (`meetings[].workdir`), editable from the gear icon (⚙) on each meeting's row in the meeting list.
-- **Meeting settings**: the ⚙ next to the "Meetings" heading opens a list of meetings. Filter by name, tick meetings, and change whether the AI assistant analyzes them (with `auto_analyze`, a meeting set to Off doesn't launch the assistant), their publish flag, working directory, destination (Artifact or a Notion URL) and whether the AI analysis Advice is published, all at once. The ⚙ on a row edits that one meeting from its current values. With Advice published, clerk-meeting-helper keeps the published copy up to date during the meeting so everyone can follow it. Values go to `meeting.yaml`; a meeting that matched a rule shared with other meetings gets its own `^name$` rule, copied from that rule and placed just before it. The first time shadow-clerk writes to a `config.yaml` it didn't create itself, it saves a one-time `<path>.bak` copy alongside it, since the YAML writer preserves keys but not your hand-written comments.
+- **Meeting settings**: **⚙ Per-meeting settings** at the top of the **Meetings** tab (or **More ▾ → Per-meeting settings**) opens a list of meetings. Filter by name, tick meetings, and change whether the AI assistant analyzes them, their publish flag, working directory, destination (Artifact or a Notion URL) and whether the AI analysis Advice is published, all at once. The ⚙ on a row edits that one meeting from its current values. With Advice published, clerk-meeting-helper keeps the published copy up to date during the meeting so everyone can follow it. Values go to `meeting.yaml`; a meeting that matched a rule shared with other meetings gets its own `^name$` rule, copied from that rule and placed just before it. The first time shadow-clerk writes to a `config.yaml` it didn't create itself, it saves a one-time `<path>.bak` copy alongside it, since the YAML writer preserves keys but not your hand-written comments.
+- **Analyze: Default / On / Off**: each meeting's `analyze` has three states. **Default** (no `analyze` in `meeting.yaml`) follows `auto_analyze`. **On** launches the assistant when the meeting starts even if `auto_analyze` is off; **Off** never launches it, even with `auto_analyze` on. The AI assistant box in the **▶ Start meeting** dialog overrides this for that one meeting only, and asking the assistant to follow by hand during the meeting always wins over an Off.
+  - **Upgrade note**: the previous settings modal saved `analyze: true` for every meeting saved on its own (for example to set a working directory), whether or not you changed it. That value now means **On** and launches the assistant even with `auto_analyze` off. If you don't want that, set those meetings back to **Default** in **⚙ Per-meeting settings**, or remove `analyze: true` from `meeting.yaml`.
 - **Permissions**: the assistant runs shell scripts from the meeting skill, so allow them in that working directory's `.claude/settings.json` — otherwise it stops mid-meeting at a permission prompt.
 - **Orphaned process on SIGKILL**: the daemon stops the assistant on normal shutdown, but if the daemon itself is killed with SIGKILL (`kill -9`), the assistant process can be left running (it is detached from any terminal). Find and kill it manually with `pgrep -af claude` (or `codex`).
 - **Security note if you expose the dashboard**: the AI Console's terminal content (including whatever the assistant reads or prints from your files) is streamed over the same `/api/events` SSE used by the rest of the dashboard, and that SSE fan-out has no per-client filtering. If you bind the dashboard beyond localhost, anyone who can reach it can watch the assistant's terminal live. Console input (`/api/console/input` etc.) itself stays localhost-only and additionally checks the `Origin` header to reject cross-origin requests from your own browser.
@@ -973,7 +979,7 @@ ui_language: ja               # UI language (ja/en) — dashboard, terminal outp
 
 Talk mode keys (`talk_*`) are listed under [Talk with Claude](#talk-with-claude). The dashboard also keeps a few keys of its own in this file (`welcome_dismissed`, `skill_update_dismissed_version`, `skill_install_targets`); you don't need to edit them.
 
-Manage configuration from the command line (or from ⚙ on the dashboard):
+Manage configuration from the command line (or from **More ▾ → ⚙ Settings** on the dashboard):
 
 ```
 clerk-util read-config                                # Show current config

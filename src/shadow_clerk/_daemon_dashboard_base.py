@@ -15,6 +15,7 @@ from shadow_clerk._daemon_log_buffer import _SSE_CLOSE_EVENT
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_summary_regen import regenerate_summary
 from shadow_clerk._daemon_dashboard_html import _HTML_TEMPLATE
+from shadow_clerk._daemon_dashboard_next_html import _NEXT_HTML_TEMPLATE
 from shadow_clerk._transcript_attendees import read_attendees
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk._markdown import render_markdown
@@ -30,6 +31,16 @@ def _path_hints() -> dict[str, str]:
         "ai_assistant_workdir": os.path.join(os.path.expanduser("~"), "meeting-analysis"),
         "gcal_credentials_file": os.path.join(DATA_DIR, "credentials.json"),
     }
+
+
+def render_html(template: str) -> str:
+    """ダッシュボードのテンプレートに i18n と PATH_HINTS を埋め込む（/ と /legacy と開発用プロキシで共有）"""
+    from shadow_clerk import i18n as _i18n
+    _i18n.init()  # re-read config for ui_language changes
+    html = re.sub(r'\{\{i18n:([^}]+)\}\}', lambda m: t(m.group(1)), template)
+    html = html.replace("/*I18N_JSON*/", f"const I18N={json.dumps(t_all(), ensure_ascii=False)};")
+    return html.replace("/*PATH_HINTS_JSON*/",
+                        f"const PATH_HINTS={json.dumps(_path_hints(), ensure_ascii=False)};")
 
 
 # 書き込み系エンドポイント（AI Console の入出力、画面キャプチャ受け取り等）を
@@ -133,6 +144,13 @@ def _console_running(role: ConsoleRole = ConsoleRole.ASSISTANT) -> bool:
     return get_console(role).is_running()
 
 
+def _console_transcript() -> str | None:
+    """AI アシスタントが見ている transcript の basename。止まっていれば None"""
+    from shadow_clerk._daemon_console import get_console
+    console = get_console()
+    return (console.transcript or None) if console.is_running() else None
+
+
 class _DashboardHandlerBase(BaseHTTPRequestHandler):
     """ダッシュボード HTTP ハンドラー（ルーティング・基本エンドポイント）"""
 
@@ -147,7 +165,14 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/":
-            self._serve_html()
+            self._serve_html(_NEXT_HTML_TEMPLATE)
+        elif path == "/legacy":
+            self._serve_html(_HTML_TEMPLATE)
+        elif path == "/next":
+            self.send_response(302)  # 刷新中に /next を覚えたブックマーク用
+            self.send_header("Location", "/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
         elif path == "/api/events":
             self._serve_sse()
         elif path == "/api/status":
@@ -349,14 +374,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _serve_html(self) -> None:
-        from shadow_clerk import i18n as _i18n
-        _i18n.init()  # re-read config for ui_language changes
-        html = _HTML_TEMPLATE
-        html = re.sub(r'\{\{i18n:([^}]+)\}\}', lambda m: t(m.group(1)), html)
-        html = html.replace("/*I18N_JSON*/", f"const I18N={json.dumps(t_all(), ensure_ascii=False)};")
-        html = html.replace("/*PATH_HINTS_JSON*/",
-                            f"const PATH_HINTS={json.dumps(_path_hints(), ensure_ascii=False)};")
+    def _serve_html(self, template: str) -> None:
+        html = render_html(template)
         body = html.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -421,6 +440,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             # 定期取得のこちらに載せる
             "console_running": _console_running(),
             "talk_console_running": _console_running(ConsoleRole.TALK),
+            # /next の AI タブが「いまは X を見ています」を出すのに使う（ページを開き直しても正しいよう定期取得に載せる）
+            "console_transcript": _console_transcript(),
         })
 
     def _serve_files(self) -> None:
