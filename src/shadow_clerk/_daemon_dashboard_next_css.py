@@ -1,7 +1,7 @@
 """Shadow-clerk daemon: /next ダッシュボード CSS（試作 dashboard-friendly-ui-interactive.css が元）"""
 from __future__ import annotations
 
-from shadow_clerk._daemon_dashboard_css import _CSS_CONSOLE
+from shadow_clerk._daemon_dashboard_css import _CSS_CONSOLE, _CSS_WELCOME
 
 _DARK = """\
   --bg:#0b0f17; --panel:#111827; --panel2:#0f1520; --line:#1f2937; --border:var(--line); --text:#e5e7eb; --muted:#8b95a5;
@@ -512,3 +512,5 @@ details.more summary { cursor:pointer; color:var(--muted); font-size:12px; margi
 #consolec, .aicon { background:var(--con-bg); color:var(--con-fg); }
 #consoleInput.composing { background:var(--con-bg); color:var(--con-fg); }
 """
+
+_NEXT_CSS += _CSS_WELCOME

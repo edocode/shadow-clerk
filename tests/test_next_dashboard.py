@@ -234,6 +234,43 @@ def _run_next(body: str) -> dict:
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node が無い")
+def test_welcome_takes_priority_over_skill_updates() -> None:
+    out = _run_next(r"""
+(async()=>{
+  ROUTES['/api/skill-status']={bundled:'2.0.0',targets:[{name:'acme',state:'outdated',path:'/tmp/acme'}]};
+  await tick();await tick();await tick();await tick();
+  console.log(JSON.stringify({
+    welcome:document.getElementById('welcomeModal').classList.contains('open'),
+    update:document.getElementById('skillUpdateModal').classList.contains('open')}));
+})().catch(e=>console.log(JSON.stringify({bodyErr:String(e)})));
+""")
+    assert out == {"welcome": True, "update": False}
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node が無い")
+def test_welcome_without_skill_service() -> None:
+    out = _run_next(r"""
+(async()=>{
+  await tick();await tick();
+  ROUTES['/api/skill-status']=()=>{throw new Error('unavailable');};
+  await maybeShowWelcome();
+  const html=document.getElementById('welcomeBody').innerHTML;
+  const out={open:document.getElementById('welcomeModal').classList.contains('open'),html};
+  closeWelcome();
+  ROUTES['/api/config']={welcome_dismissed:true};
+  await maybeShowWelcome();
+  out.dismissed=!document.getElementById('welcomeModal').classList.contains('open');
+  console.log(JSON.stringify(out));
+})().catch(e=>console.log(JSON.stringify({bodyErr:String(e)})));
+""")
+    assert out["open"] and out["dismissed"]
+    assert out["html"].count('class="wc-feature"') == 4
+    assert '<details class="wc-setup">' in out["html"]
+    assert '<details class="wc-setup" open' not in out["html"]
+    assert "undefined" not in out["html"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node が無い")
 def test_reused_modules_resolve() -> None:
     """/next の HTML の要素だけで _NEXT_JS 全体が読み込め、流用モジュールの関数を呼んでも未定義の名前が出ない"""
     out = _run_next(_RESOLVE_BODY)

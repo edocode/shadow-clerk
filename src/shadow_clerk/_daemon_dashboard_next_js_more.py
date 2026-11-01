@@ -87,7 +87,8 @@ function nxMoreInit(){
   // 現行と同じく、開いたときに初めての人へのようこそ・同梱スキルが新しくなった知らせ（流用する _JS_TEMPLATE_MODALS）。
   // 流用モジュールはこのモジュールより後ろで読み込まれるので、nxInit の最初の描画で 1 度だけ呼ぶ
   let started=false;
-  nxRenderers.push(()=>{if(started)return;started=true;maybeShowWelcome();maybeShowSkillUpdate();});
+  nxRenderers.push(()=>{if(started)return;started=true;
+    maybeShowWelcome().then(shown=>{if(!shown)maybeShowSkillUpdate();});});
 }
 nxMoreInit();
 """

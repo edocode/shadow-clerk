@@ -552,4 +552,23 @@ _CSS_TAIL = """\
 .ms-path { padding:6px 16px; border-top:1px solid var(--border); font-size:11px; color:var(--muted); }
 """
 
-_CSS_TEMPLATE = _CSS_HEAD + _CSS_CONSOLE + _CSS_TAIL
+_CSS_WELCOME = """\
+#welcomeModal .modal { width:min(676px,calc(100% - 24px)); }
+.wc-catch { font-size:23px; line-height:1.4; margin:0 0 8px; }
+.wc-intro { color:var(--muted); line-height:1.7; margin:0 0 16px; }
+.wc-features { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.wc-feature { border:1px solid var(--border); border-radius:10px; padding:14px;
+  background:var(--bg); }
+.wc-feature h3 { color:var(--accent); font-size:14px; margin:0 0 6px; }
+.wc-feature p { font-size:12px; line-height:1.7; margin:0; }
+.wc-start { line-height:1.7; padding:12px; border-radius:8px;
+  background:rgba(88,166,255,.1); margin:16px 0; }
+.wc-setup summary { cursor:pointer; color:var(--muted); font-size:12px; }
+@media(max-width:520px) {
+  .wc-features { grid-template-columns:1fr; }
+  .wc-catch { font-size:20px; }
+  #welcomeModal .wc-row { flex-wrap:wrap; }
+}
+"""
+
+_CSS_TEMPLATE = _CSS_HEAD + _CSS_CONSOLE + _CSS_TAIL + _CSS_WELCOME
