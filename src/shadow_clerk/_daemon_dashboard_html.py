@@ -124,8 +124,8 @@ _HTML_CFG_MODALS = (
     "  </div>\n"
     "</div>\n"
 )
-# 使い方・音声コマンドのモーダル。/next も流用する
-_HTML_HELP_MODALS = (
+# 以前のダッシュボードの使い方と、共用する音声コマンドのモーダル
+_HTML_HELP_MODAL = (
     "<div class=\"modal-overlay\" id=\"helpModal\" onclick=\"if(event.target===this)closeHelp()\">\n"
     "  <div class=\"modal\" style=\"max-width:600px;\">\n"
     "    <div class=\"modal-head\"><span>{{i18n:dash.help_title}}</span><span style=\"margin-left:auto;margin-right:8px;\"><a id=\"helpReadmeLink\" href=\"https://github.com/edocode/shadow-clerk#readme\" target=\"_blank\" rel=\"noopener\" style=\"font-size:13px;\">README</a></span><button onclick=\"closeHelp()\">&times;</button></div>\n"
@@ -137,6 +137,8 @@ _HTML_HELP_MODALS = (
     "    </div>\n"
     "  </div>\n"
     "</div>\n"
+)
+_HTML_CUSTOM_CMD_MODAL = (
     "<div class=\"modal-overlay\" id=\"customCmdModal\" onclick=\"if(event.target===this)closeCustomCmds()\">\n"
     "  <div class=\"modal\" style=\"max-width:700px;\">\n"
     "    <div class=\"modal-head\"><span>{{i18n:dash.custom_commands_title}}</span><button onclick=\"closeCustomCmds()\">&times;</button></div>\n"
@@ -158,6 +160,8 @@ _HTML_HELP_MODALS = (
     "  </div>\n"
     "</div>\n"
 )
+_HTML_HELP_MODALS = _HTML_HELP_MODAL + _HTML_CUSTOM_CMD_MODAL
+
 # 今日の予定のモーダル。/next も流用する
 _HTML_GCAL_MODAL = (
     "<div class=\"modal-overlay\" id=\"gcalModal\" onclick=\"if(event.target===this)closeGcal()\">\n"
