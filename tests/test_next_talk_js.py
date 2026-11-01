@@ -1,6 +1,6 @@
 """/next の「Claude と会議」（開始モーダル・ヘッダのボタン・会議中の帯）を node で検証する
 
-- 開始はモードを選ぶまで押せない。モード＝「自由に話す」か /api/talk-presets のモード
+- 開始はモードを選ぶまで押せない。モード＝「自由に話す」か /api/talk-presets のモードで、select で選ぶ。「自由に話す」は消せない
 - モードを選ぶと議題・ペルソナ・届け先・モデル・作業フォルダ・用語集・早めに返すが入る。「自由に話す」は開いたときの値に戻す
 - 開始は現行の startTalk / talkPost をそのまま使う: 先にモデルを保存し、POST /api/talk-mode の本文は現行と同じ。
   届け先が使えない環境では route を送らない（tests/test_talk_route_js.py / test_talk_model_js.py と同じ項目）
@@ -72,7 +72,7 @@ const MOCK={route:{available:true,targets:[{app:'Zoom',label:'Zoom'},{app:'Chrom
   cfg:{talk_personas:{'聞き上手':'よく聞く','やさしい先生':'ほめる'},talk_default_persona:'聞き上手',talk_workdir:'~/work',
     talk_model:'sonnet',talk_route_app:''},
   presets:[{name:'週次定例の準備',fields:{topic:'宿題の整理',persona:'やさしい先生',route:'Zoom',model:'opus',workdir:'/w/acme',
-    glossary:false,early_reply:false}},{name:'英語の練習',fields:{topic:'カフェで注文'}}],talkFail:false};
+    glossary:false,early_reply:false}},{name:'英語の練習',fields:{topic:'カフェで注文',skill:'clerk-practice'}}],talkFail:false};
 const fetch=async (url,opt)=>{
   const ok=v=>({json:async()=>JSON.parse(JSON.stringify(v))});
   if(opt&&opt.method==='POST'){
@@ -108,17 +108,20 @@ const view=()=>({open:els.talkModal.classList.contains('open'),ok:!els.nxTalkOk.
   persona:els.talkPersonaSel.value,route:els.talkRoute.value,model:els.talkModel.value,workdir:els.talkWorkdir.value,
   glossary:els.talkGlossary.checked,early:els.talkEarlyReply.checked,
   app:els.nxTalkRouteApp.classList.contains('act'),appOff:els.nxTalkRouteApp.classList.contains('disabled'),
-  modes:els.nxTalkModes.innerHTML});
+  modes:els.nxTalkModeSel.innerHTML,mode:els.nxTalkModeSel.value,delHidden:els.nxTalkModeDel.hidden,
+  desc:els.nxTalkModeDesc.textContent,skill:els.talkSkill.value});
 const talkPosts=()=>posts.filter(p=>p[0]==='/api/talk-mode'||p[0]==='/api/config').map(p=>p[0]==='/api/config'
   ?['config',p[1].talk_model,p[1].talk_route_app]:['talk',p[1]]);
 
 out.btn0=[els.nxTalkLabel.textContent,els.nxTalkBtn.classList.contains('on'),els.nxTalkBand.classList.contains('show')];
 /* 開く: モードを選ぶまで開始できない */
 click('nxTalkBtn');await settle();out.opened=view();
-/* 保存したモードを選ぶ */
-nxPickTalkMode('週次定例の準備');out.preset=view();
+/* 保存したモードを select で選ぶ */
+change('nxTalkModeSel','m:週次定例の準備');out.preset=view();
 /* 中身が一部だけのモードは、残りを開いたときの値に戻してから入れる */
 nxPickTalkMode('英語の練習');out.partial=view();
+posts.length=0;await startTalk();out.skillStart=talkPosts().filter(x=>x[0]==='talk').map(x=>x[1].skill);
+await talkPost({on:false});click('nxTalkBtn');await settle();nxPickTalkMode('英語の練習');
 /* 自由に話す: 開いたときの値 */
 nxPickTalkMode('');out.free=view();
 
@@ -199,10 +202,13 @@ check("開くと #talkModal が開き、モードを選ぶまで開始できな�
 check("開いたときの値は現行と同じ（議題は空・既定のペルソナ・作業フォルダ・モデル・用語集オン）",
       [o["topic"], o["persona"], o["workdir"], o["model"], o["glossary"], o["early"], o["route"]]
       == ["", "聞き上手", "~/work", "sonnet", True, True, ""], repr(o))
+check("モードは select で、まだ選んでいない・自由に話す・削除ボタンなし",
+      o["mode"] == "" and ja["nx.talk_mode_pick"] in o["modes"] and o["delHidden"] and o["desc"] == "", repr(o))
 check("モードの一覧は「自由に話す」と保存したモード",
       ja["nx.talk_free"] in o["modes"] and "週次定例の準備" in o["modes"] and "英語の練習" in o["modes"], o["modes"][:200])
 p = out["preset"]
-check("モードを選ぶと開始できる", p["ok"], repr(p))
+check("モードを選ぶと開始でき、削除ボタンと議題の説明が出る",
+      p["ok"] and p["mode"] == "m:週次定例の準備" and not p["delHidden"] and p["desc"] == "宿題の整理", repr(p))
 check("モードの議題・ペルソナ・届け先・モデル・作業フォルダ・用語集・早めに返すが入る",
       [p["topic"], p["persona"], p["route"], p["model"], p["workdir"], p["glossary"], p["early"], p["app"]]
       == ["宿題の整理", "やさしい先生", "Zoom", "opus", "/w/acme", False, False, True], repr(p))
@@ -213,6 +219,10 @@ check("中身が一部のモードは、残りを開いたときの値にして�
 f = out["free"]
 check("「自由に話す」は開いたときの値に戻し、開始できる",
       [f["topic"], f["persona"], f["model"], f["workdir"], f["ok"]] == ["", "聞き上手", "sonnet", "~/work", True], repr(f))
+check("「自由に話す」は消せない", f["delHidden"] and f["mode"] == "m:", repr(f))
+check("モードの skill が入り、開始で送る。「自由に話す」は skill なし",
+      out["partial"]["skill"] == "clerk-practice" and out["skillStart"] == ["clerk-practice"] and f["skill"] == "",
+      repr([out["partial"]["skill"], out["skillStart"], f["skill"]]))
 check("会議アプリにも → 先頭のアプリ、自分にだけ → 届け先なし",
       out["pickApp"] == "Zoom" and out["pickSelf"] == "", repr([out["pickApp"], out["pickSelf"]]))
 check("一覧からアプリを選ぶと「会議アプリにも」になる", out["selApp"] is True, repr(out["selApp"]))
@@ -244,7 +254,7 @@ s = out["save"]
 check("保存は現行と同じ本文で POST /api/talk-presets、閉じて保存したモードを選ぶ",
       s[0] == [["/api/talk-presets", {"name": "acme 相談", "fields": {"topic": "新しい議題", "workdir": "~/work",
                                                                        "model": "sonnet", "persona": "聞き上手", "route": "",
-                                                                       "glossary": True, "early_reply": True}}]]
+                                                                       "glossary": True, "early_reply": True, "skill": ""}}]]
       and s[1] is False and s[2] == "acme 相談" and s[3], repr(s))
 check("削除は確認を出す", out["delAsk"][0] and "acme 相談" in out["delAsk"][1], repr(out["delAsk"]))
 d = out["del"]

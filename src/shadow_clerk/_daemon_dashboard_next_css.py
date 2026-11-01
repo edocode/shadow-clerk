@@ -393,14 +393,6 @@ main { container-type:inline-size; }
 .banner.talk.show { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .banner.talk .lbtn { margin-left:auto; }
 #talkModal.open, #talkPresetModal.open { display:flex; }
-.tmodes { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:4px; }
-.tmode { position:relative; border:1px solid var(--line); border-radius:10px; padding:10px 24px 10px 10px; cursor:pointer;
-  font-size:12px; min-width:0; }
-.tmode b { display:block; font-size:13px; margin-bottom:2px; }
-.tmode .muted { display:block; font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.tmode.act { border-color:var(--claude); background:rgba(192,132,252,.10); }
-.tmode .x { position:absolute; top:4px; right:4px; border:none; background:transparent; color:var(--muted); padding:0 4px; }
-.tmode .x:hover { color:var(--danger-fg); }
 .modal .inrow { display:flex; gap:6px; } .modal .inrow select { flex:1; min-width:0; } .modal .inrow .cta { white-space:nowrap; }
 .modal .radio .inrow { margin-top:6px; }
 .modal .hint.warn { color:var(--warn-fg); }

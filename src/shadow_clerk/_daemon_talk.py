@@ -197,6 +197,7 @@ class TalkDriver:
         self._persona: TalkPersona | None = None
         self._glossary = True
         self._early_reply = True  # 確定行を待たずに中間文字起こしから返事を出すか（skill が読む）
+        self._skill = ""  # clerk-talk が最初に切り替える skill（空なら議題に沿って話す）
         self._lang = Language.JA
         self._language = ""
         self._workdir = ""
@@ -219,7 +220,7 @@ class TalkDriver:
         self._was_routed = False  # stop() した会話が届け先ありだったか。猶予中の monitor の扱いを決める
 
     def start(self, topic: str, persona: str | None, workdir: str | None = None,
-              route: str | None = None, glossary: bool = True, early_reply: bool = True) -> None:
+              route: str | None = None, glossary: bool = True, early_reply: bool = True, skill: str = "") -> None:
         with self._lock:
             if self._active:
                 return
@@ -272,7 +273,7 @@ class TalkDriver:
             self._route, self._sink, self._echo = route_obj, sink, echo
             self._playback = _PlaybackSpan(tail_sec=tail_sec)
             self._topic, self._persona, self._lang, self._glossary = topic, chosen, lang, glossary
-            self._language, self._workdir, self._early_reply = lang.value, resolved, early_reply
+            self._language, self._workdir, self._early_reply, self._skill = lang.value, resolved, early_reply, skill
             self._credit, self._error = backend.credit(), ""
             self._filler_sec, self._floor_wait_sec, self._stop_re = filler_sec, floor_wait_sec, stop_re
             self._active = True  # つなぎは [自分] 行のあとだけ。口火の前に挟むと最初の質問より先に話してしまう
@@ -614,7 +615,7 @@ class TalkDriver:
         return {"active": self._active, "engine": self._engine_name, "topic": self._topic,
                 "persona": self._persona.name if self._persona else "",
                 "persona_instructions": self._persona.instructions if self._persona else "",
-                "glossary": self.uses_glossary, "early_reply": self._early_reply,
+                "glossary": self.uses_glossary, "early_reply": self._early_reply, "skill": self._skill,
                 "language": self._language, "workdir": self._workdir,
                 "credit": self._credit, "error": self._error,
                 "route": route.status() if route is not None else {"app": "", "connected": False}}
