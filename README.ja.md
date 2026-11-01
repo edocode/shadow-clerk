@@ -857,6 +857,7 @@ clerk-util command translate_stop                  # 翻訳ループ停止
   ```
 
   shadow-clerk が書いたものではないスキルが配布先にある場合、`--force` を付けない限り触らない。
+- **コミュニケーションの振り返り**: 同梱の `clerk-conversation-retrospective` で、会議後に自分の発言と前後の応答を振り返れる。AI コンソールで `/clerk-conversation-retrospective <transcript のパス>` と呼び、必要なら「質問に端的に答えたい」などの観点を添える。時刻または行番号付きの根拠、よかった場面、改善できそうな場面と言い換え、次回試すことを返す。既定は会話で返し、保存は依頼された場合に行う。AI分析 タブへの自動表示はしない。
 - **起動**: 会議開始時（`auto_analyze: true`）に自動で、または **💡 AI のアドバイス** タブの **AI アシスタントに見てもらう** で手動で起動する。いずれの場合もアシスタントの TUI が準備できたタイミングで `ai_assistant_init_prompt`（デフォルト `/clerk-meeting-helper {transcript} {lang}`）が PTY に送られる。`{transcript}` と `{meeting}` は実際のファイルパスに、`{lang}` は `translate_language` に置き換えられ、スキルは読みたい言語で書く
 - **ダッシュボードへの接続**: アシスタントはダッシュボードの HTTP API を `$SHADOW_CLERK_URL`（コンソールが環境変数として渡す）で呼ぶので、ポートを推測しない
 - **生成物**: 右ペインの **💡 AI のアドバイス** タブに表示される
@@ -1015,7 +1016,7 @@ shadow-clerk/                          # リポジトリ
     skill_install.py                   # install-skill
     i18n.py                            # 多言語対応 (ja/en)
     domain/                            # ドメインの値オブジェクト
-    skills/                            # 同梱スキル: clerk-meeting-helper, clerk-talk, clerk-practice, voicevox-sing
+    skills/                            # 同梱スキル: clerk-meeting-helper, clerk-talk, clerk-practice, voicevox-sing, clerk-conversation-retrospective
     talk_prompts/                      # talk mode のシステムプロンプト
   extension/                           # スクリーンショット用 Chrome 拡張
   packaging/                           # PyInstaller の spec とフック
