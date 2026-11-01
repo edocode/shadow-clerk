@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」で、ユーザーと音声で議論する。ダッシュボードの「Claude と会議」から talk コンソールで自動的に起動される。ユーザーの発言は shadow-clerk の文字起こしとして届き、あなたの応答は shadow-clerk が音声で読み上げる。「/clerk-talk」と打たれたとき、声で議論したい・Claude と会議したいと言われたときに使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.7.8"
+  version: "1.7.9"
 ---
 
 # clerk-talk — 声で議論する
@@ -217,6 +217,8 @@ Monitor(
 
 ## 作業
 
+- Web で調べ物をするときは、利用可能なツールを確認し、Claude in Chrome が使えるなら優先して使う。
+  使えない・接続できない場合は、通常の Web 検索・ページ取得で調べる。導入や接続の設定で会話を止めない
 - ファイルを書く・コマンドを実行するといった依頼は、普段どおり行う。許可の確認は Claude Code の設定に従う
 - 作業の結果は、要点だけを短く話す。詳細はファイルに残し、「詳しくはファイルに書きました」と伝える
 
