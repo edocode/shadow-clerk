@@ -148,6 +148,9 @@ def test_install_copies_every_bundled_skill() -> None:
         r = skill_install.install(tmp)
         talk = pathlib.Path(tmp) / skill_install.TALK_SKILL_NAME / "SKILL.md"
         check("clerk-talk も配られた", talk.is_file())
+        for skill in skill_install.BUNDLED_SKILLS:
+            dest = pathlib.Path(tmp) / skill
+            check(f"{skill} が版付きで配られた", skill_install.read_skill_version(dest) is not None)
         check("戻り値に skill ごとの記録", [s["skill"] for s in r["skills"]] == list(skill_install.BUNDLED_SKILLS), repr(r))
 
 
@@ -167,6 +170,17 @@ def test_status_outdated_when_talk_skill_missing() -> None:
         _fake_installed(pathlib.Path(tmp) / skill_install.SKILL_NAME, main_ver)
         cur = [t for t in skill_install.skill_status([tmp])["targets"] if t["name"] == tmp][0]
         check("clerk-talk が無ければ outdated", cur["state"] == "outdated", repr(cur))
+
+
+def test_status_outdated_when_retrospective_missing() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        skill_install.install(tmp)
+        shutil.rmtree(pathlib.Path(tmp) / skill_install.RETROSPECTIVE_SKILL_NAME)
+        cur = next(t for t in skill_install.skill_status([tmp])["targets"] if t["name"] == tmp)
+        check("振り返りスキルだけ未配布なら outdated", cur["state"] == "outdated", repr(cur))
+        skill_install.install(tmp)
+        cur = next(t for t in skill_install.skill_status([tmp])["targets"] if t["name"] == tmp)
+        check("再配布で current に戻る", cur["state"] == "current", repr(cur))
 
 
 def test_skill_installed() -> None:
@@ -325,6 +339,7 @@ def main() -> int:
     test_install_copies_every_bundled_skill()
     test_install_refuses_before_touching_anything()
     test_status_outdated_when_talk_skill_missing()
+    test_status_outdated_when_retrospective_missing()
     test_status_hides_vanished_target()
     test_skill_installed()
     test_talk_skill_check_looks_at_claude_only()

@@ -943,6 +943,7 @@ An AI assistant (`claude` or `codex`) can run inside a PTY on the dashboard's **
   ```
 
   A destination holding a skill shadow-clerk did not write is left alone unless you pass `--force`.
+- **Communication retrospective**: the bundled `clerk-conversation-retrospective` skill reviews your own statements and the surrounding replies after a meeting. Run `/clerk-conversation-retrospective <transcript-path>` in the AI Console, optionally adding a focus such as “answer questions more directly”. It returns evidence with timestamps or line numbers, a successful exchange, a possible improvement with alternative wording, and one action to try next time. Results stay in the conversation unless you request a saved report; they do not automatically appear in the AI Analysis tab.
 - **Starting**: automatically when a meeting starts (`auto_analyze: true`), or manually with **Ask the AI assistant to follow** in the **💡 AI advice** tab. Either way, `ai_assistant_init_prompt` (default `/clerk-meeting-helper {transcript} {lang}`) is sent to the PTY once the assistant's TUI is ready — `{transcript}` and `{meeting}` are substituted with the active file paths, and `{lang}` with `translate_language`, so the skill writes in the language you read.
 - **Reaching the dashboard**: the assistant calls the dashboard's HTTP API at `$SHADOW_CLERK_URL`, which the console puts in its environment, so it never has to guess the port.
 - **Generated documents**: shown in the right pane's **💡 AI advice** tab:
@@ -1099,7 +1100,7 @@ shadow-clerk/                          # Repository
     skill_install.py                   # install-skill
     i18n.py                            # Internationalization (ja/en)
     domain/                            # Domain value objects
-    skills/                            # Bundled skills: clerk-meeting-helper, clerk-talk, clerk-practice, voicevox-sing
+    skills/                            # Bundled skills: clerk-meeting-helper, clerk-talk, clerk-practice, voicevox-sing, clerk-conversation-retrospective
     talk_prompts/                      # Talk mode system prompts
   extension/                           # Chrome screenshot extension
   packaging/                           # PyInstaller spec and hooks
