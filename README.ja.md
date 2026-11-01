@@ -144,7 +144,7 @@ foreach ($s in @(@("Shadow Clerk", "start -d"), @("Shadow Clerk (stop)", "stop")
 
 **LLM なしで使える最小構成:** 文字起こし + LibreTranslate 翻訳であれば、外部 API や Claude Code は不要。すべてローカルで完結する。
 
-スクリーンショット付きの機能紹介は [Feature Tour](docs/feature-tour.md) を参照（画面は以前のダッシュボード。いまは `/legacy` で開ける）。
+スクリーンショット付きの機能紹介は [Feature Tour](docs/feature-tour.md) を参照。
 
 ## セットアップ
 
