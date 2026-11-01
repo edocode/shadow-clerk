@@ -479,7 +479,7 @@ Docker を使うと、Python や PortAudio のセットアップなしに shadow
 docker build -t shadow-clerk .
 docker run --rm \
   -p 8765:8765 \
-  -v "$HOME/.local/share/shadow-clerk":/data \
+  -v "$HOME/.local/share/shadow-clerk:/data" \
   -v /run/user/$(id -u)/pulse:/run/pulse \
   -e SHADOW_CLERK_DATA_DIR=/data \
   -e PULSE_SERVER=unix:/run/pulse/native \
@@ -503,7 +503,7 @@ docker compose up
 talk_voicevox_url: http://voicevox:50021
 ```
 
-`data/` ディレクトリが自動的に作成され、設定・文字起こし・翻訳・要約が保存されます。
+ローカルインストール時と同じ `~/.local/share/shadow-clerk/` をマウントするため、設定・文字起こし・翻訳・要約を共有できます。
 
 #### PulseAudio ソケットのパスについて
 
