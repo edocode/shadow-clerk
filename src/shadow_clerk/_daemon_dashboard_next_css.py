@@ -364,6 +364,7 @@ main { container-type:inline-size; }
 .modal .hint.foot { margin-top:10px; }
 .modal label.chk { display:flex; gap:6px; align-items:center; color:var(--text); font-size:13px; margin-top:14px; }
 .modal label.chk input { width:auto; }
+.modal label.chk[hidden] { display:none; }
 .hint { font-size:11.5px; color:var(--muted); margin-top:4px; line-height:1.5; }
 .cta { background:var(--accent); color:#fff; border:none; border-radius:8px; padding:8px 16px; font-weight:bold; }
 .cta.danger { background:var(--red); }
