@@ -41,6 +41,18 @@ def test_spellings_cover_long_vowels() -> None:
     assert kh.spellings("かき") == ["かき"]
 
 
+def test_devoiced_spellings() -> None:
+    # 無声子音の前の し は す とも書く（モデルは無声化した し を す と聞く）
+    assert set(kh.devoiced_spellings("くわしく")) == {"くわしく", "くわすく"}
+    # 後ろの読みまで見て決める。有声音の前は替えない
+    assert kh.devoiced_spellings("まし", following="た") == ["まし", "ます"]
+    assert kh.devoiced_spellings("しま") == ["しま"]
+    # 行末の す（です・ます）
+    assert "でし" in kh.devoiced_spellings("です")
+    # つ/ち のような別の対立には広げない
+    assert kh.devoiced_spellings("つき") == ["つき"]
+
+
 def test_align_maps_boundaries() -> None:
     lo, hi = kh.align("ぱすたいく", "あしたいく")
     assert (lo[3], hi[3]) == (3, 3)
@@ -89,10 +101,19 @@ def test_morphemes_give_kana_readings() -> None:
     assert morphs[-1].reading == "" and not morphs[-1].content
 
 
+@needs_extra
+def test_morphemes_carry_alternative_readings() -> None:
+    from sudachipy import Dictionary, SplitMode
+
+    tok = Dictionary(dict="core").tokenizer(mode=SplitMode.A)
+    morphs = kh.morphemes(tok, "私は")
+    assert morphs is not None and set(morphs[0].readings) == {"わたし", "わたくし"}
+
+
 class _FakeTokenizer:
     def __init__(self) -> None:
         self.vocab = {"[PAD]": 0, "|": 1}
-        for c in "でぷろいりしますかきょうのごにわ":
+        for c in "でぷろいりしますかきょうのごにわたくあすぐは":
             self.vocab.setdefault(c, len(self.vocab))
         self.pad_token_id = 0
 
@@ -148,6 +169,42 @@ def test_annotate_marks_the_misheard_word(monkeypatch: pytest.MonkeyPatch) -> No
     assert h.annotate("きょうの午後にリプロイしますか", None, "ja") == "きょうの午後にリプロイ(でぷろい?)しますか"
     # 音と合っている行には何も足さない
     assert h.annotate("きょうの午後にデプロイしますか", None, "ja") == "きょうの午後にデプロイしますか"
+
+
+@needs_extra
+def test_annotate_accepts_either_reading(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 形態素解析は「私」を わたくし と読むが、わたし と言っても聞き間違いではない
+    h = _hinter("わたしはいきました", monkeypatch)
+    assert h.annotate("私は行きました", None, "ja") == "私は行きました"
+    # どちらの読みとも違えば添える
+    h = _hinter("あたしはいきました", monkeypatch)
+    assert h.annotate("私は行きました", None, "ja") == "私(あたし?)は行きました"
+
+
+@needs_extra
+def test_annotate_ignores_devoicing(monkeypatch: pytest.MonkeyPatch) -> None:
+    h = _hinter("くわすくききます", monkeypatch)
+    assert h.annotate("詳しく聞きます", None, "ja") == "詳しく聞きます"
+
+
+def test_shared_recogniser_loads_once_and_frees_last(monkeypatch: pytest.MonkeyPatch) -> None:
+    from shadow_clerk import _daemon_pronounce_ipa as ipa
+
+    calls: list[str] = []
+    monkeypatch.setattr(ipa.PhonemeRecogniser, "load", lambda self: (calls.append("load"), setattr(self, "_model", 1)))
+    monkeypatch.setattr(ipa.PhonemeRecogniser, "unload", lambda self: (calls.append("unload"), setattr(self, "_model", None)))
+    monkeypatch.setattr(ipa, "_shared", {})
+    a = ipa.SharedRecogniser("m", "cpu", 0, "a")
+    b = ipa.SharedRecogniser("m", "cpu", 0, "b")
+    a.load()
+    assert a.loaded and not b.loaded     # 載っていても、load していない呼び手には載っていないと見せる
+    b.load()
+    a.unload()
+    assert calls == ["load", "load"] and b.loaded and not a.loaded   # まだ b が使っている
+    b.unload()
+    assert calls[-1] == "unload" and not b.loaded
+    # device が違えば別のもの
+    assert ipa.SharedRecogniser("m", "cuda", 0, "c")._inner is not a._inner
 
 
 @needs_extra
