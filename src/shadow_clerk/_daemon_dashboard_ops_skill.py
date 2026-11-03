@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import re
+import sys
 import time
 from urllib.parse import urlparse, parse_qs
 
@@ -30,6 +31,9 @@ logger = logging.getLogger("shadow-clerk")
 WATCH_INTERVAL_DEFAULT = 25
 WATCH_IDLE_DEFAULT = 600
 WATCH_INTERVAL_RANGE = (1, 300)
+# pronounce=1 で、発音の解析が終わるまで確定行を止めておく上限（秒）。止めるのは、行と解析結果を
+# 1回の通知にまとめて、skill が GET /api/pronounce を取りに行く往復を省くため
+WATCH_PRONOUNCE_HOLD_SEC = 8.0
 
 _MAX_MEETING_NAME_CHARS = 100
 _MUTE_SOURCES = ("mic", "monitor")
@@ -390,6 +394,10 @@ class _DashboardHandlerSkillOps:
         （1回の発話で何度も変わるので、通知が増える）。interim_min=N を足すと、N 文字に満たない interim
         （「うん」「なるほど」のような相づち）は流さない。
 
+        pronounce=1 を付けると、発音の解析結果（GET /api/pronounce の attempts の1件）を、積まれるたびに
+        <pronounce segment_at="…" trimmed="0|1">要約</pronounce> の1行で流す（要約は Attempt.brief()）。解析待ちのセグメントがある間は確定行を最大
+        WATCH_PRONOUNCE_HOLD_SEC 秒止め、その [自分] 行と解析結果を同じ通知で流す。
+
         exclude=claude を付けると、[Claude] 行（Claude と会議で Claude 自身が話した内容）を流さない。
         残る行が無ければ <transcript> ごと流さない（自分の声の行で Claude を起こさないため）。既定は全行を流す。
 
@@ -423,6 +431,8 @@ class _DashboardHandlerSkillOps:
         want_interim = (q.get("interim") or ["0"])[0] in ("1", "true")
         interim_min = max(0, _int("interim_min", 0))
         drop_claude = "claude" in (q.get("exclude") or [""])[0].split(",")
+        pronounce = (getattr(self.recorder, "pronounce", None)
+                     if (q.get("pronounce") or ["0"])[0] in ("1", "true") else None)
         if kind not in ("transcript", "advice"):
             self.send_error(400)
             return
@@ -506,9 +516,27 @@ class _DashboardHandlerSkillOps:
                 self.wfile.flush()
             return sent
 
+        # つないだ時点で積まれている attempt は流さない（いまの通し番号から始める）
+        seq = pronounce.attempts_after(sys.maxsize)[0] if pronounce else 0
+
+        def _emit_pronounce() -> bool:
+            """前回より後に積まれた attempt を1件1行で流す。流したら True。
+            JSON にしないのは、Monitor が長い通知を切って focus の所見が読めなくなるため"""
+            nonlocal seq
+            if pronounce is None:
+                return False
+            seq, attempts = pronounce.attempts_after(seq)
+            for a in attempts:
+                self.wfile.write(f'<pronounce segment_at="{a.segment_at}" trimmed="{int(a.trimmed)}">'
+                                 f'{a.brief().replace("<", "＜")}</pronounce>\n'.encode())
+            if attempts:
+                self.wfile.flush()
+            return bool(attempts)
+
         with self.recorder.transcript_lock:
             offset, generation = _size(), journal.generation(path)
         quiet = 0
+        held_since: float | None = None
         logger.info("監視ストリーム開始: %s (interval=%ds)", os.path.basename(path), interval)
         try:
             while not self.recorder.stop_event.is_set():
@@ -523,7 +551,14 @@ class _DashboardHandlerSkillOps:
                     self.wfile.flush()
                     logger.info("監視ストリーム: 書き込み先が変わった: %s", os.path.basename(path))
                 emitted_interim = _emit_interim()
-                if _emit_new_lines() or emitted_interim:
+                if pronounce is not None and pronounce.has_pending():
+                    held_since = held_since or time.monotonic()
+                    if time.monotonic() - held_since < WATCH_PRONOUNCE_HOLD_SEC:
+                        continue   # 解析中。確定行は結果と一緒に流す
+                else:
+                    held_since = None
+                emitted = _emit_new_lines()
+                if _emit_pronounce() or emitted or emitted_interim:
                     quiet = 0
                 else:
                     quiet += interval

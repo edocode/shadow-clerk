@@ -884,6 +884,7 @@ The skill uses these localhost-only endpoints, which you can also call yourself:
 sends `<notice>…</notice>` and continues with the new file, so Claude keeps hearing you past midnight.
 `interim=1` also streams the not-yet-final text as `<interim>` lines (`interim_min=N` skips texts shorter than N characters),
 and `exclude=claude` drops Claude's own `[Claude]` lines, sending nothing when a chunk had only those.
+`pronounce=1` streams pronunciation analysis results as `<pronounce>` lines, holding a `[自分]` line for up to 8 seconds while its analysis runs so both arrive together.
 
 | Key | Default | Description |
 |---|---|---|

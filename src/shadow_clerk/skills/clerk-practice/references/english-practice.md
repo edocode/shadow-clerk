@@ -51,7 +51,8 @@ curl -s "http://localhost:8765/api/pronounce"
 
 **手順**
 
-1. 課題文を Analysis に先に書く（綴りを見せてよいのは AI分析 タブだけ）
+1. 課題文は Analysis に書く（綴りを見せてよいのは AI分析 タブだけ）。最初の問題は出題の前に、
+   2問目からは SKILL.md「判定のあと」の順で、お手本を読んだあとに書く
 2. `POST /api/pronounce` で課題を預ける。`focus` は**語ではなく音素**で指定する
 
 ```
@@ -59,7 +60,9 @@ curl -s -X POST "http://localhost:8765/api/pronounce" -H 'Content-Type: applicat
 ```
 
 3. 返った `expected` が、その課題文の**正規化後の期待IPA**。`focus` の `phoneme` はここに
-   出てくる記号で書く。
+   出てくる記号で書く。辞書どおりの記号（`iː`、`ɪ`）で送っても daemon が同じ正規化をかけるので通る。
+   正規化では長音記号 `ː` が落ち、`ɪ` `ə` `ʌ` は `@`、`ɚ` `ɜ` は `R`、`ɔ` `ɑ` は `O`、`æ` は `A` になる。
+   `<pronounce>` の行も `GET /api/pronounce` も、この記号で書かれる（`sit` は `s @ t`、`seat` は `s i t`）
 
    **拒否は HTTP 200 で `{"status":"error","message":...}` として返る。** `message` を読んで、
    次のどれかで対処する。**送り直す前に必ず何かを変える。同じ body の再送は通らない**:
@@ -74,18 +77,27 @@ curl -s -X POST "http://localhost:8765/api/pronounce" -H 'Content-Type: applicat
      **課題文を作り直してから**送り直す。作り直しは1回まで。それでも通らなければ、
      従来モードに切り替えて練習を続ける
 4. `display` 付きの `/api/say` でお手本を読む（綴りを見せない）
-5. `[自分]` の行が届いたら `GET /api/pronounce` を呼ぶ
+5. `[自分]` の行が届いたら、同じ通知にある `<pronounce segment_at="…" trimmed="0">…</pronounce>` の行を見る。
+   daemon は解析が終わるまで（最大8秒）`[自分]` 行を止めておき、行と解析結果を続けて流す。
+   **`GET /api/pronounce` を取りに行かない**。中身は attempt の要約で、一致しなかった op と `focus` の op だけが、
+   `focus` を含む語から順に並ぶ（`berry: *b>v; vest: *v, ->ə; Is: z>v`）:
+   - `*` が付いた op が `focus`。`b>v` は置換（`sub`）、`b>-` は欠落（`del`）、`->ə` は挿入（`ins`）、記号1つだけ（`*v`）は一致（`same`）
+   - 載っていない語は全部の音が一致している。中身が空なら全部一致
+   - `trimmed="1"` は下の「読み方」の `trimmed: true` と同じ。発話の文は `[自分]` 行の文で見る（`asr_text` と同じ文字起こし）
+   - 長いときは末尾が `…` で切れている。`focus` の op は先頭にあるので、切れても読める
+   - **`/api/say` が `held` で返り、`heard` に `[自分]` 行があるとき**は、その応答をそこで終える。
+     `sleep` も `GET /api/pronounce` もしない。同じ行が `<pronounce>` 行と一緒に Monitor の通知で届くので、
+     それを待って5.から判定する（`sleep` で応答を延ばすと、その間は通知が届かない）
+6. `[自分]` 行と同じ `segment_at` の `<pronounce>` 行が無いときだけ、`GET /api/pronounce` を1回呼んで
+   `state` と `attempts`（新しい順、最大3件）を見る（下の「attempt が見つからないとき」）。
+   そこでも `pending` が 0 より大きければ、その発話は**未判定**として扱い、**成否を一切言わない**
+   （「解析に時間がかかっています」と母語で一度だけ伝えてよい）
 
 ```
 curl -s "http://localhost:8765/api/pronounce"
 ```
 
-6. `pending` が 0 より大きければ、**Analysis への書き込みなど次の作業を1つ挟んでから**
-   `GET /api/pronounce` を取り直す（`sleep` は使わない）。2回取り直しても `pending` が
-   0 より大きければ、その発話は**未判定**として扱い、**成否を一切言わない**
-   （「解析に時間がかかっています」と母語で一度だけ伝えてよい）
-7. `attempts`（新しい順、最大3件）の中から、いま見た `[自分]` 行と同じ `segment_at` のものを探す。
-   `asr_text` は音声認識の結果で、`words[].ops` が音素の対応
+7. `GET` で取った attempt では、`asr_text` が音声認識の結果、`words[].ops` が音素の対応
 
 **`state` が `loading` のとき**
 
@@ -131,8 +143,8 @@ curl -s "http://localhost:8765/api/pronounce"
 
 **attempt が見つからないとき**
 
-お手本の回り込みや母語での発言も `[自分]` 行として transcript に残る。`[自分]` 行を見たら、
-まず `GET /api/pronounce` の `state` で分ける。
+お手本の回り込みや母語での発言も `[自分]` 行として transcript に残る。同じ `segment_at` の `<pronounce>` 行が
+無い `[自分]` 行を見たら、`GET /api/pronounce` の `state` で分ける。
 
 - **`unavailable`** — 音素フィードバックは使わない。共通手順の「音声認識だけで判定する」に従う。
   この節の残りは適用しない
@@ -147,7 +159,7 @@ curl -s "http://localhost:8765/api/pronounce"
 
 `armed` のとき:
 
-- `pending` が 0 より大きいときは手順6に従う（取り直しは2回まで）。それでも来なければ**未判定**とし、
+- `pending` が 0 より大きいときは**未判定**とし（手順6。取り直さない）、
   **成否を一切言わない。** Analysis の `結果` の列は空のままにして、もう一度言ってもらう
 - **`pending` が 0 で、同じ `segment_at` の attempt が無い `[自分]` 行は、試行として扱わない。**
   「言えました」とも言わない。そのうえで、行の内容で分ける:
@@ -195,8 +207,8 @@ curl -s -X POST "http://localhost:8765/api/pronounce" -H 'Content-Type: applicat
 
 - 発話のたびに期限が延びるので、会話が続く間は送り直さなくてよい。発音の課題文を預けると置き換わるので、
   会話に戻るときにまた `free` を送る
-- `[自分]` の行が届いたら、返事を考えるついでに `GET /api/pronounce` を1回だけ見る。同じ `segment_at` の attempt が
-  無ければ（`pending` 中も含めて）その発話は見送る。取り直さない
+- `[自分]` の行と同じ通知に、同じ `segment_at` の `<pronounce>` 行が届く。それが無ければその発話は見送る。
+  `GET /api/pronounce` は取りに行かない
 - **拾うのは日本語話者が崩しやすい対立だけ**: `θ` が `s` / `f` 寄り、`ð` が `z` / `d` 寄り、`ɹ` と `l` の入れ替わり、`v` が `b` 寄り、
   `f` が `h` 寄り。それ以外の差分は、自由発話ではフロア誤差（`focus` が無いので、全部の op が対象外の扱い）
 - **期待文が文字起こしなので、崩れた音がそのまま別の語として認識されると差分は出ない**（thick が sick と認識されると、
