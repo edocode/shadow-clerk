@@ -12,6 +12,8 @@ from shadow_clerk.domain.language import Language
 
 _MAX_TEXT_CHARS = 500
 _MAX_FOCUS = 20
+# Attempt.brief() の上限。Monitor は 600 文字ほどで通知を切るので、[自分] 行と合わせて収まる長さにする
+BRIEF_LIMIT = 300
 
 
 class PronounceState(Enum):
@@ -115,6 +117,11 @@ class PhonemeOp:
         return {"kind": self.kind.value, "expected": self.expected,
                 "actual": self.actual, "focus": self.focus}
 
+    def brief(self) -> str:
+        """`*b>v`（focus の置換）、`v`（一致）、`b>-`（欠落）、`->ə`（挿入）"""
+        body = self.expected if self.kind is OpKind.SAME else f"{self.expected or '-'}>{self.actual or '-'}"
+        return f"*{body}" if self.focus else body
+
 
 @dataclass(frozen=True)
 class WordComparison:
@@ -140,3 +147,12 @@ class Attempt:
     def to_json(self) -> dict:
         return {"at": self.at, "segment_at": self.segment_at, "asr_text": self.asr_text,
                 "words": [w.to_json() for w in self.words], "trimmed": self.trimmed}
+
+    def brief(self, limit: int = BRIEF_LIMIT) -> str:
+        """/api/watch の1行に収める要約。focus の op と一致しなかった op だけを、focus を含む語から並べる。
+        Monitor は長い通知を切るので、focus の所見が先頭に来るようにし、limit を超える分は … で落とす"""
+        items = [(any(op.focus for op in w.ops),
+                  f"{w.word}: " + ", ".join(op.brief() for op in w.ops if op.focus or op.kind is not OpKind.SAME))
+                 for w in self.words if any(op.focus or op.kind is not OpKind.SAME for op in w.ops)]
+        text = "; ".join(t for _, t in sorted(items, key=lambda x: not x[0]))
+        return text if len(text) <= limit else text[:limit - 1] + "…"

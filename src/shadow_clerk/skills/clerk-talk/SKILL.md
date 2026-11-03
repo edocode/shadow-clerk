@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」で、ユーザーと音声で議論する。ダッシュボードの「Claude と会議」から talk コンソールで自動的に起動される。ユーザーの発言は shadow-clerk の文字起こしとして届き、あなたの応答は shadow-clerk が音声で読み上げる。「/clerk-talk」と打たれたとき、声で議論したい・Claude と会議したいと言われたときに使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.8.0"
+  version: "1.9.0"
 ---
 
 # clerk-talk — 声で議論する
@@ -111,7 +111,7 @@ Monitor で新しい発言を待つ:
 
 ```
 Monitor(
-  command: 'curl -sN "http://localhost:8765/api/watch?interval=1&exclude=claude&interim=1&interim_min=5"',
+  command: 'curl -sN "http://localhost:8765/api/watch?interval=1&exclude=claude&interim=1&interim_min=5&pronounce=1"',
   description: "Claude と会議の発言",
   persistent: true,
   timeout_ms: 3600000
@@ -119,6 +119,8 @@ Monitor(
 ```
 
 - `/api/talk-mode` の `early_reply` が false なら、URL から `&interim=1&interim_min=5` を外す（確定行だけを待つ）
+- `&pronounce=1` は `clerk-practice` の発音解析の結果（`<pronounce>…</pronounce>` の行）を同じ通知で受け取るためのもの。
+  発音の課題を預けていなければ何も変わらないので、常に付けておく。`<pronounce>` の行の読み方は `clerk-practice` に従う
 
 - 届いた行のうち `[自分]` がユーザーの発言。`[相手]` は会議のほかの参加者の発言（届くときだけ）。自分の `[Claude]` 行は `exclude=claude` で届かない
 - `<interim source="…">…</interim>` は話している最中の確定前の文字（下の「会話に入るタイミング」）。5文字未満の相づちは `interim_min=5` で届かない

@@ -144,6 +144,11 @@ def test_focus_validation() -> None:
         check("課題文に無い語を拒否する", False)
     except ArmError:
         check("課題文に無い語を拒否する", True)
+    seat = _driver()
+    seat._expected_of = lambda word, lang: {"sit": ("s", "@", "t"), "seat": ("s", "i", "t")}[word]  # type: ignore[assignment]
+    seat.arm(_task("sit seat", focus=(("seat", "iː"), ("sit", "ɪ"))))
+    check("focus の長音と ɪ を期待列の正規化に揃える",
+          [f.phoneme for f in seat._task.focus] == ["i", "@"], repr(seat._task))
     # focus が空なのは正当な入力。拒否しない
     check("focus が空でもアームできる", drv.arm(_task(focus=())).get("state") == "armed")
 
@@ -171,6 +176,40 @@ def test_attempts_accumulate() -> None:
     _settle(drv)
     check("attempts は最大3件", len(drv.snapshot()["attempts"]) == 3,
           repr(len(drv.snapshot()["attempts"])))
+
+
+def test_attempts_after_returns_only_new() -> None:
+    """/api/watch が新しい attempt だけを古い順に流せること。通し番号はアームし直しても戻らない"""
+    drv = _driver()
+    drv.arm(_task())
+    seq, got = drv.attempts_after(0)
+    check("最初は何も無い", (seq, got) == (0, []), repr((seq, got)))
+    for i in range(2):
+        drv.offer(("ɹ", "aɪ", "t", "l", "aɪ", "t"), f"2026-10-18 10:40:0{i}", "right light")
+    _settle(drv)
+    seq, got = drv.attempts_after(0)
+    check("積んだ順（古い順）に返す", seq == 2 and [a.segment_at for a in got]
+          == ["2026-10-18 10:40:00", "2026-10-18 10:40:01"], repr(got))
+    check("流し終えた後は空", drv.attempts_after(seq) == (2, []), repr(drv.attempts_after(seq)))
+    drv.arm(_task())
+    drv.offer(("l", "aɪ", "t"), "2026-10-18 10:41:00", "light")
+    _settle(drv)
+    seq2, got = drv.attempts_after(seq)
+    check("アームし直した後の1件だけ返す", seq2 == 3 and len(got) == 1, repr(got))
+
+
+def test_attempt_brief() -> None:
+    """/api/watch の1行に載せる要約。focus を含む語が先、一致だけの語は省き、上限で切る"""
+    from shadow_clerk.domain import Attempt, OpKind, PhonemeOp, WordComparison
+    op = lambda k, e, a, f=False: PhonemeOp(k, e, a, f)   # noqa: E731
+    words = (WordComparison("Is", ("ɪ", "z"), ("v",), (op(OpKind.DEL, "ɪ", ""), op(OpKind.SUB, "z", "v"))),
+             WordComparison("a", ("ə",), ("ə",), (op(OpKind.SAME, "ə", "ə"),)),
+             WordComparison("berry", ("b", "ɛ"), ("v", "ɛ"), (op(OpKind.SUB, "b", "v", True), op(OpKind.SAME, "ɛ", "ɛ"))),
+             WordComparison("vest", ("v",), ("v", "ə"), (op(OpKind.SAME, "v", "v", True), op(OpKind.INS, "", "ə"))))
+    a = Attempt("t", "s", "Is a berry vest", words)
+    check("focus を含む語が先・一致だけの語は省く", a.brief() == "berry: *b>v; vest: *v, ->ə; Is: ɪ>-, z>v", a.brief())
+    short = a.brief(limit=12)
+    check("上限で切って … を付ける", short == "berry: *b>v…" and len(short) == 12, short)
 
 
 def test_pending_covers_the_append() -> None:
@@ -661,6 +700,8 @@ if __name__ == "__main__":
     test_unavailable_reports_reason()
     test_focus_validation()
     test_attempts_accumulate()
+    test_attempts_after_returns_only_new()
+    test_attempt_brief()
     test_pending_covers_the_append()
     test_pending_zero_never_precedes_the_attempt()
     test_stale_arm_discarded()

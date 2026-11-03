@@ -6,6 +6,7 @@ daemon が持つのは音韻クラスまで。どの差分が意味を持つか�
 from __future__ import annotations
 
 import bisect
+import dataclasses
 import datetime
 import logging
 import queue
@@ -20,7 +21,8 @@ from shadow_clerk._daemon_constants import SAMPLE_RATE
 from shadow_clerk import _daemon_pronounce_kana as kana
 from shadow_clerk._daemon_kana_hint import MODEL as KANA_MODEL
 from shadow_clerk._daemon_pronounce_ipa import (
-    G2PError, PhonemeRecogniser, expected_ipa, has_espeak, has_torch, split_words, word_key,
+    G2PError, PhonemeRecogniser, expected_ipa, has_espeak, has_torch, normalise, split_words,
+    word_key,
 )
 from shadow_clerk.domain import (
     Attempt, FocusPhoneme, Language, OpKind, PhonemeOp, PronounceState, PronunciationTask,
@@ -225,6 +227,7 @@ class PronounceDriver:
         self._per_word: tuple[tuple[str, ...], ...] = ()
         self._expires = 0.0
         self._attempts: list[Attempt] = []
+        self._seq = 0           # 積んだ attempt の通し番号。/api/watch が新しいものだけ流すのに使う
         self._loading = False
         self._load_error = ""
         self._fail_streak = 0   # actual_ipa() の連続失敗数
@@ -283,6 +286,8 @@ class PronounceDriver:
             raise ArmError(str(e)) from e
         if not words:
             raise ArmError("text has no words")
+        if task.language is not Language.JA:
+            task = self._normalise_focus(task)
         self._check_focus(task, words, per_word)
         return self._commit(task, words, per_word,
                             [{"word": w, "ipa": list(ipa)} for w, ipa in zip(words, per_word)])
@@ -348,6 +353,15 @@ class PronounceDriver:
         return recogniser
 
     @staticmethod
+    def _normalise_focus(task: PronunciationTask) -> PronunciationTask:
+        """focus の記号を期待列と同じ正規化にかける。辞書どおりの `iː` `ɪ` が、期待列の `i` `@` に当たる"""
+        focus = []
+        for item in task.focus:
+            sym = normalise((item.phoneme,))
+            focus.append(dataclasses.replace(item, phoneme=sym[0]) if len(sym) == 1 else item)
+        return dataclasses.replace(task, focus=tuple(focus))
+
+    @staticmethod
     def _check_focus(task: PronunciationTask, words: tuple[str, ...],
                      per_word: tuple[tuple[str, ...], ...]) -> None:
         keys = [word_key(w) for w in words]
@@ -395,6 +409,16 @@ class PronounceDriver:
 
     def unavailable_reason(self) -> str | None:
         return self._unavailable()
+
+    def has_pending(self) -> bool:
+        with self._lock:
+            return self._pending > 0
+
+    def attempts_after(self, seq: int) -> tuple[int, list[Attempt]]:
+        """seq より後に積まれた attempt（古い順）と、いまの通し番号。/api/watch が流す"""
+        with self._lock:
+            n = max(0, min(self._seq - seq, len(self._attempts)))
+            return self._seq, list(reversed(self._attempts[:n]))
 
     # --- 解析 -----------------------------------------------------------
 
@@ -481,6 +505,7 @@ class PronounceDriver:
             if (expected := self._free_expected(asr_text, language)) is None:
                 return
             words, per_word = expected
+        started = time.monotonic()
         recogniser = self._get_recogniser(language)
         try:
             recogniser.load()             # 読み込み済みなら即 return する
@@ -506,12 +531,14 @@ class PronounceDriver:
         attempt = Attempt(_format_time(self._clock()), segment_at, asr_text,
                           compare(words, per_word, actual, focus,
                                   kana.sub_cost if language is Language.JA else _sub_cost), trimmed)
+        logger.info("pronounce: 解析 %.2f秒 (音声 %.1f秒)", time.monotonic() - started, len(pcm) / SAMPLE_RATE)
         with self._lock:
             if arm_id != self._arm_id:
                 return
             # 積んでから pending を減らす。逆だと pending==0 で attempt が見えない瞬間ができる
             self._attempts.insert(0, attempt)
             del self._attempts[_MAX_ATTEMPTS:]
+            self._seq += 1
 
 
     def _free_expected(self, asr_text: str, language: Language
