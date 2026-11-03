@@ -59,7 +59,9 @@ curl -s -X POST "http://localhost:8765/api/pronounce" -H 'Content-Type: applicat
 ```
 
 3. 返った `expected` が、その課題文の**正規化後の期待IPA**。`focus` の `phoneme` はここに
-   出てくる記号で書く。
+   出てくる記号で書く。辞書どおりの記号（`iː`、`ɪ`）で送っても daemon が同じ正規化をかけるので通る。
+   正規化では長音記号 `ː` が落ち、`ɪ` `ə` `ʌ` は `@`、`ɚ` `ɜ` は `R`、`ɔ` `ɑ` は `O`、`æ` は `A` になる。
+   `<pronounce>` の行も `GET /api/pronounce` も、この記号で書かれる（`sit` は `s @ t`、`seat` は `s i t`）
 
    **拒否は HTTP 200 で `{"status":"error","message":...}` として返る。** `message` を読んで、
    次のどれかで対処する。**送り直す前に必ず何かを変える。同じ body の再送は通らない**:

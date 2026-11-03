@@ -144,6 +144,11 @@ def test_focus_validation() -> None:
         check("課題文に無い語を拒否する", False)
     except ArmError:
         check("課題文に無い語を拒否する", True)
+    seat = _driver()
+    seat._expected_of = lambda word, lang: {"sit": ("s", "@", "t"), "seat": ("s", "i", "t")}[word]  # type: ignore[assignment]
+    seat.arm(_task("sit seat", focus=(("seat", "iː"), ("sit", "ɪ"))))
+    check("focus の長音と ɪ を期待列の正規化に揃える",
+          [f.phoneme for f in seat._task.focus] == ["i", "@"], repr(seat._task))
     # focus が空なのは正当な入力。拒否しない
     check("focus が空でもアームできる", drv.arm(_task(focus=())).get("state") == "armed")
 

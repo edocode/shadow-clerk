@@ -6,6 +6,7 @@ daemon が持つのは音韻クラスまで。どの差分が意味を持つか�
 from __future__ import annotations
 
 import bisect
+import dataclasses
 import datetime
 import logging
 import queue
@@ -20,7 +21,8 @@ from shadow_clerk._daemon_constants import SAMPLE_RATE
 from shadow_clerk import _daemon_pronounce_kana as kana
 from shadow_clerk._daemon_kana_hint import MODEL as KANA_MODEL
 from shadow_clerk._daemon_pronounce_ipa import (
-    G2PError, PhonemeRecogniser, expected_ipa, has_espeak, has_torch, split_words, word_key,
+    G2PError, PhonemeRecogniser, expected_ipa, has_espeak, has_torch, normalise, split_words,
+    word_key,
 )
 from shadow_clerk.domain import (
     Attempt, FocusPhoneme, Language, OpKind, PhonemeOp, PronounceState, PronunciationTask,
@@ -284,6 +286,8 @@ class PronounceDriver:
             raise ArmError(str(e)) from e
         if not words:
             raise ArmError("text has no words")
+        if task.language is not Language.JA:
+            task = self._normalise_focus(task)
         self._check_focus(task, words, per_word)
         return self._commit(task, words, per_word,
                             [{"word": w, "ipa": list(ipa)} for w, ipa in zip(words, per_word)])
@@ -347,6 +351,15 @@ class PronounceDriver:
         if old is not None and old is not recogniser and old.loaded:
             old.unload()
         return recogniser
+
+    @staticmethod
+    def _normalise_focus(task: PronunciationTask) -> PronunciationTask:
+        """focus の記号を期待列と同じ正規化にかける。辞書どおりの `iː` `ɪ` が、期待列の `i` `@` に当たる"""
+        focus = []
+        for item in task.focus:
+            sym = normalise((item.phoneme,))
+            focus.append(dataclasses.replace(item, phoneme=sym[0]) if len(sym) == 1 else item)
+        return dataclasses.replace(task, focus=tuple(focus))
 
     @staticmethod
     def _check_focus(task: PronunciationTask, words: tuple[str, ...],
