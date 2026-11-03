@@ -1,4 +1,4 @@
-"""/next の「Claude と会議」（開始モーダル・ヘッダのボタン・会議中の帯）を node で検証する
+"""/next の「Claude と会話」（開始モーダル・ヘッダのボタン・会議中の帯）を node で検証する
 
 - 開始はモードを選ぶまで押せない。モード＝「自由に話す」か /api/talk-presets のモードで、select で選ぶ。「自由に話す」は消せない
 - モードを選ぶと議題・ペルソナ・届け先・モデル・作業フォルダ・用語集・早めに返すが入る。「自由に話す」は開いたときの値に戻す
@@ -7,7 +7,7 @@
 - 声の届け先: 自分にだけ / 会議アプリにも。使えない環境では会議アプリを選べない。↻ は選んでいた先を保つ。
   覚えた先のアプリがいま音を出していなければ選ばない（/next だけ。現行はそのまま）
 - モードの保存（POST /api/talk-presets）・削除（POST /api/talk-presets/delete）
-- 会議中はヘッダのボタンが「Claude と会議を終了」、中央に帯。終了は POST /api/talk-mode {on:false}
+- 会議中はヘッダのボタンが「Claude と会話を終了」、中央に帯。終了は POST /api/talk-mode {on:false}
 
 実行: uv run python tests/test_next_talk_js.py
 """
@@ -49,7 +49,7 @@ function mkEl(id){
     focus(){},select(){},remove(){},getBoundingClientRect(){return {left:0,top:0,right:800,bottom:40,width:800,height:200};}};
   return el;
 }
-const SELECTS=new Set(['talkRoute','talkModel','talkPersonaSel','talkPresetSel','voiceSpeaker']);
+const SELECTS=new Set(['talkRoute','talkModel','talkPersonaSel','talkPresetSel','voiceSpeaker','nxTalkMeetingExisting']);
 const els={};
 const document={getElementById:id=>els[id]||(els[id]=Object.assign(mkEl(id),{isSel:SELECTS.has(id)})),
   createElement:()=>mkEl(),querySelectorAll:()=>[],querySelector:()=>null,addEventListener(){},
@@ -72,7 +72,7 @@ const MOCK={route:{available:true,targets:[{app:'Zoom',label:'Zoom'},{app:'Chrom
   cfg:{talk_personas:{'聞き上手':'よく聞く','やさしい先生':'ほめる'},talk_default_persona:'聞き上手',talk_workdir:'~/work',
     talk_model:'sonnet',talk_route_app:''},
   presets:[{name:'週次定例の準備',fields:{topic:'宿題の整理',persona:'やさしい先生',route:'Zoom',model:'opus',workdir:'/w/acme',
-    glossary:false,early_reply:false}},{name:'英語の練習',fields:{topic:'カフェで注文',skill:'clerk-practice'}}],talkFail:false};
+    glossary:false,early_reply:false}},{name:'英語の練習',fields:{topic:'カフェで注文',skill:'clerk-practice'}}],talkFail:false,meetingFail:false,session:null};
 const fetch=async (url,opt)=>{
   const ok=v=>({json:async()=>JSON.parse(JSON.stringify(v))});
   if(opt&&opt.method==='POST'){
@@ -82,11 +82,12 @@ const fetch=async (url,opt)=>{
       Object.assign(TALK,{active:!!b.on,topic:b.on?b.topic:'',persona:b.on?b.persona:'',route:{app:b.on&&b.route||'',connected:!!(b.on&&b.route)}});
       return ok({status:'ok',talk:TALK});
     }
+    if(url==='/api/meeting')return ok(MOCK.meetingFail?{status:'error',message:'Meeting failed'}:{status:'ok'});
     if(url==='/api/talk-presets')MOCK.presets.push({name:b.name,fields:b.fields});
     if(url==='/api/talk-presets/delete')MOCK.presets=MOCK.presets.filter(p=>p.name!==b.name);
     return ok({status:'ok'});
   }
-  if(url.startsWith('/api/status'))return ok({running:true,session:null,console_running:false,talk_console_running:TALK.active,talk:TALK});
+  if(url.startsWith('/api/status'))return ok({running:true,session:MOCK.session,console_running:false,talk_console_running:TALK.active,talk:TALK});
   if(url.startsWith('/api/config'))return ok(MOCK.cfg);
   if(url.startsWith('/api/talk-route-targets'))return ok(MOCK.route);
   if(url.startsWith('/api/talk-presets'))return ok({presets:MOCK.presets});
@@ -181,6 +182,37 @@ closeTalk();MOCK.route={available:true,targets:[{app:'Zoom',label:'Zoom'}]};MOCK
 click('nxTalkBtn');await settle();out.stale=[view().route,view().app];closeTalk();
 MOCK.cfg.talk_route_app='Zoom';click('nxTalkBtn');await settle();out.playing=[view().route,view().app];closeTalk();
 MOCK.cfg.talk_route_app='';
+
+await nxEndTalk();await nxOpenTalk();nxPickTalkMode('');
+out.meetingOff=[nxTalkMeeting,els.nxTalkMeetingFields.hidden];
+nxFiles=[{name:'transcript-202610311200@weekly.txt',meeting:'週次定例',dt:'202610311200'}];
+nxFillTalkMeetings();
+out.meetingOptions=els.nxTalkMeetingExisting.options.map(o=>o.textContent);
+click('nxTalkMeeting');out.meetingOn=[nxTalkMeeting,els.nxTalkMeetingFields.hidden];
+change('nxTalkMeetingExisting','週次定例');out.meetingSelected=els.nxTalkMeetingName.value;
+click('nxTalkSave');els.talkPresetNameInput.value='会議付き';
+posts.length=0;click('nxTpOk');await settle();
+out.meetingSaved=posts.find(p=>p[0]==='/api/talk-presets')[1].fields;
+nxPickTalkMode('英語の練習');
+out.meetingLegacy=[nxTalkMeeting,els.nxTalkMeetingName.value,els.nxTalkMeetingFields.hidden,els.nxTalkMeetingExisting.value];
+nxPickTalkMode('会議付き');
+out.meetingRestored=[nxTalkMeeting,els.nxTalkMeetingName.value,els.nxTalkMeetingFields.hidden,els.nxTalkMeetingExisting.value];
+nxPickTalkMode('');out.meetingFree=[nxTalkMeeting,els.nxTalkMeetingName.value];
+nxPickTalkMode('会議付き');click('nxTalkMeeting');
+click('nxTalkSave');els.talkPresetNameInput.value='会議なし';click('nxTpOk');await settle();
+nxPickTalkMode('会議付き');nxPickTalkMode('会議なし');
+out.meetingDisabled=[nxTalkMeeting,els.nxTalkMeetingName.value,els.nxTalkMeetingFields.hidden];
+nxPickTalkMode('会議付き');closeTalk();await nxOpenTalk();nxPickTalkMode('会議付き');
+out.meetingReopened=[nxTalkMeeting,els.nxTalkMeetingName.value];
+posts.length=0;await nxStartTalk();
+out.meetingStart=posts.filter(p=>p[0]==='/api/meeting'||p[0]==='/api/talk-mode');
+await nxEndTalk();await nxOpenTalk();nxPickTalkMode('');click('nxTalkMeeting');
+posts.length=0;await nxStartTalk();out.meetingBlank=[posts.length,els.talkErr.textContent,nxTalkBusy];
+els.nxTalkMeetingName.value='相談';MOCK.meetingFail=true;
+posts.length=0;await nxStartTalk();out.meetingFail=[posts.filter(p=>p[0]==='/api/talk-mode').length,els.talkErr.textContent];
+MOCK.meetingFail=false;MOCK.session='active.txt';
+posts.length=0;await nxStartTalk();out.meetingActive=[posts.length,els.talkErr.textContent];
+MOCK.session=null;
 console.log(JSON.stringify(out));
 })().catch(e=>console.log(JSON.stringify({bodyErr:String(e&&e.stack||e)})));
 """
@@ -196,7 +228,7 @@ if "bodyErr" in out:
     sys.exit(1)
 ja = STRINGS["ja"]
 
-check("会議中でなければヘッダは「Claude と会議」、帯は出さない", out["btn0"] == [ja["nx.talk_btn"], False, False], repr(out["btn0"]))
+check("会議中でなければヘッダは「Claude と会話」、帯は出さない", out["btn0"] == [ja["nx.talk_btn"], False, False], repr(out["btn0"]))
 o = out["opened"]
 check("開くと #talkModal が開き、モードを選ぶまで開始できない", o["open"] and not o["ok"], repr(o))
 check("開いたときの値は現行と同じ（議題は空・既定のペルソナ・作業フォルダ・モデル・用語集オン）",
@@ -235,7 +267,7 @@ check("開始: 先にモデルを保存し、/api/talk-mode の本文は現行 s
                                  "route": "Zoom", "glossary": False, "early_reply": False}],
                        ["config", "sonnet", "Zoom"]], repr(out["start"]))
 a = out["afterStart"]
-check("開始後: モーダルを閉じ、ヘッダは「Claude と会議を終了」、中央に会議中の帯、ドロワーは Claude と会議 の画面",
+check("開始後: モーダルを閉じ、ヘッダは「Claude と会話を終了」、中央に会議中の帯、ドロワーは Claude と会話 の画面",
       a[0] is False and a[1] == ja["nx.talk_btn_end"] and a[2] and a[3] and a[5] == "talk", repr(a))
 check("帯に議題・ペルソナ・届け先", "宿題の整理" in a[4] and "やさしい先生" in a[4] and "Zoom" in a[4], repr(a[4]))
 e = out["end"]
@@ -254,7 +286,8 @@ s = out["save"]
 check("保存は現行と同じ本文で POST /api/talk-presets、閉じて保存したモードを選ぶ",
       s[0] == [["/api/talk-presets", {"name": "acme 相談", "fields": {"topic": "新しい議題", "workdir": "~/work",
                                                                        "model": "sonnet", "persona": "聞き上手", "route": "",
-                                                                       "glossary": True, "early_reply": True, "skill": ""}}]]
+                                                                       "glossary": True, "early_reply": True,
+                                                                       "meeting": False, "meeting_name": "", "skill": ""}}]]
       and s[1] is False and s[2] == "acme 相談" and s[3], repr(s))
 check("削除は確認を出す", out["delAsk"][0] and "acme 相談" in out["delAsk"][1], repr(out["delAsk"]))
 d = out["del"]
@@ -265,4 +298,18 @@ check("帯の「会話はこの記録に出ます」は記録中のファイル�
       repr(out["where"]))
 check("覚えた届け先のアプリが音を出していなければ「自分にだけ」", out["stale"] == ["", False], repr(out["stale"]))
 check("覚えた届け先のアプリが音を出していれば選ぶ", out["playing"] == ["Zoom", True], repr(out["playing"]))
+check("会議化は既定オフ、オンで入力を表示", out['meetingOff']==[False,True] and out['meetingOn']==[True,False])
+check("既存会議を選ぶと名前を入力", '週次定例' in out['meetingOptions'] and out['meetingSelected']=='週次定例')
+check("モードに会議のオンと会議名を保存", out['meetingSaved']['meeting'] is True
+      and out['meetingSaved']['meeting_name']=='週次定例', repr(out['meetingSaved']))
+check("古いモードは会議設定を初期化", out['meetingLegacy']==[False,'',True,''], repr(out['meetingLegacy']))
+check("モードから会議のオン・名前・既存会議の選択を復元", out['meetingRestored']==[True,'週次定例',False,'週次定例'], repr(out['meetingRestored']))
+check("自由に話すで会議設定を初期化", out['meetingFree']==[False,''], repr(out['meetingFree']))
+check("オフの会議設定と名前も復元", out['meetingDisabled']==[False,'週次定例',True], repr(out['meetingDisabled']))
+check("開き直して保存モードを選ぶと会議設定を復元", out['meetingReopened']==[True,'週次定例'], repr(out['meetingReopened']))
+check("会議の開始後に会話を開始", [p[0] for p in out['meetingStart']]==['/api/meeting','/api/talk-mode']
+      and out['meetingStart'][0][1]=={'action':'start','name':'週次定例'}, repr(out['meetingStart']))
+check("会議名未入力では開始せず再操作できる", out['meetingBlank']==[0,ja['nx.talk_meeting_required'],False], repr(out['meetingBlank']))
+check("会議開始失敗時は会話を開始しない", out['meetingFail']==[0,'Meeting failed'], repr(out['meetingFail']))
+check("すでに会議中なら別の会議を作らない", out['meetingActive']==[0,ja['nx.talk_meeting_active']], repr(out['meetingActive']))
 sys.exit(0 if all(results) else 1)
