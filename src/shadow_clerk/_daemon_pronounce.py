@@ -17,6 +17,8 @@ from typing import Any, Callable, Sequence
 
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_constants import SAMPLE_RATE
+from shadow_clerk import _daemon_pronounce_kana as kana
+from shadow_clerk._daemon_kana_hint import MODEL as KANA_MODEL
 from shadow_clerk._daemon_pronounce_ipa import (
     G2PError, PhonemeRecogniser, expected_ipa, has_espeak, has_torch, split_words, word_key,
 )
@@ -60,6 +62,10 @@ def is_vowel(symbol: str) -> bool:
     return False
 
 
+# 置換のコスト。None はその置換を演算として持たない（不許可）
+SubCost = Callable[[str, str], "int | None"]
+
+
 def _sub_cost(expected: str, actual: str) -> int | None:
     """置換のコスト。クラスをまたぐ置換は演算として持たない（None = 不許可）"""
     if expected == actual:
@@ -67,8 +73,10 @@ def _sub_cost(expected: str, actual: str) -> int | None:
     return 1 if is_vowel(expected) == is_vowel(actual) else None
 
 
-def align(expected: Sequence[str], actual: Sequence[str]) -> tuple[tuple[OpKind, str, str], ...]:
+def align(expected: Sequence[str], actual: Sequence[str],
+          sub_cost: SubCost = _sub_cost) -> tuple[tuple[OpKind, str, str], ...]:
     """音韻クラスで重み付けした編集経路。同コストなら same < sub < del < ins の辞書順最小。
+    置換コストが 0 の組は same（日本語の無声化のように、記号が違っても同じ音とみなす組がある）。
 
     末尾からのバックトレースでは「先頭から辞書順最小」にならないので、
     先に接尾コスト表を作り、先頭から貪欲に選ぶ（設計書 §4.1）
@@ -83,7 +91,7 @@ def align(expected: Sequence[str], actual: Sequence[str]) -> tuple[tuple[OpKind,
             if i == n and j == m:
                 continue
             best = inf
-            if i < n and j < m and (cost := _sub_cost(expected[i], actual[j])) is not None:
+            if i < n and j < m and (cost := sub_cost(expected[i], actual[j])) is not None:
                 best = min(best, cost + rest[i + 1][j + 1])
             if i < n:
                 best = min(best, 1 + rest[i + 1][j])
@@ -94,16 +102,15 @@ def align(expected: Sequence[str], actual: Sequence[str]) -> tuple[tuple[OpKind,
     ops: list[tuple[OpKind, str, str]] = []
     i = j = 0
     while i < n or j < m:
-        if i < n and j < m and expected[i] == actual[j] and rest[i + 1][j + 1] == rest[i][j]:
+        cost = sub_cost(expected[i], actual[j]) if i < n and j < m else None
+        if cost == 0 and rest[i + 1][j + 1] == rest[i][j]:
             ops.append((OpKind.SAME, expected[i], actual[j]))
             i, j = i + 1, j + 1
             continue
-        if i < n and j < m:
-            cost = _sub_cost(expected[i], actual[j])
-            if cost is not None and cost + rest[i + 1][j + 1] == rest[i][j]:
-                ops.append((OpKind.SUB, expected[i], actual[j]))
-                i, j = i + 1, j + 1
-                continue
+        if cost is not None and cost + rest[i + 1][j + 1] == rest[i][j]:
+            ops.append((OpKind.SUB, expected[i], actual[j]))
+            i, j = i + 1, j + 1
+            continue
         if i < n and 1 + rest[i + 1][j] == rest[i][j]:
             ops.append((OpKind.DEL, expected[i], ""))
             i += 1
@@ -113,8 +120,8 @@ def align(expected: Sequence[str], actual: Sequence[str]) -> tuple[tuple[OpKind,
     return tuple(ops)
 
 
-def compare(words: Sequence[str], per_word: Sequence[Sequence[str]],
-            actual: Sequence[str], focus: Sequence[FocusPhoneme]) -> tuple[WordComparison, ...]:
+def compare(words: Sequence[str], per_word: Sequence[Sequence[str]], actual: Sequence[str],
+            focus: Sequence[FocusPhoneme], sub_cost: SubCost = _sub_cost) -> tuple[WordComparison, ...]:
     """語ごとの期待列と発話全体の実測列を突き合わせ、語ごとの対応に切り分ける。
 
     アライメントは連結した期待列に対して1回だけ掛け、期待側の index で語に帰属させる。
@@ -138,7 +145,7 @@ def compare(words: Sequence[str], per_word: Sequence[Sequence[str]],
     ops_of: list[list[PhonemeOp]] = [[] for _ in words]
     actual_of: list[list[str]] = [[] for _ in words]
     consumed = 0
-    for kind, exp_sym, act_sym in align(expected, actual):
+    for kind, exp_sym, act_sym in align(expected, actual, sub_cost):
         index = word_at(consumed - 1 if kind is OpKind.INS else consumed)
         ops_of[index].append(
             PhonemeOp(kind, exp_sym, act_sym, kind is not OpKind.INS and consumed in focused))
@@ -203,11 +210,12 @@ class PronounceDriver:
     daemon は判定しない。期待IPAと実測IPAの語ごとの対応を返して終わり（設計書 §2）
     """
 
-    def __init__(self, recogniser_factory: Callable[[], Any] | None = None,
+    def __init__(self, recogniser_factory: Callable[[Language], Any] | None = None,
                  clock: Callable[[], float] = time.time) -> None:
         self._clock = clock
         self._factory = recogniser_factory or self._default_recogniser
         self._recogniser: Any = None
+        self._recogniser_lang: Language | None = None   # 載せるモデルは1つ。言語が変われば差し替える
         self._lock = threading.Lock()
         self._queue: queue.Queue[tuple[str, Any, str, str] | None] = queue.Queue(maxsize=_QUEUE_SIZE)
         self._pending = 0
@@ -226,10 +234,11 @@ class PronounceDriver:
     # --- 設定と依存 -----------------------------------------------------
 
     @staticmethod
-    def _default_recogniser() -> Any:
+    def _default_recogniser(language: Language) -> Any:
+        """日本語はかな認識モデル、ほかは設定の音素認識モデル"""
         config = load_config()
-        return PhonemeRecogniser(str(config.get("pronounce_model") or ""),
-                                 str(config.get("pronounce_device") or "cpu"),
+        model = KANA_MODEL if language is Language.JA else str(config.get("pronounce_model") or "")
+        return PhonemeRecogniser(model, str(config.get("pronounce_device") or "cpu"),
                                  int(config.get("pronounce_threads") or 0))
 
     @staticmethod
@@ -240,9 +249,21 @@ class PronounceDriver:
         """1語の正規化後の期待IPA。テストで差し替えられるようメソッドにしてある"""
         return expected_ipa(word, language)
 
+    def _expected_words(self, text: str, language: Language
+                        ) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
+        """課題文の語と語ごとの期待列。日本語は空白で割れないので、分かち書きと読みを sudachi に任せる"""
+        if language is Language.JA:
+            return kana.expected_words(text)
+        words = split_words(text)
+        return words, tuple(self._expected_of(w, language) for w in words)
+
+    @staticmethod
+    def _actual_of(recogniser: Any, pcm: Any, language: Language) -> tuple[str, ...]:
+        return kana.actual_morae(recogniser.decode(pcm)) if language is Language.JA else recogniser.actual_ipa(pcm)
+
     def _unavailable(self) -> str | None:
-        """使えない理由。使えるなら None"""
-        if not has_torch() or not has_espeak():
+        """使えない理由。使えるなら None。言語ごとの読みの依存は、アームのときに G2PError で弾く"""
+        if not has_torch() or not (has_espeak() or kana.has_sudachi()):
             return "not_installed"
         return None if self._enabled() else "disabled"
 
@@ -254,15 +275,14 @@ class PronounceDriver:
             raise ArmError(reason)
         if task.free:
             return self._commit(task, (), (), [])
-        words = split_words(task.text)
-        if not words:
-            raise ArmError("text has no words")
         if any(ch.isdigit() for ch in task.text):
             raise ArmError("text must not contain digits; spell numbers out")
         try:
-            per_word = tuple(self._expected_of(w, task.language) for w in words)
+            words, per_word = self._expected_words(task.text, task.language)
         except G2PError as e:
             raise ArmError(str(e)) from e
+        if not words:
+            raise ArmError("text has no words")
         self._check_focus(task, words, per_word)
         return self._commit(task, words, per_word,
                             [{"word": w, "ipa": list(ipa)} for w, ipa in zip(words, per_word)])
@@ -276,30 +296,31 @@ class PronounceDriver:
             self._attempts = []
             self._fail_streak = 0     # 課題が変われば、前の課題で数えた連続失敗は切れたとみなす
             arm_id, expires = self._arm_id, self._expires
-        self._start_loading()
+        self._start_loading(task.language)
         logger.info("pronounce: アームしました (%s)", "自由発話" if task.free else f"{len(words)} 語")
         with self._lock:
             state = self._state_locked(None)
         return {"status": "ok", "id": arm_id, "state": state.value,
                 "expires_at": _format_time(expires), "expected": expected}
 
-    def _start_loading(self) -> None:
+    def _start_loading(self, language: Language) -> None:
         """最初の POST でモデルの取得を始める。初回は 1.2GB のダウンロードがある（設計書 §9）。
         読み込みが終わるまで state は loading。API スレッドは塞がない"""
         with self._lock:
-            if self._recogniser is not None and self._recogniser.loaded:
+            if (self._recogniser is not None and self._recogniser_lang is language
+                    and self._recogniser.loaded):
                 return
             if self._loading:
                 return
             self._load_error = ""       # 次の POST で再試行できるようにする
             self._fail_streak = 0
             self._loading = True
-        threading.Thread(target=self._load, name="pronounce-load", daemon=True).start()
+        threading.Thread(target=self._load, args=(language,), name="pronounce-load", daemon=True).start()
 
-    def _load(self) -> None:
+    def _load(self, language: Language) -> None:
         error = ""
         try:
-            self._get_recogniser().load()
+            self._get_recogniser(language).load()
         except Exception as e:
             logger.warning("pronounce: モデルを読み込めませんでした: %s", e)
             error = str(e) or type(e).__name__
@@ -313,12 +334,18 @@ class PronounceDriver:
         with self._lock:
             self._load_error = str(error) or type(error).__name__
 
-    def _get_recogniser(self) -> Any:
-        """認識器を1個だけ作る。lock の外で作ると、並行して 1.2GB を取得しに行く窓ができる"""
+    def _get_recogniser(self, language: Language) -> Any:
+        """認識器を1個だけ作る。lock の外で作ると、並行して 1.2GB を取得しに行く窓ができる。
+        言語が変われば作り直し、前のモデルは解放する（1.2GB を2つ抱えない）"""
         with self._lock:
-            if self._recogniser is None:
-                self._recogniser = self._factory()
-            return self._recogniser
+            old = None
+            if self._recogniser is None or self._recogniser_lang is not language:
+                old, self._recogniser = self._recogniser, self._factory(language)
+                self._recogniser_lang = language
+            recogniser = self._recogniser
+        if old is not None and old is not recogniser and old.loaded:
+            old.unload()
+        return recogniser
 
     @staticmethod
     def _check_focus(task: PronunciationTask, words: tuple[str, ...],
@@ -448,12 +475,13 @@ class PronounceDriver:
                 return                    # 差し替えられた古い解析
             words, per_word = self._words, self._per_word
             focus = self._task.focus if self._task else ()
-            free_lang = self._task.language if self._task and self._task.free else None
-        if free_lang is not None:
-            if (free := self._free_expected(asr_text, free_lang)) is None:
+            language = self._task.language if self._task else Language.EN
+            free = bool(self._task and self._task.free)
+        if free:
+            if (expected := self._free_expected(asr_text, language)) is None:
                 return
-            words, per_word = free
-        recogniser = self._get_recogniser()
+            words, per_word = expected
+        recogniser = self._get_recogniser(language)
         try:
             recogniser.load()             # 読み込み済みなら即 return する
         except Exception as e:
@@ -463,7 +491,7 @@ class PronounceDriver:
             self._fail(e)
             raise
         try:
-            actual = recogniser.actual_ipa(pcm)
+            actual = self._actual_of(recogniser, pcm, language)
         except Exception as e:
             with self._lock:
                 self._fail_streak += 1
@@ -476,7 +504,8 @@ class PronounceDriver:
             # _start_loading() は早期 return し、state は unavailable に貼り付いたままになる
             self._fail_streak, self._load_error = 0, ""
         attempt = Attempt(_format_time(self._clock()), segment_at, asr_text,
-                          compare(words, per_word, actual, focus), trimmed)
+                          compare(words, per_word, actual, focus,
+                                  kana.sub_cost if language is Language.JA else _sub_cost), trimmed)
         with self._lock:
             if arm_id != self._arm_id:
                 return
@@ -489,14 +518,14 @@ class PronounceDriver:
                        ) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]] | None:
         """自由発話の期待列。文字起こしをそのまま期待文にする。
         数字（読みが決まらない）を含む・G2P が通らない発話は解析しない"""
-        words = split_words(asr_text)
-        if not words or any(ch.isdigit() for ch in asr_text):
+        if any(ch.isdigit() for ch in asr_text):
             return None
         try:
-            return words, tuple(self._expected_of(w, language) for w in words)
+            words, per_word = self._expected_words(asr_text, language)
         except G2PError as e:
             logger.debug("pronounce: 自由発話を音素化できないので飛ばします: %s", e)
             return None
+        return (words, per_word) if words else None
 
 
 def _format_time(epoch: float) -> str:

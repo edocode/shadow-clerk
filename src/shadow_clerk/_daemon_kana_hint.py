@@ -31,18 +31,18 @@ _MAX_SPELLINGS = 64
 _FUNCTION_POS = frozenset({"助詞", "助動詞", "補助記号", "空白"})
 _SYMBOL_POS = frozenset({"補助記号", "空白"})
 
-_VOWEL: dict[str, str] = {}
+VOWEL_OF: dict[str, str] = {}
 for _vowel, _row in (("あ", "あかさたなはまやらわがざだばぱぁゃ"), ("い", "いきしちにひみりぎじぢびぴぃ"),
                      ("う", "うくすつぬふむゆるぐずづぶぷぅゅゔ"), ("え", "えけせてねへめれげぜでべぺぇ"),
                      ("お", "おこそとのほもよろをごぞどぼぽぉょ")):
-    _VOWEL.update(dict.fromkeys(_row, _vowel))
+    VOWEL_OF.update(dict.fromkeys(_row, _vowel))
 
 
-def _hira(s: str) -> str:
+def hiragana(s: str) -> str:
     return "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in s)
 
 
-def _is_kana(s: str) -> bool:
+def is_kana(s: str) -> bool:
     return all("ぁ" <= c <= "ゖ" or c == "ー" for c in s)
 
 
@@ -51,7 +51,7 @@ def phonetic(kana: str) -> str:
     1 字ずつ置き換えるだけなので、位置は元の文字列と対応したまま"""
     out: list[str] = []
     for c in kana.translate(str.maketrans("をぢづ", "おじず")):
-        prev = _VOWEL.get(out[-1]) if out else None
+        prev = VOWEL_OF.get(out[-1]) if out else None
         if (c == "ー" and prev) or (c == "う" and prev == "お") or (c == "い" and prev == "え"):
             c = prev
         out.append(c)
@@ -62,13 +62,13 @@ def spellings(reading: str, before: str = "") -> list[str]:
     """発音に寄せた読みから、長音の書き方違い（おお/おう/おー など）を並べる。
     かなモデルは表記どおりのかなを学習しているので、どの書き方で出すかは語ごとに違う"""
     variants = [""]
-    prev = _VOWEL.get(before[-1:])
+    prev = VOWEL_OF.get(before[-1:])
     for c in reading:
         alts = [c]
         if c == prev:
             alts += ["ー"] + (["う"] if c == "お" else []) + (["い"] if c == "え" else [])
         variants = [v + a for v in variants for a in alts][:_MAX_SPELLINGS]
-        prev = _VOWEL.get(c)
+        prev = VOWEL_OF.get(c)
     return variants
 
 
@@ -93,8 +93,8 @@ def morphemes(tokenizer: Any, text: str) -> list[_Morpheme] | None:
             out.append(_Morpheme(m.begin(), m.end(), "", pos))
             continue
         # 助詞の「は」「へ」はそのまま。かなモデルも発音（わ・え）ではなく表記どおりに書く
-        kana = _hira(m.reading_form())
-        if not kana or not _is_kana(kana):
+        kana = hiragana(m.reading_form())
+        if not kana or not is_kana(kana):
             return None
         out.append(_Morpheme(m.begin(), m.end(), phonetic(kana), pos))
     return out
@@ -224,7 +224,7 @@ class KanaHinter:
             return text
         tokenizer = self._recogniser.processor.tokenizer
         lp = torch.log_softmax(self._recogniser.logits(pcm)[0], dim=-1)
-        raw = "".join(c for c in tokenizer.decode(lp.argmax(-1).tolist()) if _is_kana(c))
+        raw = "".join(c for c in tokenizer.decode(lp.argmax(-1).tolist()) if is_kana(c))
         heard = phonetic(raw)
         reading = "".join(m.reading for m in morphs)
         inserts: list[tuple[int, str]] = []

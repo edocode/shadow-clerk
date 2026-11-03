@@ -88,7 +88,7 @@ diarization = [
     "kaldi-native-fbank>=1.17.0",
 ]
 
-# 音素レベルの発音フィードバック (clerk-practice)。espeak-ng はホイールで入るので sudo は要らない。
+# 音素レベルの発音フィードバック (clerk-practice、英語と日本語)。espeak-ng はホイールで入るので sudo は要らない。
 # transformers は固定しない: G2P は phonemizer-fork から直接呼ぶので、
 # Wav2Vec2PhonemeCTCTokenizer.phonemize() の不具合 (huggingface/transformers#45198) に当たらない。
 pronounce = [
@@ -96,6 +96,9 @@ pronounce = [
     "torch>=2.0.0",
     "espeakng-loader>=0.2.4",
     "phonemizer-fork>=3.3.2",
+    # 日本語（かな単位）の期待読み。kana-hint と同じ形態素解析を使う
+    "sudachipy>=0.6.8",
+    "sudachidict-core>=20240409",
 ]
 
 # 聞き間違いの目印 (kana_hint: true)。文字起こしの読みを形態素解析で取り、
