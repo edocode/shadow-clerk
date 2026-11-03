@@ -14,9 +14,12 @@ let nxTalkDefaults=null;  // 開いたときの値。モードを選ぶたびに
 let nxTalkBusy=false;
 const nxTalkFields=[['topic','talkTopic','value'],['persona','talkPersonaSel','value'],['route','talkRoute','value'],
   ['model','talkModel','value'],['workdir','talkWorkdir','value'],['glossary','talkGlossary','checked'],
-  ['early_reply','talkEarlyReply','checked']];
-function nxTalkSnap(){return Object.fromEntries(nxTalkFields.map(([k,id,p])=>[k,nxEl(id)[p]]));}
-function nxTalkRestore(v){nxTalkFields.forEach(([k,id,p])=>{nxEl(id)[p]=v[k];});}
+  ['early_reply','talkEarlyReply','checked'],['meeting_name','nxTalkMeetingName','value']];
+function nxTalkSnap(){return {...Object.fromEntries(nxTalkFields.map(([k,id,p])=>[k,nxEl(id)[p]])),meeting:nxTalkMeeting};}
+function nxTalkRestore(v){
+  nxTalkFields.forEach(([k,id,p])=>{nxEl(id)[p]=v[k];});
+  nxTalkMeeting=v.meeting===true;
+}
 function nxTalkNow(){return (nxState.status||{}).talk||{};}
 function nxTalkModesHtml(){
   const chip=(name,title,desc,del)=>'<div class="tmode'+(nxTalkMode===name?' act':'')+'" data-tm="'+nxEsc(name)+'"><b>'
@@ -38,12 +41,16 @@ function nxRenderTalkModal(){
   nxEl('nxTalkOk').disabled=nxTalkMode===null||nxTalkBusy;
   nxEl('talkPresetSel').value=nxTalkMode||'';
   nxRenderTalkRoute();
+  nxRenderTalkMeeting();
 }
 function nxPickTalkMode(name){
   nxTalkMode=name;
   nxTalkRestore(nxTalkDefaults);
   nxEl('talkPresetSel').value=name;
   loadTalkPreset();
+  const f=_talkPresets.find(p=>p.name===name)?.fields||{};
+  nxTalkMeeting=f.meeting===true;
+  if(f.meeting_name!==undefined)nxEl('nxTalkMeetingName').value=f.meeting_name||'';
   nxRenderTalkModal();
 }
 function nxPickRoute(app){
@@ -69,8 +76,25 @@ async function nxDropStaleRoute(){
   const r=await nxApi('/api/talk-route-targets').catch(()=>null);
   if(!(r&&r.targets||[]).some(t=>t.app===rs.value))rs.value='';
 }
+let nxTalkMeeting=false;
+function nxRenderTalkMeeting(){
+  nxEl('nxTalkMeeting').classList.toggle('on',nxTalkMeeting);
+  nxEl('nxTalkMeeting').setAttribute('aria-checked',String(nxTalkMeeting));
+  nxEl('nxTalkMeetingFields').hidden=!nxTalkMeeting;
+  nxEl('nxTalkMeetingExisting').value=nxEl('nxTalkMeetingName').value;
+}
+function nxFillTalkMeetings(){
+  const sel=nxEl('nxTalkMeetingExisting');sel.innerHTML='';
+  const names=[...nxMeetingGroups(nxFiles).keys()].sort((a,b)=>a.localeCompare(b,'ja'));
+  ['',...names].forEach(name=>{
+    const o=document.createElement('option');o.value=name;o.textContent=name||I18N['nx.talk_meeting_existing'];sel.appendChild(o);
+  });
+  sel.value='';
+}
 async function nxOpenTalk(){
   talkActive=false;nxTalkMode=null;
+  nxTalkMeeting=false;nxEl('nxTalkMeetingName').value='';
+  nxFillTalkMeetings();nxRenderTalkMeeting();
   await togTalk();
   await nxDropStaleRoute();
   nxTalkDefaults=nxTalkSnap();
@@ -80,8 +104,21 @@ async function nxOpenTalk(){
 async function nxStartTalk(){
   if(nxTalkMode===null||nxTalkBusy)return;
   nxTalkBusy=true;nxRenderTalkModal();
-  await startTalk();
-  nxTalkBusy=false;nxRenderTalkModal();
+  try{
+    if(nxTalkMeeting){
+      const name=nxEl('nxTalkMeetingName').value.trim();
+      if(!name)throw new Error(I18N['nx.talk_meeting_required']);
+      const status=await nxApi('/api/status');
+      if(status.session)throw new Error(I18N['nx.talk_meeting_active']);
+      const meeting=await nxApi('/api/meeting',{action:'start',name});
+      if(meeting.status!=='ok')throw new Error(meeting.message||I18N['nx.cmd_failed']);
+      // 会話の開始に失敗しても再試行で会議を重複作成しない。
+      nxTalkMeeting=false;nxRenderTalkMeeting();
+      await nxFetchStatus();
+    }
+    await startTalk();
+  }catch(e){nxEl('talkErr').textContent=e.message||I18N['nx.cmd_failed'];}
+  finally{nxTalkBusy=false;nxRenderTalkModal();}
   if(!talkActive)return;
   nxState.dtab='talk';
   if(nxIsAdv())nxState.bottom=true;
@@ -96,7 +133,7 @@ async function nxEndTalk(){
 async function nxSaveTalkMode(){
   const name=nxEl('talkPresetNameInput').value.trim();
   if(!name)return;
-  await doSaveTalkPreset();
+  await doSaveTalkPreset({meeting:nxTalkMeeting,meeting_name:nxEl('nxTalkMeetingName').value.trim()});
   if(nxEl('talkPresetModal').classList.contains('open'))return;  // 保存できなければ現行は閉じない
   nxTalkMode=name;nxRenderTalkModal();
 }
@@ -139,6 +176,9 @@ function nxTalkInit(){
   nxEl('nxTalkSave').addEventListener('click',openSaveTalkPreset);
   nxEl('nxTalkCancel').addEventListener('click',closeTalk);
   nxEl('nxTalkOk').addEventListener('click',nxStartTalk);
+  nxEl('nxTalkMeeting').addEventListener('click',()=>{nxTalkMeeting=!nxTalkMeeting;nxRenderTalkMeeting();});
+  nxEl('nxTalkMeetingExisting').addEventListener('change',()=>{nxEl('nxTalkMeetingName').value=nxEl('nxTalkMeetingExisting').value;});
+  nxEl('nxTalkMeetingName').addEventListener('input',()=>{nxEl('nxTalkMeetingExisting').value='';});
   nxEl('nxTpCancel').addEventListener('click',closeSaveTalkPreset);
   nxEl('nxTpOk').addEventListener('click',nxSaveTalkMode);
   nxEl('talkPresetNameInput').addEventListener('keydown',e=>{if(e.key==='Enter')nxSaveTalkMode();});

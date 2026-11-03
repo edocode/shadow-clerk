@@ -92,11 +92,12 @@ function openSaveTalkPreset(){
   if(inp)inp.focus();
 }
 function closeSaveTalkPreset(){document.getElementById('talkPresetModal').classList.remove('open');}
-async function doSaveTalkPreset(){
+async function doSaveTalkPreset(extraFields={}){
   const name=(document.getElementById('talkPresetNameInput')?.value||'').trim();
   if(!name)return;
   const rs=document.getElementById('talkRoute'),ms=document.getElementById('talkModel'),ps=document.getElementById('talkPersonaSel');
   const fields={
+    ...extraFields,
     topic:document.getElementById('talkTopic').value.trim(),
     workdir:document.getElementById('talkWorkdir').value.trim(),
     model:ms?ms.value:'',
