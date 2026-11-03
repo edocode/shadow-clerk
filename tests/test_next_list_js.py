@@ -71,7 +71,8 @@ function nxEl(id){return document.getElementById(id);}
 function nxStoreGet(k){return localStorage.getItem(k);}
 function nxStoreSet(k,v){localStorage.setItem(k,v);}
 async function nxApi(path,body){const r=await fetch(path,body===undefined?undefined:{method:'POST',body:JSON.stringify(body)});return r.json();}
-function nxOn(){}
+const sse={};
+function nxOn(name,f){sse[name]=f;}
 function nxToast(m){toasts.push(m);}
 const toasts=[];
 let renderCount=0;
@@ -140,6 +141,14 @@ out.applyPost=posts.map(p=>JSON.stringify(p));
 radios[0].checked=false;radios[1].checked=true;
 nxEl('nxRmName').value='typed';nxEl('nxRmName').handlers.focus();
 out.radioAfterFocus=radios.find(r=>r.checked).value;
+// 会議が始まると別のファイルを見ていても会議のファイルへ、終わると日次のファイルへ移る。検索タブは日付タブへ戻る
+nxOpenFile('transcript-20261030.txt');nxState.ltab='search';
+FILES.active='transcript-202610311950@acme_sync.txt';
+await sse.session({content:'/data/transcript-202610311950@acme_sync.txt'});
+out.sessionStart=[nxState.cur,nxState.ltab,nxState.session];
+FILES.active='transcript-20261031.txt';
+await sse.session({content:''});
+out.sessionEnd=[nxState.cur,nxState.session];
 console.log(JSON.stringify(out));
 })();
 """
@@ -187,6 +196,9 @@ def main() -> None:
           and out["applyPost"] == ['["/api/transcript/rename-meeting",{"file":"transcript-202610301535.txt","name":"acme_sync"}]'],
           repr((out["radioAfterSelect"], out["applyPost"])))
     check("入力欄にフォーカスすると新しい会議名が選択される", out["radioAfterFocus"] == "new")
+    check("会議が始まると会議のファイルへ移り、検索タブは日付タブへ戻る", out["sessionStart"] == [
+        "transcript-202610311950@acme_sync.txt", "date", "/data/transcript-202610311950@acme_sync.txt"], repr(out["sessionStart"]))
+    check("会議が終わると日次のファイルへ戻る", out["sessionEnd"] == ["transcript-20261031.txt", None], repr(out["sessionEnd"]))
     sys.exit(0 if all(results) else 1)
 
 

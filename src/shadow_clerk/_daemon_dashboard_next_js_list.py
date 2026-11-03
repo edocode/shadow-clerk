@@ -119,7 +119,10 @@ function nxRenderGoLive(){
   st.tabIndex=go?0:-1;
 }
 function nxGoLive(){
-  if(nxEl('nxStatus').dataset.go!=='1')return;
+  if(nxEl('nxStatus').dataset.go==='1')nxOpenLive();
+}
+function nxOpenLive(){
+  if(!nxActive||nxState.cur===nxActive)return;
   if(nxState.ltab==='search')nxState.ltab='date';
   nxOpenFile(nxActive);
 }
@@ -236,7 +239,9 @@ function nxListInit(){
   nxEl('nxRmName').addEventListener('focus',pick('new'));
   nxEl('nxRmSel').addEventListener('focus',pick('existing'));
   nxEl('nxRmSel').addEventListener('change',pick('existing'));
-  nxOn('session',d=>{nxState.session=d.content||null;nxRenderLeft();nxLoadFiles();});
+  /* 会議が始まったら会議のファイルへ、終わったら日次のファイルへ移る。デーモンは録音先を切り替えてから
+     session ファイルを更新するので、ここで読み直した active は切り替え後のもの */
+  nxOn('session',async d=>{nxState.session=d.content||null;nxRenderLeft();await nxLoadFiles();nxOpenLive();});
   setInterval(nxLoadFiles,10000);
   nxLoadFiles();
 }

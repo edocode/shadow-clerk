@@ -251,6 +251,14 @@ nxState.session=null;nxState.translating=false;nxState.status={...nxState.status
 MOCK.status={running:true,session:'/data/'+FILES.files[0],translating:true,mute_mic:true,console_running:false,console_transcript:null};
 await nxPollConsole();
 out.poll=[nxState.session,nxState.translating,nxState.muteMic,nxState.status.console_running];
+// 分析の追記: 一番下を見ていたら追い、途中を読んでいたら動かさない。アドバイスは追わない
+nxState.rtab='ai';nxOpenFile(FILES.files[1]);await settle();
+const stem=nxRt.file.replace(/^transcript-/,'').replace(/\.txt$/,'.md'),advCol=mkEl(),anaCol=mkEl(),rbQsa=els.nxRightBody.querySelectorAll;
+els.nxRightBody.querySelectorAll=s=>s==='.aiscroll'?[advCol,anaCol]:[];
+anaCol.scrollTop=800;nxOnGenerated('ana',{file:'analysis-'+stem,html:'<p>1</p>'});out.anaBottom=anaCol.scrollTop;
+anaCol.scrollTop=300;nxOnGenerated('ana',{file:'analysis-'+stem,html:'<p>2</p>'});out.anaMiddle=anaCol.scrollTop;
+advCol.scrollTop=800;nxOnGenerated('adv',{file:'advice-'+stem,html:'<p>3</p>'});out.advBottom=advCol.scrollTop;
+els.nxRightBody.querySelectorAll=rbQsa;
 console.log(JSON.stringify(out));
 })().catch(e=>{console.error(e);process.exit(1);});
 """
@@ -283,7 +291,10 @@ def main() -> None:
     check("console_transcript から見ている会議が分かる", out["forOther"] == _MTG, repr(out["forOther"]))
     check("別の会議を見ているとき AI タブに案内を出す", other in out["aiOther"] and 'data-ra="ai-start"' in out["aiOther"],
           out["aiOther"][:300])
-    check("見ている会議では案内を出さず、止めるボタン", other not in out["aiMine"] and ja["nx.ai_watching"] in out["aiMine"]
+    check("分析の追記は一番下を見ているときだけ追い、アドバイスは追わない",
+          [out["anaBottom"], out["anaMiddle"], out["advBottom"]] == [1000, 300, 800],
+          repr((out["anaBottom"], out["anaMiddle"], out["advBottom"])))
+    check("見ている会議では案内を出さず、止めるボタン",other not in out["aiMine"] and ja["nx.ai_watching"] in out["aiMine"]
           and 'data-ra="ai-stop"' in out["aiMine"], out["aiMine"][:300])
     check("切り替えは /api/console/start に {transcript}", out["startPost"] == [["/api/console/start", {"transcript": _DAILY}]],
           repr(out["startPost"]))

@@ -129,6 +129,7 @@ async function nxStartTalk(){
   if(!talkActive)return;
   nxState.dtab='talk';
   if(nxIsAdv())nxState.bottom=true;
+  if(talkSkillValue()==='clerk-practice'){nxState.rtab='ai';nxState.right=true;}  // 直しと例文は AI のタブに書かれる
   if(nxActive&&nxState.cur!==nxActive)nxOpenFile(nxActive);
   await nxFetchStatus();
 }
