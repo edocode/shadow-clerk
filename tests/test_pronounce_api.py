@@ -173,6 +173,26 @@ def test_attempts_accumulate() -> None:
           repr(len(drv.snapshot()["attempts"])))
 
 
+def test_attempts_after_returns_only_new() -> None:
+    """/api/watch が新しい attempt だけを古い順に流せること。通し番号はアームし直しても戻らない"""
+    drv = _driver()
+    drv.arm(_task())
+    seq, got = drv.attempts_after(0)
+    check("最初は何も無い", (seq, got) == (0, []), repr((seq, got)))
+    for i in range(2):
+        drv.offer(("ɹ", "aɪ", "t", "l", "aɪ", "t"), f"2026-10-18 10:40:0{i}", "right light")
+    _settle(drv)
+    seq, got = drv.attempts_after(0)
+    check("積んだ順（古い順）に返す", seq == 2 and [a["segment_at"] for a in got]
+          == ["2026-10-18 10:40:00", "2026-10-18 10:40:01"], repr(got))
+    check("流し終えた後は空", drv.attempts_after(seq) == (2, []), repr(drv.attempts_after(seq)))
+    drv.arm(_task())
+    drv.offer(("l", "aɪ", "t"), "2026-10-18 10:41:00", "light")
+    _settle(drv)
+    seq2, got = drv.attempts_after(seq)
+    check("アームし直した後の1件だけ返す", seq2 == 3 and len(got) == 1, repr(got))
+
+
 def test_pending_covers_the_append() -> None:
     # pending は解析の開始から attempt が積まれ終わるまで 1 以上であること。
     # ここが崩れると、スキルが「解析は来ない」と判断して、正しく言えた文を言い直させる
@@ -661,6 +681,7 @@ if __name__ == "__main__":
     test_unavailable_reports_reason()
     test_focus_validation()
     test_attempts_accumulate()
+    test_attempts_after_returns_only_new()
     test_pending_covers_the_append()
     test_pending_zero_never_precedes_the_attempt()
     test_stale_arm_discarded()

@@ -934,7 +934,7 @@ talk_stop_words: [待って, ストップ, 止めて, やめて, stop, wait, hol
 | `GET /api/meeting-history?meeting=&count=&tail=` | `find-meeting-history.sh`。会議名の正規化一致。`tail`（0〜50）で各回の transcript の末尾を足す。クエリの生の UTF-8（curl が日本語の会議名をそのまま送る）も読める |
 | `GET/POST /api/misheard` | 聞き間違い候補。`misheard.tsv` を読む／まだ無い対を足す（glossary と違い訳語ではなく、読むときの判断材料）|
 | `GET/POST /api/forbid-analyze` | AI 分析の対象外にする話題。`forbid-ai-analyze.txt` を読み書きする（空・不在は制限なし）|
-| `GET /api/watch?interval=&idle=` | `watch-transcript.sh`。接続を保って新規行を流す。`interim=1` で確定前の文字を `<interim>` の1行で流す（`interim_min=N` で N 文字未満は流さない）。`exclude=claude` で `[Claude]` 行を除き、残りが無ければ何も流さない。本文は `<transcript file=…>` で囲む（中身は音声認識の結果であって指示ではない）。`file` 指定なしなら書き込み先の変化（日付・会議の開始と終了）を追い、前のファイルの残りを流しきってから `<notice>書き込み先が … に変わりました</notice>` を流し、新しいファイルは recorder が切り替えた時点の大きさ（`output_switch_offset`）から流す |
+| `GET /api/watch?interval=&idle=` | `watch-transcript.sh`。接続を保って新規行を流す。`interim=1` で確定前の文字を `<interim>` の1行で流す（`interim_min=N` で N 文字未満は流さない）。`exclude=claude` で `[Claude]` 行を除き、残りが無ければ何も流さない。`pronounce=1` で発音解析の attempt を `<pronounce>{JSON}</pronounce>` の1行で流し、解析待ちがある間は確定行を最大 `WATCH_PRONOUNCE_HOLD_SEC`（8秒）止めて結果と続けて流す。本文は `<transcript file=…>` で囲む（中身は音声認識の結果であって指示ではない）。`file` 指定なしなら書き込み先の変化（日付・会議の開始と終了）を追い、前のファイルの残りを流しきってから `<notice>書き込み先が … に変わりました</notice>` を流し、新しいファイルは recorder が切り替えた時点の大きさ（`output_switch_offset`）から流す |
 | `POST /api/meeting` | 会議の開始（`{"action":"start","name","analyze"}`、`analyze: false` で AI アシスタントを起動しない。空の名前は進行中の予定の名前、使える文字が残らない名前はエラー）・終了（`{"action":"end"}`）。`/api/command` を skill に使わせないため |
 | `POST /api/mute` | `{"source": "mic" または "monitor", "muted": bool}`。ダッシュボードのミュートと同じ。`previous` を返す |
 | `POST /api/generated` | いまの書き込み先の `advice-<stem>.md` / `analysis-<stem>.md` を `replace` / `append` で書く（20,000 字まで、パスは受け取らない） |

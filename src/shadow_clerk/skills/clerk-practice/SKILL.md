@@ -3,7 +3,7 @@ name: clerk-practice
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、発音・会話・ヒアリング・実践会話・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」「中国語で会話を練習したい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.13.1"
+  version: "1.14.0"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -22,7 +22,8 @@ shadow-clerk の場所は環境変数 `SHADOW_CLERK_URL`（`http://localhost:<po
 `-d` の JSON は単引用符で囲むので、文中の `'` はシェルの書き方で `'\''` と書く（例: `It'\''s raining.`）。
 
 - 聞く Monitor（`/api/watch?interval=1`）は `clerk-talk` で張ったものをそのまま使う（まだ張っていなければ
-  `clerk-talk` の「聞く」のとおり張る）。会議を始めても終えても、`<notice>書き込み先が … に変わりました</notice>` の
+  `clerk-talk` の「聞く」のとおり張る）。**URL に `&pronounce=1` が無ければ**、その Monitor を止めて `clerk-talk` の「聞く」の
+  コマンドで張り直す（発音解析の結果が `[自分]` 行と同じ通知で届くようになる）。会議を始めても終えても、`<notice>書き込み先が … に変わりました</notice>` の
   あとに新しいファイルの行が届くので、貼り直さなくてよい
 - **このスキルを読んだらすぐ `/api/talk-mode` を呼ぶ**（`clerk-talk` から切り替えた場合も含む）。
   `persona_instructions` があれば、それがあなたの性格・応答の仕方。説明・フィードバック・雑談・練習する言語での会話のどれでも、その性格で話す。
@@ -339,6 +340,8 @@ curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: applicat
 - **書くのは話の切れ目**（発音とアルファベットは1組を判定し終えたとき、会話・実践会話は2〜3往復ごと、ヒアリングと作文は1問ごと）。
   書かずに次の組・次のお題へ進まない。書くときは、ユーザーの返事を待つ間（次のお題を出した直後など）に書けば会話が止まらない
 - 直しを伝えたら Advice も書き直す
+- **判定を伝える応答では、`/api/say` を先に呼び、Analysis・Advice の書き込みと次の課題の `POST` は同じ応答の中で続けて呼ぶ。**
+  1つずつ結果を見てから次を考えると、そのたびにユーザーを待たせる。書き込みの結果は次の手番で確かめれば足りる
 - **お手本・例文の行は `🔊[<lang>] ` で始める**。ダッシュボードでその行
   （段落・箇条書き・引用）をクリックすると、`<lang>` の発音で読み上げられる（`[<lang>]` は画面には出ない）。
   `[<lang>]` を省くと、そのとき聞き取っている言語で読まれるので、復習時に別の言語の声になる。必ず付ける。

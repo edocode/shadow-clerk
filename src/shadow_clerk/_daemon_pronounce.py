@@ -225,6 +225,7 @@ class PronounceDriver:
         self._per_word: tuple[tuple[str, ...], ...] = ()
         self._expires = 0.0
         self._attempts: list[Attempt] = []
+        self._seq = 0           # 積んだ attempt の通し番号。/api/watch が新しいものだけ流すのに使う
         self._loading = False
         self._load_error = ""
         self._fail_streak = 0   # actual_ipa() の連続失敗数
@@ -396,6 +397,16 @@ class PronounceDriver:
     def unavailable_reason(self) -> str | None:
         return self._unavailable()
 
+    def has_pending(self) -> bool:
+        with self._lock:
+            return self._pending > 0
+
+    def attempts_after(self, seq: int) -> tuple[int, list[dict]]:
+        """seq より後に積まれた attempt（古い順）と、いまの通し番号。/api/watch が流す"""
+        with self._lock:
+            n = max(0, min(self._seq - seq, len(self._attempts)))
+            return self._seq, [a.to_json() for a in reversed(self._attempts[:n])]
+
     # --- 解析 -----------------------------------------------------------
 
     def offer(self, pcm: Any, segment_at: str, asr_text: str, trimmed: bool = False) -> None:
@@ -481,6 +492,7 @@ class PronounceDriver:
             if (expected := self._free_expected(asr_text, language)) is None:
                 return
             words, per_word = expected
+        started = time.monotonic()
         recogniser = self._get_recogniser(language)
         try:
             recogniser.load()             # 読み込み済みなら即 return する
@@ -506,12 +518,14 @@ class PronounceDriver:
         attempt = Attempt(_format_time(self._clock()), segment_at, asr_text,
                           compare(words, per_word, actual, focus,
                                   kana.sub_cost if language is Language.JA else _sub_cost), trimmed)
+        logger.info("pronounce: 解析 %.2f秒 (音声 %.1f秒)", time.monotonic() - started, len(pcm) / SAMPLE_RATE)
         with self._lock:
             if arm_id != self._arm_id:
                 return
             # 積んでから pending を減らす。逆だと pending==0 で attempt が見えない瞬間ができる
             self._attempts.insert(0, attempt)
             del self._attempts[_MAX_ATTEMPTS:]
+            self._seq += 1
 
 
     def _free_expected(self, asr_text: str, language: Language

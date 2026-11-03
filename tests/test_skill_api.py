@@ -367,6 +367,48 @@ def test_watch_interim_min_and_exclude_claude() -> None:
           and plain.count("<transcript ") == 2 and "自分の声" in plain and "続き" in plain, repr(plain))
 
 
+def test_watch_pronounce_holds_line_until_analysed() -> None:
+    """pronounce=1 なら、解析中は [自分] 行を止め、解析結果と続けて流す。付けなければ止めない"""
+    import time
+    active = "transcript-20261101.txt"
+    _touch(active, "")
+    state: dict = {"pending": False, "attempts": []}
+
+    class _Pronounce:
+        def has_pending(self) -> bool:
+            return state["pending"]
+
+        def attempts_after(self, seq: int) -> tuple[int, list[dict]]:
+            n = len(state["attempts"])
+            return n, state["attempts"][min(seq, n):]
+
+    streams = [_Stream(q, active) for q in ("interval=1&pronounce=1", "interval=1")]
+    for x in streams:
+        x.recorder.pronounce = _Pronounce()
+    threads = [threading.Thread(target=x._serve_watch, daemon=True) for x in streams]
+    for th in threads:
+        th.start()
+    time.sleep(0.3)
+    state["pending"] = True
+    _append(active, "[2026-11-01 10:00:00] [自分] right light\n")
+    time.sleep(1.5)
+    held, plain = streams
+    check("解析中は確定行を止める", held.out.getvalue() == b"", repr(held.out.getvalue()))
+    check("pronounce を付けなければ止めない", b"right light" in plain.out.getvalue(), repr(plain.out.getvalue()))
+    state["attempts"].append({"segment_at": "2026-11-01 10:00:00", "asr_text": "a<b"})
+    state["pending"] = False
+    time.sleep(1.5)
+    out = held.out.getvalue().decode()
+    check("行のあとに解析結果を流す", "right light" in out and out.index("right light") < out.index("<pronounce>"),
+          repr(out))
+    check("< は JSON のエスケープになる", '"asr_text":"a\\u003cb"}</pronounce>\n' in out, repr(out))
+    check("付けなければ解析結果を流さない", b"<pronounce>" not in plain.out.getvalue(), repr(plain.out.getvalue()))
+    for x in streams:
+        x.recorder.stop_event.set()
+    for th in threads:
+        th.join(timeout=3)
+
+
 def test_watch_follows_output_path() -> None:
     """日付が変わる・会議が始まる/終わると書き込み先が変わる。file 指定なしの監視は付いていく"""
     import time
@@ -493,6 +535,7 @@ def main() -> int:
     test_watch_rejects_unknown_kind()
     test_watch_interim_streams_changes_only_when_asked()
     test_watch_interim_min_and_exclude_claude()
+    test_watch_pronounce_holds_line_until_analysed()
     test_watch_follows_output_path()
     test_watch_meeting_end_back_to_existing_day_file()
     test_watch_drains_old_file_before_notice()
