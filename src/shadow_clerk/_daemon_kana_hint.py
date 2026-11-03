@@ -4,7 +4,8 @@
 食い違う語の直後に `(音のかな?)` を添える（domain/kana_hint.py）。置き換えはしない。
 
 かな認識の素の出力は崩れることがあるので、食い違いをそのまま添えはしない。CTC の強制スコアで
-「文字起こしの読みより、音のかなの方がはっきり音に合う」ときだけ添える。
+「文字起こしの読みより、音のかなの方がはっきり音に合う」ときだけ添える。文字起こしの読みは、長音の書き方違い・
+無声化の聞き違え・読みが割れる漢字のもう一方の読みまで含めた候補の束として測る（どれかに合えば食い違いではない）。
 日本語の文字起こしのときだけ動く。音声はどこにも残さない。
 """
 from __future__ import annotations
@@ -16,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from shadow_clerk._daemon_config import load_config
-from shadow_clerk._daemon_pronounce_ipa import PhonemeRecogniser, has_torch
+from shadow_clerk._daemon_pronounce_ipa import SharedRecogniser, has_torch
 from shadow_clerk.domain.kana_hint import hint
 
 logger = logging.getLogger("shadow-clerk")
@@ -31,11 +32,27 @@ _MAX_SPELLINGS = 64
 _FUNCTION_POS = frozenset({"助詞", "助動詞", "補助記号", "空白"})
 _SYMBOL_POS = frozenset({"補助記号", "空白"})
 
+# 無声化したときモデルが聞き違える相手。実声で確かめたものだけを置く（意味のある対立を潰さない）
+DEVOICED_HEARD_AS: dict[str, str] = {"し": "す", "す": "し"}
+# 無声子音で始まるモーラの頭文字（か・さ・た・は・ぱ行）と促音
+VOICELESS_ONSET = frozenset("かきくけこさしすせそたちつてとはひふへほぱぴぷぺぽっ")
+# 形態素解析は読みを1つしか返さないが、話し手によってどちらも言う語。表記からはどちらか決められない
+ALT_READINGS: dict[str, tuple[str, ...]] = {
+    "私": ("わたし", "わたくし"), "今日": ("きょう", "こんにち"), "日本": ("にほん", "にっぽん"),
+    "分": ("ふん", "ぷん", "ぶん"),
+}
+
 VOWEL_OF: dict[str, str] = {}
 for _vowel, _row in (("あ", "あかさたなはまやらわがざだばぱぁゃ"), ("い", "いきしちにひみりぎじぢびぴぃ"),
                      ("う", "うくすつぬふむゆるぐずづぶぷぅゅゔ"), ("え", "えけせてねへめれげぜでべぺぇ"),
                      ("お", "おこそとのほもよろをごぞどぼぽぉょ")):
     VOWEL_OF.update(dict.fromkeys(_row, _vowel))
+
+
+def has_sudachi() -> bool:
+    """読みが取れるか。daemon 起動時に重い import をしないよう find_spec で見る"""
+    return (importlib.util.find_spec("sudachipy") is not None
+            and importlib.util.find_spec("sudachidict_core") is not None)
 
 
 def hiragana(s: str) -> str:
@@ -72,16 +89,33 @@ def spellings(reading: str, before: str = "") -> list[str]:
     return variants
 
 
+def devoiced_spellings(kana: str, following: str = "") -> list[str]:
+    """無声化しうる し/す を、モデルが聞き違える相手に替えた書き方も並べる（元の書き方を含む）。
+    無声子音の前と、行末の す（です・ます）が対象。following は kana の後ろに続く読み"""
+    variants = [""]
+    for i, c in enumerate(kana):
+        nxt = (kana[i + 1:] + following)[:1]
+        alt = DEVOICED_HEARD_AS.get(c)
+        alts = [c, alt] if alt and (nxt in VOICELESS_ONSET if nxt else c == "す") else [c]
+        variants = [v + a for v in variants for a in alts][:_MAX_SPELLINGS]
+    return variants
+
+
 @dataclass(frozen=True)
 class _Morpheme:
     begin: int      # 文字起こしの中の位置
     end: int
     reading: str    # 発音に寄せたひらがな
     pos: str        # 品詞の大分類
+    alts: tuple[str, ...] = ()   # ほかに言いうる読み（発音に寄せたひらがな）
 
     @property
     def content(self) -> bool:
         return self.pos not in _FUNCTION_POS
+
+    @property
+    def readings(self) -> tuple[str, ...]:
+        return (self.reading, *(a for a in self.alts if a != self.reading))
 
 
 def morphemes(tokenizer: Any, text: str) -> list[_Morpheme] | None:
@@ -96,7 +130,8 @@ def morphemes(tokenizer: Any, text: str) -> list[_Morpheme] | None:
         kana = hiragana(m.reading_form())
         if not kana or not is_kana(kana):
             return None
-        out.append(_Morpheme(m.begin(), m.end(), phonetic(kana), pos))
+        alts = tuple(phonetic(a) for a in ALT_READINGS.get(m.surface(), ()))
+        out.append(_Morpheme(m.begin(), m.end(), phonetic(kana), pos, alts))
     return out
 
 
@@ -167,15 +202,15 @@ class KanaHinter:
     """文字起こしの行に聞き間違いの目印を添える。モデルは有効なときに裏で読み、無効になったら解放する"""
 
     def __init__(self, recogniser: Any = None) -> None:
-        self._recogniser = recogniser or PhonemeRecogniser(MODEL, "cpu", 0, label="kana_hint")
+        # 日本語の発音フィードバックと同じモデル。同じ device なら1つを共有する
+        self._recogniser = recogniser or SharedRecogniser(MODEL, "cpu", 0, label="kana_hint")
         self._tokenizer: Any = None
         self._loading = False
         self._warned = False
 
     @staticmethod
     def available() -> bool:
-        return (has_torch() and importlib.util.find_spec("sudachipy") is not None
-                and importlib.util.find_spec("sudachidict_core") is not None)
+        return has_torch() and has_sudachi()
 
     def _ready(self) -> bool:
         """使えるなら True。有効で未ロードならロードを始めて False（その間の行には添えない）"""
@@ -231,9 +266,8 @@ class KanaHinter:
         for run in mismatched_runs(morphs, heard):
             before, after = reading[:run.start], reading[run.end:]
             sound = raw[run.sound[0]:run.sound[1]]
-            margin = (_score(lp, [before + sound + after], tokenizer)
-                      - _score(lp, [before + v + after for v in spellings(reading[run.start:run.end], before)],
-                               tokenizer))
+            candidates = [before + v + after for v in _candidates(morphs[run.first:run.last + 1], before, after)]
+            margin = _score(lp, [before + sound + after], tokenizer) - _score(lp, candidates, tokenizer)
             surface = text[morphs[run.first].begin:morphs[run.last].end]
             logger.info("kana_hint: %s(%s) ← 音 %s  差 %+.1f%s", surface, reading[run.start:run.end], sound,
                         margin, "" if margin >= MIN_MARGIN else "（添えない）")
@@ -242,6 +276,15 @@ class KanaHinter:
         for pos, mark in reversed(inserts):
             text = text[:pos] + mark + text[pos:]
         return text
+
+
+def _candidates(morphs: list[_Morpheme], before: str, after: str) -> list[str]:
+    """かたまりの読みとして音に合ってよい書き方。語ごとの読みの組み合わせに、長音の書き方違いと無声化の聞き違えを掛ける"""
+    readings = [""]
+    for m in morphs:
+        readings = [r + a for r in readings for a in m.readings][:_MAX_SPELLINGS]
+    out = [d for r in readings for s in spellings(r, before) for d in devoiced_spellings(s, after)]
+    return list(dict.fromkeys(out))[:_MAX_SPELLINGS]
 
 
 def _score(lp: Any, variants: list[str], tokenizer: Any) -> float:

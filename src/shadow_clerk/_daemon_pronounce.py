@@ -20,7 +20,7 @@ from shadow_clerk._daemon_constants import SAMPLE_RATE
 from shadow_clerk import _daemon_pronounce_kana as kana
 from shadow_clerk._daemon_kana_hint import MODEL as KANA_MODEL
 from shadow_clerk._daemon_pronounce_ipa import (
-    G2PError, PhonemeRecogniser, expected_ipa, has_espeak, has_torch, split_words, word_key,
+    G2PError, PhonemeRecogniser, SharedRecogniser, expected_ipa, has_espeak, has_torch, split_words, word_key,
 )
 from shadow_clerk.domain import (
     Attempt, FocusPhoneme, Language, OpKind, PhonemeOp, PronounceState, PronunciationTask,
@@ -237,9 +237,10 @@ class PronounceDriver:
     def _default_recogniser(language: Language) -> Any:
         """日本語はかな認識モデル、ほかは設定の音素認識モデル"""
         config = load_config()
-        model = KANA_MODEL if language is Language.JA else str(config.get("pronounce_model") or "")
-        return PhonemeRecogniser(model, str(config.get("pronounce_device") or "cpu"),
-                                 int(config.get("pronounce_threads") or 0))
+        device, threads = str(config.get("pronounce_device") or "cpu"), int(config.get("pronounce_threads") or 0)
+        if language is Language.JA:   # kana_hint と同じモデル。同じ device なら1つを共有する
+            return SharedRecogniser(KANA_MODEL, device, threads, "pronounce")
+        return PhonemeRecogniser(str(config.get("pronounce_model") or ""), device, threads)
 
     @staticmethod
     def _enabled() -> bool:

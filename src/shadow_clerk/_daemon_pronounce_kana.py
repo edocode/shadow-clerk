@@ -14,12 +14,12 @@
 """
 from __future__ import annotations
 
-import importlib.util
 import threading
 from functools import lru_cache
 from typing import Any, Sequence
 
-from shadow_clerk._daemon_kana_hint import VOWEL_OF, hiragana, is_kana, phonetic
+from shadow_clerk._daemon_kana_hint import (DEVOICED_HEARD_AS, VOICELESS_ONSET, VOWEL_OF, has_sudachi,
+                                            hiragana, is_kana, phonetic)
 from shadow_clerk._daemon_pronounce_ipa import G2PError
 
 LONG = "ー"
@@ -28,21 +28,11 @@ _SMALL = frozenset("ゃゅょぁぃぅぇぉゎ")
 _VOWELS = frozenset("あいうえお")
 # 無声化しうるモーラ（無声子音 + i/u）
 _DEVOICEABLE = frozenset({"き", "く", "し", "す", "ち", "つ", "ひ", "ふ", "ぴ", "ぷ", "しゅ", "ちゅ", "きゅ"})
-# 無声化したときモデルが聞き違える相手。実声で確かめたものだけを置く（意味のある対立を潰さない）
-_DEVOICED_HEARD_AS: dict[str, str] = {"し": "す", "す": "し"}
-# 無声子音で始まるモーラの頭文字（か・さ・た・は・ぱ行）と促音
-_VOICELESS_ONSET = frozenset("かきくけこさしすせそたちつてとはひふへほぱぴぷぺぽっ")
 # 学習者が扱う「語」は助動詞まで含む（行き/まし/た → 行きました）。ただし前が活用する語のときだけで、
 # 名詞の後の「です」は分けておく（天気/です）
 _INFLECTING = frozenset({"動詞", "形容詞", "助動詞"})
 _SYMBOL_POS = frozenset({"補助記号", "空白"})
 _lock = threading.Lock()
-
-
-def has_sudachi() -> bool:
-    """日本語の読みが取れるか。daemon 起動時に重い import をしないよう find_spec で見る"""
-    return (importlib.util.find_spec("sudachipy") is not None
-            and importlib.util.find_spec("sudachidict_core") is not None)
 
 
 @lru_cache(maxsize=1)
@@ -72,7 +62,7 @@ def mark_devoicing(seq: Sequence[str]) -> tuple[str, ...]:
         if mora not in _DEVOICEABLE:
             continue
         nxt = seq[i + 1] if i + 1 < len(seq) else None
-        if (nxt is not None and nxt[0] in _VOICELESS_ONSET) or (nxt is None and mora == "す"):
+        if (nxt is not None and nxt[0] in VOICELESS_ONSET) or (nxt is None and mora == "す"):
             out[i] = mora + DEVOICED
     return tuple(out)
 
@@ -83,7 +73,7 @@ def sub_cost(expected: str, actual: str) -> int:
         return 0
     if expected.endswith(DEVOICED):
         base = expected[:-1]
-        if actual == base or actual == _DEVOICED_HEARD_AS.get(base):
+        if actual == base or actual == DEVOICED_HEARD_AS.get(base):
             return 0
     return 1
 

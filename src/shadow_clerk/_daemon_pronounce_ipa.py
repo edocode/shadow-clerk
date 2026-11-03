@@ -229,3 +229,43 @@ class PhonemeRecogniser:
     def actual_ipa(self, pcm: Any) -> tuple[str, ...]:
         """16kHz モノラルの float32 PCM から、正規化済みの実測IPAを取る"""
         return normalise(self.decode(pcm).split())
+
+
+_shared: dict[tuple[str, str], tuple[PhonemeRecogniser, set[object]]] = {}
+_shared_lock = threading.Lock()
+
+
+class SharedRecogniser:
+    """同じモデル・device の PhonemeRecogniser を呼び手どうしで1つ共有する（かなモデルは発音と kana_hint の両方が使う）。
+
+    load / unload は呼び手ごとに数え、最後の呼び手が unload したときだけ本当に解放する"""
+
+    def __init__(self, model: str, device: str, threads: int, label: str) -> None:
+        with _shared_lock:
+            self._inner, self._holders = _shared.setdefault(
+                (model, device), (PhonemeRecogniser(model, device, threads, label), set()))
+
+    @property
+    def loaded(self) -> bool:
+        return self in self._holders and self._inner.loaded
+
+    def load(self) -> None:
+        with _shared_lock:
+            self._holders.add(self)
+        self._inner.load()
+
+    def unload(self) -> None:
+        with _shared_lock:   # 解放と次の load の登録が入れ違わないよう、ロックの中で解放する
+            self._holders.discard(self)
+            if not self._holders:
+                self._inner.unload()
+
+    @property
+    def processor(self) -> Any:
+        return self._inner.processor
+
+    def logits(self, pcm: Any) -> Any:
+        return self._inner.logits(pcm)
+
+    def decode(self, pcm: Any) -> str:
+        return self._inner.decode(pcm)
