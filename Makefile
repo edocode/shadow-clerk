@@ -24,9 +24,10 @@ dupcheck: ## Check duplicate code (pylint R0801)
 mypy: ## Type check with mypy
 	uv run mypy src/shadow_clerk/
 
+# スクリプト形式は conftest.py を通らないので、本物のデータフォルダを書かないよう一時フォルダを渡す
 test: ## Run every test (pytest files + script-style files; ~3 min, console PTY tests are slow)
 	uv run pytest -q $(PYTEST_FILES)
-	@fail=0; for f in $(SCRIPT_FILES); do \
+	@fail=0; export SHADOW_CLERK_DATA_DIR=$$(mktemp -d -t shadow-clerk-test-XXXXXX); for f in $(SCRIPT_FILES); do \
 	  if uv run python $$f >/dev/null 2>&1; then echo "PASS $$f"; else echo "FAIL $$f"; fail=1; fi; \
 	done; exit $$fail
 
