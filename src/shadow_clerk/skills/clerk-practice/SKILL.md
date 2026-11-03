@@ -3,7 +3,7 @@ name: clerk-practice
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、発音・会話・ヒアリング・実践会話・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」「中国語で会話を練習したい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.16.3"
+  version: "1.16.4"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -359,10 +359,23 @@ curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: applicat
 - 直しを伝えたら Advice も書き直す
 - **判定のあとは、応答を3つに分けてこの順に進める。** ツールの呼び出しは応答を書き終えてから走るので、長い書き込みを
   判定と同じ応答に入れると、その分だけ声が遅れる。正解して次へ進むときも、言い直してもらうときも同じ:
-  1. 判定を `/api/say` で伝える。**この応答では書き込まない**（正解でも、1組が終わったときでも）
+  1. 判定を `/api/say` で伝える。**この応答では書き込まない**（正解でも、1組が終わったときでも）。
+     次の課題の `POST` も同じコマンドに入れない（判定が `held` でも課題が切り替わり、そのあと届いた言い直しが
+     新しい課題で解析されてしまう）
   2. 次の応答:
-     - **次の問題に進むなら、記録より先に出題する。** 課題を `POST` し、お手本を読む（`/api/say`）だけにする。
-       Analysis・Advice には書かない
+     - 判定が `held` で返っていたら、出題しない。`heard` の発言を読んでから考え直す
+     - **次の問題に進むなら、記録より先に出題する。** Analysis・Advice には書かない。
+       紹介の一言を `after`（最後に扱った行の時刻）付きで送り、`ok` のときだけ課題を `POST` してお手本を読む。
+       紹介が `held` なら、ユーザーがまだ前の問題を話している。課題は切り替えずに、その発言を読む:
+
+```
+r=$(curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/json' -d '{"text":"問題二です。<和訳>、という文です。","after":"<最後に扱った行の時刻>"}'); echo "$r"
+case "$r" in *held*) ;; *)
+  curl -s -X POST "http://localhost:8765/api/pronounce" -H 'Content-Type: application/json' -d '{"text":"<課題文>","lang":"<lang>","focus":[…]}'
+  curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/json' -d '{"text":"<課題文>","lang":"<lang>","display":"（問題2・<和訳>）"}' ;;
+esac
+```
+
      - **言い直してもらうなら**、Analysis への結果の追記と Advice の書き直しをする
   3. 次の問題に進んだときは、その次の応答で、前の問題の結果の追記・Advice の書き直し・新しい問題の課題文と
      読み方の追記をまとめて書く（ユーザーがお手本を聞いて復唱している間に済む）。
