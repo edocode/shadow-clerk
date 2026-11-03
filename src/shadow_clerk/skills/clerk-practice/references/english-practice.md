@@ -51,7 +51,8 @@ curl -s "http://localhost:8765/api/pronounce"
 
 **手順**
 
-1. 課題文を Analysis に先に書く（綴りを見せてよいのは AI分析 タブだけ）
+1. 課題文は Analysis に書く（綴りを見せてよいのは AI分析 タブだけ）。最初の問題は出題の前に、
+   2問目からは SKILL.md「判定のあと」の順で、お手本を読んだあとに書く
 2. `POST /api/pronounce` で課題を預ける。`focus` は**語ではなく音素**で指定する
 
 ```
