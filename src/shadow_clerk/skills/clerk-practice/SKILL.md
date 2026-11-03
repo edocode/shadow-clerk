@@ -3,7 +3,7 @@ name: clerk-practice
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、発音・会話・ヒアリング・実践会話・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」「中国語で会話を練習したい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.13.0"
+  version: "1.13.1"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -147,14 +147,15 @@ curl -s -X POST "http://localhost:8765/api/language" -H 'Content-Type: applicati
 
 - **説明はユーザーの母語、練習する文は練習する言語**で話す。1回の発話は短く
 - 練習する言語の文は `/api/say` に `lang` を付けて送る。ダッシュボードのブラウザの声（その言語の発音）で読まれる。
-  説明の文は `lang` を付けない（VOICEVOX で読まれる）
+  説明の文は、母語が `ja` なら `lang` を付けない（VOICEVOX で読まれる）。**母語が `ja` 以外なら、説明の文にも
+  母語の `lang` を付ける**（`{"text":"Next sentence.","lang":"en"}`）。付けないと VOICEVOX の日本語の声で読まれる
 
 ```
 curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/json' -d '{"text":"<練習文>","lang":"<lang>"}'
 ```
 
 - **1回の `/api/say` には1つの言語の文だけを入れる。** 説明と例文が混ざるときは分けて、話す順に送る。
-  「次の文を言ってみましょう。」を `lang` なしで送り、続けてお手本を `lang` 付きで送る。
+  「次の文を言ってみましょう。」を母語で送り（母語が `ja` なら `lang` なし）、続けてお手本を `lang` 付きで送る。
   お手本の `text` は対象言語の表記のままにし、母語の文字による読み方へ置き換えない
 - `display` を付けると、声は `text` を読み、transcript の `[Claude]` 行には `display` を書く（`text` と同じく空でない文字列）。
   答えの綴りを見せたくないとき（発音の練習）に使う
