@@ -3,7 +3,7 @@ name: clerk-practice
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、発音・会話・ヒアリング・実践会話・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」「中国語で会話を練習したい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.16.2"
+  version: "1.16.3"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -265,6 +265,10 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 - **お題の表記を transcript に見せない。** `text` に対象言語の語・文、`lang` に言語コード、
   `display` に意味や問題番号など、母語で分かる案内を入れる。説明中も答えの表記や発音記号を伏せる。
   読み方を添える場合は母語に合う表記を選び、カタカナを全言語の共通ルールにはしない。
+- **問題を声で紹介するなら、その言葉を `display` の `<意味>` と同じにする。** 和訳を先に1つ決めて、
+  紹介（「〜という文です」）と `display` の両方に同じ語で使う。`Her fan is in his hand.` を
+  「扇風機が」と紹介して「（問題2・彼女の扇子は…）」と表示すると、どちらが正しいか分からなくなる。
+  言い直しで同じお手本を読み直すときも、和訳を変えない
 
 ```
 curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/json' -d '{"text":"<練習する語>","lang":"<lang>","display":"（問題1・<意味>）"}'
