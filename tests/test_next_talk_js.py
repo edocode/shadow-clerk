@@ -213,6 +213,10 @@ posts.length=0;await nxStartTalk();out.meetingFail=[posts.filter(p=>p[0]==='/api
 MOCK.meetingFail=false;MOCK.session='active.txt';
 posts.length=0;await nxStartTalk();out.meetingActive=[posts.length,els.talkErr.textContent];
 MOCK.session=null;
+await nxOpenTalk();nxPickTalkMode('英語の練習');nxState.rtab='sum';nxState.right=false;
+await nxStartTalk();out.practiceTab=[nxState.rtab,nxState.right];
+await nxEndTalk();await nxOpenTalk();nxPickTalkMode('');nxState.rtab='sum';nxState.right=false;
+await nxStartTalk();out.plainTab=[nxState.rtab,nxState.right];
 console.log(JSON.stringify(out));
 })().catch(e=>console.log(JSON.stringify({bodyErr:String(e&&e.stack||e)})));
 """
@@ -307,7 +311,9 @@ check("モードから会議のオン・名前・既存会議の選択を復元"
 check("自由に話すで会議設定を初期化", out['meetingFree']==[False,''], repr(out['meetingFree']))
 check("オフの会議設定と名前も復元", out['meetingDisabled']==[False,'週次定例',True], repr(out['meetingDisabled']))
 check("開き直して保存モードを選ぶと会議設定を復元", out['meetingReopened']==[True,'週次定例'], repr(out['meetingReopened']))
-check("会議の開始後に会話を開始", [p[0] for p in out['meetingStart']]==['/api/meeting','/api/talk-mode']
+check("語学の練習は AI のタブを開き、ほかのモードは右ペインを変えない",
+      out['practiceTab']==['ai',True] and out['plainTab']==['sum',False], repr((out['practiceTab'],out['plainTab'])))
+check("会議の開始後に会話を開始",[p[0] for p in out['meetingStart']]==['/api/meeting','/api/talk-mode']
       and out['meetingStart'][0][1]=={'action':'start','name':'週次定例'}, repr(out['meetingStart']))
 check("会議名未入力では開始せず再操作できる", out['meetingBlank']==[0,ja['nx.talk_meeting_required'],False], repr(out['meetingBlank']))
 check("会議開始失敗時は会話を開始しない", out['meetingFail']==[0,'Meeting failed'], repr(out['meetingFail']))

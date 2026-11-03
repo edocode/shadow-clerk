@@ -217,8 +217,12 @@ function nxOnRightClick(e){
 }
 function nxOnGenerated(kind,d){
   if(!nxRt.file||!nxSameStem(d.file||'',nxRt.file))return;
+  // 分析は追記されていくので、一番下を見ていたら追う。途中を読んでいるときは動かさない。アドバイスは全文の書き直しなので追わない
+  const anaCol=()=>[...nxEl('nxRightBody').querySelectorAll('.aiscroll')].pop(),col=kind==='ana'&&anaCol(),
+    follow=col&&col.scrollTop+col.clientHeight>=col.scrollHeight-30;
   nxRt[kind]={file:d.file,html:d.html||''};
   nxRenderRight();
+  if(follow&&anaCol())anaCol().scrollTop=anaCol().scrollHeight;
 }
 /* アドバイスと分析の仕切り。上下に積むとき（右ペイン）と左右に並べるとき（中央）で別々に割合を覚える。
    rbody に CSS 変数で持つので描き直しても残る。割合は同じ座標系どうしの比なので zoom で割らなくてよい */
