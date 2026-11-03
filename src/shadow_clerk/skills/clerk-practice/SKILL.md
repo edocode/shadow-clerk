@@ -3,7 +3,7 @@ name: clerk-practice
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、発音・会話・ヒアリング・実践会話・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」「中国語で会話を練習したい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.16.1"
+  version: "1.16.2"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -152,6 +152,8 @@ curl -s -X POST "http://localhost:8765/api/language" -H 'Content-Type: applicati
 - 始まりから決めた時間の **1分前** を過ぎていたら、新しい課題は出さず「5. 終える」へ進む。
   最後の回答の評価と記録を済ませてから、元の言語で終えるか続けるかを聞く。
   時間の案内や全体のまとめで、個別の課題への評価を代用しない。
+- **判定のあとは、1分前を過ぎていない限り次の課題へ進む。** 判定した行の時刻で決める。
+  「次の発言の時刻で確かめる」として記録だけで応答を終えない。ユーザーは次のお手本を待っているので、黙ったまま止まる
 - 続けるなら、**あと何分やるか**を聞き、その返事の行の時刻から数え直す。練習する言語に切り替え直して続け、
   その時間の1分前にまた聞く
 
