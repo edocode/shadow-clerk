@@ -74,9 +74,14 @@ curl -s -X POST "http://localhost:8765/api/pronounce" -H 'Content-Type: applicat
      **課題文を作り直してから**送り直す。作り直しは1回まで。それでも通らなければ、
      従来モードに切り替えて練習を続ける
 4. `display` 付きの `/api/say` でお手本を読む（綴りを見せない）
-5. `[自分]` の行が届いたら、同じ通知にある `<pronounce>{…}</pronounce>` の行を見る。中身は attempt 1件の JSON で、
+5. `[自分]` の行が届いたら、同じ通知にある `<pronounce segment_at="…" trimmed="0">…</pronounce>` の行を見る。
    daemon は解析が終わるまで（最大8秒）`[自分]` 行を止めておき、行と解析結果を続けて流す。
-   **`GET /api/pronounce` を取りに行かない**
+   **`GET /api/pronounce` を取りに行かない**。中身は attempt の要約で、一致しなかった op と `focus` の op だけが、
+   `focus` を含む語から順に並ぶ（`berry: *b>v; vest: *v, ->ə; Is: z>v`）:
+   - `*` が付いた op が `focus`。`b>v` は置換（`sub`）、`b>-` は欠落（`del`）、`->ə` は挿入（`ins`）、記号1つだけ（`*v`）は一致（`same`）
+   - 載っていない語は全部の音が一致している。中身が空なら全部一致
+   - `trimmed="1"` は下の「読み方」の `trimmed: true` と同じ。発話の文は `[自分]` 行の文で見る（`asr_text` と同じ文字起こし）
+   - 長いときは末尾が `…` で切れている。`focus` の op は先頭にあるので、切れても読める
 6. `[自分]` 行と同じ `segment_at` の `<pronounce>` 行が無いときだけ、`GET /api/pronounce` を1回呼んで
    `state` と `attempts`（新しい順、最大3件）を見る（下の「attempt が見つからないとき」）。
    そこでも `pending` が 0 より大きければ、その発話は**未判定**として扱い、**成否を一切言わない**
@@ -86,7 +91,7 @@ curl -s -X POST "http://localhost:8765/api/pronounce" -H 'Content-Type: applicat
 curl -s "http://localhost:8765/api/pronounce"
 ```
 
-7. attempt の `asr_text` は音声認識の結果で、`words[].ops` が音素の対応
+7. `GET` で取った attempt では、`asr_text` が音声認識の結果、`words[].ops` が音素の対応
 
 **`state` が `loading` のとき**
 

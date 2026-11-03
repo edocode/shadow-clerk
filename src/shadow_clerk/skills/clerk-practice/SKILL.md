@@ -3,7 +3,7 @@ name: clerk-practice
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、発音・会話・ヒアリング・実践会話・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」「中国語で会話を練習したい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.14.2"
+  version: "1.15.0"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -21,9 +21,20 @@ shadow-clerk の場所は環境変数 `SHADOW_CLERK_URL`（`http://localhost:<po
 この skill はその形のコマンドだけを事前に許可しているので、変数展開・別のフラグ順・パイプにすると許可の確認で止まる。
 `-d` の JSON は単引用符で囲むので、文中の `'` はシェルの書き方で `'\''` と書く（例: `It'\''s raining.`）。
 
-- 聞く Monitor（`/api/watch?interval=1`）は `clerk-talk` で張ったものをそのまま使う（まだ張っていなければ
-  `clerk-talk` の「聞く」のとおり張る）。**URL に `&pronounce=1` が無ければ**、その Monitor を止めて `clerk-talk` の「聞く」の
-  コマンドで張り直す（発音解析の結果が `[自分]` 行と同じ通知で届くようになる）。会議を始めても終えても、`<notice>書き込み先が … に変わりました</notice>` の
+- 聞く Monitor は、練習の間は次のコマンドで張る。`clerk-talk` で張ったものが別のコマンド（`interim=1` 付き、`pronounce=1` 無し）なら、
+  止めてから張り直す。`<interim>` は話している途中の文字で、練習では使わないのに届くたびに手番を使い、そのあいだに届いた
+  確定行への返事が遅れる。`pronounce=1` で、発音解析の結果が `[自分]` 行と同じ通知で届く
+
+```
+Monitor(
+  command: 'curl -sN "http://localhost:8765/api/watch?interval=1&exclude=claude&pronounce=1"',
+  description: "Claude と会議の発言",
+  persistent: true,
+  timeout_ms: 3600000
+)
+```
+
+- 練習を終えて `clerk-talk` に戻るときは、`clerk-talk` の「聞く」のコマンドで張り直す。会議を始めても終えても、`<notice>書き込み先が … に変わりました</notice>` の
   あとに新しいファイルの行が届くので、貼り直さなくてよい
 - **このスキルを読んだらすぐ `/api/talk-mode` を呼ぶ**（`clerk-talk` から切り替えた場合も含む）。
   `persona_instructions` があれば、それがあなたの性格・応答の仕方。説明・フィードバック・雑談・練習する言語での会話のどれでも、その性格で話す。

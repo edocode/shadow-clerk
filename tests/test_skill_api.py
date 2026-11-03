@@ -372,13 +372,14 @@ def test_watch_pronounce_holds_line_until_analysed() -> None:
     import time
     active = "transcript-20261101.txt"
     _touch(active, "")
+    from shadow_clerk.domain import Attempt, OpKind, PhonemeOp, WordComparison
     state: dict = {"pending": False, "attempts": []}
 
     class _Pronounce:
         def has_pending(self) -> bool:
             return state["pending"]
 
-        def attempts_after(self, seq: int) -> tuple[int, list[dict]]:
+        def attempts_after(self, seq: int) -> tuple[int, list[Attempt]]:
             n = len(state["attempts"])
             return n, state["attempts"][min(seq, n):]
 
@@ -395,13 +396,15 @@ def test_watch_pronounce_holds_line_until_analysed() -> None:
     held, plain = streams
     check("解析中は確定行を止める", held.out.getvalue() == b"", repr(held.out.getvalue()))
     check("pronounce を付けなければ止めない", b"right light" in plain.out.getvalue(), repr(plain.out.getvalue()))
-    state["attempts"].append({"segment_at": "2026-11-01 10:00:00", "asr_text": "a<b"})
+    state["attempts"].append(Attempt("2026-11-01 10:00:01", "2026-11-01 10:00:00", "right light", (
+        WordComparison("light", ("l",), ("ɹ",), (PhonemeOp(OpKind.SUB, "l", "ɹ", True),)),), trimmed=True))
     state["pending"] = False
     time.sleep(1.5)
     out = held.out.getvalue().decode()
-    check("行のあとに解析結果を流す", "right light" in out and out.index("right light") < out.index("<pronounce>"),
+    check("行のあとに解析結果を流す", "right light" in out and out.index("right light") < out.find("<pronounce "),
           repr(out))
-    check("< は JSON のエスケープになる", '"asr_text":"a\\u003cb"}</pronounce>\n' in out, repr(out))
+    check("要約の1行で流す", '<pronounce segment_at="2026-11-01 10:00:00" trimmed="1">light: *l>ɹ</pronounce>\n' in out,
+          repr(out))
     check("付けなければ解析結果を流さない", b"<pronounce>" not in plain.out.getvalue(), repr(plain.out.getvalue()))
     for x in streams:
         x.recorder.stop_event.set()

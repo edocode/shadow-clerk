@@ -395,7 +395,7 @@ class _DashboardHandlerSkillOps:
         （「うん」「なるほど」のような相づち）は流さない。
 
         pronounce=1 を付けると、発音の解析結果（GET /api/pronounce の attempts の1件）を、積まれるたびに
-        <pronounce>{JSON}</pronounce> の1行で流す。解析待ちのセグメントがある間は確定行を最大
+        <pronounce segment_at="…" trimmed="0|1">要約</pronounce> の1行で流す（要約は Attempt.brief()）。解析待ちのセグメントがある間は確定行を最大
         WATCH_PRONOUNCE_HOLD_SEC 秒止め、その [自分] 行と解析結果を同じ通知で流す。
 
         exclude=claude を付けると、[Claude] 行（Claude と会議で Claude 自身が話した内容）を流さない。
@@ -521,14 +521,14 @@ class _DashboardHandlerSkillOps:
 
         def _emit_pronounce() -> bool:
             """前回より後に積まれた attempt を1件1行で流す。流したら True。
-            asr_text の < は JSON のエスケープにして、<pronounce> の境界が壊れないようにする"""
+            JSON にしないのは、Monitor が長い通知を切って focus の所見が読めなくなるため"""
             nonlocal seq
             if pronounce is None:
                 return False
             seq, attempts = pronounce.attempts_after(seq)
             for a in attempts:
-                body = json.dumps(a, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c")
-                self.wfile.write(f"<pronounce>{body}</pronounce>\n".encode())
+                self.wfile.write(f'<pronounce segment_at="{a.segment_at}" trimmed="{int(a.trimmed)}">'
+                                 f'{a.brief().replace("<", "＜")}</pronounce>\n'.encode())
             if attempts:
                 self.wfile.flush()
             return bool(attempts)

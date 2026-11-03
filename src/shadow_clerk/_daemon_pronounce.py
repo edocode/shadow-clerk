@@ -401,11 +401,11 @@ class PronounceDriver:
         with self._lock:
             return self._pending > 0
 
-    def attempts_after(self, seq: int) -> tuple[int, list[dict]]:
+    def attempts_after(self, seq: int) -> tuple[int, list[Attempt]]:
         """seq より後に積まれた attempt（古い順）と、いまの通し番号。/api/watch が流す"""
         with self._lock:
             n = max(0, min(self._seq - seq, len(self._attempts)))
-            return self._seq, [a.to_json() for a in reversed(self._attempts[:n])]
+            return self._seq, list(reversed(self._attempts[:n]))
 
     # --- 解析 -----------------------------------------------------------
 
