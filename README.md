@@ -139,7 +139,7 @@ To start the daemon when you sign in, copy the **Shadow Clerk** shortcut into th
 | Send Claude's voice into a meeting app | Linux with PipeWire (`pw-dump`, `pw-link`, `pw-cat`) | — | — | `talk_route_app` |
 | [Speaker diarization](#optional-speaker-diarization) (`[相手A]`, `[相手B]`… on the remote side, naming, voiceprints, names during the meeting) | `diarization` extra | — | — | `speaker_diarization`, `speaker_enrollment` |
 | [Google Calendar](#optional-google-calendar-integration) (auto start/end, expected attendees) | `gcal` extra, OAuth credentials | — | — | `gcal_integration`, `gcal_credentials_file` |
-| [Pronunciation feedback](#optional-pronunciation-feedback) (phoneme-level, English, for `clerk-practice`) | `pronounce` extra | — | — | `pronounce_enabled` |
+| [Pronunciation feedback](#optional-pronunciation-feedback) (phoneme-level, English and Japanese, for `clerk-practice`) | `pronounce` extra | — | — | `pronounce_enabled` |
 | [Mishearing hints](#optional-mishearing-hints) (`リプロイ(でぷろい?)`, Japanese) | `kana-hint` extra | — | — | `kana_hint` |
 | [Browser screenshots](#browser-screenshots) in the transcript | Chrome extension in `extension/` | — | — | — |
 
@@ -402,13 +402,16 @@ Add the following options if you need translation or summarization.
 
 ### Optional: Pronunciation feedback
 
-Phoneme-level pronunciation feedback for `clerk-practice` (English only).
+Phoneme-level pronunciation feedback for `clerk-practice` (English and Japanese).
+Japanese is compared in kana (mora) units, so it catches missing or extra
+geminates (っ), long vowels and split contracted sounds, but not pitch accent.
 
 ```bash
 uv sync --extra pronounce
 ```
 
-Downloads a 1.2GB phoneme recognition model on first use. `espeak-ng` ships as a
+Downloads a 1.2GB phoneme recognition model on first use (another 1.2GB kana
+recognition model for Japanese; only one is kept in memory at a time). `espeak-ng` ships as a
 wheel (`espeakng-loader`), so no system package is needed. Note that
 `phonemizer-fork` installs under the `phonemizer` import name and conflicts with
 the original `phonemizer` package.

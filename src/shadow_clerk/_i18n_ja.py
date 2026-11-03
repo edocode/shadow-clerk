@@ -291,7 +291,7 @@ STRINGS_JA: dict[str, str] = {
     "cfg.talk_filler_sec": "相槌までの秒数（0 で無効。次の会話から反映）",
     "cfg.section.pronounce": "発音フィードバック",
     "cfg.pronounce_enabled": "音素レベルの発音フィードバックを使う (モデル 1.2GB)",
-    "cfg.pronounce_model": "音素認識モデル",
+    "cfg.pronounce_model": "音素認識モデル (英語)",
     "cfg.pronounce_device": "音素認識の実行デバイス",
     "cfg.pronounce_idle_unload_sec": "モデルを解放するまでの待ち時間 (秒)",
     "cfg.pronounce_threads": "音素認識のスレッド数 (0 で既定)",

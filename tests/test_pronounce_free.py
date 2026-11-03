@@ -25,7 +25,7 @@ def _expected_of(word: str, lang: object) -> tuple[str, ...]:
 
 def _driver(now: list[float]) -> PronounceDriver:
     rec = _FakeRecogniser()
-    drv = PronounceDriver(recogniser_factory=lambda: rec, clock=lambda: now[0])
+    drv = PronounceDriver(recogniser_factory=lambda _lang: rec, clock=lambda: now[0])
     drv._recogniser = rec                            # type: ignore[assignment]
     drv._expected_of = _expected_of                  # type: ignore[assignment]
     drv._unavailable = lambda: None                  # type: ignore[assignment]

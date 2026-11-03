@@ -49,7 +49,7 @@ class _FakeRecogniser:
 def _driver() -> PronounceDriver:
     """読み込み済みのドライバ。最初の POST が loading を返す経路は別のテストで見る"""
     rec = _FakeRecogniser()
-    drv = PronounceDriver(recogniser_factory=lambda: rec)
+    drv = PronounceDriver(recogniser_factory=lambda _lang: rec)
     drv._recogniser = rec                            # type: ignore[assignment]
     # G2P を呼ばずに済むよう、語ごとの期待IPAを直接差し替える
     drv._expected_of = lambda word, lang: {          # type: ignore[assignment]
@@ -102,7 +102,7 @@ def test_first_post_reports_loading() -> None:
             release.wait(5.0)
             self.loaded = True
 
-    drv = PronounceDriver(recogniser_factory=_SlowRecogniser)
+    drv = PronounceDriver(recogniser_factory=lambda _lang: _SlowRecogniser())
     drv._expected_of = lambda word, lang: ("l", "aɪ", "t")   # type: ignore[assignment]
     drv._unavailable = lambda: None                          # type: ignore[assignment]
     out = drv.arm(_task("light", focus=()))
@@ -185,7 +185,7 @@ def test_pending_covers_the_append() -> None:
             return tuple(pcm)
 
     rec = _Blocking()
-    drv = PronounceDriver(recogniser_factory=lambda: rec)
+    drv = PronounceDriver(recogniser_factory=lambda _lang: rec)
     drv._recogniser = rec                                    # type: ignore[assignment]
     drv._expected_of = lambda word, lang: {                  # type: ignore[assignment]
         "light": ("l", "aɪ", "t"), "right": ("ɹ", "aɪ", "t")}[word.lower()]
@@ -247,7 +247,7 @@ def test_stale_arm_discarded_mid_inference() -> None:
             return tuple(pcm)
 
     rec = _Blocking()
-    drv = PronounceDriver(recogniser_factory=lambda: rec)
+    drv = PronounceDriver(recogniser_factory=lambda _lang: rec)
     drv._recogniser = rec                                    # type: ignore[assignment]
     drv._expected_of = lambda word, lang: {                  # type: ignore[assignment]
         "light": ("l", "aɪ", "t"), "right": ("ɹ", "aɪ", "t")}[word.lower()]
@@ -272,7 +272,7 @@ def test_not_armed_is_ignored() -> None:
 
 def test_ttl() -> None:
     now = [1000.0]
-    drv = PronounceDriver(recogniser_factory=_FakeRecogniser, clock=lambda: now[0])
+    drv = PronounceDriver(recogniser_factory=lambda _lang: _FakeRecogniser(), clock=lambda: now[0])
     drv._expected_of = lambda word, lang: ("l", "aɪ", "t")   # type: ignore[assignment]
     drv._unavailable = lambda: None                          # type: ignore[assignment]
     drv.arm(_task("light", focus=()))
@@ -330,7 +330,7 @@ def test_worker_error_is_contained() -> None:
         def actual_ipa(self, pcm):
             raise RuntimeError("boom")
 
-    drv = PronounceDriver(recogniser_factory=_Boom)
+    drv = PronounceDriver(recogniser_factory=lambda _lang: _Boom())
     drv._expected_of = lambda word, lang: ("l", "aɪ", "t")   # type: ignore[assignment]
     drv._unavailable = lambda: None                          # type: ignore[assignment]
     drv.arm(_task("light", focus=()))
@@ -380,7 +380,7 @@ def test_load_failure_is_visible() -> None:
         def load(self) -> None:
             raise RuntimeError("network is unreachable")
 
-    drv = PronounceDriver(recogniser_factory=_Broken)
+    drv = PronounceDriver(recogniser_factory=lambda _lang: _Broken())
     drv._expected_of = lambda word, lang: ("l", "aɪ", "t")   # type: ignore[assignment]
     drv._unavailable = lambda: None                          # type: ignore[assignment]
     drv.arm(_task("light", focus=()))
@@ -393,7 +393,7 @@ def test_load_failure_is_visible() -> None:
 
 
 def _broken_driver(recogniser_factory) -> PronounceDriver:
-    drv = PronounceDriver(recogniser_factory=recogniser_factory)
+    drv = PronounceDriver(recogniser_factory=lambda _lang: recogniser_factory())
     drv._expected_of = lambda word, lang: ("l", "aɪ", "t")   # type: ignore[assignment]
     drv._unavailable = lambda: None                          # type: ignore[assignment]
     return drv
@@ -473,7 +473,7 @@ def test_recovers_after_transient_failures() -> None:
             return tuple(pcm)
 
     rec = _Flaky()
-    drv = PronounceDriver(recogniser_factory=lambda: rec)
+    drv = PronounceDriver(recogniser_factory=lambda _lang: rec)
     drv._recogniser = rec                                    # type: ignore[assignment]
     drv._expected_of = lambda word, lang: {                  # type: ignore[assignment]
         "light": ("l", "aɪ", "t"), "right": ("ɹ", "aɪ", "t")}[word.lower()]

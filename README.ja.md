@@ -138,7 +138,7 @@ foreach ($s in @(@("Shadow Clerk", "start -d"), @("Shadow Clerk (stop)", "stop")
 | Claude の声を会議アプリに届ける | Linux + PipeWire（`pw-dump`・`pw-link`・`pw-cat`） | — | — | `talk_route_app` |
 | [話者分離](#オプション-話者分離)（相手側に `[相手A]`, `[相手B]`… を付与、名前付け、声紋、会議中の名前表示） | `diarization` extra | — | — | `speaker_diarization`, `speaker_enrollment` |
 | [Google Calendar](#オプション-google-calendar-連携)（会議の自動開始・終了、参加予定者） | `gcal` extra、OAuth 認証情報 | — | — | `gcal_integration`, `gcal_credentials_file` |
-| [発音フィードバック](#オプション-発音フィードバック)（音素レベル、英語、`clerk-practice` 用） | `pronounce` extra | — | — | `pronounce_enabled` |
+| [発音フィードバック](#オプション-発音フィードバック)（音素レベル、英語・日本語、`clerk-practice` 用） | `pronounce` extra | — | — | `pronounce_enabled` |
 | [聞き間違いの目印](#オプション-聞き間違いの目印)（`リプロイ(でぷろい?)`、日本語） | `kana-hint` extra | — | — | `kana_hint` |
 | [ブラウザのスクリーンショット](#ブラウザのスクリーンショット)を transcript に残す | `extension/` の Chrome 拡張 | — | — | — |
 
@@ -399,13 +399,16 @@ clerk-util write-config-value gcal_credentials_file ~/credentials.json
 
 ### オプション: 発音フィードバック
 
-`clerk-practice` の音素レベルの発音フィードバック (英語のみ)。
+`clerk-practice` の音素レベルの発音フィードバック (英語・日本語)。
+日本語はかな (モーラ) 単位で比べるので、促音・長音の抜けや余分、拗音の分離は拾えるが、
+高低アクセントは測れない。
 
 ```bash
 uv sync --extra pronounce
 ```
 
-初回の利用時に 1.2GB の音素認識モデルをダウンロードする。`espeak-ng` はホイール
+初回の利用時に 1.2GB の音素認識モデルをダウンロードする (日本語ではさらに 1.2GB の
+かな認識モデル。メモリに載せるのは一度に1つだけ)。`espeak-ng` はホイール
 (`espeakng-loader`) で入るのでシステムパッケージは要らない。`phonemizer-fork` は
 `phonemizer` と同じ import 名を占有するので、元の `phonemizer` とは同居できない。
 
