@@ -85,6 +85,9 @@ curl -s -X POST "http://localhost:8765/api/pronounce" -H 'Content-Type: applicat
    - 載っていない語は全部の音が一致している。中身が空なら全部一致
    - `trimmed="1"` は下の「読み方」の `trimmed: true` と同じ。発話の文は `[自分]` 行の文で見る（`asr_text` と同じ文字起こし）
    - 長いときは末尾が `…` で切れている。`focus` の op は先頭にあるので、切れても読める
+   - **`/api/say` が `held` で返り、`heard` に `[自分]` 行があるとき**は、その応答をそこで終える。
+     `sleep` も `GET /api/pronounce` もしない。同じ行が `<pronounce>` 行と一緒に Monitor の通知で届くので、
+     それを待って5.から判定する（`sleep` で応答を延ばすと、その間は通知が届かない）
 6. `[自分]` 行と同じ `segment_at` の `<pronounce>` 行が無いときだけ、`GET /api/pronounce` を1回呼んで
    `state` と `attempts`（新しい順、最大3件）を見る（下の「attempt が見つからないとき」）。
    そこでも `pending` が 0 より大きければ、その発話は**未判定**として扱い、**成否を一切言わない**
