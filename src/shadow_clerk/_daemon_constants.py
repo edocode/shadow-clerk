@@ -143,6 +143,8 @@ DEFAULT_CONFIG = {
     "default_language": None,
     "default_model": "small",
     "output_directory": None,
+    # 文字起こしの置き場所の区分。先頭が既定（非公開側）で、会議名のない記録もそこに入る
+    "transcript_categories": ["private", "sharable", "isolated"],
     "llm_provider": "claude",
     "api_endpoint": None,
     "api_model": None,
@@ -227,6 +229,8 @@ DEFAULT_CONFIG = {
     "ai_assistant_args": "",
     "ai_assistant_init_prompt": "/clerk-meeting-helper {transcript} {lang}",
     "ai_assistant_workdir": "",
+    # 会議中の AI が、会議のフォルダのほかに参考にしてよいフォルダ（全会議共通）。相対パスはデータフォルダから
+    "ai_reference_dirs": [],
     # 任意パスの配布先を覚える。組み込み (claude/agents) は常に見るので入らない
     "skill_install_targets": [],
     # Welcome モーダルで「再度表示しない」が選ばれたか。config.yaml の有無は
@@ -272,6 +276,14 @@ LOG_FILE = os.path.join(DATA_DIR, "daemon.log")
 GLOSSARY_FILE = os.path.join(DATA_DIR, "glossary.txt")
 CONFIG_PRESETS_FILE = os.path.join(DATA_DIR, "config-presets.yaml")
 TALK_PRESETS_FILE = os.path.join(DATA_DIR, "talk-presets.yaml")
+# 最初から入っている「Claude と会話」のモード。消すと talk-presets.yaml の removed_builtins に残り、出なくなる。
+# 同じ名前で保存すれば、保存したほうが使われる
+BUILTIN_TALK_PRESETS: tuple[dict, ...] = (
+    {"name": "英語の練習", "fields": {"topic": "英語の練習をしたい", "skill": "clerk-practice"}},
+    {"name": "Japanese Lesson", "fields": {"topic": "I want to practice Japanese.", "skill": "clerk-practice"}},
+    {"name": "会議の振り返り", "fields": {"topic": "会議での自分の話し方を振り返りたい",
+                                        "skill": "clerk-conversation-retrospective"}},
+)
 
 # 音声コマンド検出パターン生成
 # 既知のウェイクワードには Whisper の誤認識揺れを許容するパターンを用意

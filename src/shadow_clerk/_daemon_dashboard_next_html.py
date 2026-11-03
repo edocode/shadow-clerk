@@ -1,10 +1,32 @@
 """Shadow-clerk daemon: /next ダッシュボード HTML テンプレート（骨組み。中身の描画は JS が担う）"""
 from __future__ import annotations
 
-from shadow_clerk._daemon_dashboard_html import (_HTML_CFG_MODALS, _HTML_GCAL_MODAL, _HTML_HELP_MODALS, _HTML_SPEAKER_MODAL,
+from shadow_clerk._daemon_dashboard_html import (_HTML_CFG_MODALS, _HTML_GCAL_MODAL, _HTML_CUSTOM_CMD_MODAL, _HTML_SPEAKER_MODAL,
                                                  _HTML_TALK_MODALS)
 from shadow_clerk._daemon_dashboard_next_css import _NEXT_CSS
 from shadow_clerk._daemon_dashboard_next_js import _NEXT_JS
+
+_NEXT_HELP_MODAL = """<div class="modal-overlay" id="helpModal" onclick="if(event.target===this)closeHelp()" onkeydown="nxHelpKey(event)">
+  <div class="modal nx-help" role="dialog" aria-modal="true" aria-labelledby="nxHelpTitle">
+    <div class="modal-head"><h2 id="nxHelpTitle">{{i18n:nx.mi_help}}</h2>
+      <button onclick="closeHelp()" aria-label="{{i18n:nx.close}}">&times;</button></div>
+    <div class="modal-body" id="helpContent" data-guide="current">
+      <p class="nx-help-intro">{{i18n:nx.help_intro}}</p>
+      <h3>{{i18n:nx.help_quick}}</h3><ol class="nx-help-steps">
+""" + "".join(
+    '<li><h4>{{i18n:nx.help_' + topic + '_title}}</h4><p>{{i18n:nx.help_' + topic + '_body}}</p></li>'
+    for topic in ("start", "read", "review")
+) + """</ol><h3>{{i18n:nx.help_topics}}</h3><div class="nx-help-topics">
+""" + "".join(
+    '<details><summary>{{i18n:nx.help_' + topic + '_title}}</summary><p>{{i18n:nx.help_' + topic + '_body}}</p></details>'
+    for topic in ("view", "find", "audio", "ai", "more", "advanced")
+) + """</div></div>
+    <div class="modal-foot"><div class="nx-help-links"><a href="{{i18n:nx.help_tour_url}}" target="_blank" rel="noopener">{{i18n:nx.help_tour}} ↗</a>
+      <a id="helpReadmeLink" href="{{i18n:nx.help_readme_url}}" target="_blank" rel="noopener">{{i18n:nx.help_docs}} ↗</a></div>
+      <button onclick="closeHelp()">{{i18n:nx.close}}</button></div>
+  </div>
+</div>
+"""
 
 _NEXT_HTML_TEMPLATE = (
     "<!DOCTYPE html>\n"
@@ -17,7 +39,7 @@ _NEXT_HTML_TEMPLATE = (
     "</head>\n"
     "<body>\n"
     "<header>\n"
-    "  <span class=\"logo\">🎙 Shadow-clerk</span>\n"
+    "  <span class=\"logo\">🎙 Shadow Clerk</span>\n"
     "  <span class=\"status\" id=\"nxStatus\"><span class=\"dot\"></span><span id=\"nxStatusText\"></span></span>\n"
     "  <button class=\"primary\" id=\"nxMeetingBtn\"></button>\n"
     "  <button class=\"tbtn\" id=\"nxTranslateBtn\" title=\"{{i18n:nx.translate_title}}\"><span class=\"sw\"></span>{{i18n:nx.translate}}</button>\n"
@@ -51,7 +73,7 @@ _NEXT_HTML_TEMPLATE = (
     "    <div id=\"nxSearch\" style=\"display:none\"></div>\n"
     "  </aside>\n"
     "  <main id=\"nxMain\">\n"
-    "    <div class=\"mhead\" id=\"nxMainHead\"><h2 id=\"nxFileTitle\"></h2>"
+    "    <div class=\"mhead\" id=\"nxMainHead\"><h2 id=\"nxFileTitle\"></h2><span id=\"nxFileOpen\"></span>"
     "<button class=\"lbtn\" id=\"nxSpeakersBtn\" title=\"{{i18n:nx.spk_btn_title}}\">{{i18n:nx.spk_btn}}</button>"
     "<button class=\"lbtn\" id=\"nxMeetingNameBtn\" title=\"{{i18n:nx.rec_name_title}}\">{{i18n:nx.rec_name_btn}}</button>"
     "<button class=\"lbtn adv-only\" id=\"nxFileDelBtn\" title=\"{{i18n:nx.fd_btn_title}}\">🗑</button></div>\n"
@@ -107,6 +129,7 @@ _NEXT_HTML_TEMPLATE = (
     "<button class=\"cta\" id=\"nxRmOk\">{{i18n:nx.apply}}</button></div></div></div>\n"
     "<div class=\"modal-bg\" id=\"nxDelModal\"><div class=\"modal\">"
     "<h3>{{i18n:nx.del_title}}</h3><div class=\"muted\" id=\"nxDelSummary\"></div><div class=\"preview\" id=\"nxDelPreview\"></div>"
+    "<label class=\"chk\" id=\"nxDelRangeOpt\" hidden><input type=\"checkbox\" id=\"nxDelRange\"> {{i18n:dash.relabel_scope_range}}</label>"
     "<div class=\"hint\">{{i18n:nx.del_hint}}</div>"
     "<div class=\"row\"><button class=\"cta ghost\" id=\"nxDelCancel\">{{i18n:nx.cancel}}</button>"
     "<button class=\"cta danger\" id=\"nxDelOk\">{{i18n:nx.del_ok}}</button></div></div></div>\n"
@@ -119,15 +142,23 @@ _NEXT_HTML_TEMPLATE = (
     "<label class=\"radio\"><input type=\"radio\" name=\"nxSpkScope\" id=\"nxSpkScopeLines\" checked>"
     "<div id=\"nxSpkScopeLinesText\"></div></label>"
     "<label class=\"radio\" id=\"nxSpkScopeRangeOpt\"><input type=\"radio\" name=\"nxSpkScope\" id=\"nxSpkScopeRange\">"
-    "<div>{{i18n:dash.relabel_scope_range}}</div></label><div class=\"hint\" id=\"nxSpkTarget\"></div>"
+    "<div>{{i18n:dash.relabel_scope_range}}</div></label>"
+    "<label class=\"radio\" id=\"nxSpkScopeLabelOpt\"><input type=\"radio\" name=\"nxSpkScope\" id=\"nxSpkScopeLabel\">"
+    "<div>{{i18n:dash.relabel_scope_label}}</div></label><div class=\"hint\" id=\"nxSpkTarget\"></div>"
     "<div class=\"hint\">{{i18n:nx.spk_hint}}</div>"
     "<div class=\"row\"><button class=\"cta ghost\" id=\"nxSpkCancel\">{{i18n:nx.cancel}}</button>"
     "<button class=\"cta\" id=\"nxSpkOk\">{{i18n:nx.spk_ok}}</button></div></div></div>\n"
     # Claude と会議。入力欄の id は現行と同じで、流用する _JS_TEMPLATE_TALK が読み書きする（#talkModal・#talkPresetModal は open で開く）
     "<div class=\"modal-bg\" id=\"talkModal\"><div class=\"modal wide\">"
     "<h3>{{i18n:nx.talk_title}}</h3><div class=\"step\">{{i18n:nx.talk_step_mode}}</div>"
-    "<div class=\"tmodes\" id=\"nxTalkModes\"></div><select id=\"talkPresetSel\" hidden></select>"
+    "<div class=\"inrow\"><select id=\"nxTalkModeSel\"></select>"
+    "<button class=\"cta ghost\" id=\"nxTalkModeDel\" title=\"{{i18n:nx.talk_mode_del}}\">🗑</button></div>"
+    "<div class=\"hint\" id=\"nxTalkModeDesc\"></div><select id=\"talkPresetSel\" hidden></select>"
     "<label>{{i18n:nx.talk_topic}}</label><input id=\"talkTopic\" maxlength=\"500\" placeholder=\"{{i18n:nx.talk_topic_ph}}\">"
+    "<label>{{i18n:nx.talk_skill}}</label><select id=\"talkSkill\"><option value=\"\">{{i18n:nx.talk_skill_none}}</option>"
+    "<option value=\"clerk-practice\">{{i18n:nx.talk_skill_practice}}</option>"
+    "<option value=\"clerk-conversation-retrospective\">{{i18n:nx.talk_skill_retro}}</option>"
+    "<option value=\"voicevox-sing\">{{i18n:nx.talk_skill_sing}}</option></select>"
     "<label>{{i18n:nx.talk_persona}}</label><div class=\"inrow\"><select id=\"talkPersonaSel\"></select>"
     "<button class=\"cta ghost\" id=\"nxTalkPersonaEdit\">{{i18n:nx.talk_persona_edit}}</button></div>"
     "<div class=\"step\">{{i18n:nx.talk_step_route}}</div>"
@@ -161,8 +192,8 @@ _NEXT_HTML_TEMPLATE = (
     "<button class=\"cta\" id=\"nxTpOk\">{{i18n:nx.save}}</button></div></div></div>\n"
     # 声の設定・ペルソナ編集は現行のモーダルをそのまま（inline の onclick も現行のまま）
     + _HTML_TALK_MODALS
-    # 設定・ようこそ・スキル更新・用語集・使い方・音声コマンド・今日の予定も現行のモーダルをそのまま（流用する現行の JS が開く）
-    + _HTML_CFG_MODALS + _HTML_HELP_MODALS + _HTML_GCAL_MODAL
+    # 使い方は現行 UI 専用。設定・音声コマンド・今日の予定などは共用する
+    + _HTML_CFG_MODALS + _NEXT_HELP_MODAL + _HTML_CUSTOM_CMD_MODAL + _HTML_GCAL_MODAL
     # 話者の名前付け（下段は覚えている声）も現行のモーダルをそのまま。中央の見出しの 👥 から開く
     + _HTML_SPEAKER_MODAL
     + "<div class=\"modal-bg\" id=\"nxCfModal\"><div class=\"modal\">"

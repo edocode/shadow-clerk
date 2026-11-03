@@ -14,19 +14,22 @@ let nxTalkDefaults=null;  // 開いたときの値。モードを選ぶたびに
 let nxTalkBusy=false;
 const nxTalkFields=[['topic','talkTopic','value'],['persona','talkPersonaSel','value'],['route','talkRoute','value'],
   ['model','talkModel','value'],['workdir','talkWorkdir','value'],['glossary','talkGlossary','checked'],
-  ['early_reply','talkEarlyReply','checked'],['meeting_name','nxTalkMeetingName','value']];
+  ['early_reply','talkEarlyReply','checked'],['skill','talkSkill','value'],['meeting_name','nxTalkMeetingName','value']];
 function nxTalkSnap(){return {...Object.fromEntries(nxTalkFields.map(([k,id,p])=>[k,nxEl(id)[p]])),meeting:nxTalkMeeting};}
 function nxTalkRestore(v){
   nxTalkFields.forEach(([k,id,p])=>{nxEl(id)[p]=v[k];});
   nxTalkMeeting=v.meeting===true;
 }
 function nxTalkNow(){return (nxState.status||{}).talk||{};}
-function nxTalkModesHtml(){
-  const chip=(name,title,desc,del)=>'<div class="tmode'+(nxTalkMode===name?' act':'')+'" data-tm="'+nxEsc(name)+'"><b>'
-    +nxEsc(title)+'</b><span class="muted">'+nxEsc(desc)+'</span>'
-    +(del?'<button class="x" data-tdel="'+nxEsc(name)+'" title="'+nxEsc(I18N['nx.talk_mode_del'])+'">×</button>':'')+'</div>';
-  return chip('',I18N['nx.talk_free'],I18N['nx.talk_free_desc'],false)
-    +_talkPresets.map(p=>{const f=p.fields||{};return chip(p.name,p.name,f.topic||f.persona||'',true);}).join('');
+/* モードは select で選ぶ（増えても縦に伸びない）。値は 'm:'+名前、'' はまだ選んでいない */
+function nxTalkModeOpts(){
+  const o=(v,t)=>'<option value="'+nxEsc(v)+'">'+nxEsc(t)+'</option>';
+  return o('',I18N['nx.talk_mode_pick'])+o('m:',I18N['nx.talk_free'])+_talkPresets.map(p=>o('m:'+p.name,p.name)).join('');
+}
+function nxTalkModeDesc(){
+  if(nxTalkMode==='')return I18N['nx.talk_free_desc'];
+  const f=(_talkPresets.find(p=>p.name===nxTalkMode)||{}).fields||{};
+  return f.topic||f.persona||'';
 }
 /* ラジオは #talkRoute の値から描く（空 = 自分にだけ）。使えない環境では現行の fillRouteSel が select を止める */
 function nxRenderTalkRoute(){
@@ -37,7 +40,10 @@ function nxRenderTalkRoute(){
   });
 }
 function nxRenderTalkModal(){
-  nxEl('nxTalkModes').innerHTML=nxTalkModesHtml();
+  const sel=nxEl('nxTalkModeSel');
+  sel.innerHTML=nxTalkModeOpts();sel.value=nxTalkMode===null?'':'m:'+nxTalkMode;
+  nxEl('nxTalkModeDel').hidden=!nxTalkMode;
+  nxEl('nxTalkModeDesc').textContent=nxTalkMode===null?'':nxTalkModeDesc();
   nxEl('nxTalkOk').disabled=nxTalkMode===null||nxTalkBusy;
   nxEl('talkPresetSel').value=nxTalkMode||'';
   nxRenderTalkRoute();
@@ -97,6 +103,7 @@ async function nxOpenTalk(){
   nxFillTalkMeetings();nxRenderTalkMeeting();
   await togTalk();
   await nxDropStaleRoute();
+  nxEl('talkSkill').value='';  // skill はモードで決める。前に開いたときの値を持ち越さない
   nxTalkDefaults=nxTalkSnap();
   nxRenderTalkModal();
 }
@@ -157,16 +164,12 @@ function nxRenderTalk(){
   nxEl('nxTalkBandWhere').textContent=I18N[nxIsAdv()?'nx.talk_band_where_adv':'nx.talk_band_where'];
   nxEl('nxTalkBandWhere').hidden=!nxIsLive({name:nxState.cur});
 }
-function nxOnTalkModesClick(e){
-  const d=e.target.closest('[data-tdel]'),m=e.target.closest('[data-tm]');
-  if(d)nxDelTalkMode(d.dataset.tdel);
-  else if(m)nxPickTalkMode(m.dataset.tm);
-}
 function nxTalkInit(){
   nxRenderers.push(nxRenderTalk);
   nxEl('nxTalkBtn').addEventListener('click',()=>nxTalkNow().active?nxEndTalk():nxOpenTalk());
   nxEl('nxTalkBandEnd').addEventListener('click',nxEndTalk);
-  nxEl('nxTalkModes').addEventListener('click',nxOnTalkModesClick);
+  nxEl('nxTalkModeSel').addEventListener('change',e=>{const v=e.target.value;if(v)nxPickTalkMode(v.slice(2));});
+  nxEl('nxTalkModeDel').addEventListener('click',()=>{if(nxTalkMode)nxDelTalkMode(nxTalkMode);});
   nxEl('nxTalkRouteSelfIn').addEventListener('change',()=>nxPickRoute(false));
   nxEl('nxTalkRouteAppIn').addEventListener('change',()=>nxPickRoute(true));
   nxEl('talkRoute').addEventListener('change',nxRenderTalkRoute);

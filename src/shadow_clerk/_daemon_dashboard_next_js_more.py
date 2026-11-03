@@ -8,6 +8,14 @@ from __future__ import annotations
 _NEXT_JS_MORE = r"""
 /* --- more menu / PTT / spoken language / voice-command response --- */
 const nxRespShort=80;
+function nxHelpKey(e){
+  if(e.key==='Escape'){e.stopPropagation();closeHelp();return;}
+  if(e.key!=='Tab')return;
+  const items=nxEl('helpModal').querySelectorAll('button,a[href],summary');
+  const first=items[0],last=items[items.length-1];
+  if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+  else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
+}
 async function nxTogglePtt(){
   const on=!(nxState.status||{}).ptt;
   if(!await nxCmd(on?'ptt_on':'ptt_off'))return;
@@ -87,7 +95,8 @@ function nxMoreInit(){
   // 現行と同じく、開いたときに初めての人へのようこそ・同梱スキルが新しくなった知らせ（流用する _JS_TEMPLATE_MODALS）。
   // 流用モジュールはこのモジュールより後ろで読み込まれるので、nxInit の最初の描画で 1 度だけ呼ぶ
   let started=false;
-  nxRenderers.push(()=>{if(started)return;started=true;maybeShowWelcome();maybeShowSkillUpdate();});
+  nxRenderers.push(()=>{if(started)return;started=true;
+    maybeShowWelcome().then(shown=>{if(!shown)maybeShowSkillUpdate();});});
 }
 nxMoreInit();
 """

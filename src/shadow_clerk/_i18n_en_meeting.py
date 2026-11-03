@@ -33,4 +33,11 @@ STRINGS_EN_MEETING: dict[str, str] = {
     "ms.advice": "AI analysis Advice",
     "ms.advice_on": "Include when publishing",
     "ms.advice_off": "Leave out",
+    # Where transcripts are kept (category / meeting folder)
+    "cfg.transcript_categories": "Record categories (one per line)",
+    "cfg.transcript_categories_warn": "Each meeting's records go in a folder under one of these categories. The first one is the default and also holds records without a meeting name. Pick a meeting's category in the per-meeting settings. Removing a category from this list does not move its folder.",
+    "cfg.ai_reference_dirs": "Folders the AI may refer to (one per line)",
+    "cfg.ai_reference_dirs_ph": "e.g. sharable\n~/work/product",
+    "cfg.ai_reference_dirs_warn": "During a meeting the AI assistant starts in that meeting's folder and may also read these folders (in every meeting). Relative paths start at the data folder.",
+    "dash.move_recording_meeting": "A meeting that is being recorded cannot be moved to another category. End the meeting first",
 }

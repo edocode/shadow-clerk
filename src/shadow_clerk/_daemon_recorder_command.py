@@ -13,6 +13,7 @@ import threading
 import time
 
 from shadow_clerk.i18n import t
+from shadow_clerk._transcript_layout import TranscriptLayout
 from shadow_clerk._transcript_name import TranscriptName, sanitize_meeting_name
 from shadow_clerk.domain import MEETING_END_MARKER, MeetingSession, meeting_start_marker
 from shadow_clerk.domain.meeting_config import MeetingConfig
@@ -42,7 +43,7 @@ class _RecorderCommandMixin:
             return suffix.sub("", text).strip()
         return None
 
-    def _match_command_body(self, text: str) -> str | None:
+    def _match_command_body(self, text: str, *, llm_fallback: bool = True) -> str | None:
         """プレフィックス/サフィックスなしでコマンドマッチ（Push-to-Talk 用）"""
         body = text.strip()
         if not body:
@@ -57,9 +58,18 @@ class _RecorderCommandMixin:
                 return f"custom_exec {action}"
         # 3. LLM フォールバック（API 設定済み or claude プロバイダの場合）
         config = load_config()
-        if body and (config.get("api_endpoint") or config.get("llm_provider") == "claude"):
+        if llm_fallback and (config.get("api_endpoint") or config.get("llm_provider") == "claude"):
             return f"llm_query {body}"
         return None
+
+    def _execute_local_command(self, text: str) -> bool:
+        """定型コマンドは外部 API の可用性に依存せず実行する。"""
+        command = self._match_command_body(text, llm_fallback=False)
+        if command is None:
+            return False
+        logger.info("音声コマンド検出 (local): %s → %s", text, command)
+        self._execute_command(command)
+        return True
 
     def _get_command_list(self) -> list[str]:
         """ビルトイン + カスタムコマンドのパターン説明リストを生成"""
@@ -70,6 +80,8 @@ class _RecorderCommandMixin:
 
     def _spell_and_match(self, text: str, timestamp: str = "", display_speaker: str = "") -> None:
         """spell-check で誤字訂正してからパターンマッチを実行する"""
+        if self._execute_local_command(text):
+            return
         corrected = text
         try:
             result = subprocess.run(
@@ -96,8 +108,18 @@ class _RecorderCommandMixin:
             logger.info("音声コマンド不一致 (PTT+spell): '%s' (訂正後: '%s')", text, corrected)
             logger.info(t("rec.voice_cmd_fail", text=text, confidence=0))
 
+    def _notify_command_api_error(self, text: str) -> None:
+        """聞き取り成功後の判定エラーをダッシュボードにも伝える。"""
+        message = t("dash.alert_cmd_api_error", text=text)
+        logger.warning(message)
+        if watcher := getattr(self, "_file_watcher", None):
+            watcher._broadcast("alert", json.dumps({"message": message, "kind": "command_api_error"}, ensure_ascii=False))
+
     def _llm_match_and_execute(self, text: str) -> None:
         """LLM にコマンドマッチングを依頼し、confidence が高ければ実行する"""
+        if self._execute_local_command(text):
+            return
+        logger.info("音声コマンド認識: %s (API で判定)", text)
         commands = self._get_command_list()
         payload = json.dumps({"text": text, "commands": commands}, ensure_ascii=False)
 
@@ -109,13 +131,16 @@ class _RecorderCommandMixin:
             )
             if result.returncode != 0:
                 logger.warning("match-command 失敗: %s", result.stderr.strip())
+                self._notify_command_api_error(text)
                 return
             response = json.loads(result.stdout.strip())
         except subprocess.TimeoutExpired:
             logger.warning("match-command タイムアウト")
+            self._notify_command_api_error(text)
             return
         except (json.JSONDecodeError, Exception) as e:
             logger.warning("match-command レスポンスエラー: %s", e)
+            self._notify_command_api_error(text)
             return
 
         command = response.get("command", "")
@@ -216,7 +241,7 @@ class _RecorderCommandMixin:
         if tn is None:
             logger.warning("_auto_summarize: TranscriptName パース失敗: %s", basename)
             return
-        summary_path = os.path.join(self._output_dir, tn.summary_filename)
+        summary_path = os.path.join(os.path.dirname(transcript_path), tn.summary_filename)
         summary_name = tn.summary_filename
 
         # summary_source に応じてソースファイルを切り替え
@@ -444,11 +469,15 @@ class _RecorderCommandMixin:
                 except Exception:
                     pass
 
+    def _transcript_path(self, filename: str) -> str:
+        """回に属するファイル名を、その回のフォルダ（区分 / 会議名）のパスにする"""
+        return TranscriptLayout.from_config(root=self._output_dir).path(filename) or os.path.join(self._output_dir, filename)
+
     def _resolve_translate_target(self, date_arg: str) -> str | None:
         """date_arg が指定されていれば transcript パスに解決。空なら None（→ self.output_path を使用）。"""
         if not date_arg.strip():
             return None
-        path = os.path.join(self._output_dir, TranscriptName.from_date_str(date_arg.strip()).filename)
+        path = self._transcript_path(TranscriptName.from_date_str(date_arg.strip()).filename)
         logger.info("翻訳対象ファイル指定: %s", os.path.basename(path))
         return path
 
@@ -511,10 +540,8 @@ class _RecorderCommandMixin:
         talk の Claude が自分で Advice / Analysis を書くので、アシスタントを立てると記入が二重になる
         """
         now = datetime.datetime.now()
-        name_suffix = f"@{meeting_name}" if meeting_name else ""
-        filename = now.strftime(f"transcript-%Y%m%d%H%M{name_suffix}.txt")
         with self.transcript_lock:
-            self.output_path = os.path.join(self._output_dir, filename)
+            self.output_path = self._transcript_path(TranscriptName(now.strftime("%Y%m%d%H%M"), meeting_name).filename)
             with open(self.output_path, "a", encoding="utf-8") as f:
                 f.write(meeting_start_marker(now))
             self.current_session = MeetingSession.start(self.output_path, now, analyze)

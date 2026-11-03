@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」で、ユーザーと音声で議論する。ダッシュボードの「Claude と会議」から talk コンソールで自動的に起動される。ユーザーの発言は shadow-clerk の文字起こしとして届き、あなたの応答は shadow-clerk が音声で読み上げる。「/clerk-talk」と打たれたとき、声で議論したい・Claude と会議したいと言われたときに使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.7.8"
+  version: "1.8.0"
 ---
 
 # clerk-talk — 声で議論する
@@ -27,11 +27,14 @@ curl -s "http://localhost:8765/api/talk-mode"
 
 ```json
 {"active": true, "engine": "console", "topic": "…", "persona": "…",
- "persona_instructions": "…", "glossary": true, "early_reply": true, "language": "ja", "credit": "VOICEVOX:…", "error": ""}
+ "persona_instructions": "…", "glossary": true, "early_reply": true, "skill": "", "language": "ja", "credit": "VOICEVOX:…", "error": ""}
 ```
 
 - `active` が false なら talk mode は始まっていない。ユーザーに「ダッシュボードの『Claude と会議』から始めてください」と伝えて終える
 - `topic` が議題。空なら最初に何を話したいかを尋ねる
+- `skill` が空でなければ、下の「用語集と聞き間違いを読む」と「聞く」を済ませてから、その skill（`/<skill>`）に切り替えて
+  その手順で進める。`topic` はその skill への希望として渡す（例: `clerk-practice` なら練習したい内容）。
+  空なら、この skill のまま `topic` について話す
 - `persona_instructions` があれば、それがあなたの性格・応答の仕方（システムプロンプトの「## Persona」にも同じものがある）。
   話し方の規則（1回は1〜2文、記号を使わない等）は形の決まりで、その中の中身・言い回し・相づちは**毎回**その性格で話す。
   会話が長くなっても、定型の報告が続く場面でも薄めない
@@ -215,8 +218,16 @@ Monitor(
 ユーザーが語学の練習をしたいと言ったら（「英語の練習をしたい」「発音を見てほしい」など）、`/clerk-practice` スキルに
 切り替えて、その手順で進める。聞く Monitor はそのまま使う。練習を終えたら、この skill の進め方に戻る。
 
+## 会議の振り返り
+
+ユーザーが自分の話し方や伝え方を振り返りたいと言ったら（「会議での自分の話し方を振り返りたい」など）、
+`/clerk-conversation-retrospective` スキルの手順で振り返る。どの会議かが分からなければ声で尋ねる。
+結果は要点だけを短く話し、詳細はファイルに残す（「作業」と同じ）。終えたら、この skill の進め方に戻る。
+
 ## 作業
 
+- Web で調べ物をするときは、利用可能なツールを確認し、Claude in Chrome が使えるなら優先して使う。
+  使えない・接続できない場合は、通常の Web 検索・ページ取得で調べる。導入や接続の設定で会話を止めない
 - ファイルを書く・コマンドを実行するといった依頼は、普段どおり行う。許可の確認は Claude Code の設定に従う
 - 作業の結果は、要点だけを短く話す。詳細はファイルに残し、「詳しくはファイルに書きました」と伝える
 

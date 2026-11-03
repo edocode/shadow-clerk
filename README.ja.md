@@ -1,4 +1,4 @@
-# Shadow-clerk
+# Shadow Clerk
 
 [![PyPI version](https://img.shields.io/pypi/v/shadow-clerk.svg)](https://pypi.org/project/shadow-clerk/)
 [![Python versions](https://img.shields.io/pypi/pyversions/shadow-clerk.svg)](https://pypi.org/project/shadow-clerk/)
@@ -138,13 +138,13 @@ foreach ($s in @(@("Shadow Clerk", "start -d"), @("Shadow Clerk (stop)", "stop")
 | Claude の声を会議アプリに届ける | Linux + PipeWire（`pw-dump`・`pw-link`・`pw-cat`） | — | — | `talk_route_app` |
 | [話者分離](#オプション-話者分離)（相手側に `[相手A]`, `[相手B]`… を付与、名前付け、声紋、会議中の名前表示） | `diarization` extra | — | — | `speaker_diarization`, `speaker_enrollment` |
 | [Google Calendar](#オプション-google-calendar-連携)（会議の自動開始・終了、参加予定者） | `gcal` extra、OAuth 認証情報 | — | — | `gcal_integration`, `gcal_credentials_file` |
-| [発音フィードバック](#オプション-発音フィードバック)（音素レベル、英語、`clerk-practice` 用） | `pronounce` extra | — | — | `pronounce_enabled` |
+| [発音フィードバック](#オプション-発音フィードバック)（音素レベル、英語・日本語、`clerk-practice` 用） | `pronounce` extra | — | — | `pronounce_enabled` |
 | [聞き間違いの目印](#オプション-聞き間違いの目印)（`リプロイ(でぷろい?)`、日本語） | `kana-hint` extra | — | — | `kana_hint` |
 | [ブラウザのスクリーンショット](#ブラウザのスクリーンショット)を transcript に残す | `extension/` の Chrome 拡張 | — | — | — |
 
 **LLM なしで使える最小構成:** 文字起こし + LibreTranslate 翻訳であれば、外部 API や Claude Code は不要。すべてローカルで完結する。
 
-スクリーンショット付きの機能紹介は [Feature Tour](docs/feature-tour.md) を参照（画面は以前のダッシュボード。いまは `/legacy` で開ける）。
+スクリーンショット付きの機能紹介は [Feature Tour](docs/feature-tour.md) を参照。
 
 ## セットアップ
 
@@ -399,13 +399,16 @@ clerk-util write-config-value gcal_credentials_file ~/credentials.json
 
 ### オプション: 発音フィードバック
 
-`clerk-practice` の音素レベルの発音フィードバック (英語のみ)。
+`clerk-practice` の音素レベルの発音フィードバック (英語・日本語)。
+日本語はかな (モーラ) 単位で比べるので、促音・長音の抜けや余分、拗音の分離は拾えるが、
+高低アクセントは測れない。
 
 ```bash
 uv sync --extra pronounce
 ```
 
-初回の利用時に 1.2GB の音素認識モデルをダウンロードする。`espeak-ng` はホイール
+初回の利用時に 1.2GB の音素認識モデルをダウンロードする (日本語ではさらに 1.2GB の
+かな認識モデル。メモリに載せるのは一度に1つだけ)。`espeak-ng` はホイール
 (`espeakng-loader`) で入るのでシステムパッケージは要らない。`phonemizer-fork` は
 `phonemizer` と同じ import 名を占有するので、元の `phonemizer` とは同居できない。
 
@@ -719,7 +722,7 @@ talk mode では、議題について Claude と声で議論できます。Claud
   talk mode の開始時に、VOICEVOX が読み誤る語（同梱の `voicevox_dict.tsv`）をエンジンのユーザー辞書に足します。同じ語が登録済みなら触りません。
 - ヘッドホン。talk mode 中は monitor 側を文字起こししないので、Claude 自身の声が `[相手]` 行として戻ってくることはありません。
 
-ダッシュボードのヘッダの **Claude と会議** を押し、議題を入れて（空でも可）persona を選び、開始します。同じモーダルの **声の設定** で、VOICEVOX の話者と話速・音高・抑揚・音量を試聴しながら変えられます。変更は次の文から反映されます。**用語集を使う** を外すと、その会話では用語集による文字起こしの置き換えをせず、Claude も用語集を読みません（語学の練習など、用語集が要らない会話向け。プリセットにも保存されます）。**早めに返す**（既定でオン）は、確定前の文字起こしから返事を組み立てて早く返します。聞き違えて答えることがあるので、外すと確定行を待ってから返します。
+ダッシュボードのヘッダの **Claude と会議** を押し、議題を入れて（空でも可）persona を選び、開始します。**モード** の select で、保存したモードの値をまとめて入れられます。**自由に話す** のほか、最初から **英語の練習**・**Japanese Lesson**・**会議の振り返り** があり、自分で保存したモードと同じく削除できます。**スキル** を選ぶと、Claude は最初にそのスキル（`clerk-practice`・`clerk-conversation-retrospective`・`voicevox-sing`）に切り替え、議題をそのスキルへの希望として扱います。同じモーダルの **声の設定** で、VOICEVOX の話者と話速・音高・抑揚・音量を試聴しながら変えられます。変更は次の文から反映されます。**用語集を使う** を外すと、その会話では用語集による文字起こしの置き換えをせず、Claude も用語集を読みません（語学の練習など、用語集が要らない会話向け。プリセットにも保存されます）。**早めに返す**（既定でオン）は、確定前の文字起こしから返事を組み立てて早く返します。聞き違えて答えることがあるので、外すと確定行を待ってから返します。
 既定では、Claude は2つ目の AI コンソール（下部のドロワーの **Claude と会議 の画面**）で `clerk-talk` スキルとして動きます。
 ファイル編集やコマンドの実行も、通常の許可確認つきで行えます。会議アシスタントは **AI アシスタントの画面** で
 そのまま動かせます。`talk_engine: headless` にすると、裏で動く `claude -p` に切り替わります。少し速く
@@ -857,6 +860,7 @@ clerk-util command translate_stop                  # 翻訳ループ停止
   ```
 
   shadow-clerk が書いたものではないスキルが配布先にある場合、`--force` を付けない限り触らない。
+- **コミュニケーションの振り返り**: 同梱の `clerk-conversation-retrospective` で、会議後に自分の発言と前後の応答を振り返れる。AI コンソールで `/clerk-conversation-retrospective <transcript のパス>` と呼び、必要なら「質問に端的に答えたい」などの観点を添える。時刻または行番号付きの根拠、よかった場面、改善できそうな場面と言い換え、次回試すことを返す。既定は会話で返し、保存は依頼された場合に行う。AI分析 タブへの自動表示はしない。
 - **起動**: 会議開始時（`auto_analyze: true`）に自動で、または **💡 AI のアドバイス** タブの **AI アシスタントに見てもらう** で手動で起動する。いずれの場合もアシスタントの TUI が準備できたタイミングで `ai_assistant_init_prompt`（デフォルト `/clerk-meeting-helper {transcript} {lang}`）が PTY に送られる。`{transcript}` と `{meeting}` は実際のファイルパスに、`{lang}` は `translate_language` に置き換えられ、スキルは読みたい言語で書く
 - **ダッシュボードへの接続**: アシスタントはダッシュボードの HTTP API を `$SHADOW_CLERK_URL`（コンソールが環境変数として渡す）で呼ぶので、ポートを推測しない
 - **生成物**: 右ペインの **💡 AI のアドバイス** タブに表示される
@@ -866,8 +870,8 @@ clerk-util command translate_stop                  # 翻訳ループ停止
   どちらも Markdown で、サーバ側で HTML に起こしてから配る。生成物に混ざった
   生 HTML はレンダリングせず、実体参照に落とす。
 - **議事録**: `auto_summary: true` かつ `auto_summary_via_console: true`（既定）なら、会議終了時の議事録は動いているアシスタントが書く
-- **セッションのライフサイクル**: 1 つの PTY セッションを使い回し、会議が終わっても停止しない — 会議後の議事録作成にもそのまま使える。停止するには Console タブの停止ボタンを押す
-- **起動ディレクトリ**: `ai_assistant_workdir` が既定の起動ディレクトリを決める。会議ごとの上書きは `DATA_DIR/meeting.yaml`（`meetings[].workdir`）にあり、会議一覧の各行の ⚙ アイコンから編集できる。
+- **セッションのライフサイクル**: 同じ会議のフォルダにいる間は PTY セッションを使い回し、会議が終わっても停止しない — 会議後の議事録作成にもそのまま使える。別の会議で起動すると、その会議のフォルダで起動し直す。停止するには Console タブの停止ボタンを押す
+- **起動ディレクトリ**: アシスタントは会議のフォルダで起動する（同じ会議の過去回は見える）。ほかに読んでよいフォルダは `--add-dir` で渡す（Claude Code のみ）: `ai_reference_dirs`（全会議）、`DATA_DIR/meeting.yaml` の会議ごとの `reference_dirs`、作業ディレクトリの設定（`ai_assistant_workdir`、会議ごとには `meetings[].workdir`。Git リポジトリなど）。相対パスはデータディレクトリから数える（`sharable`、`private/1on1`）。作業ディレクトリに `.claude/settings.json` があれば `--settings` で渡し、そこの許可を引き継ぐ。スキルには一覧の外を読まないよう書いてある。うっかり混ざるのを防ぐためのもので、強制はしない（シェルのコマンドなら読めてしまう）。
 - **会議ごとの設定**: **会議** タブの上の **⚙ 会議ごとの設定**（または **その他 ▾ → 会議ごとの設定**）で、会議の一覧を開く。会議名で絞り込み、チェックした会議の「AI分析」「公開」「作業ディレクトリ」「公開先（Artifact / Notion の URL）」「AI分析の Advice を公開先に載せるか」をまとめて変える。行の ⚙ はその会議だけを現在値から変える。Advice を載せると、会議中も clerk-meeting-helper が公開先の Advice を更新するので、参加者みんなで見られる。値は `meeting.yaml` に書き、ほかの会議にも当たるルールに一致していた会議には、その値を写した `^会議名$` のルールを直前に足す。shadow-clerk が自分で作ったのではない `config.yaml` を初めて書き換えるときは、隣に一度だけ `<path>.bak` を残す（YAML の書き出しはキーは保つが、手書きのコメントは保たないため）
 - **AI分析: 既定 / オン / オフ**: 会議ごとの `analyze` は3つの状態を持つ。**既定**（`meeting.yaml` に `analyze` が無い）は `auto_analyze` に従う。**オン** は `auto_analyze` が無効でも会議開始時にアシスタントを起動し、**オフ** は `auto_analyze` が有効でも起動しない。**▶ 会議を開始** のダイアログの AI アシスタントのチェックは、その回だけこれより優先する。会議中に手でアシスタントに頼んだときは、オフより手の指示が勝つ
   - **アップグレード時の注意**: 以前の設定モーダルは、会議を1つずつ保存すると（作業ディレクトリを設定しただけでも）その会議に `analyze: true` を書いていた。この値はいまは **オン** を意味し、`auto_analyze` が無効でもアシスタントを起動する。望まない場合は、**⚙ 会議ごとの設定** でその会議を **既定** に戻すか、`meeting.yaml` から `analyze: true` を消す
@@ -897,12 +901,14 @@ auto_analyze: false           # 会議開始と同時に AI アシスタント�
 ai_assistant_command: claude  # AI コンソールで起動するコマンド (claude, codex, ...)
 ai_assistant_args: ''         # そのコマンドの引数 (shlex で分割)
 ai_assistant_init_prompt: /clerk-meeting-helper {transcript} {lang}  # TUI 準備完了後に PTY へ送るプロンプト。{transcript} {meeting} {lang} が置換される（{lang} は translate_language）
-ai_assistant_workdir: ''      # 既定の起動ディレクトリ。会議ごとの上書きは DATA_DIR/meeting.yaml の meetings[].workdir にある
+ai_assistant_workdir: ''      # 既定の作業ディレクトリ（Git リポジトリなど）。参考フォルダとして足す。会議ごとの上書きは DATA_DIR/meeting.yaml の meetings[].workdir にある
+ai_reference_dirs: []         # どの会議でも AI が読んでよいフォルダ（相対パスはデータディレクトリから）
 
 # --- 文字起こし ---
 default_language: null        # clerk-daemon のデフォルト言語 (null=自動検出)
 default_model: small          # clerk-daemon のデフォルト Whisper モデル
 output_directory: null        # transcript 出力先ディレクトリ (null=データディレクトリ)
+transcript_categories: [private, sharable, isolated]  # 記録の区分。先頭が既定
 initial_prompt: null          # Whisper の initial_prompt (音声認識のヒント語彙)
 whisper_beam_size: 5          # Whisper beam size (1=高速, 5=高精度)
 whisper_compute_type: int8    # 計算精度 (int8/float16/float32)
@@ -1013,7 +1019,7 @@ shadow-clerk/                          # リポジトリ
     skill_install.py                   # install-skill
     i18n.py                            # 多言語対応 (ja/en)
     domain/                            # ドメインの値オブジェクト
-    skills/                            # 同梱スキル: clerk-meeting-helper, clerk-talk, clerk-practice, voicevox-sing
+    skills/                            # 同梱スキル: clerk-meeting-helper, clerk-talk, clerk-practice, voicevox-sing, clerk-conversation-retrospective
     talk_prompts/                      # talk mode のシステムプロンプト
   extension/                           # スクリーンショット用 Chrome 拡張
   packaging/                           # PyInstaller の spec とフック
@@ -1022,6 +1028,8 @@ shadow-clerk/                          # リポジトリ
   SPEC.md                              # アーキテクチャとモジュール設計
 
 ~/.local/share/shadow-clerk/           # ランタイムデータ
+  <区分>/<会議名>/                     # 会議ごとのフォルダ。下の会議に属するファイルはここに入る
+  <先頭の区分>/@dates/YYYY-MM/         # 会議名のない記録（日次・名前なしの会議）
   transcript-YYYYMMDD.txt              # 文字起こし結果（日付ベース）
   transcript-YYYYMMDDHHMM.txt          # 会議セッション用（ad-hoc）
   transcript-YYYYMMDDHHMM@会議名.txt   # 会議セッション用（カレンダー連携 or 名前付き）
@@ -1047,6 +1055,13 @@ shadow-clerk/                          # リポジトリ
   transcript-YYYYMMDDHHMM@会議名.naming.jsonl  # その会議の名前付けの履歴（取り消し用）
   transcript-YYYYMMDDHHMM@会議名.provisional.json  # 会議中に付けた話者の仮登録（会議終了時に本登録）
 ```
+
+上の `transcript-*`・`summary-*`・`advice-*`・`analysis-*`・`minutes-*`・`shot-*` はデータディレクトリ直下ではなく
+会議のフォルダに入る。ファイル名には `@会議名` を残している（ファイル名だけで会議が分かり、外へコピーしてもそのまま使える）。
+区分（`transcript_categories`、既定 `private` / `sharable` / `isolated`）は置き場所にすぎず、振る舞いを持たない。
+会議の区分は **⚙ 会議ごとの設定** で選び、変えると会議のフォルダがその区分へ移る。起動時、データディレクトリ直下に
+フラットな `transcript-*` などが残っていれば新しい構成へ移す（すべて先頭の区分へ。会議名は今の規則に通して付け直す）。
+何度起動しても同じ結果になる。
 
 ## トラブルシューティング
 

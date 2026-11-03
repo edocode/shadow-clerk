@@ -8,10 +8,13 @@ import re
 from urllib.parse import urlparse, parse_qs
 
 from shadow_clerk._daemon_config import load_config
+from shadow_clerk.i18n import t
 from shadow_clerk._daemon_console import get_console, start_console_for
 from shadow_clerk._daemon_constants import FORBID_ANALYZE_FILE, MISHEARD_FILE
-from shadow_clerk._daemon_dashboard_base import is_localhost_client, read_local_json_body
+from shadow_clerk._daemon_dashboard_base import (
+    is_localhost_client, read_local_json_body, transcript_file, transcript_path_in)
 from shadow_clerk._markdown import render_markdown
+from shadow_clerk._transcript_layout import TranscriptLayout
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk.domain import ConsoleRole, misheard
 from shadow_clerk.domain.ai_assistant import AiAssistantConfig
@@ -25,7 +28,7 @@ __all__ = ["start_console_for", "_DashboardHandlerConsoleOps"]
 # 1 リクエストで送れるキー入力の上限。貼り付けを通しつつ暴走を止める
 _MAX_INPUT_CHARS = 8192
 # 会議ごとの設定モーダルが返す・書く値
-_SETTING_KEYS = ("analyze", "publish", "workdir", "publish_to", "notion_url", "publish_advice")
+_SETTING_KEYS = ("analyze", "publish", "workdir", "publish_to", "notion_url", "publish_advice", "reference_dirs")
 
 
 class _DashboardHandlerConsoleOps:
@@ -92,7 +95,7 @@ class _DashboardHandlerConsoleOps:
         # [^.]+ はスラッシュを許すため) も要求する
         if (isinstance(transcript, str) and os.path.basename(transcript) == transcript
                 and TranscriptName.parse(transcript) is not None):
-            transcript = os.path.join(self.recorder._output_dir, transcript)
+            transcript = transcript_path_in(self.recorder._output_dir, transcript)
         else:
             transcript = self.recorder.output_path
         # 開始モーダルで外した会議でも会議設定でオフの会議でも、手で頼んだならスキルの resolve が監視する側を返すようにする。
@@ -178,7 +181,7 @@ class _DashboardHandlerConsoleOps:
         if names is None:
             self._send_json({"file": "", "html": ""})
             return
-        path = os.path.join(self.recorder._output_dir, names[index])
+        path = transcript_file(self.recorder, names[index])
         try:
             with open(path, "r", encoding="utf-8") as f:
                 text = f.read()
@@ -205,13 +208,10 @@ class _DashboardHandlerConsoleOps:
         if tn is None:
             self._send_json({"status": "error", "message": "not a transcript filename"})
             return
-        out_dir = self.recorder._output_dir
-        paths = {
-            "transcript": os.path.join(out_dir, tn.filename),
-            "summary": os.path.join(out_dir, tn.summary_filename),
-            "advice": os.path.join(out_dir, tn.advice_filename),
-            "analysis": os.path.join(out_dir, tn.analysis_filename),
-        }
+        out_dir = TranscriptLayout.from_config(root=self.recorder._output_dir).dir_of(tn)
+        paths = {k: os.path.join(out_dir, v) for k, v in (
+            ("transcript", tn.filename), ("summary", tn.summary_filename),
+            ("advice", tn.advice_filename), ("analysis", tn.analysis_filename))}
         self._send_json({
             "status": "ok",
             "dir": out_dir,
@@ -321,14 +321,33 @@ class _DashboardHandlerConsoleOps:
         analyze は未指定なら null（auto_analyze に従う）
         """
         cfg = MeetingConfig.load()
+        layout = TranscriptLayout.from_config(root=self.recorder._output_dir)
         out = []
         for name in parse_qs(urlparse(self.path).query).get("meeting", []):
             resolved = cfg.resolve(name)
             # shared: ほかの会議にも当たるルール（変えると、その会議用のルールを足して変える）
+            # category はフォルダの実際の場所（無ければ設定）
             out.append({"name": name, "matched": resolved["matched"],
                         "shared": resolved["matched"] != "(defaults)" and literal_name(resolved["matched"]) != name,
+                        "category": layout.category_of(name),
                         **{k: resolved[k] for k in _SETTING_KEYS}})
-        self._send_json({"status": "ok", "path": cfg.path, "meetings": out})
+        self._send_json({"status": "ok", "path": cfg.path, "meetings": out,
+                         "categories": list(layout.categories)})
+
+    def _move_meetings(self, names: list[str], category: str) -> bool:
+        """会議フォルダを区分 category へ移す。記録中の会議は書き込み先が動くので移さない。失敗したら応答して False"""
+        layout = TranscriptLayout.from_config(root=self.recorder._output_dir)
+        recording = os.path.dirname(self.recorder.output_path)
+        for name in names:
+            if layout.meeting_dir(name) == recording:
+                self._send_json({"status": "error", "message": t("dash.move_recording_meeting")})
+                return False
+            try:
+                layout.move_meeting(name, category)
+            except (ValueError, OSError) as e:
+                self._send_json({"status": "error", "message": str(e)})
+                return False
+        return True
 
     def _save_meeting_settings(self) -> None:
         """POST /api/meeting-settings {meetings: [名前…], set: {analyze?, publish?, workdir?, publish_to?, notion_url?, publish_advice?}}
@@ -347,6 +366,8 @@ class _DashboardHandlerConsoleOps:
             settings = MeetingSettings.parse(data.get("set"))
         except ValueError as e:
             self._send_json({"status": "error", "message": str(e)})
+            return
+        if settings.category is not None and not self._move_meetings([n.strip() for n in names], settings.category):
             return
         cfg = MeetingConfig.load()
         for name in names:

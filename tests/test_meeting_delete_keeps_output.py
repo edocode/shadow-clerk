@@ -8,6 +8,12 @@ import datetime
 import io
 import json
 import os
+
+def _at(root: str, name: str) -> str:
+    """記録のファイルはその回のフォルダ（区分 / 会議名）、それ以外は root 直下"""
+    from shadow_clerk._transcript_layout import TranscriptLayout
+    return TranscriptLayout(root).path(name) or os.path.join(root, name)
+
 import tempfile
 import threading
 import types
@@ -22,9 +28,10 @@ from shadow_clerk.domain import TranscriptRewriteJournal, meeting_start_marker  
 
 results: list[bool] = []
 START = datetime.datetime(2026, 10, 4, 10, 0)
-MEETING = os.path.join(DATA, "transcript-202610041000@acme.txt")
-DAILY = os.path.join(DATA, "transcript-20261004.txt")
+MEETING = _at(DATA, "transcript-202610041000@acme.txt")
+DAILY = _at(DATA, "transcript-20261004.txt")
 MARKER = meeting_start_marker(START)
+
 
 
 def check(label: str, ok: bool, detail: str = "") -> None:
@@ -99,7 +106,7 @@ def test_delete_not_in_meeting() -> None:
     h._delete_transcript_file()
     check("会議外: ファイルは消える", not os.path.exists(DAILY))
     check("会議外: 出力先は日次のまま/日次へ切替", rec.output_path == DAILY)
-    other = os.path.join(DATA, "transcript-20261003.txt")
+    other = _at(DATA, "transcript-20261003.txt")
     rec = _setup(other, "[2026-10-03 09:00:00] a\n", False)
     _Handler({"file": os.path.basename(other)}, rec)._delete_transcript_file()
     check("会議外: 他の日のファイル削除で日次へ切替", rec.output_path == DAILY and not os.path.exists(other), rec.output_path)

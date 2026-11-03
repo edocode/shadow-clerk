@@ -215,6 +215,21 @@ window.h.mousemove({clientY:400});
 out.drawerDrag=[els.nxDrawer.style.props['--dh'],els.nxDrawer.classList.contains('dragging')];
 window.h.mouseup();
 out.drawerUp=[store.nxDrawerH,els.nxDrawer.classList.contains('dragging'),!!window.h.mousemove];
+/* アドバイスと分析の仕切り: 上下に積んでいれば縦、並べていれば横の割合を変えて覚える */
+els.nxRightBody.style={props:{},setProperty(k,v){this.props[k]=v;}};
+const aiGrid={getBoundingClientRect:()=>({top:100,height:400,left:0,width:800})},aiDir={v:'column'};
+els.nxRightBody.querySelector=s=>s==='.aigrid'?aiGrid:null;
+globalThis.getComputedStyle=e=>e===aiGrid?{flexDirection:aiDir.v}:{cursor:aiDir.v==='column'?'ns-resize':'ew-resize'};
+const splitDrag=(x,y)=>{
+  els.nxRightBody.handlers.mousedown[0]({button:0,target:{closest:s=>s==='.aisep'?{parentNode:aiGrid}:null},preventDefault(){}});
+  window.h.mousemove({clientX:x,clientY:y});
+  const r=[els.nxRightBody.style.props,els.nxRightBody.classList.contains('aidrag'),document.body.style.cursor];
+  window.h.mouseup();
+  return r.concat([els.nxRightBody.classList.contains('aidrag'),!!window.h.mousemove,document.body.style.cursor]);
+};
+out.splitV=JSON.parse(JSON.stringify(splitDrag(0,200)));out.splitVStore=store.nxAiSplitv;
+aiDir.v='row';
+out.splitH=JSON.parse(JSON.stringify(splitDrag(790,0)));out.splitHStore=store.nxAiSplith;
 /* --- ショートカット（入力欄では使わない） --- */
 const key=(k,code,target)=>docHandlers.keydown.forEach(f=>f({altKey:true,key:k,code,target:target||{closest:()=>null},preventDefault(){}}));
 key('2','Digit2');out.alt2=nxState.view;
@@ -255,7 +270,7 @@ def main() -> None:
         "summary-202610201529@ad-hoc.md", "#transcript-202610201529%40ad-hoc.txt", "",
         "transcript-202610201529@ad-hoc.txt", "sum"]], repr(links[0]))
     check("キャプチャは /api/screenshot?file= を別タブ", links[1] == [[
-        "shot-202609081610@勉強会-161622.png", f"/api/screenshot?file=shot-202609081610%40{enc}-161622.png", "_blank",
+        "shot-202609081610@勉強会-161622.png", f"/api/screenshot?file=shot-202609081610%40{enc}-161622.png&transcript=transcript-20261020.txt", "_blank",
         "transcript-20261020.txt", "x"]], repr(links[1]))
     check("翻訳は元の transcript へ、表示中なら開き直さない",
           links[2][0] == ["transcript-20261020-en.txt", "#transcript-20261020.txt", "", "transcript-20261020.txt", "x"],
@@ -327,7 +342,15 @@ def main() -> None:
     css = _NEXT_CSS
     check("各ペインの列を明示する", ".app > main { grid-column:2; }" in css and ".app.aimode > main { grid-column:3; }" in css
           and ".app.aimode > .right { grid-column:2;" in css)
-    check("アドバイスと分析は 620px 以下で上下", "@container (max-width:620px) {\n  .aigrid { grid-template-columns:1fr; }" in css)
+    check("アドバイスと分析は 620px 以下で上下", "@container (max-width:620px) {\n  .aigrid { flex-direction:column; }" in css)
+    check("アドバイスと分析は別々にスクロールし、間に仕切りを置く",
+          '<div class="aiscroll">' in out["aiMine"] and 'class="aisep"' in out["aiMine"])
+    check("仕切り（上下）: ドラッグで --ais-v を変え、離すと覚えてカーソルを戻す",
+          out["splitV"] == [{"--ais-v": "25.0%"}, True, "ns-resize", False, False, ""] and out["splitVStore"] == "25.0",
+          repr((out["splitV"], out["splitVStore"])))
+    check("仕切り（左右）: 90% で止め、--ais-h に別に覚える",
+          out["splitH"] == [{"--ais-v": "25.0%", "--ais-h": "90.0%"}, True, "ew-resize", False, False, ""]
+          and out["splitHStore"] == "90.0", repr((out["splitH"], out["splitHStore"])))
     sys.exit(0 if all(results) else 1)
 
 

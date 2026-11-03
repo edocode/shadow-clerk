@@ -10,10 +10,11 @@ import re
 import threading
 from shadow_clerk.i18n import t
 from shadow_clerk._atomic_file import atomic_write_lines
-from shadow_clerk._daemon_dashboard_base import transcript_path_in
+from shadow_clerk._daemon_dashboard_base import transcript_file, transcript_path_in
 from shadow_clerk._daemon_config import load_config
 from shadow_clerk._daemon_constants import SESSION_FILE
 from shadow_clerk.domain import TranscriptRewrite, meeting_start_marker
+from shadow_clerk._transcript_layout import carry_shots
 from shadow_clerk._transcript_name import TranscriptName
 
 logger = logging.getLogger("shadow-clerk")
@@ -193,11 +194,11 @@ class _DashboardHandlerOps:
         if not file_param:
             self.send_error(400)
             return
-        output_dir = self.recorder._output_dir
         t_path = transcript_path_in(self.recorder._output_dir, file_param) or ""
         if not t_path or not os.path.exists(t_path):
             self._send_json({"status": "error", "message": t("dash.transcript_not_found")})
             return
+        output_dir = os.path.dirname(t_path)
         tn = TranscriptName.parse(os.path.basename(t_path))
         if not tn or not tn.is_meeting_file:
             self._send_json({"status": "error", "message": t("dash.merge_to_daily_error")})
@@ -235,7 +236,7 @@ class _DashboardHandlerOps:
             blocks.sort(key=lambda b: (ts_pattern.match(b[0]).group(1) if ts_pattern.match(b[0]) else ""))
             self._atomic_write_lines(dst, [line for b in blocks for line in b])
 
-        daily_path = os.path.join(output_dir, daily_tn.filename)
+        daily_path = transcript_file(self.recorder, daily_tn.filename)
         merged_translations: list[str] = []
         with self.recorder.transcript_lock:
             # マージ前の日次ファイルの翻訳進捗を記録（マージは並べ替え挿入のため
@@ -245,13 +246,15 @@ class _DashboardHandlerOps:
             # transcript 本体をマージ。並べ替え挿入はバイト位置を写せないので、日次ファイルを
             # 追う読み手（/api/watch・翻訳ループ）には読み直しを促す
             _merge_file(t_path, daily_path)
+            with open(t_path, "r", encoding="utf-8") as f:
+                carry_shots(f, output_dir, os.path.dirname(daily_path))
             self.recorder.rewrite_journal.invalidate(daily_path)
             # 翻訳ファイルをマージ (transcript-YYYYMMDDHHMM[@name]-{lang}.txt → transcript-YYYYMMDD-{lang}.txt)
             for fname in os.listdir(output_dir):
                 if fname.startswith(tn.stem + "-") and fname.endswith(".txt"):
                     lang = fname[len(tn.stem) + 1:-4]
                     if lang:
-                        daily_tr = os.path.join(output_dir, daily_tn.translation_filename(lang))
+                        daily_tr = transcript_file(self.recorder, daily_tn.translation_filename(lang))
                         _merge_file(os.path.join(output_dir, fname), daily_tr)
                         merged_translations.append(daily_tr)
             # translate_offset: マージは並べ替えのため部分オフセットを引き継げない。

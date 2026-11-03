@@ -1,7 +1,7 @@
 """Shadow-clerk daemon: /next ダッシュボード CSS（試作 dashboard-friendly-ui-interactive.css が元）"""
 from __future__ import annotations
 
-from shadow_clerk._daemon_dashboard_css import _CSS_CONSOLE
+from shadow_clerk._daemon_dashboard_css import _CSS_CONSOLE, _CSS_WELCOME
 
 _DARK = """\
   --bg:#0b0f17; --panel:#111827; --panel2:#0f1520; --line:#1f2937; --border:var(--line); --text:#e5e7eb; --muted:#8b95a5;
@@ -48,7 +48,7 @@ header { display:flex; align-items:center; gap:10px; padding:10px 14px; border-b
 .status.stopped .dot, .status.disconnected .dot { background:var(--muted); }
 .status.disconnected { background:rgba(245,158,11,.14); color:var(--amber); }
 @keyframes nxblink { 50% { opacity:.3 } }
-.primary { background:var(--green); color:#fff; border:none; border-radius:8px; padding:8px 18px; font-weight:bold; font-size:14px; }
+.primary { white-space:nowrap; background:var(--green); color:#fff; border:1px solid transparent; border-radius:8px; padding:7px 12px; font-weight:bold; }
 .primary.stop { background:var(--red); }
 .tbtn { white-space:nowrap; display:flex; align-items:center; gap:6px; background:var(--chip);
   border:1px solid var(--line); border-radius:8px; padding:7px 12px; }
@@ -122,7 +122,7 @@ header { display:flex; align-items:center; gap:10px; padding:10px 14px; border-b
 .app.aimode .rbody { padding:18px 28px; }
 main.narrow .tx { padding-left:10px; padding-right:10px; }
 /* 細い列では 時刻・話した人 を 1 段目、本文（と翻訳）を 2 段目に置く */
-main.narrow .ln, main.narrow .ln.tr, main.narrow .ln.ro { grid-template-columns:18px 40px minmax(0,1fr) 22px; row-gap:0; }
+main.narrow .ln, main.narrow .ln.tr, main.narrow .ln.ro { grid-template-columns:18px 58px minmax(0,1fr) 22px; row-gap:0; }
 main.narrow .ln .ts { grid-column:2; grid-row:1; } main.narrow .ln .who { grid-column:3; grid-row:1; }
 main.narrow .ln .txt, main.narrow .ln .trn { grid-column:2 / 4; } main.narrow .ln .more { grid-column:4; grid-row:1; }
 aside { background:var(--panel); border-right:1px solid var(--line); overflow:auto; padding:8px; }
@@ -149,7 +149,6 @@ main { display:flex; flex-direction:column; overflow:hidden; position:relative; 
   margin:-14px -16px 10px; padding:14px 16px 8px; background:var(--panel); }
 .app.aimode .rtools { top:-18px; margin:-18px -28px 10px; padding:18px 28px 8px; }
 .lbtn { text-decoration:none; }
-.fname { color:var(--muted); font-family:ui-monospace,monospace; font-size:10.5px; }
 .att { border:1px solid var(--line); border-radius:8px; padding:6px 10px; margin:6px 0 10px; font-size:12px; background:var(--panel2); }
 .att small { display:block; color:var(--muted); font-size:11px; margin-top:2px; }
 .sumraw { white-space:pre-wrap; font:inherit; margin:0; }
@@ -161,13 +160,26 @@ main { display:flex; flex-direction:column; overflow:hidden; position:relative; 
 .astat .dot { width:8px; height:8px; border-radius:50%; background:var(--ok); animation:nxblink 1.6s infinite; }
 .aiother { margin:-4px 2px 10px; }
 .empty .aiother { margin-top:12px; }
-/* アドバイスと分析は 2 カラム。ペインの幅が 620px 以下なら上下に積む */
-.aigrid { display:grid; grid-template-columns:1fr 1fr; gap:0 24px; align-items:start; }
-.aicol { min-width:0; }
-.aicol + .aicol { border-left:1px solid var(--line); padding-left:24px; }
+/* アドバイスと分析は左右に並べ、それぞれの中でスクロールする。ペインの幅が 620px 以下なら上下に積む。
+   仕切り .aisep はドラッグで動かせ、割合は rbody の --ais-h（左右）/ --ais-v（上下）*/
+.rbody.aisplit { display:flex; flex-direction:column; overflow:hidden; }
+.rbody.aisplit > :not(.aigrid) { flex:none; }
+.aigrid { flex:1; min-height:0; display:flex; }
+.aicol { min-width:0; min-height:0; display:flex; flex-direction:column; flex:1 1 0; }
+.aicol:first-child { flex:0 0 calc(var(--ais-h,50%) - 6px); }
+.aicol .secttl { margin-top:0; }
+.aiscroll { flex:1; min-height:0; overflow:auto; }
+.aiscroll .card { margin-bottom:0; }
+.aisep { flex:0 0 12px; cursor:ew-resize; position:relative; }
+.aisep::before { content:''; position:absolute; top:0; bottom:0; left:5px; width:1px; background:var(--line); }
+.aisep:hover::before, .rbody.aidrag .aisep::before { background:var(--accent); left:4px; width:3px; opacity:.6; }
+.rbody.aidrag { user-select:none; }
 @container (max-width:620px) {
-  .aigrid { grid-template-columns:1fr; }
-  .aicol + .aicol { border-left:none; padding-left:0; border-top:1px solid var(--line); margin-top:8px; }
+  .aigrid { flex-direction:column; }
+  .aicol:first-child { flex-basis:calc(var(--ais-v,50%) - 6px); }
+  .aisep { cursor:ns-resize; }
+  .aisep::before { left:0; right:0; top:5px; bottom:auto; width:auto; height:1px; }
+  .aisep:hover::before, .rbody.aidrag .aisep::before { left:0; top:4px; width:auto; height:3px; }
 }
 .md-body { overflow-wrap:anywhere; line-height:1.6; }
 .md-body h1, .md-body h2, .md-body h3, .md-body h4 { margin:12px 0 4px; font-size:1.05em; color:var(--other); }
@@ -261,14 +273,14 @@ main { container-type:inline-size; }
 .banner { margin:8px 16px 0; padding:8px 12px; border-radius:8px; font-size:12.5px; display:none; }
 .banner.show { display:block; }
 .banner.warn { background:rgba(245,158,11,.14); color:var(--warn-fg); border:1px solid rgba(245,158,11,.35); }
-.colhead { display:none; grid-template-columns:18px 46px 70px 1fr 1fr 28px; gap:8px; font-size:11px; color:var(--muted); padding:6px 16px 0; }
-.colhead.show { display:grid; } .colhead.ro { grid-template-columns:18px 46px 70px 1fr 28px; }
+.colhead { display:none; grid-template-columns:18px 62px 70px 1fr 1fr 28px; gap:8px; font-size:11px; color:var(--muted); padding:6px 16px 0; }
+.colhead.show { display:grid; } .colhead.ro { grid-template-columns:18px 62px 70px 1fr 28px; }
 /* 行の右端の ⋯ の列までまたいで、ボタンを右端に寄せる */
 .trh { display:flex; align-items:center; gap:4px; white-space:nowrap; grid-column:span 2; }
 .trh a { color:inherit; text-decoration:none; }
-.ln { display:grid; grid-template-columns:18px 46px 70px 1fr 28px; gap:8px; padding:4px 0 4px 4px; line-height:1.6;
+.ln { display:grid; grid-template-columns:18px 62px 70px 1fr 28px; gap:8px; padding:4px 0 4px 4px; line-height:1.6;
   border-radius:6px; cursor:pointer; user-select:none; position:relative; }
-.ln.tr { grid-template-columns:18px 46px 70px 1fr 1fr 28px; }
+.ln.tr { grid-template-columns:18px 62px 70px 1fr 1fr 28px; }
 .ln:hover { background:var(--chip); }
 .ln .ts { color:var(--muted); font-size:.92em; font-variant-numeric:tabular-nums; }
 .ln .who { font-weight:bold; font-size:.96em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -352,6 +364,7 @@ main { container-type:inline-size; }
 .modal .hint.foot { margin-top:10px; }
 .modal label.chk { display:flex; gap:6px; align-items:center; color:var(--text); font-size:13px; margin-top:14px; }
 .modal label.chk input { width:auto; }
+.modal label.chk[hidden] { display:none; }
 .hint { font-size:11.5px; color:var(--muted); margin-top:4px; line-height:1.5; }
 .cta { background:var(--accent); color:#fff; border:none; border-radius:8px; padding:8px 16px; font-weight:bold; }
 .cta.danger { background:var(--red); }
@@ -394,14 +407,6 @@ main { container-type:inline-size; }
 .banner.talk.show { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .banner.talk .lbtn { margin-left:auto; }
 #talkModal.open, #talkPresetModal.open { display:flex; }
-.tmodes { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:4px; }
-.tmode { position:relative; border:1px solid var(--line); border-radius:10px; padding:10px 24px 10px 10px; cursor:pointer;
-  font-size:12px; min-width:0; }
-.tmode b { display:block; font-size:13px; margin-bottom:2px; }
-.tmode .muted { display:block; font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.tmode.act { border-color:var(--claude); background:rgba(192,132,252,.10); }
-.tmode .x { position:absolute; top:4px; right:4px; border:none; background:transparent; color:var(--muted); padding:0 4px; }
-.tmode .x:hover { color:var(--danger-fg); }
 .modal .inrow { display:flex; gap:6px; } .modal .inrow select { flex:1; min-width:0; } .modal .inrow .cta { white-space:nowrap; }
 .modal .radio .inrow { margin-top:6px; }
 .modal .hint.warn { color:var(--warn-fg); }
@@ -410,6 +415,35 @@ main { container-type:inline-size; }
 .modal .err:empty { display:none; }
 .cta.talk { background:var(--claude); }
 details.more summary { cursor:pointer; color:var(--muted); font-size:12px; margin-top:12px; }
+/* Help */
+#helpModal .nx-help { max-width:820px; max-height:88dvh; border-radius:16px; box-shadow:0 24px 80px #0005; }
+#helpModal .modal-head, #helpModal .modal-foot { padding:18px 24px; flex-shrink:0; }
+#helpModal h2 { margin:0; font-size:20px; letter-spacing:.02em; }
+#helpModal .modal-body { padding:4px 24px 24px; min-height:0; line-height:1.8; }
+#helpModal .nx-help-intro { color:var(--muted); margin:12px 0 24px; }
+#helpModal h3 { margin:20px 0 12px; font-size:13px; color:var(--muted); font-weight:600; }
+.nx-help-steps { list-style:none; counter-reset:help-step; padding:0; margin:0; display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+.nx-help-steps li { counter-increment:help-step; padding:18px; background:var(--panel2); border:1px solid var(--line); border-radius:12px; }
+.nx-help-steps li::before { content:counter(help-step,decimal-leading-zero); color:var(--cu-fg); font-size:12px; font-weight:700; }
+#helpModal h4 { font-size:14px; margin:10px 0 8px; }
+#helpModal p { font-size:13px; }
+.nx-help-steps p { margin:0; color:var(--muted); }
+.nx-help-topics { border-top:1px solid var(--line); }
+.nx-help-topics details { border-bottom:1px solid var(--line); }
+.nx-help-topics summary { cursor:pointer; padding:14px 0; font-weight:600; }
+.nx-help-topics details[open] summary { color:var(--cu-fg); }
+.nx-help-topics p { margin:0 0 16px; color:var(--muted); }
+#helpModal .modal-foot { justify-content:space-between; gap:16px; }
+.nx-help-links { display:flex; flex-wrap:wrap; gap:4px 20px; }
+#helpModal .modal-foot > button { flex-shrink:0; }
+#helpModal .modal-foot a { color:var(--cu-fg); font-size:12px; text-decoration:none; }
+#helpModal .modal-foot a:hover { text-decoration:underline; }
+#helpModal :focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+@media (max-width:640px) {
+  .nx-help-steps { grid-template-columns:1fr; }
+  #helpModal .modal-head, #helpModal .modal-foot { padding:14px 18px; }
+  #helpModal .modal-body { padding:0 18px 18px; }
+}
 /* 流用する現行のモーダル（声の設定・ペルソナ編集）。トークンに合わせて現行の見た目を写す */
 .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:35; align-items:center; justify-content:center; }
 .modal-overlay.open { display:flex; }
@@ -512,3 +546,5 @@ details.more summary { cursor:pointer; color:var(--muted); font-size:12px; margi
 #consolec, .aicon { background:var(--con-bg); color:var(--con-fg); }
 #consoleInput.composing { background:var(--con-bg); color:var(--con-fg); }
 """
+
+_NEXT_CSS += _CSS_WELCOME

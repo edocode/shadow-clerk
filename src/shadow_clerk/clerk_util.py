@@ -390,18 +390,22 @@ def cmd_summarize(args: list[str]) -> None:
 
     # ファイルパス解決
     transcript_name = tn.filename
-    transcript_path = os.path.join(OUTPUT_DIR, transcript_name)
+    import yaml
+    from shadow_clerk._transcript_layout import TranscriptLayout
+    config: dict = {}
+    if os.path.isfile(CONFIG_FILE):
+        with open(CONFIG_FILE, encoding="utf-8") as f:
+            config = yaml.safe_load(f) or {}
+    layout = TranscriptLayout.from_config(config, root=OUTPUT_DIR)
+    transcript_path = layout.path(transcript_name) or ""
 
     # 名前なしで指定された(`tn.meeting_name is None`) かつ実ファイル無し →
     # 同タイムスタンプの会議名付きファイル `transcript-<dt>@*.txt` を探す
     # (TranscriptName.parse は翻訳ファイル `-{lang}.txt` を除外するので候補から自動的に外れる)
     if not os.path.isfile(transcript_path) and tn.meeting_name is None:
-        import glob
-        pattern = os.path.join(OUTPUT_DIR, f"transcript-{tn.datetime_str}@*.txt")
         candidates = sorted(
-            (f for f in glob.glob(pattern)
-             if TranscriptName.parse(os.path.basename(f)) is not None),
-        )
+            p for f, p in layout.files().items()
+            if f.startswith(f"transcript-{tn.datetime_str}@") and TranscriptName.parse(f) is not None)
         if len(candidates) == 1:
             tn = TranscriptName.parse(os.path.basename(candidates[0])) or tn
             transcript_name = tn.filename
@@ -413,7 +417,7 @@ def cmd_summarize(args: list[str]) -> None:
             sys.exit(1)
 
     summary_name = tn.summary_filename
-    summary_path = os.path.join(OUTPUT_DIR, summary_name)
+    summary_path = os.path.join(os.path.dirname(transcript_path), summary_name)
 
     # summary_source 設定をチェック
     # - "transcript": 強制的に transcript
@@ -421,14 +425,11 @@ def cmd_summarize(args: list[str]) -> None:
     # - None (未指定): translation があれば translation、無ければ transcript
     source_path = transcript_path
     if os.path.isfile(CONFIG_FILE):
-        import yaml
-        with open(CONFIG_FILE, encoding="utf-8") as f:
-            config = yaml.safe_load(f) or {}
         summary_source = config.get("summary_source")
         if summary_source in ("translate", None):
             translate_lang = config.get("translate_language", "en")
             translation_name = tn.translation_filename(translate_lang)
-            translation_path = os.path.join(OUTPUT_DIR, translation_name)
+            translation_path = os.path.join(os.path.dirname(transcript_path), translation_name)
             if os.path.isfile(translation_path):
                 source_path = translation_path
             elif summary_source == "translate":

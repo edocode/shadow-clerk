@@ -81,6 +81,7 @@ function loadTalkPreset(){
   if(f.route!==undefined){const rs=document.getElementById('talkRoute');if(rs&&!rs.disabled)rs.value=f.route||'';}
   if(f.glossary!==undefined)document.getElementById('talkGlossary').checked=f.glossary!==false;
   if(f.early_reply!==undefined)document.getElementById('talkEarlyReply').checked=f.early_reply!==false;
+  const ss=document.getElementById('talkSkill');if(ss&&f.skill!==undefined)ss.value=f.skill||'';
 }
 function openSaveTalkPreset(){
   const sel=document.getElementById('talkPresetSel');
@@ -105,6 +106,7 @@ async function doSaveTalkPreset(extraFields={}){
     route:(rs&&!rs.disabled)?rs.value:'',
     glossary:document.getElementById('talkGlossary').checked,
     early_reply:document.getElementById('talkEarlyReply').checked,
+    ...(document.getElementById('talkSkill')?{skill:talkSkillValue()}:{}),
   };
   try{
     await fetch('/api/talk-presets',{method:'POST',
@@ -139,6 +141,8 @@ async function togTalk(){
   document.getElementById('talkModal').classList.add('open');
 }
 function closeTalk(){document.getElementById('talkModal').classList.remove('open');}
+/* 最初に切り替える skill。欄があるのは /next だけ */
+function talkSkillValue(){const s=document.getElementById('talkSkill');return s?s.value:'';}
 async function startTalk(){
   const rs=document.getElementById('talkRoute'),ms=document.getElementById('talkModel');
   if(ms)await saveTalkCfg('talk_model',ms.value);
@@ -147,7 +151,8 @@ async function startTalk(){
                           workdir:document.getElementById('talkWorkdir').value.trim()||null,
                           route:(rs&&!rs.disabled&&rs.value)||null,
                           glossary:document.getElementById('talkGlossary').checked,
-                          early_reply:document.getElementById('talkEarlyReply').checked});
+                          early_reply:document.getElementById('talkEarlyReply').checked,
+                          ...(talkSkillValue()?{skill:talkSkillValue()}:{})});
   if(r.status==='ok'){
     if(rs&&!rs.disabled)await saveTalkCfg('talk_route_app',rs.value||'');
     closeTalk();if(r.talk&&r.talk.engine==='console')selectConsoleRole('talk');}else document.getElementById('talkErr').textContent=r.message||'';

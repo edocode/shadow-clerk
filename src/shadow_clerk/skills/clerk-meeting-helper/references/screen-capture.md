@@ -12,6 +12,8 @@ Chrome 拡張(`shadow-clerk/extension/`)のアイコンをクリックすると�
 
 画像は transcript と同じディレクトリ(`/api/session` の `dir`)に置かれる。
 話者ラベルが `[画面]` なので、`[自分]` / `[相手]` の発言と区別できる。
+`shot-….png` は **transcript からの相対パス**で、画像は transcript と同じフォルダにある。
+サブエージェントには `<transcript のあるフォルダ>/shot-….png` を渡す。ほかのフォルダを探さない。
 **Monitor がこの行を自動で流す。** 別の監視は要らない。
 
 ## 必ず読む。ただしサブエージェントに読ませる

@@ -1,4 +1,4 @@
-# Shadow-clerk
+# Shadow Clerk
 
 [![PyPI version](https://img.shields.io/pypi/v/shadow-clerk.svg)](https://pypi.org/project/shadow-clerk/)
 [![Python versions](https://img.shields.io/pypi/pyversions/shadow-clerk.svg)](https://pypi.org/project/shadow-clerk/)
@@ -139,13 +139,13 @@ To start the daemon when you sign in, copy the **Shadow Clerk** shortcut into th
 | Send Claude's voice into a meeting app | Linux with PipeWire (`pw-dump`, `pw-link`, `pw-cat`) | — | — | `talk_route_app` |
 | [Speaker diarization](#optional-speaker-diarization) (`[相手A]`, `[相手B]`… on the remote side, naming, voiceprints, names during the meeting) | `diarization` extra | — | — | `speaker_diarization`, `speaker_enrollment` |
 | [Google Calendar](#optional-google-calendar-integration) (auto start/end, expected attendees) | `gcal` extra, OAuth credentials | — | — | `gcal_integration`, `gcal_credentials_file` |
-| [Pronunciation feedback](#optional-pronunciation-feedback) (phoneme-level, English, for `clerk-practice`) | `pronounce` extra | — | — | `pronounce_enabled` |
+| [Pronunciation feedback](#optional-pronunciation-feedback) (phoneme-level, English and Japanese, for `clerk-practice`) | `pronounce` extra | — | — | `pronounce_enabled` |
 | [Mishearing hints](#optional-mishearing-hints) (`リプロイ(でぷろい?)`, Japanese) | `kana-hint` extra | — | — | `kana_hint` |
 | [Browser screenshots](#browser-screenshots) in the transcript | Chrome extension in `extension/` | — | — | — |
 
 **Minimal setup without LLM:** Transcription + LibreTranslate translation requires no external API or Claude Code. Everything runs locally.
 
-See the [Feature Tour](docs/feature-tour.en.md) for a visual walkthrough with screenshots (taken of the previous dashboard, now at `/legacy`).
+See the [Feature Tour](docs/feature-tour.en.md) for a visual walkthrough with screenshots.
 
 ## Setup
 
@@ -402,13 +402,16 @@ Add the following options if you need translation or summarization.
 
 ### Optional: Pronunciation feedback
 
-Phoneme-level pronunciation feedback for `clerk-practice` (English only).
+Phoneme-level pronunciation feedback for `clerk-practice` (English and Japanese).
+Japanese is compared in kana (mora) units, so it catches missing or extra
+geminates (っ), long vowels and split contracted sounds, but not pitch accent.
 
 ```bash
 uv sync --extra pronounce
 ```
 
-Downloads a 1.2GB phoneme recognition model on first use. `espeak-ng` ships as a
+Downloads a 1.2GB phoneme recognition model on first use (another 1.2GB kana
+recognition model for Japanese; only one is kept in memory at a time). `espeak-ng` ships as a
 wheel (`espeakng-loader`), so no system package is needed. Note that
 `phonemizer-fork` installs under the `phonemizer` import name and conflicts with
 the original `phonemizer` package.
@@ -800,7 +803,7 @@ Requirements:
   voice does not come back as `[Others]` lines.
 
 Click **Talk with Claude** in the dashboard header, enter a topic (or leave it empty), pick a
-persona, and start. **Voice settings** in the same dialog picks the VOICEVOX speaker and adjusts speed, pitch, intonation and volume, with a preview button; changes apply from the next sentence. Unticking **Use the glossary** turns off the glossary replacements in the transcript for that conversation, and Claude does not read the glossary either (for conversations that do not need it, such as language practice; saved with presets). **Reply early** (on by default) lets Claude answer from the in-progress transcription before the final line arrives, which is faster but may answer a misheard line; untick it to have Claude wait for final lines. By default Claude runs in a second AI Console (the **Talk with Claude screen** in the bottom drawer) with the `clerk-talk` skill,
+persona, and start. The **mode** select fills these in from a saved mode: besides **Free talk**, it ships with **英語の練習** (English practice), **Japanese Lesson** and **会議の振り返り** (meeting retrospective), which can be deleted like your own modes. **Skill** makes Claude switch to that skill first (`clerk-practice`, `clerk-conversation-retrospective` or `voicevox-sing`), with the topic as what you want from it. **Voice settings** in the same dialog picks the VOICEVOX speaker and adjusts speed, pitch, intonation and volume, with a preview button; changes apply from the next sentence. Unticking **Use the glossary** turns off the glossary replacements in the transcript for that conversation, and Claude does not read the glossary either (for conversations that do not need it, such as language practice; saved with presets). **Reply early** (on by default) lets Claude answer from the in-progress transcription before the final line arrives, which is faster but may answer a misheard line; untick it to have Claude wait for final lines. By default Claude runs in a second AI Console (the **Talk with Claude screen** in the bottom drawer) with the `clerk-talk` skill,
 so it can edit files and run commands with the usual permission prompts, and the meeting helper keeps
 running in the **AI assistant screen**. Set `talk_engine: headless` to use a background `claude -p` process
 instead: it answers a little faster but cannot ask for permission, so it only gets the tools in
@@ -943,6 +946,7 @@ An AI assistant (`claude` or `codex`) can run inside a PTY on the dashboard's **
   ```
 
   A destination holding a skill shadow-clerk did not write is left alone unless you pass `--force`.
+- **Communication retrospective**: the bundled `clerk-conversation-retrospective` skill reviews your own statements and the surrounding replies after a meeting. Run `/clerk-conversation-retrospective <transcript-path>` in the AI Console, optionally adding a focus such as “answer questions more directly”. It returns evidence with timestamps or line numbers, a successful exchange, a possible improvement with alternative wording, and one action to try next time. Results stay in the conversation unless you request a saved report; they do not automatically appear in the AI Analysis tab.
 - **Starting**: automatically when a meeting starts (`auto_analyze: true`), or manually with **Ask the AI assistant to follow** in the **💡 AI advice** tab. Either way, `ai_assistant_init_prompt` (default `/clerk-meeting-helper {transcript} {lang}`) is sent to the PTY once the assistant's TUI is ready — `{transcript}` and `{meeting}` are substituted with the active file paths, and `{lang}` with `translate_language`, so the skill writes in the language you read.
 - **Reaching the dashboard**: the assistant calls the dashboard's HTTP API at `$SHADOW_CLERK_URL`, which the console puts in its environment, so it never has to guess the port.
 - **Generated documents**: shown in the right pane's **💡 AI advice** tab:
@@ -952,8 +956,8 @@ An AI assistant (`claude` or `codex`) can run inside a PTY on the dashboard's **
   Both are Markdown and are rendered to HTML server-side. Raw HTML inside them
   is escaped, never rendered.
 - **Minutes**: with `auto_summary: true` and `auto_summary_via_console: true` (the default), the minutes at meeting end are written by the assistant while it is running.
-- **Session lifecycle**: one PTY session is reused for the whole run; it is **not** stopped when the meeting ends, so it stays available for writing up minutes afterward. Stop it from the Console tab's stop button.
-- **Working directory**: `ai_assistant_workdir` sets the default launch directory. Per-meeting overrides live in `DATA_DIR/meeting.yaml` (`meetings[].workdir`), editable from the gear icon (⚙) on each meeting's row in the meeting list.
+- **Session lifecycle**: the PTY session is reused while it stays on the same meeting folder; it is **not** stopped when the meeting ends, so it stays available for writing up minutes afterward. Starting it for a different meeting restarts it in that meeting's folder. Stop it from the Console tab's stop button.
+- **Working directory**: the assistant starts in the meeting's folder, so it sees that meeting's past sessions and nothing else by default. Folders it may also read are passed with `--add-dir` (Claude Code only): `ai_reference_dirs` (every meeting), `reference_dirs` per meeting in `DATA_DIR/meeting.yaml`, and the working directory setting — `ai_assistant_workdir`, or `meetings[].workdir` per meeting (for example a Git repository). Relative paths start at the data directory (`sharable`, `private/1on1`). If that working directory has a `.claude/settings.json`, it is passed with `--settings` so its permissions still apply. The skill is told to read nothing outside these folders. This keeps records from mixing by accident; it does not enforce it (a shell command can still read anything).
 - **Meeting settings**: **⚙ Per-meeting settings** at the top of the **Meetings** tab (or **More ▾ → Per-meeting settings**) opens a list of meetings. Filter by name, tick meetings, and change whether the AI assistant analyzes them, their publish flag, working directory, destination (Artifact or a Notion URL) and whether the AI analysis Advice is published, all at once. The ⚙ on a row edits that one meeting from its current values. With Advice published, clerk-meeting-helper keeps the published copy up to date during the meeting so everyone can follow it. Values go to `meeting.yaml`; a meeting that matched a rule shared with other meetings gets its own `^name$` rule, copied from that rule and placed just before it. The first time shadow-clerk writes to a `config.yaml` it didn't create itself, it saves a one-time `<path>.bak` copy alongside it, since the YAML writer preserves keys but not your hand-written comments.
 - **Analyze: Default / On / Off**: each meeting's `analyze` has three states. **Default** (no `analyze` in `meeting.yaml`) follows `auto_analyze`. **On** launches the assistant when the meeting starts even if `auto_analyze` is off; **Off** never launches it, even with `auto_analyze` on. The AI assistant box in the **▶ Start meeting** dialog overrides this for that one meeting only, and asking the assistant to follow by hand during the meeting always wins over an Off.
   - **Upgrade note**: the previous settings modal saved `analyze: true` for every meeting saved on its own (for example to set a working directory), whether or not you changed it. That value now means **On** and launches the assistant even with `auto_analyze` off. If you don't want that, set those meetings back to **Default** in **⚙ Per-meeting settings**, or remove `analyze: true` from `meeting.yaml`.
@@ -983,12 +987,14 @@ auto_analyze: false           # Launch the AI assistant and run the meeting skil
 ai_assistant_command: claude  # Command to run in the AI Console (claude, codex, ...)
 ai_assistant_args: ''         # Arguments for that command, split with shlex
 ai_assistant_init_prompt: /clerk-meeting-helper {transcript} {lang}  # Sent to the PTY once the TUI is ready. {transcript}, {meeting} and {lang} are substituted ({lang} = translate_language)
-ai_assistant_workdir: ''      # Default working directory. Per-meeting overrides live in meetings[].workdir of DATA_DIR/meeting.yaml
+ai_assistant_workdir: ''      # Default working directory (e.g. a Git repository), added as a reference folder. Per-meeting overrides live in meetings[].workdir of DATA_DIR/meeting.yaml
+ai_reference_dirs: []         # Folders the assistant may read in every meeting (relative = from the data directory)
 
 # --- Transcription ---
 default_language: null        # Default language for clerk-daemon (null=auto-detect)
 default_model: small          # Default Whisper model for clerk-daemon
 output_directory: null        # Transcript output directory (null=data directory)
+transcript_categories: [private, sharable, isolated]  # Record categories; the first is the default
 initial_prompt: null          # Whisper initial_prompt (vocabulary hints for recognition)
 whisper_beam_size: 5          # Whisper beam size (1=fast, 5=accurate)
 whisper_compute_type: int8    # Compute precision (int8/float16/float32)
@@ -1099,7 +1105,7 @@ shadow-clerk/                          # Repository
     skill_install.py                   # install-skill
     i18n.py                            # Internationalization (ja/en)
     domain/                            # Domain value objects
-    skills/                            # Bundled skills: clerk-meeting-helper, clerk-talk, clerk-practice, voicevox-sing
+    skills/                            # Bundled skills: clerk-meeting-helper, clerk-talk, clerk-practice, voicevox-sing, clerk-conversation-retrospective
     talk_prompts/                      # Talk mode system prompts
   extension/                           # Chrome screenshot extension
   packaging/                           # PyInstaller spec and hooks
@@ -1108,6 +1114,8 @@ shadow-clerk/                          # Repository
   SPEC.md                              # Architecture and module design (Japanese)
 
 ~/.local/share/shadow-clerk/           # Runtime data
+  <category>/<meeting name>/           # One folder per meeting: every file below that belongs to it
+  <first category>/@dates/YYYY-MM/     # Records without a meeting name (daily files, unnamed meetings)
   transcript-YYYYMMDD.txt              # Transcription output (date-based)
   transcript-YYYYMMDDHHMM.txt          # Meeting session transcript
   transcript-YYYYMMDDHHMM@Title.txt    # Meeting session transcript (with event title)
@@ -1133,6 +1141,13 @@ shadow-clerk/                          # Repository
   transcript-YYYYMMDDHHMM@Title.naming.jsonl  # Naming history of the meeting (for undo)
   transcript-YYYYMMDDHHMM@Title.provisional.json  # Speaker names given during the meeting (applied when it ends)
 ```
+
+The `transcript-*`, `summary-*`, `advice-*`, `analysis-*`, `minutes-*` and `shot-*` files above live in their
+meeting's folder, not directly in the data directory. File names keep `@Title`, so a file copied elsewhere still
+says which meeting it came from. Categories (`transcript_categories`, default `private` / `sharable` / `isolated`)
+are only places: they carry no behavior. Pick a meeting's category in **⚙ Per-meeting settings** — changing it
+moves the meeting's folder. On startup the daemon moves any flat `transcript-*` etc. left in the data directory
+into this layout (all into the first category; meeting names are re-sanitized), so it is safe to run repeatedly.
 
 ## Troubleshooting
 

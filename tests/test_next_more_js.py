@@ -4,7 +4,7 @@
 - 📅 は /api/status の gcal_enabled が無いと出さない（現行の #btnGcal と同じ判定）
 - ⌨ は ptt_on / ptt_off（SSE ptt で状態を揃える）
 - 🗣 は話す言語を set_language / unset_language で変え、認識モデルを /api/status・SSE asr_status から出す
-- 起動時に現行の maybeShowWelcome / maybeShowSkillUpdate が走る（/api/skill-status を読む）
+- 起動時はようこそを優先し、表示しない場合はスキル更新を確認する
 - 音声コマンドの応答（SSE response）はトースト。短いものは「もう一度」で出し直せ、長いものは下ドロワーの「応答」タブに全文
   （くわしく表示にするが、その切り替えは覚えない）
 - 以前のダッシュボード（/legacy）への項目は くわしく のときだけ
@@ -149,8 +149,8 @@ check("node で実行できる", r.returncode == 0 and "bodyErr" not in out and 
 if not all(results):
     sys.exit(1)
 ja = STRINGS["ja"]
-check("起動時に現行の maybeShowWelcome / maybeShowSkillUpdate が走り、ようこそを開く",
-      out["boot"][0] >= 2 and out["boot"][1] is True, repr(out["boot"]))
+check("起動時はようこそを優先して開く",
+      out["boot"][0] == 1 and out["boot"][1] is True, repr(out["boot"]))
 check("各項目が現行の関数を呼ぶ", out["called"] == ["glossary", "gcal", "cmds", "mtgcfg", "cfg", "help"], repr(out["called"]))
 check("📅 は gcal が連携していないと出さない", out["gcalOff"] is True and out["gcalOn"] is False,
       repr([out["gcalOff"], out["gcalOn"]]))

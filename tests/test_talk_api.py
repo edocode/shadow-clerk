@@ -42,11 +42,11 @@ class _Talk:
         self.calls.append(("preview", voice, text))
 
     def start(self, topic: str, persona: str | None, workdir: str | None = None, route: str | None = None,
-              glossary: bool = True, early_reply: bool = True) -> None:
+              glossary: bool = True, early_reply: bool = True, skill: str = "") -> None:
         if topic == "boom":
             raise TalkStartError("VOICEVOX down")
         self.calls.append(("start", topic, persona, workdir, route))
-        self.glossary, self.early_reply = glossary, early_reply
+        self.glossary, self.early_reply, self.skill = glossary, early_reply, skill
 
     def stop(self) -> None:
         self.calls.append(("stop",))
@@ -123,6 +123,12 @@ def test_start_stop() -> None:
     h = _FakeHandler({"on": True, "early_reply": 0})
     h._set_talk_mode()
     check("真偽値でない早めの返事の指定は拒否", h.sent.get("status") == "error" and h.talk.calls == [])
+    h = _FakeHandler({"on": True, "skill": "clerk-practice"})
+    h._set_talk_mode()
+    check("最初に切り替える skill を渡す", h.talk.skill == "clerk-practice", repr(h.sent))
+    h = _FakeHandler({"on": True, "skill": "../evil"})
+    h._set_talk_mode()
+    check("選べる skill 以外は拒否", h.sent.get("status") == "error" and h.talk.calls == [])
     h = _FakeHandler({"on": True, "workdir": "~/work"})
     h._set_talk_mode()
     check("作業ディレクトリを渡す", h.talk.calls == [("start", "", None, "~/work", None)], repr(h.talk.calls))

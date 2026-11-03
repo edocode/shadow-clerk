@@ -286,8 +286,7 @@ class _RecorderCaptureMixin(_RecorderMonitorBackendMixin):
 
     def _get_default_output(self) -> str:
         """現在日付ベースのデフォルト transcript パスを返す"""
-        filename = datetime.datetime.now().strftime("transcript-%Y%m%d.txt")
-        return os.path.join(self._output_dir, filename)
+        return self._transcript_path(datetime.datetime.now().strftime("transcript-%Y%m%d.txt"))
 
     def _setup_signal_handlers(self) -> None:
         import signal

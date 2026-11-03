@@ -111,8 +111,8 @@ def _phonemizer_backend(language: Language) -> Any:
     return EspeakBackend(_ESPEAK_LANG[language], with_stress=False)
 
 
-# v1 は英語のみ。日本語はモデル側の限界で測れない（正規化後 PER 48.79%。英語は 9.10%）。
-# 言語を足すのは手順ではなくゲート: コーパスでフロアを測り、閾値（PER 15%）を超えたら
+# espeak で測るのは英語のみ。日本語は IPA モデルの限界で測れない（正規化後 PER 48.79%。英語は 9.10%）ので、
+# かな単位の別経路（_daemon_pronounce_kana.py）を使う。言語を足すのは手順ではなくゲート: コーパスでフロアを測り、閾値（PER 15%）を超えたら
 # その言語は非対応と判定する（設計書 §6.3）
 _ESPEAK_LANG: dict[Language, str] = {Language.EN: "en-us"}
 
@@ -218,11 +218,14 @@ class PhonemeRecogniser:
         with torch.no_grad():
             return model(inputs.input_values.to(self._device)).logits.cpu()
 
-    def actual_ipa(self, pcm: Any) -> tuple[str, ...]:
-        """16kHz モノラルの float32 PCM から、正規化済みの実測IPAを取る"""
+    def decode(self, pcm: Any) -> str:
+        """16kHz モノラルの PCM から、モデルの素の出力（貪欲復号）を取る"""
         processor = self._processor   # 推論中にアイドル解放されても復号できるよう先に握る
         logits = self.logits(pcm)     # 未ロードならここで RuntimeError（torch を import する前）
         import torch
 
-        text = processor.batch_decode(torch.argmax(logits, dim=-1))[0]
-        return normalise(text.split())
+        return processor.batch_decode(torch.argmax(logits, dim=-1))[0]
+
+    def actual_ipa(self, pcm: Any) -> tuple[str, ...]:
+        """16kHz モノラルの float32 PCM から、正規化済みの実測IPAを取る"""
+        return normalise(self.decode(pcm).split())

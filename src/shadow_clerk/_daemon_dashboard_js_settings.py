@@ -12,6 +12,8 @@ const CFG_FIELDS=[
   {type:'section',tab:'general',label:I18N['cfg.section.general']},
   {key:'ui_language',simple:1,label:I18N['cfg.ui_language'],type:'select',opts:['ja','en']},
   {key:'output_directory',simple:1,label:I18N['cfg.output_directory'],type:'text',ph:I18N['cfg.output_directory_ph']},
+  {key:'transcript_categories',label:I18N['cfg.transcript_categories'],type:'lines',ph:'private\\nsharable\\nisolated',
+    warn:{when:'',msgKey:'cfg.transcript_categories_warn'}},
   {type:'section',tab:'general',label:I18N['cfg.section.audio']},
   {key:'mic_device',simple:1,label:I18N['cfg.mic_device'],type:'device_select'},
   {key:'monitor_device',simple:1,label:I18N['cfg.monitor_device'],type:'device_select'},
@@ -90,6 +92,8 @@ const CFG_FIELDS=[
   {key:'ai_assistant_init_prompt',label:I18N['cfg.ai_assistant_init_prompt'],type:'text',ph:I18N['cfg.ai_assistant_init_prompt_ph']},
   {key:'ai_assistant_workdir',label:I18N['cfg.ai_assistant_workdir'],type:'text',ph:PATH_HINTS.ai_assistant_workdir,
     warn:{when:'',msgKey:'cfg.ai_assistant_workdir_warn'}},
+  {key:'ai_reference_dirs',label:I18N['cfg.ai_reference_dirs'],type:'lines',ph:I18N['cfg.ai_reference_dirs_ph'],
+    warn:{when:'',msgKey:'cfg.ai_reference_dirs_warn'}},
   {type:'section',tab:'talk',label:I18N['cfg.section.talk']},
   {key:'talk_filler_sec',label:I18N['cfg.talk_filler_sec'],type:'select',num:true,opts:['0','5','8','10','15','20']},
   {type:'section',tab:'talk',label:I18N['cfg.section.pronounce']},
@@ -232,9 +236,9 @@ async function openCfg(){
       hint.style.display='block';hint.textContent=I18N['cfg.forbid_analyze_hint']||'';
       el.appendChild(hint);
       loadForbidAnalyze(el, free);
-    }else if(f.type==='json'){
+    }else if(f.type==='json'||f.type==='lines'){
       el=document.createElement('textarea');el.id='cfg_'+f.key;
-      el.value=JSON.stringify(v||[],null,2);
+      el.value=f.type==='lines'?(v||[]).join('\\n'):JSON.stringify(v||[],null,2);if(f.ph)el.placeholder=f.ph;
     }else{
       el=document.createElement('input');el.type='text';el.id='cfg_'+f.key;
       el.value=(v===null||v===undefined)?'':String(v);
@@ -336,6 +340,7 @@ async function saveCfg(){
     const el=document.getElementById('cfg_'+f.key);if(!el)return;
     if(f.type==='bool'){d[f.key]=el.value==='true';}
     else if(f.type==='json'){try{d[f.key]=JSON.parse(el.value);}catch(e){d[f.key]=cfgData[f.key];}}
+    else if(f.type==='lines'){d[f.key]=el.value.split('\\n').map(s=>s.trim()).filter(Boolean);}
     else if(f.type==='number'){const n=f.float?parseFloat(el.value):parseInt(el.value,10);d[f.key]=isNaN(n)?cfgData[f.key]:n;}
     else if(f.type==='device_select'){
       // CLI 固定中は disabled になっており、送ると null で上書きしてしまうため送らない

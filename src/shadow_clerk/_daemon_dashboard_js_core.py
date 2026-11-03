@@ -328,7 +328,7 @@ function setFileLabel(id,name){
 }
 function _fileRefLink(m){
   const a=document.createElement('a');a.textContent=m[0];
-  if(!m[1]){a.href='/api/screenshot?file='+encodeURIComponent(m[0]);a.target='_blank';a.rel='noopener';return a;}
+  if(!m[1]){a.href='/api/screenshot?file='+encodeURIComponent(m[0])+'&transcript='+encodeURIComponent(curFile||'');a.target='_blank';a.rel='noopener';return a;}
   // 翻訳 (transcript-…-en.txt) は元の transcript に寄せる
   const f=[m[1]==='transcript'&&m[0],'transcript-'+m[2]+'.txt'].find(c=>c&&fileInfo[c]);
   if(!f)return null;

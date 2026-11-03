@@ -17,6 +17,7 @@ from shadow_clerk._daemon_summary_regen import regenerate_summary
 from shadow_clerk._daemon_dashboard_html import _HTML_TEMPLATE
 from shadow_clerk._daemon_dashboard_next_html import _NEXT_HTML_TEMPLATE
 from shadow_clerk._transcript_attendees import read_attendees
+from shadow_clerk._transcript_layout import TranscriptLayout
 from shadow_clerk._transcript_name import TranscriptName
 from shadow_clerk._markdown import render_markdown
 from shadow_clerk.domain import ConsoleRole
@@ -128,14 +129,19 @@ def read_local_json_body(handler: Any, label: str) -> dict | None:
 
 
 def transcript_path_in(output_dir: str, file_param: object) -> str | None:
-    """file パラメータを出力ディレクトリ内の transcript パスにする。
+    """file パラメータを出力ディレクトリ内（その回のフォルダ）の transcript パスにする。
     transcript の命名に合わないもの (.env や config.yaml など同じディレクトリの別ファイル) は None"""
     if not isinstance(file_param, str) or not file_param:
         return None
     name = os.path.basename(file_param)
     if TranscriptName.parse(name) is None:
         return None
-    return os.path.join(output_dir, name)
+    return TranscriptLayout.from_config(root=output_dir).path(name)
+
+
+def transcript_file(recorder: Any, name: str) -> str:
+    """回に属するファイル名（翻訳・summary など）を、その回のフォルダのパスにする。属さなければ空文字"""
+    return TranscriptLayout.from_config(root=recorder._output_dir).path(name) or ""
 
 
 def _console_running(role: ConsoleRole = ConsoleRole.ASSISTANT) -> bool:
@@ -445,12 +451,9 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
         })
 
     def _serve_files(self) -> None:
-        output_dir = self.recorder._output_dir
+        paths = TranscriptLayout.from_config(root=self.recorder._output_dir).files()
+        all_files = set(paths)
         transcript_file_names: list[tuple[str, TranscriptName]] = []
-        try:
-            all_files = set(os.listdir(output_dir))
-        except OSError:
-            all_files = set()
         for f in sorted(all_files, reverse=True):
             if (tn := TranscriptName.parse(f)) is not None:
                 transcript_file_names.append((f, tn))
@@ -470,7 +473,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             info["has_analysis"] = tn.analysis_filename in all_files
             # 削除確認モーダル用: 実際に一緒に削除される関連ファイル一覧
             info["related"] = self._related_file_names(
-                os.path.join(output_dir, f), tn, all_files)
+                paths[f], tn, all_files)
             file_info[f] = info
             if tn.meeting_group is not None:
                 groups.setdefault(tn.meeting_group, []).append(f)
@@ -501,8 +504,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
     def _serve_raw_file(self) -> None:
         """GET /api/file?name= — transcript とその派生ファイルを中身のまま返す（ヘッダのリンク用）"""
         name = parse_qs(urlparse(self.path).query).get("name", [""])[0]
-        path = os.path.join(self.recorder._output_dir, name)
-        if os.path.basename(name) != name or TranscriptName.owning(name) is None or not os.path.isfile(path):
+        path = TranscriptLayout.from_config(root=self.recorder._output_dir).path(name) or ""
+        if TranscriptName.owning(name) is None or not os.path.isfile(path):
             self.send_error(404)
             return
         with open(path, "rb") as f:
@@ -529,7 +532,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             else:
                 self._send_json({"file": "", "lines": []})
                 return
-            filepath = os.path.join(self.recorder._output_dir, tr_name)
+            filepath = transcript_file(self.recorder, tr_name)
         else:
             basename = os.path.basename(self.recorder.output_path)
             tn = TranscriptName.parse(basename)
@@ -537,7 +540,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
                 self._send_json({"file": "", "lines": []})
                 return
             tr_name = tn.translation_filename(lang)
-            filepath = os.path.join(self.recorder._output_dir, tr_name)
+            filepath = transcript_file(self.recorder, tr_name)
         lines = []
         try:
             with open(filepath, "r", encoding="utf-8") as f:
@@ -580,9 +583,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             transcript_path = self.recorder.output_path
         basename = os.path.basename(transcript_path)
         tn = TranscriptName.parse(basename)
-        if tn is None:
-            return os.path.join(self.recorder._output_dir, basename)
-        return os.path.join(self.recorder._output_dir, tn.summary_filename)
+        return os.path.join(os.path.dirname(transcript_path), tn.summary_filename if tn else basename)
 
     def _serve_attendees(self) -> None:
         """GET /api/attendees?file=<transcript-filename>
@@ -602,7 +603,7 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             if tn is None:
                 self._send_json({"summary": "", "summary_file": ""})
                 return
-            summary_path = os.path.join(self.recorder._output_dir, tn.summary_filename)
+            summary_path = transcript_file(self.recorder, tn.summary_filename)
         else:
             summary_path = self._get_summary_path()
         summary_name = os.path.basename(summary_path)

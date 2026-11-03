@@ -16,6 +16,12 @@ from shadow_clerk._daemon_dashboard_ops_screenshot import _DashboardHandlerScree
 results: list[bool] = []
 
 
+
+def _at(root: str, name: str) -> str:
+    """記録のファイルはその回のフォルダ（区分 / 会議名）、それ以外は root 直下"""
+    from shadow_clerk._transcript_layout import TranscriptLayout
+    return TranscriptLayout(root).path(name) or os.path.join(root, name)
+
 def check(label: str, ok: bool, detail: str = "") -> None:
     print(f"[{'PASS' if ok else 'FAIL'}] {label} {detail}")
     results.append(ok)
@@ -36,7 +42,8 @@ class _FakeHandler(Ops):
         self.rfile = io.BytesIO(raw)
         self.sent: dict = {}
         # daemon では DashboardHandler.recorder がクラス属性で入る
-        self.recorder = type("_Rec", (), {"output_path": output_path})()
+        self.recorder = type("_Rec", (), {"output_path": output_path,
+                                          "_output_dir": os.path.dirname(output_path) or tempfile.gettempdir()})()
 
     def _send_json(self, data) -> None:
         self.sent = data
@@ -59,7 +66,7 @@ check("3. transcript- で始まらないパスは日付ベースに落ちる",
 # --- transcript 追記 ---
 
 with tempfile.TemporaryDirectory() as d:
-    tp = os.path.join(d, "transcript-202609071358@t.txt")
+    tp = _at(d, "transcript-202609071358@t.txt")
     with open(tp, "w", encoding="utf-8") as f:
         f.write("[2026-09-07 14:20:00] [自分] 既存の発言\n")
 
@@ -88,13 +95,13 @@ import shadow_clerk._daemon_dashboard_ops_screenshot as _ops_mod
 
 with tempfile.TemporaryDirectory() as d:
     _saved_session_file = _ops_mod.SESSION_FILE
-    meeting = os.path.join(d, "transcript-202609071358@m.txt")
-    daily = os.path.join(d, "transcript-20260907.txt")
+    meeting = _at(d, "transcript-202609071358@m.txt")
+    daily = _at(d, "transcript-20260907.txt")
     for f in (meeting, daily):
         open(f, "w", encoding="utf-8").close()
 
     # 会議モード: .clerk_session が会議 transcript を指す
-    _ops_mod.SESSION_FILE = os.path.join(d, ".clerk_session")
+    _ops_mod.SESSION_FILE = _at(d, ".clerk_session")
     with open(_ops_mod.SESSION_FILE, "w", encoding="utf-8") as f:
         f.write(meeting)
     h = _FakeHandler({}, output_path=daily)
@@ -102,21 +109,21 @@ with tempfile.TemporaryDirectory() as d:
           h._screenshot_target_transcript() == meeting)
 
     # 日次モード: .clerk_session が無いので recorder の出力先へ
-    _ops_mod.SESSION_FILE = os.path.join(d, "no-session")
+    _ops_mod.SESSION_FILE = _at(d, "no-session")
     h = _FakeHandler({}, output_path=daily)
     check("13. 会議モードでなければ recorder の出力先に書く",
           h._screenshot_target_transcript() == daily)
 
     # .clerk_session が指す先が消えている場合も出力先に落ちる
-    _ops_mod.SESSION_FILE = os.path.join(d, ".clerk_session")
+    _ops_mod.SESSION_FILE = _at(d, ".clerk_session")
     with open(_ops_mod.SESSION_FILE, "w", encoding="utf-8") as f:
-        f.write(os.path.join(d, "gone.txt"))
+        f.write(_at(d, "gone.txt"))
     h = _FakeHandler({}, output_path=daily)
     check("14. セッションの指す先が無ければ出力先に落ちる",
           h._screenshot_target_transcript() == daily)
 
     # どちらも無ければ空
-    _ops_mod.SESSION_FILE = os.path.join(d, "no-session")
+    _ops_mod.SESSION_FILE = _at(d, "no-session")
     h = _FakeHandler({}, output_path="")
     check("15. 書ける先が無ければ空文字列",
           h._screenshot_target_transcript() == "")
@@ -172,12 +179,11 @@ class _GetHandler(Ops):
 
 
 with tempfile.TemporaryDirectory() as d:
-    _saved_data_dir = _ops_mod.DATA_DIR
-    _ops_mod.DATA_DIR = d
+    _GetHandler.recorder = type("_Rec", (), {"_output_dir": d})()
     shot = "shot-202609071358@定例-142144.png"
-    with open(os.path.join(d, shot), "wb") as f:
+    with open(_at(d, shot), "wb") as f:
         f.write(b"\x89PNG")
-    with open(os.path.join(d, "config.yaml"), "w", encoding="utf-8") as f:
+    with open(_at(d, "config.yaml"), "w", encoding="utf-8") as f:
         f.write("a: 1\n")
     h = _GetHandler(shot)
     h._serve_screenshot()
@@ -188,7 +194,14 @@ with tempfile.TemporaryDirectory() as d:
         h._serve_screenshot()
         check(f"{i}. キャプチャ以外・存在しない名前は 404 ({bad!r})",
               h.status == 404 and not h.wfile.getvalue())
-    _ops_mod.DATA_DIR = _saved_data_dir
+    # リネーム後: ファイル名の会議名は古いまま、transcript と同じ（新しい会議の）フォルダにある
+    renamed = os.path.join(d, "private", "新定例")
+    os.makedirs(renamed)
+    os.replace(_at(d, shot), os.path.join(renamed, shot))
+    h = _GetHandler(shot)
+    h.path += "&transcript=" + __import__("urllib.parse").parse.quote("transcript-202609071358@新定例.txt")
+    h._serve_screenshot()
+    check("27. transcript のフォルダから引く（リネーム後も見つかる）", h.status == 200 and h.wfile.getvalue() == b"\x89PNG")
 
 print(f"\n=== {sum(results)}/{len(results)} PASS ===")
 raise SystemExit(0 if all(results) else 1)

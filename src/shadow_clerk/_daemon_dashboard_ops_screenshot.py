@@ -8,9 +8,9 @@ import logging
 import os
 import re
 from urllib.parse import parse_qs, urlparse
-from shadow_clerk import DATA_DIR
+from shadow_clerk._transcript_layout import TranscriptLayout
 from shadow_clerk._daemon_constants import SESSION_FILE
-from shadow_clerk._daemon_dashboard_base import is_localhost_client
+from shadow_clerk._daemon_dashboard_base import is_localhost_client, transcript_path_in
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -60,7 +60,9 @@ class _DashboardHandlerScreenshotOps:
         now = datetime.datetime.now()
         transcript_path = self._screenshot_target_transcript()
         filename = self._screenshot_filename(transcript_path, now)
-        path = os.path.join(DATA_DIR, filename)
+        # transcript と同じフォルダに置く。transcript の [画面] 行はそこからの相対パス（＝ファイル名）
+        path = (os.path.join(os.path.dirname(transcript_path), filename) if transcript_path
+                else TranscriptLayout.from_config(root=self.recorder._output_dir).path(filename) or "")
 
         try:
             with open(path, "wb") as f:
@@ -83,9 +85,17 @@ class _DashboardHandlerScreenshotOps:
         })
 
     def _serve_screenshot(self) -> None:
-        """GET /api/screenshot?file=shot-….png — 保存したキャプチャを返す（本文中のリンク用）"""
-        name = parse_qs(urlparse(self.path).query).get("file", [""])[0]
-        path = os.path.join(DATA_DIR, name)
+        """GET /api/screenshot?file=shot-….png[&transcript=transcript-….txt] — 保存したキャプチャを返す（本文中のリンク用）
+
+        transcript があればそのフォルダから引く（[画面] 行は transcript からの相対パス）。リネームで
+        ファイル名の会議名が古くなっていても見つかる。無ければファイル名の会議名から引く
+        """
+        q = parse_qs(urlparse(self.path).query)
+        name = q.get("file", [""])[0]
+        transcript = transcript_path_in(self.recorder._output_dir, q.get("transcript", [""])[0])
+        path = os.path.join(os.path.dirname(transcript), name) if transcript else ""
+        if not os.path.isfile(path):
+            path = TranscriptLayout.from_config(root=self.recorder._output_dir).path(name) or ""
         if not _SHOT_NAME_RE.fullmatch(name) or not os.path.isfile(path):
             self.send_error(404)
             return

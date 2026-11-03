@@ -19,7 +19,7 @@ DAILY = "transcript-20261016.txt"
 class _Rec:
     def __init__(self) -> None:
         self._output_dir = DATA
-        self.output_path = os.path.join(DATA, DAILY)
+        self.output_path = _path(DAILY)
         self.commands: list[str] = []
         self.transcript_lock = __import__("threading").Lock()
 
@@ -47,8 +47,14 @@ class _Handler(DashboardHandler):
         self.errors.append(code)
 
 
+def _path(name: str) -> str:
+    """記録のファイルはその回のフォルダ、それ以外（.env など）はデータフォルダ直下"""
+    from shadow_clerk._transcript_layout import TranscriptLayout
+    return TranscriptLayout(DATA).path(name) or os.path.join(DATA, name)
+
+
 def _write(name: str, text: str = "secret\n") -> str:
-    p = os.path.join(DATA, name)
+    p = _path(name)
     with open(p, "w", encoding="utf-8") as f:
         f.write(text)
     return p

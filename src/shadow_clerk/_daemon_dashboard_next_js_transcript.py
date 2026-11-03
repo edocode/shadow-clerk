@@ -92,7 +92,7 @@ function nxTrCell(l,only){
 function nxLineHtml(l,i){
   const v=nxState.view,showTr=v==='TR'||v==='R',only=v==='R';
   return '<div class="ln'+(only?' ro':showTr?' tr':'')+(nxSel.has(i)?' sel':'')+'" data-i="'+i+'"><span class="cb"></span>'
-    +'<span class="ts" title="'+nxEsc(l.ts)+'">'+nxEsc(nxHm(l))+'</span>'
+    +'<span class="ts" title="'+nxEsc(l.ts)+'">'+nxEsc(l.ts.slice(11,19))+'</span>'
     +'<span class="who '+l.cls+'" title="'+nxEsc(nxWho(l))+'">'+nxEsc(nxWho(l))+'</span>'
     +(only?'':'<span class="txt">'+nxEsc(l.text)+'</span>')+(showTr?nxTrCell(l,only):'')
     +'<button class="more" data-more="'+i+'" title="'+nxEsc(I18N['nx.line_actions'])+'">⋯</button>'
@@ -134,6 +134,12 @@ function nxTxHtml(chunks){
       +nxChunkHead(c,ci)+nxRangeHtml(c.from,c.to);
   }).join('')+tail;
 }
+/* 見出しの横に、transcript と翻訳をそのまま別タブで開くリンク（旧 UI のファイル名リンク） */
+function nxRenderFileOpen(){
+  const tx=nxFiles.some(x=>x.name===nxTxFile)?nxTxFile:'',tr=nxTrMap.size?nxTrFile:'',el=nxEl('nxFileOpen'),k=tx+'\t'+tr;
+  if(el.dataset.k===k)return;
+  el.dataset.k=k;el.innerHTML=nxOpenLink(tx)+nxOpenLink(tr,'nx.open_tr');
+}
 function nxRenderColHead(){
   const v=nxState.view,show=v==='TR'||v==='R',h=nxEl('nxColHead');
   h.className='colhead'+(show?' show':'')+(v==='R'?' ro':'');
@@ -174,7 +180,7 @@ function nxRenderTx(follow){
   const tx=nxEl('nxTranscript'),top=tx.scrollTop,chunks=nxChunks();
   tx.innerHTML=nxTxHtml(chunks);
   tx.scrollTop=follow?tx.scrollHeight:top;
-  nxRenderColHead();nxRenderSuggest(chunks);nxRenderSelBar();nxRenderMuteBand();
+  nxRenderColHead();nxRenderFileOpen();nxRenderSuggest(chunks);nxRenderSelBar();nxRenderMuteBand();
 }
 function nxRenderTranscript(){
   if((nxState.cur||'')!==nxTxFile)nxLoadTranscript(nxState.cur||'');
@@ -315,15 +321,26 @@ function nxPreviewHtml(idx){
   return idx.length<=3?idx.map(row).join('')
     :row(idx[0])+'<div class="dots">'+nxEsc(nxFmt('nx.dots',{n:idx.length-2}))+'</div>'+row(idx[idx.length-1]);
 }
-function nxOpenDelete(){
-  const idx=nxSelIdx();
-  if(!idx.length)return;
+/* 消す行。2 行選んだときに「2 行の間を全部」にチェックが入っていれば、その間の行もすべて（プレビューと削除で必ずこれを使う） */
+function nxDelIdx(){
+  const idx=nxSelIdx().filter(i=>nxLines[i]);
+  if(idx.length===2&&nxEl('nxDelRange').checked)return Array.from({length:idx[1]-idx[0]+1},(_,k)=>idx[0]+k);
+  return idx;
+}
+function nxRenderDel(){
+  const idx=nxDelIdx();
   nxEl('nxDelSummary').textContent=nxFmt('nx.del_summary',{n:idx.length});
   nxEl('nxDelPreview').innerHTML=nxPreviewHtml(idx);
+}
+function nxOpenDelete(){
+  const n=nxSelIdx().length;
+  if(!n)return;
+  nxEl('nxDelRangeOpt').hidden=n!==2;nxEl('nxDelRange').checked=false;
+  nxRenderDel();
   nxModal('nxDelModal',true);
 }
 async function nxDoDelete(){
-  const idx=nxSelIdx(),file=nxTxFile;
+  const idx=nxDelIdx(),file=nxTxFile;
   nxDelRestore=null;
   nxModal('nxDelModal',false);
   if(!idx.length)return;
@@ -348,7 +365,8 @@ async function nxOpenRelabel(){
   nxEl('nxSpkOk').disabled=!n;
   nxEl('nxSpkScopeLinesText').textContent=I18N[n===1?'dash.relabel_scope_one':n===2?'dash.relabel_scope_two':'dash.relabel_scope_lines'];
   nxEl('nxSpkScopeRangeOpt').hidden=new Set(nxRl.items.map(i=>i.ts+'\u0000'+i.label)).size!==2;
-  nxEl('nxSpkScopeLines').checked=true;nxEl('nxSpkScopeRange').checked=false;
+  nxEl('nxSpkScopeLabelOpt').hidden=!nxRlLabels(nxRl.items).length;
+  nxEl('nxSpkScopeLines').checked=true;nxEl('nxSpkScopeRange').checked=false;nxEl('nxSpkScopeLabel').checked=false;
   const g=nxEl('nxSpkGroup'),p=nxEl('nxSpkPerson');
   g.value='';g.hidden=true;g.dataset.touched='';p.checked=true;p.dataset.touched='';
   nxRlTarget();
@@ -364,6 +382,9 @@ async function nxOpenRelabel(){
     :d.active?I18N['dash.speakers_active']:d.translating?I18N['dash.speakers_translating']:'';
   nxEl('nxSpkOk').disabled=!n||!nxRl.prov&&!!(d.active||d.translating);
 }
+/* 相手? と 相手 と 自分 は話者名では付けられないので、「この話者の行を全部」でも行単位で送る（現行 _rlLoose と同じ） */
+const nxLooseLbl=l=>l==='相手?'||l==='相手'||l==='自分';
+function nxRlLabels(items){return [...new Set(items.map(i=>i.label).filter(l=>!nxLooseLbl(l)))];}
 /* 範囲は現行 updateRlTarget・サーバーの range_targets と同じ: 自分の行は、端のどちらかが自分の行のときだけ */
 function nxRlTarget(){
   const {items}=nxRl;
@@ -372,6 +393,10 @@ function nxRlTarget(){
     const [lo,hi]=items.map(i=>i.ts).sort(),self=items.some(i=>i.label==='自分');
     text=I18N['dash.relabel_target_range'].replace('{count}',
       nxLines.filter(l=>l.ts>=lo&&l.ts<=hi&&l.speaker!=='Claude'&&(self||l.speaker!=='自分')).length);
+  }else if(nxEl('nxSpkScopeLabel').checked){
+    const ls=nxRlLabels(items);
+    text=I18N['dash.relabel_target_label'].replace('{labels}',ls.join(' / ')).replace('{count}',
+      nxLines.filter(l=>ls.includes(l.speaker)).length+items.filter(i=>nxLooseLbl(i.label)).length);
   }
   nxEl('nxSpkTarget').textContent=text;
 }
@@ -381,8 +406,17 @@ async function nxSaveRelabel(){
   if(g.dataset.touched==='1'&&!p.checked)e.group=g.value.trim();
   if(p.dataset.touched==='1')e.person=!!p.checked;
   let d;
-  try{d=await nxApi('/api/speakers/assign-lines',{file,lines:items,...e,...(nxEl('nxSpkScopeRange').checked?{scope:'range'}:{})});}
-  catch(err){d=null;}
+  try{
+    if(nxEl('nxSpkScopeLabel').checked){
+      const mapping={};for(const l of nxRlLabels(items))mapping[l]=name?{...e}:'';  // 仮登録の取り消しは ""
+      d=await nxApi('/api/speakers/assign',{file,mapping});
+      const loose=items.filter(i=>nxLooseLbl(i.label));
+      if(d.status==='ok'&&loose.length){
+        const d2=await nxApi('/api/speakers/assign-lines',{file,lines:loose,...e});
+        d={...d2,message:[d.message,d2.message].filter(Boolean).join(' '),has_summary:d.has_summary||d2.has_summary};
+      }
+    }else d=await nxApi('/api/speakers/assign-lines',{file,lines:items,...e,...(nxEl('nxSpkScopeRange').checked?{scope:'range'}:{})});
+  }catch(err){d=null;}
   if(!d||d.status!=='ok'){nxToast((d&&d.message)||I18N['nx.spk_failed']);return;}
   nxModal('nxSpkModal',false);
   nxClearSel();
@@ -418,10 +452,12 @@ function nxTranscriptInit(){
     if(nxDelRestore){nxSel=nxDelRestore;nxDelRestore=null;nxRenderTx(false);}
   });
   nxEl('nxDelOk').addEventListener('click',nxDoDelete);
+  nxEl('nxDelRange').addEventListener('change',nxRenderDel);
   nxEl('nxSpkCancel').addEventListener('click',()=>nxModal('nxSpkModal',false));
   nxEl('nxSpkOk').addEventListener('click',nxSaveRelabel);
   nxEl('nxSpkScopeLines').addEventListener('change',nxRlTarget);
   nxEl('nxSpkScopeRange').addEventListener('change',nxRlTarget);
+  nxEl('nxSpkScopeLabel').addEventListener('change',nxRlTarget);
   /* 名前を入れたら、その人のグループ・個人区分を既定にする（現行 onRlNameInput と同じ。_applyNameDefaults は流用する現行の関数） */
   nxEl('nxSpkName').addEventListener('input',()=>_applyNameDefaults(nxEl('nxSpkName').value.trim(),nxEl('nxSpkGroup'),nxEl('nxSpkPerson'),'',true));
   nxEl('nxSpkPerson').addEventListener('change',()=>{const p=nxEl('nxSpkPerson');p.dataset.touched='1';nxEl('nxSpkGroup').hidden=p.checked;});

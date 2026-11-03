@@ -111,13 +111,22 @@ async function saveCustomCmds(){
 }
 """
 _JS_TEMPLATE_HELP_GCAL = """\
+let helpReturnFocus=null;
 function openHelp(){
-  document.getElementById('helpContent').textContent=I18N['dash.help_body'];
-  const lang=cfgData&&cfgData.ui_language||'en';
-  document.getElementById('helpReadmeLink').href='https://github.com/edocode/shadow-clerk/blob/main/'+(lang==='ja'?'README.ja.md':'README.md');
+  helpReturnFocus=document.activeElement;
+  const content=document.getElementById('helpContent');
+  if(!content.dataset.guide){
+    content.textContent=I18N['dash.help_body'];
+    const lang=cfgData&&cfgData.ui_language||'en';
+    document.getElementById('helpReadmeLink').href='https://github.com/edocode/shadow-clerk/blob/main/'+(lang==='ja'?'README.ja.md':'README.md');
+  }
   document.getElementById('helpModal').classList.add('open');
+  document.getElementById('helpModal').querySelector('button')?.focus();
 }
-function closeHelp(){document.getElementById('helpModal').classList.remove('open');}
+function closeHelp(){
+  document.getElementById('helpModal').classList.remove('open');
+  if(helpReturnFocus)helpReturnFocus.focus();
+}
 async function openGcal(){
   const body=document.getElementById('gcalBody');
   body.textContent=I18N['dash.loading']||'...';
@@ -323,7 +332,7 @@ es.addEventListener('response',e=>{
     document.getElementById('resp').classList.add('show');}
 });
 es.addEventListener('alert',e=>{
-  const d=JSON.parse(e.data);if(d.message){alert(d.message);loadS(curFile);openSumPane();}
+  const d=JSON.parse(e.data);if(d.message){alert(d.message);if(d.kind!=='command_api_error'){loadS(curFile);openSumPane();}}
 });
 // 会議終了時に仮登録を本登録した。見ている会議なら書き換わった transcript を読み直す
 es.addEventListener('provisional_applied',e=>{
@@ -333,7 +342,7 @@ function hideResp(){document.getElementById('resp').classList.remove('show');}
 // ペインの初回読み込みは loadFiles() に一本化する。ここでも読むと、
 // ハッシュの有無で「二重に読む」と「一度も読まない」に分かれてしまう
 initSearchSelects();switchLeftTab('dates');switchSumTab('summary');loadFiles();loadLogs();
-maybeShowWelcome();maybeShowSkillUpdate();
+maybeShowWelcome().then(shown=>{if(!shown)maybeShowSkillUpdate();});
 // 翻訳・ミュート等のボタン状態は SSE に載らないため、定期的にステータスも同期する
 setInterval(()=>{loadFiles();fetchStatus();},10000);
 window.addEventListener('hashchange',()=>{const f=_hashFile();if(f&&fileInfo[f]&&f!==curFile)selectMtgFile(f);});

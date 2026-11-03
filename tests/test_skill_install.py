@@ -148,6 +148,9 @@ def test_install_copies_every_bundled_skill() -> None:
         r = skill_install.install(tmp)
         talk = pathlib.Path(tmp) / skill_install.TALK_SKILL_NAME / "SKILL.md"
         check("clerk-talk も配られた", talk.is_file())
+        for skill in skill_install.BUNDLED_SKILLS:
+            dest = pathlib.Path(tmp) / skill
+            check(f"{skill} が版付きで配られた", skill_install.read_skill_version(dest) is not None)
         check("戻り値に skill ごとの記録", [s["skill"] for s in r["skills"]] == list(skill_install.BUNDLED_SKILLS), repr(r))
 
 
@@ -167,6 +170,17 @@ def test_status_outdated_when_talk_skill_missing() -> None:
         _fake_installed(pathlib.Path(tmp) / skill_install.SKILL_NAME, main_ver)
         cur = [t for t in skill_install.skill_status([tmp])["targets"] if t["name"] == tmp][0]
         check("clerk-talk が無ければ outdated", cur["state"] == "outdated", repr(cur))
+
+
+def test_status_outdated_when_retrospective_missing() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        skill_install.install(tmp)
+        shutil.rmtree(pathlib.Path(tmp) / skill_install.RETROSPECTIVE_SKILL_NAME)
+        cur = next(t for t in skill_install.skill_status([tmp])["targets"] if t["name"] == tmp)
+        check("振り返りスキルだけ未配布なら outdated", cur["state"] == "outdated", repr(cur))
+        skill_install.install(tmp)
+        cur = next(t for t in skill_install.skill_status([tmp])["targets"] if t["name"] == tmp)
+        check("再配布で current に戻る", cur["state"] == "current", repr(cur))
 
 
 def test_skill_installed() -> None:
@@ -220,6 +234,9 @@ def _check_curl_forms(skill: str) -> None:
         check(f"{skill}: allowed-tools に Bash({prefix}*)", f"Bash({prefix}*)" in rules, repr(rules))
     check(f"{skill}: allowed-tools に Monitor", "Monitor" in rules, repr(rules))
     calls = [body[m.start():].split("\n", 1)[0] for m in re.finditer(r"curl\s", body)]
+    for reference in sorted((skill_install.bundled_skill_dir(skill) / "references").glob("*.md")):
+        text = reference.read_text(encoding="utf-8")
+        calls.extend(text[m.start():].split("\n", 1)[0] for m in re.finditer(r"curl\s", text))
     check(f"{skill}: 本文に curl の呼び出しがある", len(calls) >= 3, repr(calls))
     for call in calls:
         check(f"{skill}: 許可した形で呼ぶ: {call[:40]}", call.startswith(_TALK_CURL_PREFIXES), call)
@@ -241,6 +258,10 @@ def test_practice_skill() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         skill_install.install(tmp)
         check("clerk-practice も配られた", (pathlib.Path(tmp) / practice / "SKILL.md").is_file())
+        reference = pathlib.Path("references/english-practice.md")
+        installed_reference = pathlib.Path(tmp) / practice / reference
+        check("英語のガイドも内容を保って配られた", installed_reference.is_file() and
+              installed_reference.read_bytes() == (skill_install.bundled_skill_dir(practice) / reference).read_bytes())
     front, body = _skill_parts(practice)
     talk_front, talk_body = _skill_parts(skill_install.TALK_SKILL_NAME)
     check("allowed-tools は clerk-talk と同じ", front.get("allowed-tools") == talk_front.get("allowed-tools"),
@@ -248,8 +269,8 @@ def test_practice_skill() -> None:
     _check_curl_forms(practice)
     for needle in ('/api/meeting"', '"analyze":false', '/api/language"', '/api/mute"', '`previous`',
                    '/api/meeting-history?meeting=', "tail=15", '/api/generated"', '"kind":"advice","mode":"replace"',
-                   '"kind":"analysis","mode":"append"', '"lang":"en"', "🔊 ", "今日の練習のまとめ: ", '/api/talk-end"',
-                   '"display":"ターン ライト（右に曲がって）"'):
+                   '"kind":"analysis","mode":"append"', '"lang":"<lang>"', "🔊 ", "今日の練習のまとめ: ", '/api/talk-end"',
+                   '"display":"（問題1・<意味>）"'):
         check(f"clerk-practice が {needle} を使う", needle in body)
     check("clerk-talk が clerk-practice に切り替える", "/clerk-practice" in talk_body)
     check("clerk-talk が /api/say の lang を知っている", '"lang":"en"' in talk_body)
@@ -276,8 +297,8 @@ def test_talk_skill_reads_glossary_and_misheard() -> None:
     text = (skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME) / "SKILL.md").read_text(encoding="utf-8")
     for needle in ('/api/glossary"', '/api/misheard"', "POST"):
         check(f"talk skill が {needle} を使う", needle in text)
-    check("talk skill の版が 1.7.8", skill_install.read_skill_version(
-        skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME)) == "1.7.8")
+    check("talk skill の版が 1.8.0", skill_install.read_skill_version(
+        skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME)) == "1.8.0")
     quirks = skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME) / "../clerk-meeting-helper/references/transcript-quirks.md"
     check("参照している崩れ方の説明が同梱されている", "../clerk-meeting-helper/references/transcript-quirks.md" in text
           and quirks.resolve().is_file(), str(quirks))
@@ -318,6 +339,7 @@ def main() -> int:
     test_install_copies_every_bundled_skill()
     test_install_refuses_before_touching_anything()
     test_status_outdated_when_talk_skill_missing()
+    test_status_outdated_when_retrospective_missing()
     test_status_hides_vanished_target()
     test_skill_installed()
     test_talk_skill_check_looks_at_claude_only()

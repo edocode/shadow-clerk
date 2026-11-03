@@ -33,4 +33,11 @@ STRINGS_JA_MEETING: dict[str, str] = {
     "ms.advice": "AI分析の Advice",
     "ms.advice_on": "公開先に載せる",
     "ms.advice_off": "載せない",
+    # 文字起こしの置き場所（区分 / 会議フォルダ）
+    "cfg.transcript_categories": "記録の区分（1行に1つ）",
+    "cfg.transcript_categories_warn": "会議ごとの記録をこの区分のフォルダに分けて置きます。先頭が既定で、会議名のない記録もそこに入ります。会議の区分は会議ごとの設定で選びます。一覧から消しても、その区分のフォルダは動かしません。",
+    "cfg.ai_reference_dirs": "AI が参考にしてよいフォルダ（1行に1つ）",
+    "cfg.ai_reference_dirs_ph": "例: sharable\n~/work/product",
+    "cfg.ai_reference_dirs_warn": "会議中の AI アシスタントはその会議のフォルダで起動し、ここに書いたフォルダも読めるようにします（どの会議でも）。相対パスはデータフォルダから数えます。",
+    "dash.move_recording_meeting": "記録中の会議は別の区分へ移せません。会議を終えてから変えてください",
 }
