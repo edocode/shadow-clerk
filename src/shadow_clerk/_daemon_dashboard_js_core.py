@@ -283,9 +283,17 @@ es.addEventListener('analysis',e=>{
     _renderGenerated('anp','anf',d,'dash.no_analysis');
   }catch(ex){}
 });
-/* advice-<stem>.md / analysis-<stem>.md と transcript-<stem>.txt の stem を比べる */
+/* 議事録（summary）ができたら、表示中の会議なら 議事録 タブを前に出す。
+   議事録は Claude コンソールが書くことも多く、そのときは alert が届かないので file の更新で拾う */
+es.addEventListener('summary',e=>{
+  try{const d=JSON.parse(e.data);
+    if(curFile&&!_sameStem(d.file,curFile))return;
+    openSumPane();switchSumTab('summary');loadS(curFile);
+  }catch(ex){}
+});
+/* advice-<stem>.md / analysis-<stem>.md / summary-<stem>.md と transcript-<stem>.txt の stem を比べる */
 function _sameStem(generated,transcript){
-  const g=generated.replace(/^(advice|analysis)-/,'').replace(/\\.md$/,'');
+  const g=generated.replace(/^(advice|analysis|summary)-/,'').replace(/\\.md$/,'');
   const t=transcript.replace(/^transcript-/,'').replace(/\\.txt$/,'');
   return g===t;
 }
@@ -311,7 +319,11 @@ es.addEventListener('log',e=>{
   if(as.logc)el.scrollTop=el.scrollHeight;
 });
 es.addEventListener('session',e=>{
-  try{const d=JSON.parse(e.data);updateMeetingBtn(d.content||null);}catch(ex){}
+  try{const d=JSON.parse(e.data);const started=!meetingActive;
+    updateMeetingBtn(d.content||null);
+    // 会議が始まったら AI のアドバイスを前に出す（議事録の表示が残っていても）
+    if(started&&meetingActive){openSumPane();switchSumTab('ai');}
+  }catch(ex){}
   loadFiles();
 });
 es.addEventListener('ptt',e=>{
