@@ -1,7 +1,7 @@
 YEAR := $(shell date +%Y)
 AUTHOR := Atsushi Kato
 
-.PHONY: license dupcheck mypy test help slides slides-pdf build clean-dist publish publish-test
+.PHONY: license dupcheck mypy test help slides slides-pdf build clean-dist publish publish-test extension-zip
 
 # tests/ は pytest 形式と、自前の check() で数えるスクリプト形式が混在する。
 # スクリプト形式は「__main__ ガードを持つ」か「行頭の sys.exit / raise SystemExit で
@@ -40,6 +40,18 @@ slides-pdf: ## Build PDF slides from docs/slides.md (renders Mermaid via mmdc)
 	npx -y -p @mermaid-js/mermaid-cli mmdc -p docs/.puppeteer-config.json -i docs/slides.md -o docs/slides.rendered.md
 	npx -y @marp-team/marp-cli docs/slides.rendered.md --pdf -o docs/slides.pdf --allow-local-files
 	@echo "→ docs/slides.pdf"
+
+# Chrome ウェブストアに上げる zip。ストアは manifest の key を受け付けないので外す（ストア版の ID はストアが付ける）。
+# 文書（README・ストア掲載文・プライバシーポリシー）は拡張の動作に要らないので入れない
+EXT_VERSION = $(shell uv run python -c "import json;print(json.load(open('extension/manifest.json'))['version'])")
+extension-zip: ## Build the Chrome Web Store upload zip into dist/
+	rm -rf dist/extension && mkdir -p dist/extension
+	cp -R extension/. dist/extension/
+	rm -rf dist/extension/README.md dist/extension/store
+	uv run python -c "import json;p='dist/extension/manifest.json';m=json.load(open(p));m.pop('key');json.dump(m,open(p,'w'),ensure_ascii=False,indent=2)"
+	rm -f dist/shadow-clerk-extension-$(EXT_VERSION).zip
+	cd dist/extension && zip -qr ../shadow-clerk-extension-$(EXT_VERSION).zip .
+	@echo "dist/shadow-clerk-extension-$(EXT_VERSION).zip"
 
 clean-dist: ## Remove dist/ build artifacts
 	rm -rf dist/
