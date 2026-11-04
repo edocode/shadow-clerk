@@ -8,7 +8,7 @@ Web会議の音声（自分のマイクとスピーカー出力）をリアル�
 - **AI コンソール**で AI アシスタント（Claude Code または Codex）を会議に同席させ、進行中に不明点を指摘させたり、議事録を書かせたりする
 - **Claude と声で議論する**（VOICEVOX で読み上げ）。Linux + PipeWire なら Claude の声を会議アプリに流せる
 - **Google カレンダー**の予定に合わせて会議セッションを開始・終了する
-- Chrome 拡張で**ブラウザのスクリーンショット**を transcript の時系列に差し込む
+- Chrome 拡張で**スクリーンショット**（ブラウザのタブか画面全体）を transcript の時系列に差し込む
 
 Linux と Windows で動く。文字起こしと LibreTranslate による翻訳は完全にローカルで完結し、それ以外はすべてオプション。
 
@@ -882,7 +882,7 @@ clerk-util command translate_stop                  # 翻訳ループ停止
 
 ### ブラウザのスクリーンショット
 
-[`extension/`](extension/) にある小さな Chrome 拡張で、表示中のタブ（ブラウザ会議の画面共有など）をキャプチャできる。画像はデータディレクトリに保存され、録音中の transcript に `[画面]` 行が1行加わるので、画像が発言と同じ時系列に並ぶ。`chrome://extensions` から「パッケージ化されていない拡張機能を読み込む」で入れる。インストール方法・設定・書き出す内容は [extension/README.md](extension/README.md) を参照。
+[`extension/`](extension/) にある小さな Chrome 拡張で、表示中のタブ（ブラウザ会議の画面共有など）か、daemon を通して画面全体をキャプチャできる。画像はデータディレクトリに保存され、録音中の transcript に `[画面]` 行が1行加わるので、画像が発言と同じ時系列に並ぶ。`chrome://extensions` から「パッケージ化されていない拡張機能を読み込む」で入れる。インストール方法・設定・書き出す内容は [extension/README.md](extension/README.md) を参照。
 
 ## 設定
 

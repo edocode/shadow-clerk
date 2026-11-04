@@ -1,0 +1,9 @@
+{
+  "name": { "message": "shadow-clerk screenshot" },
+  "description": { "message": "ブラウザのタブか画面全体を shadow-clerk に保存し、記録中の transcript に1行残す" },
+  "action_title": { "message": "shadow-clerk に画面を保存" },
+  "popup_tab": { "message": "このタブ" },
+  "popup_screen": { "message": "画面全体" },
+  "popup_screen_note": { "message": "このパソコンの shadow-clerk が撮ります（全モニター）" },
+  "screen_title": { "message": "画面全体" }
+}

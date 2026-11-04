@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "shadow-clerk screenshot",
-  "version": "1.1.0",
-  "description": "表示中のタブをキャプチャして shadow-clerk に保存し、記録中の transcript に1行残す",
+  "name": "__MSG_name__",
+  "version": "1.2.0",
+  "description": "__MSG_description__",
   "permissions": [
     "activeTab",
     "storage"
@@ -20,6 +20,19 @@
     "open_in_tab": false
   },
   "action": {
-    "default_title": "shadow-clerk に画面を保存"
-  }
+    "default_title": "__MSG_action_title__",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "default_locale": "en",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqJSr868fJMxXRiS2zy+71R8TmWyOZliNw/Dvvkpz0E5OhErvrLnNhXzG9aHmL+yLUzpQeu1PMWVqY3d0GS/tC/wz6pJGdBuctRdvAPL3ZhkHgLF9iyGS9GvC3Y+wJFpKiL6jgmYW0Gn7yPccvVGCG3aRHmUjSbppXxnp1Xm5VMNpqFRMTkvIKDoZ9jt7LfUgVgbs2Z1FxhjtJ2sUB/k6wdyF5ZjQI8dqm3tujrLzQUQMhQr8AozyTvoHr9jt21Mv8uHQN8JvXMo+0i/jU4RF5ULu2sORDw6frWFqs7zeFIUeJc6kd1LevOpxs3VGLhJavae2//VpvSCe/NBzfegOXQIDAQAB"
 }

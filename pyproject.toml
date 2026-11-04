@@ -52,6 +52,9 @@ dependencies = [
     "pyte>=0.8.2",
     "markdown-it-py>=3.0",
     "onnxruntime>=1.30.0",
+    # ブラウザ拡張の「画面全体」。Wayland はデスクトップポータル（jeepney で D-Bus を呼ぶ）、それ以外は mss
+    "mss>=9.0.0",
+    "jeepney>=0.8.0; sys_platform == 'linux'",
 ]
 
 [project.urls]
