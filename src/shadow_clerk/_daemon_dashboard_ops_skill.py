@@ -401,6 +401,10 @@ class _DashboardHandlerSkillOps:
         exclude=claude を付けると、[Claude] 行（Claude と会議で Claude 自身が話した内容）を流さない。
         残る行が無ければ <transcript> ごと流さない（自分の声の行で Claude を起こさないため）。既定は全行を流す。
 
+        idle=N 秒のあいだ行が届かなければ <notice>N 秒間 追記なし…</notice> を流す（0 で流さない）。流さなかった
+        [Claude] 行も、誰かが話している最中（/api/speaking）も沈黙に数えない。Claude と会議の skill が、
+        話しかけたあと返事が無いときに一言かけるのに使う。
+
         kind=advice なら、transcript に対応する advice ファイルを見張り、書き換わるたびに中身を丸ごと流す
         （advice は上書きされるので差分ではなく全体）。Claude と会議の skill が、会議アシスタントの論点を
         拾って自分から切り出すために使う。
@@ -458,7 +462,7 @@ class _DashboardHandlerSkillOps:
         journal = self.recorder.rewrite_journal
 
         def _emit_new_lines() -> bool:
-            """path の offset 以降を最後の改行まで流す。流したら True
+            """path の offset 以降を最後の改行まで流す。行が届いたら（exclude で流さなかった行も）True
 
             ダッシュボードが行を消して書き直していたら、読み位置を書き換え後の座標へ写してから読む。
             写せないほど書き換えが重なっていたら今の末尾から読み直す（会議全体を送り直さない）。
@@ -485,7 +489,7 @@ class _DashboardHandlerSkillOps:
             offset += nl + 1
             text = chunk[:nl + 1].decode("utf-8", errors="replace")
             if drop_claude and not (text := _drop_claude_lines(text)):
-                return False
+                return True
             self.wfile.write(wrap_transcript(os.path.basename(path), text))
             self.wfile.flush()
             return True
@@ -499,7 +503,6 @@ class _DashboardHandlerSkillOps:
             interim_min に満たない文字は流さず、送った記録も変えない（後で伸びた文字は前回と違うので流れる）。
             中身は音声認識の結果なので、改行と < を落として <interim> の境界が壊れないようにする
             """
-            talk = getattr(self.recorder, "talk", None)
             if not want_interim or talk is None:
                 return False
             texts = talk.interim_texts()
@@ -515,6 +518,8 @@ class _DashboardHandlerSkillOps:
             if sent:
                 self.wfile.flush()
             return sent
+
+        talk = getattr(self.recorder, "talk", None)
 
         # つないだ時点で積まれている attempt は流さない（いまの通し番号から始める）
         seq = pronounce.attempts_after(sys.maxsize)[0] if pronounce else 0
@@ -558,13 +563,13 @@ class _DashboardHandlerSkillOps:
                 else:
                     held_since = None
                 emitted = _emit_new_lines()
-                if _emit_pronounce() or emitted or emitted_interim:
+                if _emit_pronounce() or emitted or emitted_interim or (talk is not None and talk.speaking()):
                     quiet = 0
                 else:
                     quiet += interval
                     if idle_alert and quiet >= idle_alert:
                         self.wfile.write(
-                            f"<notice>{quiet // 60} 分間 追記なし"
+                            f"<notice>{f'{quiet} 秒' if quiet < 60 else f'{quiet // 60} 分'}間 追記なし"
                             f"(会議終了、または長い沈黙)</notice>\n".encode())
                         self.wfile.flush()
                         quiet = 0

@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」で、ユーザーと音声で議論する。ダッシュボードの「Claude と会議」から talk コンソールで自動的に起動される。ユーザーの発言は shadow-clerk の文字起こしとして届き、あなたの応答は shadow-clerk が音声で読み上げる。「/clerk-talk」と打たれたとき、声で議論したい・Claude と会議したいと言われたときに使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.9.0"
+  version: "1.10.0"
 ---
 
 # clerk-talk — 声で議論する
@@ -111,7 +111,7 @@ Monitor で新しい発言を待つ:
 
 ```
 Monitor(
-  command: 'curl -sN "http://localhost:8765/api/watch?interval=1&exclude=claude&interim=1&interim_min=5&pronounce=1"',
+  command: 'curl -sN "http://localhost:8765/api/watch?interval=1&exclude=claude&interim=1&interim_min=5&pronounce=1&idle=30"',
   description: "Claude と会議の発言",
   persistent: true,
   timeout_ms: 3600000
@@ -127,6 +127,7 @@ Monitor(
 - 1回の通知に複数の発言がまとまって届くことがある。続けて話された1つの発言として扱う
 - 発言は音声認識の結果なので、誤認識や言い淀みを含む。意味が通らなければ推測し、重要なところは聞き返す
 - 「ちょっと待って」などで遮られたときは、相手が話し終えるまで話さない
+- `&idle=30` で、30 秒だれも話さないと `<notice>30 秒間 追記なし…</notice>` が届く（下の「沈黙が続いたら」）
 - Monitor が切れたら（timeout など）貼り直す
 
 ### 聞き取る言語を切り替える
@@ -214,6 +215,21 @@ Monitor(
   `early_reply` が true なら聞く Monitor に `&interim=1` を付けてあるので、同じ文字が `<interim source="mic">…</interim>` の1行で、変わるたびに届く。
 - `early_reply` が true のとき、`<interim>` から確定行より先に出す返事は `after` を付けずに送る。付けると同じ発話の確定行が先に届いて held になる。誰かが話している間は `/api/say` が待つので付けなくてよい。確定行に答えるとき、`early_reply` が false のときは `after` を付ける
 - 先に組み立てた発言は、出す直前に文脈で見直す。話題が移った・すでに答えが出たなら出さない（held も同じ扱い）
+
+### 沈黙が続いたら
+
+`<notice>… 秒間 追記なし…</notice>` は、あなたの発言も含めて 30 秒だれも話していないという知らせ。ユーザーは画面を
+見ていないことが多いので、黙ったままだと、聞こえなかったのか、考えているのか、席を外したのかが分からない。
+
+- 次のときは何も言わない: ユーザーが「ちょっと待って」「考えます」「少し席を外します」のように待つよう言った。
+  あなたがまだ作業中（調べ物・サブエージェントの結果待ち）。届け先がある会議で、ほかの参加者どうしの話が一区切りしただけ
+- それ以外は、話しかける前に `/api/speaking` を見て、だれも話していなければ短く一言かける。言い回しは毎回変え、persona の性格で話す
+  - 直前に質問していたら、問い直す。聞こえていなかったかもしれないので、より短く、答えやすい形に言い換えるか、選択肢を出す
+  - 話が一段落していたら、いまの話題の次の一歩か、別の切り口を1つ出す。ないなら、ほかに話したいことがあるかを尋ねる
+- **一言かけても続けて沈黙の通知が来たら、2回目は、続けるか休むかを尋ねる**（例:「少しお休みしますか？ 戻ったら声をかけてください」）。
+  3回目からは話しかけない。ユーザーが話すまで待つ。会話は終えない（「終わり」）
+- ユーザーが話したら数え直す
+- `/api/say` に `after` を付ける（いちばん新しい `[自分]`・`[相手]` の行の時刻）。通知と行き違いに話し出していたら held で返る
 
 ## 語学の練習
 

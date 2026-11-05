@@ -294,7 +294,7 @@ def test_watch_interim_streams_changes_only_when_asked() -> None:
     active = "transcript-20261030.txt"
     _touch(active, "")
     texts: dict[str, str] = {"mic": "来週の"}
-    talk = type("_Talk", (), {"interim_texts": lambda self: dict(texts)})()
+    talk = type("_Talk", (), {"interim_texts": lambda self: dict(texts), "speaking": lambda self: []})()
 
     def _run(query: str) -> tuple[_Stream, threading.Thread]:
         h = _Stream(query, active)
@@ -339,7 +339,7 @@ def test_watch_interim_min_and_exclude_claude() -> None:
     active = "transcript-20261031.txt"
     _touch(active, "")
     texts: dict[str, str] = {"mic": "うん"}
-    talk = type("_Talk", (), {"interim_texts": lambda self: dict(texts)})()
+    talk = type("_Talk", (), {"interim_texts": lambda self: dict(texts), "speaking": lambda self: []})()
     streams = [_Stream(q, active) for q in ("interval=1&interim=1&interim_min=5&exclude=claude",
                                             "interval=1&interim=1")]
     threads = [threading.Thread(target=x._serve_watch, daemon=True) for x in streams]
@@ -365,6 +365,32 @@ def test_watch_interim_min_and_exclude_claude() -> None:
         w in out for w in ("[自分] 質問です", "[画面] 画面キャプチャ", "--- 会議終了 ---")), repr(out))
     check("付けなければ短い interim も [Claude] 行も流す", ">うん</interim>" in plain
           and plain.count("<transcript ") == 2 and "自分の声" in plain and "続き" in plain, repr(plain))
+
+
+def test_watch_idle_counts_claude_lines_and_speech() -> None:
+    """idle=N 秒で沈黙の notice を秒で流す。exclude で流さない [Claude] 行と、話している最中は沈黙に数えない"""
+    import time
+    active = "transcript-20261105.txt"
+    _touch(active, "")
+    speaking: list[str] = []
+    talk = type("_Talk", (), {"interim_texts": lambda self: {}, "speaking": lambda self: list(speaking)})()
+    h = _Stream("interval=1&idle=3&exclude=claude", active)
+    h.recorder.talk = talk
+    th = threading.Thread(target=h._serve_watch, daemon=True)
+    th.start()
+    time.sleep(2.5)
+    _append(active, "[2026-11-05 10:00:00] [Claude] 質問です\n")
+    time.sleep(2.0)
+    check("流さない [Claude] 行でも沈黙を数え直す", b"<notice>" not in h.out.getvalue(), repr(h.out.getvalue()))
+    speaking.append("mic")
+    time.sleep(3.0)
+    check("話している最中は沈黙に数えない", b"<notice>" not in h.out.getvalue(), repr(h.out.getvalue()))
+    speaking.clear()
+    time.sleep(3.5)
+    h.recorder.stop_event.set()
+    th.join(timeout=3)
+    out = h.out.getvalue().decode()
+    check("黙ったら秒で知らせる", "<notice>3 秒間 追記なし" in out and "[Claude]" not in out, repr(out))
 
 
 def test_watch_pronounce_holds_line_until_analysed() -> None:
@@ -538,6 +564,7 @@ def main() -> int:
     test_watch_rejects_unknown_kind()
     test_watch_interim_streams_changes_only_when_asked()
     test_watch_interim_min_and_exclude_claude()
+    test_watch_idle_counts_claude_lines_and_speech()
     test_watch_pronounce_holds_line_until_analysed()
     test_watch_follows_output_path()
     test_watch_meeting_end_back_to_existing_day_file()

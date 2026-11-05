@@ -3,7 +3,7 @@ name: clerk-practice
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、発音・会話・ヒアリング・実践会話・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」「中国語で会話を練習したい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.17.1"
+  version: "1.18.0"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -23,11 +23,12 @@ shadow-clerk の場所は環境変数 `SHADOW_CLERK_URL`（`http://localhost:<po
 
 - 聞く Monitor は、練習の間は次のコマンドで張る。`clerk-talk` で張ったものが別のコマンド（`interim=1` 付き、`pronounce=1` 無し）なら、
   止めてから張り直す。`<interim>` は話している途中の文字で、練習では使わないのに届くたびに手番を使い、そのあいだに届いた
-  確定行への返事が遅れる。`pronounce=1` で、発音解析の結果が `[自分]` 行と同じ通知で届く
+  確定行への返事が遅れる。`pronounce=1` で、発音解析の結果が `[自分]` 行と同じ通知で届く。
+  `idle=30` で、30 秒だれも話さないと `<notice>30 秒間 追記なし…</notice>` が届く（「沈黙」節）
 
 ```
 Monitor(
-  command: 'curl -sN "http://localhost:8765/api/watch?interval=1&exclude=claude&pronounce=1"',
+  command: 'curl -sN "http://localhost:8765/api/watch?interval=1&exclude=claude&pronounce=1&idle=30"',
   description: "Claude と会議の発言",
   persistent: true,
   timeout_ms: 3600000
@@ -156,6 +157,19 @@ curl -s -X POST "http://localhost:8765/api/language" -H 'Content-Type: applicati
   「次の発言の時刻で確かめる」として記録だけで応答を終えない。ユーザーは次のお手本を待っているので、黙ったまま止まる
 - 続けるなら、**あと何分やるか**を聞き、その返事の行の時刻から数え直す。練習する言語に切り替え直して続け、
   その時間の1分前にまた聞く
+
+### 沈黙
+
+`<notice>… 秒間 追記なし…</notice>` が届いたら、`clerk-talk` の「沈黙が続いたら」に従う（待つよう言われたときは黙る、
+話しかける前に `/api/speaking` を見る、2回目は続けるか休むかを尋ねる、3回目からは待つ）。この通知には時刻が無いので、
+経過時間の計算には使わない。1回目にかける一言は、練習の段階に合わせる:
+
+- **お手本を出して回答を待っているとき:** お手本をもう一度、ゆっくり読む（`lang` 付き）。そのあと母語で短く促す
+  （「どうぞ、言ってみてください」）。発音の課題は預けたままにする。期限切れなら言語別ガイドに従って預け直す
+- **作文・ヒアリングで答えを待っているとき:** 考えている時間かもしれない。ヒントを1つ出す（作文なら最初の数語、ヒアリングならもう一度流すか）
+- **判定を伝えたあと:** 次の課題を出したかを確かめる。出していなければ出す（「判定のあとは次の課題へ進む」）
+- **会話・実践会話:** 練習する言語で、より短く答えやすい質問に言い換える
+- 2回目に尋ねるときは母語で、「この課題は飛ばしますか？ 休みますか？」のように、飛ばす・休むを選べる形にする
 
 ### 話し方
 
