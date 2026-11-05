@@ -49,6 +49,27 @@ def _drop_claude_lines(text: str) -> str:
                    if not ((t := TranscriptLine.parse(ln)) and t.speaker is Speaker.CLAUDE))
 
 
+class _UnansweredReply:
+    """[自分] の発言に Claude がまだ返していない時間を測る（/api/watch の unanswered=N）
+
+    行の時刻で比べる。[自分] 行の時刻は話し始めなので、early_reply で確定行より先に返した [Claude] 行は
+    その発言より後の時刻になり、返したと分かる。since は返事待ちになった時刻（monotonic）。返していれば None
+    """
+
+    def __init__(self) -> None:
+        self.since: float | None = None
+        self._user_at = self._claude_at = ""
+
+    def feed(self, text: str) -> None:
+        for ln in text.split("\n")[:-1]:
+            if (t := TranscriptLine.parse(ln)) is None:
+                continue
+            if t.speaker is Speaker.SELF and t.timestamp > self._claude_at:
+                self._user_at, self.since = t.timestamp, time.monotonic()
+            elif t.speaker is Speaker.CLAUDE and t.timestamp >= self._user_at:
+                self._claude_at, self.since = t.timestamp, None
+
+
 def _norm(name: str) -> str:
     """会議名の表記ゆれを吸収する。大文字小文字と区切りを無視する"""
     return re.sub(r"[\s_\-()\[\]]+", "", name).lower()
@@ -401,6 +422,11 @@ class _DashboardHandlerSkillOps:
         exclude=claude を付けると、[Claude] 行（Claude と会議で Claude 自身が話した内容）を流さない。
         残る行が無ければ <transcript> ごと流さない（自分の声の行で Claude を起こさないため）。既定は全行を流す。
 
+        unanswered=N を付けると、最後の [自分] の発言に [Claude] 行が続かないまま N 秒たったら
+        <notice>N 秒間 返事なし…</notice> を1回流す。ユーザーがまだ話している間は数え直す。Claude と会議の skill が、
+        ユーザーは話し終えたのに、途中だと思って待ち続けるのを防ぐのに使う。Claude が話したあとユーザーが
+        黙っているだけなら流さない（既定は流さない）。
+
         kind=advice なら、transcript に対応する advice ファイルを見張り、書き換わるたびに中身を丸ごと流す
         （advice は上書きされるので差分ではなく全体）。Claude と会議の skill が、会議アシスタントの論点を
         拾って自分から切り出すために使う。
@@ -431,6 +457,8 @@ class _DashboardHandlerSkillOps:
         want_interim = (q.get("interim") or ["0"])[0] in ("1", "true")
         interim_min = max(0, _int("interim_min", 0))
         drop_claude = "claude" in (q.get("exclude") or [""])[0].split(",")
+        unanswered_sec = max(0, _int("unanswered", 0))
+        reply = _UnansweredReply()
         pronounce = (getattr(self.recorder, "pronounce", None)
                      if (q.get("pronounce") or ["0"])[0] in ("1", "true") else None)
         if kind not in ("transcript", "advice"):
@@ -484,6 +512,7 @@ class _DashboardHandlerSkillOps:
                 return False
             offset += nl + 1
             text = chunk[:nl + 1].decode("utf-8", errors="replace")
+            reply.feed(text)
             if drop_claude and not (text := _drop_claude_lines(text)):
                 return False
             self.wfile.write(wrap_transcript(os.path.basename(path), text))
@@ -491,6 +520,19 @@ class _DashboardHandlerSkillOps:
             return True
 
         sent_interim: dict[str, str] = {}
+        talk = getattr(self.recorder, "talk", None)
+
+        def _emit_unanswered() -> None:
+            """返事待ちが unanswered 秒続いたら1回知らせる。話している間は数え直す"""
+            if not unanswered_sec or reply.since is None:
+                return
+            if talk is not None and talk.speaking():
+                reply.since = time.monotonic()
+            elif time.monotonic() - reply.since >= unanswered_sec:
+                self.wfile.write(f"<notice>{unanswered_sec} 秒間 返事なし"
+                                 f"(最後の [自分] の発言にまだ答えていない)</notice>\n".encode())
+                self.wfile.flush()
+                reply.since = None
 
         def _emit_interim() -> bool:
             """話している source の確定前の文字が前回から変わっていたら、1行ずつ流す。流したら True
@@ -499,7 +541,6 @@ class _DashboardHandlerSkillOps:
             interim_min に満たない文字は流さず、送った記録も変えない（後で伸びた文字は前回と違うので流れる）。
             中身は音声認識の結果なので、改行と < を落として <interim> の境界が壊れないようにする
             """
-            talk = getattr(self.recorder, "talk", None)
             if not want_interim or talk is None:
                 return False
             texts = talk.interim_texts()
@@ -558,6 +599,7 @@ class _DashboardHandlerSkillOps:
                 else:
                     held_since = None
                 emitted = _emit_new_lines()
+                _emit_unanswered()
                 if _emit_pronounce() or emitted or emitted_interim:
                     quiet = 0
                 else:
