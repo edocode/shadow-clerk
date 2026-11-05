@@ -288,6 +288,17 @@ class FileWatcher(threading.Thread):
                 self._broadcast(event, json.dumps(
                     {"file": name, "html": render_markdown(text)}, ensure_ascii=False))
 
+            # 議事録は書かれた時点で知らせる（Claude コンソールが書く経路は alert が出ない）。
+            # 初めて見たパスの mtime は記録だけし、ページを開いた時に切り替えないようにする
+            summary_path = os.path.join(out_dir, tn.summary_filename)
+            key = f"summary:{summary_path}"
+            mtime = self._get_mtime(summary_path)
+            prev = self._mtimes.get(key)
+            self._mtimes[key] = mtime
+            if prev is not None and mtime and mtime != prev:
+                self._broadcast("summary", json.dumps(
+                    {"file": tn.summary_filename}, ensure_ascii=False))
+
         # Metadata files (mtime-based)
         for evt, path in [
             ("session", SESSION_FILE),
