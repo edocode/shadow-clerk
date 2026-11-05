@@ -56,7 +56,7 @@ _PACKAGES = ("ctranslate2", "av", "faster_whisper", "tokenizers", "onnxruntime",
              "langdetect", "sounddevice", "webrtcvad", "pywinpty", "winpty",
              "pyaudiowpatch", "openai", "markdown_it", "pyte",
              "googleapiclient", "google_auth_oauthlib",
-             "sherpa_onnx", "reazonspeech.k2.asr")
+             "sherpa_onnx", "reazonspeech.k2.asr", "mss")
 
 datas, binaries, hiddenimports = [], [], []
 for _pkg in _PACKAGES:

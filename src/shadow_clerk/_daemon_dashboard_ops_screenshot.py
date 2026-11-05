@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 from shadow_clerk._transcript_layout import TranscriptLayout
 from shadow_clerk._daemon_constants import SESSION_FILE
 from shadow_clerk._daemon_dashboard_base import is_localhost_client, transcript_path_in
+from shadow_clerk._daemon_screen_capture import ScreenCaptureError, capture_screen
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -20,13 +21,19 @@ _DATA_URL_PREFIX = "data:image/png;base64,"
 _MAX_IMAGE_BYTES = 12 * 1024 * 1024
 # GET で返すのは保存したキャプチャだけ。区切り文字を含む名前は通さない
 _SHOT_NAME_RE = re.compile(r"shot-[^/\\]+\.png")
+# 画面全体はこの拡張からの要求でだけ撮る。localhost に送れる他の拡張に、利用者の画面を撮らせない。
+# - リポジトリの extension/ を読み込んだもの: manifest.json の key（公開鍵）から ID が決まるので、誰でも同じ
+# - Chrome ウェブストア版: ストアが別の ID を付ける（アップロードする zip からは key を外す）。公開したら足す
+EXTENSION_ORIGINS: tuple[str, ...] = (
+    "chrome-extension://ajlfjhgcplpghgdeefmpijommkjielda",
+)
 
 
 class _DashboardHandlerScreenshotOps:
     """画面キャプチャの受け取り（ミックスイン）"""
 
     def _save_screenshot(self) -> None:
-        """POST /api/screenshot — 拡張が撮ったタブのキャプチャを保存し、transcript に1行残す"""
+        """POST /api/screenshot — 拡張が撮ったタブ、または daemon が撮った画面全体を保存し、transcript に1行残す"""
         if not is_localhost_client(self.client_address):
             # ダッシュボード自体は外部からも見られる設定でありうるが、書き込みは通さない
             client = self.client_address[0] if self.client_address else ""
@@ -41,21 +48,16 @@ class _DashboardHandlerScreenshotOps:
             image = data.get("image") or ""
             title = (data.get("title") or "").strip()
             url = (data.get("url") or "").strip()
+            screen = data.get("source") == "screen"
         except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
             self._send_json({"status": "error", "message": "invalid request body"})
             return
 
-        if not isinstance(image, str) or not image.startswith(_DATA_URL_PREFIX):
-            self._send_json({"status": "error", "message": "image must be a png data URL"})
+        raw = self._screen_image() if screen else self._decode_image(image)
+        if isinstance(raw, str):
+            self._send_json({"status": "error", "message": raw})
             return
-        try:
-            raw = base64.b64decode(image[len(_DATA_URL_PREFIX):], validate=True)
-        except (ValueError, TypeError):
-            self._send_json({"status": "error", "message": "image is not valid base64"})
-            return
-        if not raw or len(raw) > _MAX_IMAGE_BYTES:
-            self._send_json({"status": "error", "message": "image size out of range"})
-            return
+        title = title or ("画面全体" if screen else "")
 
         now = datetime.datetime.now()
         transcript_path = self._screenshot_target_transcript()
@@ -83,6 +85,37 @@ class _DashboardHandlerScreenshotOps:
             "path": path,
             "transcript_appended": appended,
         })
+
+    @staticmethod
+    def _decode_image(image: object) -> bytes | str:
+        """拡張が撮ったタブの画像（png の data URL）。拒否するときは理由の文字列"""
+        if not isinstance(image, str) or not image.startswith(_DATA_URL_PREFIX):
+            return "image must be a png data URL"
+        try:
+            raw = base64.b64decode(image[len(_DATA_URL_PREFIX):], validate=True)
+        except (ValueError, TypeError):
+            return "image is not valid base64"
+        if not raw or len(raw) > _MAX_IMAGE_BYTES:
+            return "image size out of range"
+        return raw
+
+    def _screen_image(self) -> bytes | str:
+        """画面全体を daemon が撮る（source: screen）。拒否するときは理由の文字列。
+        大きさの上限は掛けない（上限は送られてくる画像を疑うためのもので、自分で撮った画像には要らない）"""
+        origin = self.headers.get("Origin")
+        if origin not in EXTENSION_ORIGINS:
+            logger.warning("screenshot: 画面全体を拒否 (origin=%s)", origin)
+            return "screen capture is allowed only from the shadow-clerk extension"
+        try:
+            return self._grab_screen()
+        except ScreenCaptureError as e:
+            logger.error("screenshot: 画面全体を撮れません: %s", e)
+            return str(e)
+
+    @staticmethod
+    def _grab_screen() -> bytes:
+        """テストで差し替えられるようにメソッドにしてある"""
+        return capture_screen()
 
     def _serve_screenshot(self) -> None:
         """GET /api/screenshot?file=shot-….png[&transcript=transcript-….txt] — 保存したキャプチャを返す（本文中のリンク用）

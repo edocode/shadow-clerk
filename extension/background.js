@@ -1,13 +1,31 @@
-// 拡張アイコンのクリックで、表示中のタブをキャプチャして shadow-clerk に送る。
+// ポップアップのボタンで、表示中のタブ、または画面全体を shadow-clerk に保存する。
 // 保存とファイル名の決定はサーバー側が行う(会議名は .clerk_session を見ないと分からないため)。
+// 画面全体はブラウザからは撮れない（chrome.desktopCapture は毎回選択画面を出す）ので、daemon に撮らせる。
 
 import { getOrigin } from "./config.js";
 
-chrome.action.onClicked.addListener(async (tab) => {
+// ポップアップが閉じて画面から消えるのを待つ時間。画面全体に写り込ませない
+const POPUP_CLOSE_WAIT_MS = 300;
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type !== "capture") return;
+  // ポップアップは返事を受けたら閉じる。撮影はそのあとここで続ける
+  sendResponse({ started: true });
+  capture(msg);
+});
+
+async function capture({ source, windowId, title, url }) {
   try {
-    // captureVisibleTab は activeTab 権限 + ユーザージェスチャーで動く。
-    // アイコンのクリック自体がジェスチャーなので、事前のホスト権限は要らない。
-    const image = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
+    let body;
+    if (source === "screen") {
+      await new Promise((resolve) => setTimeout(resolve, POPUP_CLOSE_WAIT_MS));
+      body = { source: "screen", title };
+    } else {
+      // captureVisibleTab は activeTab 権限で動く。ポップアップを開いたこと自体が
+      // 拡張の呼び出しなので、事前のホスト権限は要らない。
+      const image = await chrome.tabs.captureVisibleTab(windowId, { format: "png" });
+      body = { image, title, url };
+    }
     const endpoint = `${await getOrigin()}/api/screenshot`;
 
     const res = await fetch(endpoint, {
@@ -15,7 +33,7 @@ chrome.action.onClicked.addListener(async (tab) => {
       // application/json にすると preflight が飛ぶ。サーバーは Content-Type を見ずに
       // ボディを JSON として読むので、simple request になる text/plain で送る。
       headers: { "Content-Type": "text/plain;charset=UTF-8" },
-      body: JSON.stringify({ image, title: tab.title || "", url: tab.url || "" }),
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) {
@@ -37,7 +55,7 @@ chrome.action.onClicked.addListener(async (tab) => {
     // daemon が起きていない、ポート設定が違う場合もここに来る
     flash("!", "#c62828", String(e));
   }
-});
+}
 
 function flash(text, color, detail) {
   if (detail) console.log("[shadow-clerk]", detail);

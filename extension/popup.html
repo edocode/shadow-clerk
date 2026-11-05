@@ -1,0 +1,49 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1a1f24;
+    --muted: #5d6b7a;
+    --border: #d7dbdf;
+    --accent: #35586d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a2026;
+      --fg: #e4e7ea;
+      --muted: #97a3ad;
+      --border: #2e373f;
+      --accent: #86aec8;
+    }
+  }
+  body {
+    margin: 0;
+    padding: 0.75rem;
+    width: 15rem;
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.5 system-ui, sans-serif;
+  }
+  button {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.6rem 0.75rem;
+    margin: 0 0 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+  }
+  button:hover, button:focus-visible { border-color: var(--accent); outline: none; }
+  button small { display: block; font-weight: 400; font-size: 0.78rem; color: var(--muted); }
+</style>
+<button id="tab" data-msg="popup_tab"></button>
+<button id="screen"><span data-msg="popup_screen"></span><small data-msg="popup_screen_note"></small></button>
+<script src="popup.js" type="module"></script>

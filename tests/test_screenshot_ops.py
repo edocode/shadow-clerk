@@ -12,6 +12,7 @@ import os
 import tempfile
 
 from shadow_clerk._daemon_dashboard_ops_screenshot import _DashboardHandlerScreenshotOps as Ops
+from shadow_clerk._daemon_screen_capture import ScreenCaptureError
 
 results: list[bool] = []
 
@@ -35,10 +36,12 @@ class _FakeHandler(Ops):
     """_save_screenshot を呼ぶための最小の器"""
 
     def __init__(self, body: dict, client: str = "127.0.0.1",
-                 output_path: str = "") -> None:
+                 output_path: str = "", origin: str | None = None) -> None:
         raw = json.dumps(body).encode("utf-8")
         self.client_address = (client, 12345)
         self.headers = {"Content-Length": str(len(raw))}
+        if origin is not None:
+            self.headers["Origin"] = origin
         self.rfile = io.BytesIO(raw)
         self.sent: dict = {}
         # daemon では DashboardHandler.recorder がクラス属性で入る
@@ -153,6 +156,48 @@ check("19. 空の画像を拒否する", h.sent.get("status") == "error")
 h = _FakeHandler({})
 h._save_screenshot()
 check("20. image が無いリクエストを拒否する", h.sent.get("status") == "error")
+
+# --- 画面全体（source: screen）は daemon が撮る ---
+
+EXT = _ops_mod.EXTENSION_ORIGINS[0]
+with tempfile.TemporaryDirectory() as d:
+    _saved_session_file = _ops_mod.SESSION_FILE
+    _ops_mod.SESSION_FILE = os.path.join(d, "no-session")
+    daily = os.path.join(d, "transcript-20260907.txt")
+    with open(daily, "w", encoding="utf-8") as f:
+        f.write("[2026-09-07 14:20:00] [自分] 既存の発言\n")
+    grabbed: list[int] = []
+
+    def _grab() -> bytes:
+        grabbed.append(1)
+        return b"\x89PNG screen"
+
+    def _screen(origin: str | None, grab=_grab) -> _FakeHandler:
+        h = _FakeHandler({"source": "screen"}, output_path=daily, origin=origin)
+        h._grab_screen = grab  # type: ignore[method-assign]
+        h._save_screenshot()
+        return h
+
+    h = _screen(EXT)
+    saved = os.path.join(d, h.sent.get("file", "?"))
+    check("28. 同梱の拡張からの画面全体は daemon が撮って保存する",
+          h.sent.get("status") == "ok" and open(saved, "rb").read() == b"\x89PNG screen", repr(h.sent))
+    with open(daily, encoding="utf-8") as f:
+        last = f.read().splitlines()[-1]
+    check("29. 画面全体の [画面] 行には「画面全体」と書く", "| 画面全体" in last, last)
+    grabbed.clear()
+    for i, origin in ((30, None), (31, "chrome-extension://abcdefghijklmnopabcdefghijklmnop"),
+                      (32, "http://127.0.0.1:8765")):
+        h = _screen(origin)
+        check(f"{i}. 同梱の拡張以外からの画面全体は撮らずに拒否する ({origin})",
+              h.sent.get("status") == "error" and not grabbed, repr(h.sent))
+
+    def _fail() -> bytes:
+        raise ScreenCaptureError("screenshot portal declined (response 2)")
+    h = _screen(EXT, _fail)
+    check("33. 撮れなかった理由を返す",
+          h.sent == {"status": "error", "message": "screenshot portal declined (response 2)"}, repr(h.sent))
+    _ops_mod.SESSION_FILE = _saved_session_file
 
 # --- GET: 保存したキャプチャを返す ---
 

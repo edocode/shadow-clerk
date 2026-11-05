@@ -1,0 +1,9 @@
+{
+  "name": { "message": "shadow-clerk screenshot" },
+  "description": { "message": "Save the browser tab or the whole screen to shadow-clerk and add a line to the transcript being recorded." },
+  "action_title": { "message": "Save the screen to shadow-clerk" },
+  "popup_tab": { "message": "This tab" },
+  "popup_screen": { "message": "Whole screen" },
+  "popup_screen_note": { "message": "Taken by shadow-clerk on this computer (all monitors)" },
+  "screen_title": { "message": "Whole screen" }
+}

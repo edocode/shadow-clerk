@@ -8,7 +8,7 @@ A tool that records web meeting audio (your microphone and the speaker output) i
 - run an AI assistant (Claude Code or Codex) beside the meeting in the **AI Console**, which points out open questions as the meeting goes and can write the minutes;
 - let you **talk a topic through with Claude** by voice (VOICEVOX speech), and on Linux with PipeWire send Claude's voice into a meeting app;
 - start and end meeting sessions from **Google Calendar**;
-- put **browser screenshots** on the transcript timeline with a Chrome extension.
+- put **screenshots** (a browser tab or the whole screen) on the transcript timeline with a Chrome extension.
 
 It runs on Linux and Windows. Transcription and LibreTranslate translation work fully offline; the rest is optional.
 
@@ -968,7 +968,7 @@ An AI assistant (`claude` or `codex`) can run inside a PTY on the dashboard's **
 
 ### Browser screenshots
 
-A small Chrome extension in [`extension/`](extension/) captures the visible tab — a shared screen in a browser meeting, say — saves the image in the data directory, and adds a `[画面]` line to the transcript being recorded, so the image sits on the same timeline as the speech. Load it unpacked from `chrome://extensions`; see [extension/README.md](extension/README.md) for installation, settings and what gets written.
+A small Chrome extension in [`extension/`](extension/) captures the visible tab — a shared screen in a browser meeting, say — or, through the daemon, the whole screen, saves the image in the data directory, and adds a `[画面]` line to the transcript being recorded, so the image sits on the same timeline as the speech. Load it unpacked from `chrome://extensions`; see [extension/README.md](extension/README.md) for installation, settings and what gets written.
 
 ## Configuration
 
