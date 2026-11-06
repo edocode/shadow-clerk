@@ -111,14 +111,19 @@ async function nxOpenTalk(){
 async function nxStartTalk(){
   if(nxTalkMode===null||nxTalkBusy)return;
   nxTalkBusy=true;nxRenderTalkModal();
+  let meetingStarted=false;
   try{
     if(nxTalkMeeting){
       const name=nxEl('nxTalkMeetingName').value.trim();
       if(!name)throw new Error(I18N['nx.talk_meeting_required']);
+      // 会議を作る前に VOICEVOX などの TTS を確かめる。届かないまま会議だけ始まるのを防ぐ
+      const voices=await nxApi('/api/talk-voices');
+      if(voices.status!=='ok')throw new Error(voices.message||I18N['nx.cmd_failed']);
       const status=await nxApi('/api/status');
       if(status.session)throw new Error(I18N['nx.talk_meeting_active']);
       const meeting=await nxApi('/api/meeting',{action:'start',name});
       if(meeting.status!=='ok')throw new Error(meeting.message||I18N['nx.cmd_failed']);
+      meetingStarted=true;
       // 会話の開始に失敗しても再試行で会議を重複作成しない。
       nxTalkMeeting=false;nxRenderTalkMeeting();
       await nxFetchStatus();
@@ -126,7 +131,8 @@ async function nxStartTalk(){
     await startTalk();
   }catch(e){nxEl('talkErr').textContent=e.message||I18N['nx.cmd_failed'];}
   finally{nxTalkBusy=false;nxRenderTalkModal();}
-  if(!talkActive)return;
+  // 会議を作ったあとで会話が始まらなかったら、作った会議を閉じる（会議だけ残さない）
+  if(!talkActive){if(meetingStarted)await nxApi('/api/meeting',{action:'end'});return;}
   nxState.dtab='talk';
   if(nxIsAdv())nxState.bottom=true;
   if(talkSkillValue()==='clerk-practice'){nxState.rtab='ai';nxState.right=true;}  // 直しと例文は AI のタブに書かれる
