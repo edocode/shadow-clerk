@@ -72,7 +72,7 @@ const MOCK={route:{available:true,targets:[{app:'Zoom',label:'Zoom'},{app:'Chrom
   cfg:{talk_personas:{'聞き上手':'よく聞く','やさしい先生':'ほめる'},talk_default_persona:'聞き上手',talk_workdir:'~/work',
     talk_model:'sonnet',talk_route_app:''},
   presets:[{name:'週次定例の準備',fields:{topic:'宿題の整理',persona:'やさしい先生',route:'Zoom',model:'opus',workdir:'/w/acme',
-    glossary:false,early_reply:false}},{name:'英語の練習',fields:{topic:'カフェで注文',skill:'clerk-practice'}}],talkFail:false,meetingFail:false,session:null};
+    glossary:false,early_reply:false}},{name:'英語の練習',fields:{topic:'カフェで注文',skill:'clerk-practice'}}],talkFail:false,meetingFail:false,voicevoxDown:false,session:null};
 const fetch=async (url,opt)=>{
   const ok=v=>({json:async()=>JSON.parse(JSON.stringify(v))});
   if(opt&&opt.method==='POST'){
@@ -87,6 +87,7 @@ const fetch=async (url,opt)=>{
     if(url==='/api/talk-presets/delete')MOCK.presets=MOCK.presets.filter(p=>p.name!==b.name);
     return ok({status:'ok'});
   }
+  if(url.startsWith('/api/talk-voices'))return ok(MOCK.voicevoxDown?{status:'error',message:'VOICEVOX に接続できません'}:{status:'ok',voices:[]});
   if(url.startsWith('/api/status'))return ok({running:true,session:MOCK.session,console_running:false,talk_console_running:TALK.active,talk:TALK});
   if(url.startsWith('/api/config'))return ok(MOCK.cfg);
   if(url.startsWith('/api/talk-route-targets'))return ok(MOCK.route);
@@ -217,6 +218,12 @@ await nxOpenTalk();nxPickTalkMode('英語の練習');nxState.rtab='sum';nxState.
 await nxStartTalk();out.practiceTab=[nxState.rtab,nxState.right];
 await nxEndTalk();await nxOpenTalk();nxPickTalkMode('');nxState.rtab='sum';nxState.right=false;
 await nxStartTalk();out.plainTab=[nxState.rtab,nxState.right];
+await nxEndTalk();await nxOpenTalk();nxPickTalkMode('');click('nxTalkMeeting');
+els.nxTalkMeetingName.value='相談';MOCK.voicevoxDown=true;
+posts.length=0;await nxStartTalk();out.voiceDown=[posts.filter(p=>p[0]==='/api/meeting').length,posts.filter(p=>p[0]==='/api/talk-mode').length,els.talkErr.textContent];
+MOCK.voicevoxDown=false;MOCK.talkFail=true;
+posts.length=0;await nxStartTalk();out.talkFailAfterMeeting=posts.map(p=>[p[0],p[1]&&p[1].action]).filter(p=>p[0]==='/api/meeting');
+MOCK.talkFail=false;
 console.log(JSON.stringify(out));
 })().catch(e=>console.log(JSON.stringify({bodyErr:String(e&&e.stack||e)})));
 """
@@ -318,4 +325,6 @@ check("会議の開始後に会話を開始",[p[0] for p in out['meetingStart']]
 check("会議名未入力では開始せず再操作できる", out['meetingBlank']==[0,ja['nx.talk_meeting_required'],False], repr(out['meetingBlank']))
 check("会議開始失敗時は会話を開始しない", out['meetingFail']==[0,'Meeting failed'], repr(out['meetingFail']))
 check("すでに会議中なら別の会議を作らない", out['meetingActive']==[0,ja['nx.talk_meeting_active']], repr(out['meetingActive']))
+check("VOICEVOX に届かなければ会議を作らず、理由をモーダルに出す", out['voiceDown'] == [0, 0, "VOICEVOX に接続できません"], repr(out['voiceDown']))
+check("会議を作ったあとで会話が始まらなければ、その会議を閉じる", out['talkFailAfterMeeting'] == [["/api/meeting", "start"], ["/api/meeting", "end"]], repr(out['talkFailAfterMeeting']))
 sys.exit(0 if all(results) else 1)
