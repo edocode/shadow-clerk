@@ -22,7 +22,8 @@ KICKOFF_MESSAGE = ("Start the session. Ask your first question about the topic, 
 # どの発言のあとでも通じる、意味を持たない言葉だけにする（「はい」は同意に聞こえるので入れない）
 _FILLERS = {Language.JA: ("うーん。", "えーっと。", "そうですね。", "なるほど。", "ふむ。", "ええと。",
                          "うんうん。", "そうですねえ。", "ふむふむ。", "あー。"),
-            Language.EN: ("Hmm.", "Let me see.", "Well.", "I see.", "Right.", "Okay.", "Mm-hm.")}
+            # "Hmm." "Mm-hm." は piper が "Oh." "I'm MHM." と読むので入れない
+            Language.EN: ("Let me see.", "Well.", "I see.", "Right.", "Okay.")}
 
 # 届け先ありの会議で話し出す前の一声と、話し出しが誰かと重なったときに譲る言葉
 _PROBES = {Language.JA: ("あの、", "えっと、", "ええと、", "えー、", "その、", "ちょっと、"),
