@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 
 from shadow_clerk._daemon_tts import TtsError
-from shadow_clerk._daemon_tts_piper import PIPER_MODEL, PiperBackend
+from shadow_clerk._daemon_tts_piper import PIPER_MODEL, STANDARD_MODEL, PiperBackend
 
 results: list[bool] = []
 
@@ -80,6 +80,20 @@ def test_random_voice() -> None:
         check("無い話者ならランダムに選ぶ", b.speaker_name in _SPEAKERS, b.speaker_name)
 
 
+def test_standard_voice() -> None:
+    with tempfile.TemporaryDirectory() as d:
+        Path(d, PIPER_MODEL + ".onnx").touch()
+        downloads.clear()
+        b = PiperBackend("p227", model_dir=d)
+        b.standard = True
+        b.synthesize("Hello.")
+        check("標準の声は話者を指定せず、そのモデルを初回にダウンロードする",
+              synth[-1] is None and downloads == [Path(d)] and Path(d, STANDARD_MODEL + ".onnx").exists(), repr(synth[-1:]))
+        b.standard = False
+        b.synthesize("Hello.")
+        check("戻せば会話の話者で読む", synth[-1] == 2, repr(synth[-1:]))
+
+
 def test_unavailable() -> None:
     sys.modules["piper.download_voices"].download_voice = lambda *_a: None  # type: ignore[attr-defined]
     with tempfile.TemporaryDirectory() as d:
@@ -95,5 +109,6 @@ if __name__ == "__main__":
     _install_fake_piper()
     test_fixed_voice_and_download()
     test_random_voice()
+    test_standard_voice()
     test_unavailable()
     sys.exit(0 if all(results) else 1)

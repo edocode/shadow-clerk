@@ -142,7 +142,7 @@ def _driver(reachable: bool = True, engine_fail: bool = False, factory_error: Ex
         return made["engine"]
 
     d = TalkDriver(written.append, config_loader=lambda: {**_CONFIG, **config},
-                   backend_factory=backend_factory, player_factory=player_factory, foreign_factory=lambda _c: None,
+                   backend_factory=backend_factory, player_factory=player_factory, foreign_factory=lambda _c: made.get("foreign"),
                    engine_factory=engine_factory, clock=lambda: "2026-10-03 10:00:00",
                    route_factory=route_factory or (lambda: _Route(ok=False)),
                    sink_factory=sink_factory or (lambda: _Sink()),
@@ -960,6 +960,21 @@ def test_preview_registers_playback_span() -> None:
         check("鳴り終われば素通し", d.clear_part(102.0, 103.0) == (102.0, 103.0))
 
 
+def test_standard_voice() -> None:
+    import types
+    d, _w, made = _driver()
+    made["foreign"] = types.SimpleNamespace(standard=False)
+    check("talk mode の外では切り替えない", d.set_standard_voice(True) is False and not made["foreign"].standard)
+    d.start("t", None)
+    check("piper の声を標準の声に切り替える", d.set_standard_voice(True) is True and made["foreign"].standard)
+    check("なまりのある声に戻す", d.set_standard_voice(False) is True and not made["foreign"].standard)
+    d.stop()
+    d2, _w2, _m2 = _driver()
+    d2.start("t", None)
+    check("piper が無ければ False", d2.set_standard_voice(True) is False)
+    d2.stop()
+
+
 def test_helpers() -> None:
     check("改行・連続空白を1つに", one_line(" a\n\n b\t c ") == "a b c")
     check("制止の言葉が無ければ None", stop_pattern([]) is None and stop_pattern("x") is None)
@@ -978,6 +993,7 @@ if __name__ == "__main__":
     test_engine_name_is_normalized()
     test_preview_and_voices()
     test_preview_registers_playback_span()
+    test_standard_voice()
     test_helpers()
     test_route()
     test_route_stop_unblocks_player()

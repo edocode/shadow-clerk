@@ -327,6 +327,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._set_talk_mode()
         elif path == "/api/talk-end":
             self._end_talk()
+        elif path == "/api/talk-voice":
+            self._talk_voice()
         elif path == "/api/language":
             self._set_language()
         elif path == "/api/meeting":

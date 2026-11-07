@@ -23,7 +23,7 @@ KICKOFF_MESSAGE = ("Start the session. Ask your first question about the topic, 
 _FILLERS = {Language.JA: ("うーん。", "えーっと。", "そうですね。", "なるほど。", "ふむ。", "ええと。",
                          "うんうん。", "そうですねえ。", "ふむふむ。", "あー。"),
             # "Hmm." "Mm-hm." は piper が "Oh." "I'm MHM." と読むので入れない
-            Language.EN: ("Let me see.", "Well.", "I see.", "Right.", "Okay.")}
+            Language.EN: ("Let me see.", "Well.", "I see.", "Right.", "Okay.", "Alright.", "Uh-huh.")}
 
 # 届け先ありの会議で話し出す前の一声と、話し出しが誰かと重なったときに譲る言葉
 _PROBES = {Language.JA: ("あの、", "えっと、", "ええと、", "えー、", "その、", "ちょっと、"),

@@ -118,6 +118,16 @@ class _DashboardHandlerTalkOps:
                 return
         self._send_json({"status": "ok", "talk": talk.snapshot()})
 
+    def _talk_voice(self) -> None:
+        """POST /api/talk-voice {standard} — 英文を標準的な声で読むか（発音の練習）、なまりのある声で読むか（talk の skill 用）"""
+        data = read_local_json_body(self, "talk")
+        if data is None:
+            return
+        if not isinstance(standard := data.get("standard"), bool):
+            self._send_json({"status": "error", "message": "standard must be a boolean"})
+            return
+        self._send_json({"status": "ok", "piper": self.recorder.talk.set_standard_voice(standard)})
+
     def _end_talk(self) -> None:
         """POST /api/talk-end — 読み上げ中の文を言い終えてから talk mode を終える（talk の skill 用）"""
         if read_local_json_body(self, "talk") is None:

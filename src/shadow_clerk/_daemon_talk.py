@@ -198,6 +198,7 @@ class TalkDriver:
         self._engine: Any = None
         self._engine_name = ""
         self._player: Any = None
+        self._foreign: Any = None
         self._route: Any = None
         self._sink: Any = None
         self._echo = EchoFilter()
@@ -258,7 +259,8 @@ class TalkDriver:
                 player = TtsPlayer(backend, sink.play, self._report_error)
             else:
                 player = self._player_factory(backend, config, self._report_error)
-            player.set_foreign(self._foreign_factory(config))  # ja 以外の文は piper で読み、届け先にも流す
+            foreign = self._foreign_factory(config)
+            player.set_foreign(foreign)  # ja 以外の文は piper で読み、届け先にも流す
             player.set_remote(self._speech)  # piper が無ければ練習言語の文はダッシュボードのブラウザで読む（ほかの参加者がいる間は使わない）
             tail_sec = _float_setting(config, "talk_echo_tail_sec", 0.3, 0.0, 30.0)
             echo = EchoFilter(tail_sec=tail_sec)
@@ -281,7 +283,7 @@ class TalkDriver:
                     sink.stop()  # play スレッドが pw-cat への書き込みで詰まっていても、先に止めれば close が待たされない
                 player.close()
                 raise
-            self._engine, self._engine_name, self._player = engine, name, player
+            self._engine, self._engine_name, self._player, self._foreign = engine, name, player, foreign
             self._route, self._sink, self._echo = route_obj, sink, echo
             self._playback = _PlaybackSpan(tail_sec=tail_sec)
             self._topic, self._persona, self._lang, self._glossary = topic, chosen, lang, glossary
@@ -443,6 +445,16 @@ class TalkDriver:
             else:
                 self._arm_filler_locked()
         engine.on_self_line(line.text)
+
+    def set_standard_voice(self, standard: bool) -> bool:
+        """英文を標準的な声（発音のお手本）で読むか、会話ごとに選んだなまりの声で読むか。piper が無ければ False"""
+        with self._lock:
+            foreign = self._foreign if self._active else None
+        if foreign is None or not hasattr(foreign, "standard"):
+            return False
+        foreign.standard = standard
+        logger.info("talk: 英語の声を%sにします", "標準の声" if standard else "なまりのある声")
+        return True
 
     def api_say(self, text: str, lang: Language | None = None, display: str | None = None,
                 after: str | None = None) -> dict:
