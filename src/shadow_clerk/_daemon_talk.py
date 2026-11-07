@@ -509,6 +509,8 @@ class TalkDriver:
             player, phrase = self._player, filler_phrase(lang, self._filler_last)
             self._filler_said, self._filler_at, self._filler_last = said, time.monotonic(), phrase
             browser = self._browser_language_locked(lang)
+            silent = time.monotonic() - self._sound_at
+        logger.info("talk: つなぎ %r (lang=%s, 無音 %.1f秒)", phrase, lang.value, silent)
         player.speak(phrase, browser)
 
     def _context_language_locked(self) -> Language:

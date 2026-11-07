@@ -165,7 +165,7 @@ class _DashboardHandlerTalkOps:
         self._send_json({"status": "ok"})
 
     def _talk_speech_done(self) -> None:
-        """POST /api/talk-speech/done {id} — タブが talk_speak の文を読み終えた（onend / onerror）"""
+        """POST /api/talk-speech/done {id, voice?, error?} — タブが talk_speak の文を読み終えた（onend / onerror）"""
         data = read_local_json_body(self, "talk")
         if data is None:
             return
@@ -173,6 +173,8 @@ class _DashboardHandlerTalkOps:
         if not isinstance(uid, str) or not uid or len(uid) > _MAX_SPEECH_ID_CHARS:
             self._send_json({"status": "error", "message": "id must be a short string"})
             return
+        logger.info("talk: タブが読み終えた (%s, 声 %r%s)", uid, str(data.get("voice") or "既定")[:80],
+                    f", エラー {str(data.get('error'))[:40]}" if data.get("error") else "")
         self._send_json({"status": "ok", "known": self.recorder.talk.speech_done(uid)})
 
     def _serve_pronounce(self) -> None:

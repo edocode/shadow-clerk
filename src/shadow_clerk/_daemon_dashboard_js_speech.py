@@ -31,17 +31,17 @@ function _speechVoice(lang){
 }
 /* Chrome は参照の切れた utterance を読み終える前に GC し、onend が来なくなる。読み終えるまでここに持っておく */
 const _speechLive=new Set();
-/* lang の声が無ければ既定の声で読む */
+/* lang の声が無ければ既定の声で読む。onDone には使った声の名前と、読めなかったときの理由を渡す */
 function speakText(text,lang,onDone){
   const u=new SpeechSynthesisUtterance(text);
   if(lang){u.lang=lang;const v=_speechVoice(lang);if(v)u.voice=v;}
-  u.onend=u.onerror=()=>{_speechLive.delete(u);if(onDone)onDone();};
+  u.onend=u.onerror=e=>{_speechLive.delete(u);if(onDone)onDone(u.voice?u.voice.name:'',(e&&e.error)||'');};
   _speechLive.add(u);
   speechSynthesis.speak(u);
 }
 function onTalkSpeak(d){
   if(d.tab!==SPEECH_TAB)return;
-  speakText(d.text,d.lang,()=>_speechPost('/api/talk-speech/done',{id:d.id}));
+  speakText(d.text,d.lang,(voice,error)=>_speechPost('/api/talk-speech/done',{id:d.id,voice,error}));
 }
 function onTalkSpeakCancel(d){if(d.tab===SPEECH_TAB)speechSynthesis.cancel();}
 function initSpeech(src){
