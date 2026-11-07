@@ -105,11 +105,14 @@ def test_standard_voice() -> None:
 def test_recommended_voice() -> None:
     with tempfile.TemporaryDirectory() as d:
         downloads.clear()
-        b = PiperBackend("recommended:british", model_dir=d)
-        b.synthesize("Hello.")
-        check("おすすめは VCTK を読まず、そのなまりの 1 話者モデルで読む",
-              synth[-1] is None and b.speaker_name in RECOMMENDED["british"] and not Path(d, PIPER_MODEL + ".onnx").exists(),
-              repr((synth[-1:], b.speaker_name)))
+        seen = {}
+        for _ in range(40):
+            b = PiperBackend("recommended:british", model_dir=d)
+            b.synthesize("Hello.")
+            seen[b.speaker_name] = synth[-1]
+        check("おすすめはそのなまりの声から選び、1 話者モデルは話者を指定せず、多話者モデルはその話者で読む",
+              set(seen) == set(RECOMMENDED["british"]) and seen[f"{PIPER_MODEL}#p226"] == 1
+              and all(v is None for k, v in seen.items() if "#" not in k), repr(seen))
 
 
 def test_unavailable() -> None:

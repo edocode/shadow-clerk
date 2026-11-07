@@ -27,10 +27,10 @@ PIPER_MODEL = "en_GB-vctk-medium"
 PIPER_DIR = os.path.join(DATA_DIR, "piper")
 RANDOM_VOICE = "random"
 RANDOM_PREFIX, RECOMMENDED_PREFIX = "random:", "recommended:"
-# 癖の少ない声（1 話者のモデル）。会話ごとに 1 つ選ぶ
+# 癖の少ない声。会話ごとに 1 つ選ぶ。多話者モデルは "モデル#話者"
 RECOMMENDED: dict[str, tuple[str, ...]] = {
     "american": ("en_US-hfc_female-medium", "en_US-hfc_male-medium"),
-    "british": ("en_GB-alba-medium", "en_GB-cori-medium", "en_GB-jenny_dioco-medium"),
+    "british": ("en_GB-alba-medium", "en_GB-cori-medium", "en_GB-jenny_dioco-medium", f"{PIPER_MODEL}#p226"),
 }
 # VCTK の話者を大まかななまりで分ける（コーパスの speaker-info の ACCENTS 欄から）。random:<名前> でその中から選ぶ
 ACCENTS: dict[str, tuple[str, ...]] = {
@@ -61,9 +61,9 @@ class PiperBackend:
         self._speaker: int | None = None
         self.speaker_name = ""
         self._error = ""
-        self._standard: Any = None
+        self._models: dict[str, Any] = {}
+        self._load_lock = threading.Lock()
         self.standard_model = random.choice(RECOMMENDED.get(accent, RECOMMENDED["american"]))
-        self._standard_lock = threading.Lock()
         self.standard = False  # 真なら標準的な声で読む（発音の練習）
         self._ready = threading.Thread(target=self._prepare, name="piper-load", daemon=True)
         self._ready.start()
@@ -71,7 +71,7 @@ class PiperBackend:
     def _prepare(self) -> None:
         try:
             if self._recommended:
-                self._voice, self.speaker_name = self._standard_voice(), self.standard_model
+                (self._voice, self._speaker), self.speaker_name = self._standard_voice(), self.standard_model
                 logger.info("talk: 英語は piper の %s で読みます", self.standard_model)
                 return
             voice = self._load(PIPER_MODEL)
@@ -90,21 +90,23 @@ class PiperBackend:
     def _load(self, model: str) -> Any:
         from piper import PiperVoice
         from piper.download_voices import download_voice
-        path = os.path.join(self._dir, model + ".onnx")
-        if not os.path.exists(path):
-            logger.info("talk: piper のモデル %s をダウンロードします", model)
-            os.makedirs(self._dir, exist_ok=True)
-            download_voice(model, Path(self._dir))
-        return PiperVoice.load(path)
+        with self._load_lock:
+            if model not in self._models:
+                path = os.path.join(self._dir, model + ".onnx")
+                if not os.path.exists(path):
+                    logger.info("talk: piper のモデル %s をダウンロードします", model)
+                    os.makedirs(self._dir, exist_ok=True)
+                    download_voice(model, Path(self._dir))
+                self._models[model] = PiperVoice.load(path)
+            return self._models[model]
 
-    def _standard_voice(self) -> Any:
-        with self._standard_lock:
-            if self._standard is None:
-                try:
-                    self._standard = self._load(self.standard_model)
-                except Exception as e:
-                    raise TtsError(str(e)) from e
-            return self._standard
+    def _standard_voice(self) -> tuple[Any, int | None]:
+        model, _, name = self.standard_model.partition("#")
+        try:
+            voice = self._load(model)
+            return voice, voice.config.speaker_id_map[name] if name else None
+        except Exception as e:
+            raise TtsError(str(e)) from e
 
     def check(self) -> None:
         pass
@@ -112,7 +114,7 @@ class PiperBackend:
     def synthesize(self, text: str) -> tuple[np.ndarray, int]:
         from piper import SynthesisConfig
         if self.standard:
-            voice, speaker = self._standard_voice(), None
+            voice, speaker = self._standard_voice()
         else:
             self._ready.join()
             if self._voice is None:
