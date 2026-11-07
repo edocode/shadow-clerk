@@ -3,7 +3,7 @@ name: clerk-practice
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、発音・会話・ヒアリング・実践会話・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」「中国語で会話を練習したい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.20.0"
+  version: "1.21.0"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -185,7 +185,8 @@ curl -s -X POST "http://localhost:8765/api/talk-voice" -H 'Content-Type: applica
 
 - なまりのある声のなまりは会話ごとに変わる。いろいろな英語を聞き取る練習になるので、なまりのせいで聞き取れなかったときは
   ゆっくり言い直すか綴りを見せて助け、なまりを直そうとしない。決まった声で練習したいと言われたら、設定の
-  `talk_piper_voice` に話者番号（`p239` など）を入れると固定できると伝える
+  `talk_piper_voice` に話者番号（`p239` など）を入れると固定でき、`british`・`scottish`・`irish`・`american`・`other`
+  （インド・南アフリカ・豪州・NZ）を入れるとそのなまりの中から会話ごとに選ぶと伝える
 - piper が入っていない・英語以外で、ダッシュボードが開いていない・ブラウザにその言語の声が無いときは読み上げられない
   （talk の状態欄に警告が出る）。お手本が聞こえないと言われたら、ダッシュボードを開いて一度クリックしておくよう伝える
 

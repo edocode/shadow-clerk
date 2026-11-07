@@ -290,7 +290,7 @@ STRINGS_EN: dict[str, str] = {
     "cfg.section.gcal": "Google Calendar Integration",
     "cfg.section.talk": "Talk with Claude",
     "cfg.talk_filler_sec": "Seconds before a filler (0 = off; applies from the next talk)",
-    "cfg.talk_piper_voice": "English speech voice (piper speaker: random picks one per talk, p239 etc. fixes it; applies from the next talk)",
+    "cfg.talk_piper_voice": "English speech voice (piper speaker: random picks one per talk; british, scottish, irish, american or other picks one with that accent; p239 etc. fixes it; applies from the next talk)",
     "cfg.section.pronounce": "Pronunciation feedback",
     "cfg.pronounce_enabled": "Phoneme-level pronunciation feedback (1.2GB model)",
     "cfg.pronounce_model": "Phoneme recognition model (English)",

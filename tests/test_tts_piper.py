@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 
 from shadow_clerk._daemon_tts import TtsError
-from shadow_clerk._daemon_tts_piper import PIPER_MODEL, STANDARD_MODEL, PiperBackend
+from shadow_clerk._daemon_tts_piper import ACCENTS, PIPER_MODEL, STANDARD_MODELS, PiperBackend
 
 results: list[bool] = []
 
@@ -23,7 +23,7 @@ def check(label: str, ok: bool, detail: str = "") -> None:
     results.append(ok)
 
 
-_SPEAKERS = {"p225": 0, "p226": 1, "p227": 2}
+_SPEAKERS = {"p225": 0, "p226": 1, "p227": 2, "p294": 3, "p297": 4}
 downloads: list[Path] = []
 synth: list[int | None] = []
 
@@ -78,6 +78,12 @@ def test_random_voice() -> None:
         b = PiperBackend("p999", model_dir=d)
         b.synthesize("Hi.")
         check("無い話者ならランダムに選ぶ", b.speaker_name in _SPEAKERS, b.speaker_name)
+        names = set()
+        for _ in range(20):
+            b = PiperBackend("american", model_dir=d)
+            b.synthesize("Hi.")
+            names.add(b.speaker_name)
+        check("なまりの名前ならその話者から選ぶ", names <= set(ACCENTS["american"]) and len(names) > 1, repr(names))
 
 
 def test_standard_voice() -> None:
@@ -88,7 +94,7 @@ def test_standard_voice() -> None:
         b.standard = True
         b.synthesize("Hello.")
         check("標準の声は話者を指定せず、そのモデルを初回にダウンロードする",
-              synth[-1] is None and downloads == [Path(d)] and Path(d, STANDARD_MODEL + ".onnx").exists(), repr(synth[-1:]))
+              synth[-1] is None and downloads == [Path(d)] and b.standard_model in STANDARD_MODELS and Path(d, b.standard_model + ".onnx").exists(), repr(synth[-1:]))
         b.standard = False
         b.synthesize("Hello.")
         check("戻せば会話の話者で読む", synth[-1] == 2, repr(synth[-1:]))
