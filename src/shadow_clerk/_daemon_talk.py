@@ -177,9 +177,11 @@ class TalkDriver:
                  sink_factory: Callable[[], Any] = PwCatSink,
                  clock: Callable[[], str] = now_timestamp,
                  speech: BrowserSpeech | None = None,
-                 heard_language: Callable[[], str | None] = lambda: None) -> None:
+                 heard_language: Callable[[], str | None] = lambda: None,
+                 monitor_muted: Callable[[], bool] = lambda: False) -> None:
         self._write_line = write_line
         self._heard_language = heard_language  # いま聞き取っている言語（ユーザーが話している言語）
+        self._monitor_muted = monitor_muted
         self._config_loader = config_loader
         self._backend_factory = backend_factory
         self._player_factory = player_factory
@@ -253,7 +255,7 @@ class TalkDriver:
                 player = TtsPlayer(backend, sink.play, self._report_error)
             else:
                 player = self._player_factory(backend, config, self._report_error)
-                player.set_remote(self._speech)  # 練習言語の文はダッシュボードのブラウザで読む（届け先ありでは使わない）
+            player.set_remote(self._speech)  # 練習言語の文はダッシュボードのブラウザで読む（ほかの参加者がいる間は使わない）
             tail_sec = _float_setting(config, "talk_echo_tail_sec", 0.3, 0.0, 30.0)
             echo = EchoFilter(tail_sec=tail_sec)
             player.set_on_played(lambda text, s, e: echo.record(SpokenSpan(s, e, text)))
@@ -329,6 +331,11 @@ class TalkDriver:
     def routed(self) -> bool:
         """届け先ありの talk mode か。会議のほかの参加者に声が届く"""
         return self._active and self._route is not None
+
+    def _with_others(self) -> bool:
+        """ほかの参加者と話しているか。届け先があっても monitor をミュートしていれば相手の声を聞いていない
+        （録画のために声を流しているだけの1人の練習など）ので、1対1と同じに扱う"""
+        return self._route is not None and not self._monitor_muted()
 
     def on_voice(self, source: str) -> None:
         """source が話している。monitor は中間文字起こしに文字が出たとき、mic は VAD が声を検出している間。
@@ -427,7 +434,7 @@ class TalkDriver:
                     engine.on_interrupt(cut)
                 logger.info("talk: 制止 (busy=%s, cut=%r)", busy, cut)
             # routed（多人数会議）では Claude 宛ての発言だけ応答する。制止の言葉は常に渡す
-            elif self._route is not None and not _is_addressed_to_claude(line.text):
+            elif self._with_others() and not _is_addressed_to_claude(line.text):
                 return
             else:
                 self._arm_filler_locked()
@@ -514,13 +521,13 @@ class TalkDriver:
         player.speak(phrase, browser)
 
     def _context_language_locked(self) -> Language:
-        """ユーザーがいま話している言語（聞き取りの言語）。auto や届け先あり（ブラウザで読めない）なら会話の言語"""
+        """ユーザーがいま話している言語（聞き取りの言語）。auto やほかの参加者がいる（ブラウザの声が届かない）なら会話の言語"""
         heard = Language.coerce(self._heard_language() or "")
-        return heard if isinstance(heard, Language) and self._route is None else self._lang
+        return heard if isinstance(heard, Language) and not self._with_others() else self._lang
 
     def _browser_language_locked(self, lang: Language | None) -> Language | None:
-        """lang の文をブラウザで読むならその言語。読み上げの言語（VOICEVOX）と同じか、届け先ありなら None"""
-        return lang if lang is not None and lang != self._lang and self._route is None else None
+        """lang の文をブラウザで読むならその言語。読み上げの言語（VOICEVOX）と同じか、ほかの参加者がいるなら None"""
+        return lang if lang is not None and lang != self._lang and not self._with_others() else None
 
     # --- 出力 ---
 
@@ -529,7 +536,7 @@ class TalkDriver:
 
         display があれば transcript の行にはそれを書く（読むのは text。答えの綴りを見せない語学の練習用）
 
-        lang が読み上げの言語（VOICEVOX）と違えば、その文はダッシュボードのブラウザで読む。届け先ありの talk mode
+        lang が読み上げの言語（VOICEVOX）と違えば、その文はダッシュボードのブラウザで読む。ほかの参加者がいる talk mode
         （ブラウザの音は会議アプリに届かない）と talk mode の外（一時的な再生器）では lang を見ない
         話し終えるのを待つ間に発言が届いたら、話題が変わったかもしれないので話さずにその発言を返す。
         届け先ありで話し出しが誰かと重なったら、譲って話さずに、その人の発言を返す（届く前なら空）。
@@ -544,7 +551,7 @@ class TalkDriver:
             heard = self._wait_for_floor(seen)
             if heard is None:
                 return None
-            if not heard and self.routed and player is not None and self._collides(player):
+            if not heard and self._active and self._with_others() and player is not None and self._collides(player):
                 return self._yield_floor(player, seen)
             if heard or (heard := self._lines_since(seen)):
                 return heard

@@ -893,7 +893,7 @@ and `exclude=claude` drops Claude's own `[Claude]` lines, sending nothing when a
 | `talk_speed` / `talk_pitch` / `talk_intonation` / `talk_volume` | `1.0` / `0.0` / `1.0` / `1.0` | Speed (0.5–2.0), pitch (-0.15–0.15), intonation (0–2), volume (0–2) |
 | `talk_output_devices` | `[]` | Output device names (empty = default output). Not used when a route is set; pw-cat plays to the default output |
 | `talk_engine` | `console` | `console` (AI Console + clerk-talk skill) or `headless` (`claude -p`) |
-| `talk_route_app` | `""` | Last app chosen under "Send Claude's voice to" (start-dialog default) |
+| `talk_route_app` | `""` | Last app chosen under "Send Claude's voice to" (start-dialog default). While the speaker (monitor) is muted — e.g. you only route the voice to record a solo practice — Claude behaves as in a one-to-one talk: no "um," before speaking, and practice-language sentences use the browser voice |
 | `talk_echo_tail_sec` | `0.3` | A monitor line that starts within this many seconds after Claude stops speaking is treated as Claude's own voice (covers output and capture latency). Lines that start later are kept. If the other side starts talking right after Claude with no silence gap, the VAD merges the two into one segment and it is dropped |
 | `talk_workdir` | `""` | Working directory for the talk session (empty = `ai_assistant_workdir`, then home). The start dialog can override it per session |
 | `talk_model` | `""` | Model for the talk session (empty = claude default); applies to both engines, picked in the start dialog |

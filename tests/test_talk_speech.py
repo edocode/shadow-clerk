@@ -168,7 +168,7 @@ class _RecSink(_Sink):
         self.events.append("vv:" + self.backend.texts[int(pcm[0])])
 
 
-def _talk(ack: float | None = 0.05, route: bool = False):
+def _talk(ack: float | None = 0.05, route: bool = False, muted: list[bool] | None = None):
     backend, events, made = _TextBackend(), [], {}
     speech = BrowserSpeech()
     bus = _Bus(speech, ack, events)
@@ -187,7 +187,8 @@ def _talk(ack: float | None = 0.05, route: bool = False):
     sink = _RecSink(events, backend)
     d = TalkDriver(lambda _l: None, config_loader=lambda: dict(_CONFIG), backend_factory=lambda cfg, v=None: backend,
                    player_factory=player_factory, engine_factory=engine_factory,
-                   route_factory=lambda: _Route(ok=route), sink_factory=lambda: sink, speech=speech)
+                   route_factory=lambda: _Route(ok=route), sink_factory=lambda: sink, speech=speech,
+                   monitor_muted=lambda: bool(muted and muted[0]))
     d.set_broadcaster(bus)
     return d, events, made, bus
 
@@ -244,6 +245,23 @@ def test_driver_route_ignores_lang() -> None:
     d.stop()
 
 
+def test_driver_route_with_muted_monitor_is_solo() -> None:
+    muted = [True]
+    d, events, made, bus = _talk(route=True, muted=muted)
+    d.speech_ready(_tab("tabA", "en"))
+    d.start("x", None, None, "Chromium")
+    d.say("Hello.", Language.EN)
+    _wait(lambda: events)
+    check("届け先ありでも monitor をミュート中（録画のため流すだけ）は一声なしで lang の文をブラウザで読む",
+          events == ["browser:Hello."], repr(events))
+    muted[0] = False
+    d.say("Hi.", Language.EN)
+    _wait(lambda: "vv:Hi." in events)
+    check("ミュートを解けばほかの参加者がいる扱いに戻る（一声のあと VOICEVOX）",
+          len(events) == 3 and events[-1] == "vv:Hi.", repr(events))
+    d.stop()
+
+
 def test_driver_stop_word_cancels_browser_sentence() -> None:
     d, events, made, bus = _talk(ack=None)
     d.speech_ready(_tab("tabA", "en"))
@@ -271,5 +289,6 @@ if __name__ == "__main__":
     test_driver_routes_by_lang()
     test_driver_skips_without_tab()
     test_driver_route_ignores_lang()
+    test_driver_route_with_muted_monitor_is_solo()
     test_driver_stop_word_cancels_browser_sentence()
     sys.exit(0 if all(results) else 1)

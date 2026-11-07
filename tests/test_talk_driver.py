@@ -228,6 +228,9 @@ class _RoutePlayer:
     def set_on_span(self, fn: Callable[[float, float | None], None]) -> None:
         pass
 
+    def set_remote(self, remote) -> None:
+        pass
+
     def close(self, discard_pending: bool = True) -> None:
         if self.wait_for is not None:
             self.wait_for.wait(5)
