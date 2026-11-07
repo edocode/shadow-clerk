@@ -209,7 +209,8 @@ class TtsPlayer:
     文には世代番号を付ける。interrupt() で世代を進めると、古い世代の文は合成も再生もされず、
     再生中の文も should_stop で途中で止まる。
 
-    lang 付きの文は、set_remote で渡した先（ブラウザ）が読めればそちらで読む。読めなければ、backend の言語なら
+    lang 付きの文は、backend の言語でなく set_foreign で渡した backend（piper）の言語ならそれで合成して鳴らす。
+    それ以外は set_remote で渡した先（ブラウザ）が読めればそちらで読む。読めなければ、backend の言語なら
     合成して鳴らし、そうでなければ鳴らさない。
     どちらの文も同じ再生キューを通るので、送った順に鳴る。
     """
@@ -223,6 +224,7 @@ class TtsPlayer:
         self._on_played: Callable[[str, float, float], None] | None = None
         self._on_span: Callable[[float, float | None], None] | None = None
         self._remote: RemoteSpeaker | None = None
+        self._foreign: TtsBackend | None = None
         self._texts: queue.Queue[tuple[int, str, Language | None] | None] = queue.Queue()
         # pcm が None の文は合成していない（ブラウザで読む候補）。Iterator はストリーミング合成のチャンク列
         self._audio: queue.Queue[tuple[int, str, np.ndarray | _IterABC[np.ndarray] | None, int, Language | None] | None] = queue.Queue(maxsize=2)
@@ -256,6 +258,20 @@ class TtsPlayer:
     def set_remote(self, remote: RemoteSpeaker | None) -> None:
         """lang 付きの文を読む先。渡さなければ lang 付きの文も合成して鳴らす（届け先ありの talk mode）"""
         self._remote = remote
+
+    def set_foreign(self, backend: TtsBackend | None) -> None:
+        """backend の言語でない文を合成する先。合成した音は backend の音と同じ経路（届け先も）で鳴る"""
+        self._foreign = backend
+
+    def _synth_foreign(self, text: str, lang: Language | None) -> tuple[np.ndarray, int] | None:
+        foreign = self._foreign
+        if lang is None or foreign is None or lang in self._backend.LANGUAGES or lang not in foreign.LANGUAGES:
+            return None
+        try:
+            return foreign.synthesize(text)
+        except Exception as e:  # 読めなければブラウザに回す
+            logger.warning("talk: %s で合成できないのでブラウザに回します: %s", foreign.credit(), e)
+            return None
 
     def speak(self, text: str, lang: Language | None = None) -> None:
         gen = self._gen
@@ -299,6 +315,12 @@ class TtsPlayer:
             gen, text, lang = item
             if self._stale(gen):
                 self._add_pending(-1)
+                continue
+            if (foreign := self._synth_foreign(text, lang)) is not None:
+                if self._stale(gen):
+                    self._add_pending(-1)
+                else:
+                    self._audio.put((gen, text, *foreign, lang))
                 continue
             if lang is not None and self._remote is not None:
                 self._audio.put((gen, text, None, 0, lang))  # 読む先は鳴らす直前に決める（タブの状態はそのときのもの）

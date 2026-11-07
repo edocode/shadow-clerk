@@ -22,6 +22,7 @@ from shadow_clerk._daemon_talk_prompt import (filler_phrase, probe_phrase, reque
 from shadow_clerk._daemon_talk_speech import BrowserSpeech
 from shadow_clerk._daemon_tts import TtsBackend, TtsError, TtsPlayer, make_backend, make_player
 from shadow_clerk._daemon_tts_pipewire import PwCatSink
+from shadow_clerk._daemon_tts_piper import make_foreign_backend
 from shadow_clerk.domain import (EchoFilter, Language, SpeechTab, SpokenSpan, Speaker, TalkPersona, TalkVoice,
                                  TranscriptLine)
 from shadow_clerk.domain.ai_assistant import AiAssistantConfig
@@ -172,6 +173,7 @@ class TalkDriver:
                  config_loader: Callable[[], dict] = load_config,
                  backend_factory: Callable[[dict, TalkVoice | None], TtsBackend] = make_backend,
                  player_factory: Callable[[TtsBackend, dict, Callable[[str], None]], TtsPlayer] = make_player,
+                 foreign_factory: Callable[[dict], TtsBackend | None] = make_foreign_backend,
                  engine_factory: Callable[[str], TalkEngine] = make_engine,
                  route_factory: Callable[[], TalkRoute] = make_route,
                  sink_factory: Callable[[], Any] = PwCatSink,
@@ -185,6 +187,7 @@ class TalkDriver:
         self._config_loader = config_loader
         self._backend_factory = backend_factory
         self._player_factory = player_factory
+        self._foreign_factory = foreign_factory
         self._engine_factory = engine_factory
         self._route_factory = route_factory
         self._sink_factory = sink_factory
@@ -255,7 +258,8 @@ class TalkDriver:
                 player = TtsPlayer(backend, sink.play, self._report_error)
             else:
                 player = self._player_factory(backend, config, self._report_error)
-            player.set_remote(self._speech)  # 練習言語の文はダッシュボードのブラウザで読む（ほかの参加者がいる間は使わない）
+            player.set_foreign(self._foreign_factory(config))  # ja 以外の文は piper で読み、届け先にも流す
+            player.set_remote(self._speech)  # piper が無ければ練習言語の文はダッシュボードのブラウザで読む（ほかの参加者がいる間は使わない）
             tail_sec = _float_setting(config, "talk_echo_tail_sec", 0.3, 0.0, 30.0)
             echo = EchoFilter(tail_sec=tail_sec)
             player.set_on_played(lambda text, s, e: echo.record(SpokenSpan(s, e, text)))

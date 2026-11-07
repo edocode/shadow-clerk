@@ -104,6 +104,11 @@ pronounce = [
     "sudachidict-core>=20240409",
 ]
 
+# talk mode で ja 以外（英語）の文を piper で読む。VOICEVOX の日本語なまりを避け、届け先（録画）にも流す
+piper = [
+    "piper-tts>=1.3.0",
+]
+
 # 聞き間違いの目印 (kana_hint: true)。文字起こしの読みを形態素解析で取り、
 # かな認識モデル (wav2vec2) の音と食い違う語に「(音のかな?)」を添える
 kana-hint = [

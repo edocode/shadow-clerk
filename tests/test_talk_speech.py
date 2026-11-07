@@ -186,7 +186,7 @@ def _talk(ack: float | None = 0.05, route: bool = False, muted: list[bool] | Non
 
     sink = _RecSink(events, backend)
     d = TalkDriver(lambda _l: None, config_loader=lambda: dict(_CONFIG), backend_factory=lambda cfg, v=None: backend,
-                   player_factory=player_factory, engine_factory=engine_factory,
+                   player_factory=player_factory, engine_factory=engine_factory, foreign_factory=lambda _c: None,
                    route_factory=lambda: _Route(ok=route), sink_factory=lambda: sink, speech=speech,
                    monitor_muted=lambda: bool(muted and muted[0]))
     d.set_broadcaster(bus)

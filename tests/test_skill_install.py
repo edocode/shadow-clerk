@@ -298,7 +298,7 @@ def test_talk_skill_reads_glossary_and_misheard() -> None:
     for needle in ('/api/glossary"', '/api/misheard"', "POST"):
         check(f"talk skill が {needle} を使う", needle in text)
     check("talk skill の版が 1.10.0", skill_install.read_skill_version(
-        skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME)) == "1.10.0")
+        skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME)) == "1.11.0")
     quirks = skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME) / "../clerk-meeting-helper/references/transcript-quirks.md"
     check("参照している崩れ方の説明が同梱されている", "../clerk-meeting-helper/references/transcript-quirks.md" in text
           and quirks.resolve().is_file(), str(quirks))
