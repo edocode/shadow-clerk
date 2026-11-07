@@ -591,6 +591,7 @@ STRINGS_EN: dict[str, str] = {
     # --- speaker.* ---
     "speaker.mic": "Me",
     "speaker.monitor": "Others",
+    "talk.browser_speech_unavailable": "Cannot read the practice-language sentence in the browser. Open the dashboard and click it once",
     "talk.voicevox_unreachable": "Cannot reach the VOICEVOX engine ({url}): {error}",
     "talk.preview_text": "Hello. This is how I will sound.",
     "talk.claude_start_failed": "Cannot start claude: {error}",

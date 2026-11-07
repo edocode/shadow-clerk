@@ -469,7 +469,7 @@ class _RecorderTranscribeMixin:
         logger.info(t("rec.recording"))
         logger.info(t("rec.output", path=self.output_path))
 
-        self.talk = TalkDriver(self._append_transcript_line)
+        self.talk = TalkDriver(self._append_transcript_line, heard_language=lambda: self.transcriber.language)
         self.pronounce = PronounceDriver()
         self.kana_hint = KanaHinter()
         self.mic_segmenter = VADSegmenter()

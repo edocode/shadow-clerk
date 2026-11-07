@@ -162,11 +162,14 @@ def test_remote_busy_until_done_and_interrupt() -> None:
 
 def test_remote_fallback() -> None:
     played: list[int] = []
-    p = TtsPlayer(_FakeBackend(), lambda pcm, sr, stop: played.append(int(pcm[0])), lambda _m: None)
+    errors: list[str] = []
+    p = TtsPlayer(_FakeBackend(), lambda pcm, sr, stop: played.append(int(pcm[0])), errors.append)
     p.set_remote(_Remote(langs=()))
     p.speak("Bonjour.", Language.FR)
+    p.speak("こんにちは。", Language.JA)
     p.close(discard_pending=False)
-    check("読めるタブが無ければ VOICEVOX で読む", played == [8], repr(played))
+    check("読めるタブが無ければ、VOICEVOX の言語の文だけ VOICEVOX で読み、ほかは鳴らさず知らせる",
+          played == [6] and len(errors) == 1 and not p.is_busy(), repr((played, errors)))
     played2: list[int] = []
     p2 = TtsPlayer(_FakeBackend(), lambda pcm, sr, stop: played2.append(int(pcm[0])), lambda _m: None)
     p2.speak("Hello.", Language.EN)

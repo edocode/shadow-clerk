@@ -608,6 +608,7 @@ STRINGS_JA: dict[str, str] = {
     # --- speaker.* : スピーカーラベル表示用 ---
     "speaker.mic": "自分",
     "speaker.monitor": "相手",
+    "talk.browser_speech_unavailable": "練習言語の文をブラウザで読み上げられません。ダッシュボードを開いて一度クリックしてください",
     "talk.voicevox_unreachable": "VOICEVOX エンジンに接続できません ({url}): {error}",
     "talk.preview_text": "こんにちは。この声と速さで話します。",
     "talk.claude_start_failed": "claude を起動できません: {error}",

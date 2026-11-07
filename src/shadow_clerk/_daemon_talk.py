@@ -90,6 +90,8 @@ _YIELD_LINE_WAIT_SEC = 3.0  # 譲った後、相手が黙ってから発言の�
 # talk 終了後もこの秒数はモニターの文字起こしを捨てる。
 # stop() の後もキューに積まれた音声が ASR を通ってくるため
 STOP_MONITOR_GRACE_SEC = 5.0
+# かな・漢字を含む文は日本語。聞き取りの言語が英語でも、日本語の説明は VOICEVOX で読む
+_JA_SCRIPT_RE = re.compile(r"[\u3040-\u30ff\u3400-\u9fff]")
 
 # "Claude、〇〇して" のような Claude 宛ての依頼・質問を検出する
 # 先頭に Claude（日本語 ASR では「クロード」）があり、依頼（て形）または疑問（?）で終わる
@@ -174,8 +176,10 @@ class TalkDriver:
                  route_factory: Callable[[], TalkRoute] = make_route,
                  sink_factory: Callable[[], Any] = PwCatSink,
                  clock: Callable[[], str] = now_timestamp,
-                 speech: BrowserSpeech | None = None) -> None:
+                 speech: BrowserSpeech | None = None,
+                 heard_language: Callable[[], str | None] = lambda: None) -> None:
         self._write_line = write_line
+        self._heard_language = heard_language  # いま聞き取っている言語（ユーザーが話している言語）
         self._config_loader = config_loader
         self._backend_factory = backend_factory
         self._player_factory = player_factory
@@ -209,6 +213,8 @@ class TalkDriver:
         self._filler_said = -1  # 最後につなぎを挟んだときの _said。1回の返事待ちに1回まで
         self._filler_at = float("-inf")  # 最後につなぎを挟んだ時刻（monotonic）
         self._filler_last = ""
+        self._filler_timer: threading.Timer | None = None
+        self._sound_at = float("-inf")  # 最後に誰かの声（mic・monitor・行・Claude の読み上げ）があった時刻（monotonic）
         self._probe_last = ""
         self._floor_wait_sec = 0.0
         self._heard: dict[str, float] = {}  # source → 中間文字起こしに文字が出た最後の時刻（monotonic）
@@ -327,7 +333,7 @@ class TalkDriver:
     def on_voice(self, source: str) -> None:
         """source が話している。monitor は中間文字起こしに文字が出たとき、mic は VAD が声を検出している間。
         確定行の処理（clear_interim）か SPEAKING_STALE_SEC の無更新で消える"""
-        self._heard[source] = time.monotonic()
+        self._heard[source] = self._sound_at = time.monotonic()
 
     def on_interim(self, source: str, text: str = "") -> None:
         """source の中間文字起こしに文字が出た。最新の文字を、確定行が来るまで interim_texts() で渡す"""
@@ -378,6 +384,7 @@ class TalkDriver:
             self._playback.open(start)
         else:
             self._playback.close(end)
+            self._sound_at = time.monotonic()
 
     def clear_part(self, seg_start: float, seg_end: float) -> tuple[float, float]:
         """セグメントのうち読み上げ区間と重ならない最長の部分。発音フィードバックの gate（設計書 §8.1、§10）"""
@@ -402,6 +409,7 @@ class TalkDriver:
         engine.on_self_line(line.text)
 
     def _note_line_locked(self, line: TranscriptLine) -> None:
+        self._sound_at = time.monotonic()
         self._lines_seen += 1
         self._recent_lines.append(line)
 
@@ -475,21 +483,42 @@ class TalkDriver:
         self._report_error(reason)
         self.stop()
 
-    def _arm_filler_locked(self) -> None:
+    def _arm_filler_locked(self, delay: float | None = None) -> None:
         if self._filler_sec <= 0:
             return
-        timer = threading.Timer(self._filler_sec, self._filler, args=(self._said,))
-        timer.daemon = True
-        timer.start()
+        if self._filler_timer is not None:
+            self._filler_timer.cancel()
+        self._filler_timer = threading.Timer(self._filler_sec if delay is None else delay, self._filler,
+                                             args=(self._said,))
+        self._filler_timer.daemon = True
+        self._filler_timer.start()
 
     def _filler(self, said: int) -> None:
+        """返事待ちのあいだ、無音（誰の声も Claude の読み上げも無い時間）が talk_filler_sec 続いたらつなぎを挟む。
+        行が届いた時刻から数えると、一続きの発言が複数の行に分かれたとき、言い終えた直後に挟んでしまう"""
         with self._lock:
             if (not self._active or self._said != said or self._filler_said == said
-                    or time.monotonic() - self._filler_at < FILLER_COOLDOWN_SEC or self.speaking()):
+                    or time.monotonic() - self._filler_at < FILLER_COOLDOWN_SEC):
                 return
-            player, phrase = self._player, filler_phrase(self._lang, self._filler_last)
+            busy = bool(self.speaking()) or self._player.is_busy()
+            rest = self._filler_sec if busy else self._sound_at + self._filler_sec - time.monotonic()
+            if rest > 0:
+                self._arm_filler_locked(rest)
+                return
+            lang = self._context_language_locked()
+            player, phrase = self._player, filler_phrase(lang, self._filler_last)
             self._filler_said, self._filler_at, self._filler_last = said, time.monotonic(), phrase
-        player.speak(phrase)
+            browser = self._browser_language_locked(lang)
+        player.speak(phrase, browser)
+
+    def _context_language_locked(self) -> Language:
+        """ユーザーがいま話している言語（聞き取りの言語）。auto や届け先あり（ブラウザで読めない）なら会話の言語"""
+        heard = Language.coerce(self._heard_language() or "")
+        return heard if isinstance(heard, Language) and self._route is None else self._lang
+
+    def _browser_language_locked(self, lang: Language | None) -> Language | None:
+        """lang の文をブラウザで読むならその言語。読み上げの言語（VOICEVOX）と同じか、届け先ありなら None"""
+        return lang if lang is not None and lang != self._lang and self._route is None else None
 
     # --- 出力 ---
 
@@ -520,7 +549,9 @@ class TalkDriver:
         self._write_line(TranscriptLine(self._clock(), Speaker.CLAUDE, one_line(display or "") or text))
         with self._lock:
             player = self._player
-            browser = lang if lang is not None and lang != self._lang and self._route is None else None
+            if lang is None and self._lang == Language.JA and not _JA_SCRIPT_RE.search(text):
+                lang = self._context_language_locked()  # 英語の会話で lang を付け忘れた文を VOICEVOX で読まない
+            browser = self._browser_language_locked(lang)
         if player is not None:
             player.speak(text, browser)
             return None

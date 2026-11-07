@@ -867,7 +867,7 @@ pronunciation, conversation, listening or immersion practice (practice language 
 sentences to **Analysis** in the 💡 AI advice tab; lines starting with 🔊 are read aloud when you click them, in the
 language tagged after it (`🔊[en] …`); `🔊[en|sentence] Question 1` shows only "Question 1" and reads the hidden sentence (listening practice). Claude speaks practice-language sentences with the browser's voice (Web Speech API)
 instead of VOICEVOX, so keep the dashboard open and click it once (browsers only allow speech after a user action);
-without such a tab those sentences fall back to VOICEVOX. The speaker (monitor) is muted while practising, and
+without such a tab those sentences are not spoken (VOICEVOX would read them with a Japanese accent) and the talk status shows a warning. While the recognition language is not the conversation language (e.g. `en` in immersion practice), fillers are in that language and English sentences sent without `lang` also go to the browser. The speaker (monitor) is muted while practising, and
 Claude ends with a "今日の練習のまとめ: …" line that the next session builds on.
 
 The skill uses these localhost-only endpoints, which you can also call yourself:
@@ -901,7 +901,7 @@ and `exclude=claude` drops Claude's own `[Claude]` lines, sending nothing when a
 | `talk_language` | `""` | Conversation language (empty = `translate_language`). Falls back to the TTS default when unsupported (VOICEVOX: Japanese only) |
 | `talk_personas` | `{}` | Name → personality / how to respond. Edit from the start dialog |
 | `talk_default_persona` | `""` | Persona selected by default |
-| `talk_filler_sec` | `8` | If Claude has said nothing for this many seconds after you spoke, say a short "hmm" (not written to the transcript). At most once while waiting for a reply, and at least 30 s apart. `0` disables it. Also in Settings |
+| `talk_filler_sec` | `8` | While waiting for a reply, if there has been silence (no one speaking and Claude not playing) for this many seconds, say a short "hmm" (not written to the transcript; in the language currently being recognised). At most once while waiting for a reply, and at least 30 s apart. `0` disables it. Also in Settings |
 | `talk_floor_wait_sec` | `10` | With a meeting app chosen, how long a reply waits for the others to stop talking (interim text present) before it is spoken anyway. `0` disables waiting |
 | `talk_stop_words` | `["待って", "ストップ", "止めて", "やめて", "stop", "wait", "hold on"]` | Saying one of these stops Claude mid-sentence. Substring match, so avoid short kana that appear inside other words; ASCII words match whole words |
 

@@ -216,12 +216,14 @@ def test_driver_routes_by_lang() -> None:
     d.stop()
 
 
-def test_driver_falls_back_without_tab() -> None:
+def test_driver_skips_without_tab() -> None:
     d, events, made, bus = _talk()
     d.start("x", None)
     d.say("Hello.", Language.EN)
-    _wait(lambda: events)
-    check("名乗ったタブが無ければ VOICEVOX で読む", events == ["vv:Hello."] and bus.sent == [], repr(events))
+    d.say("日本語です。")
+    _wait(lambda: events and not made["player"].is_busy())
+    check("名乗ったタブが無ければ、練習言語の文は VOICEVOX で読まずに知らせる",
+          events == ["vv:日本語です。"] and bus.sent == [] and d.snapshot()["error"], repr(events))
     d.stop()
     d2, events2, _m, bus2 = _talk()
     d2.speech_ready(_tab("tabA", "en"))
@@ -267,7 +269,7 @@ if __name__ == "__main__":
     test_ready_expires_and_withdraws()
     test_two_tabs_last_one_wins()
     test_driver_routes_by_lang()
-    test_driver_falls_back_without_tab()
+    test_driver_skips_without_tab()
     test_driver_route_ignores_lang()
     test_driver_stop_word_cancels_browser_sentence()
     sys.exit(0 if all(results) else 1)

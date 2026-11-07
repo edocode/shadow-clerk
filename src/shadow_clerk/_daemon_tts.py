@@ -12,6 +12,7 @@ from typing import Any, Callable, Protocol
 import numpy as np
 
 from shadow_clerk.domain import Language, TalkVoice, estimate_speech_sec
+from shadow_clerk.i18n import t
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -208,7 +209,8 @@ class TtsPlayer:
     文には世代番号を付ける。interrupt() で世代を進めると、古い世代の文は合成も再生もされず、
     再生中の文も should_stop で途中で止まる。
 
-    lang 付きの文は、set_remote で渡した先（ブラウザ）が読めればそちらで読み、読めなければ合成して鳴らす。
+    lang 付きの文は、set_remote で渡した先（ブラウザ）が読めればそちらで読む。読めなければ、backend の言語なら
+    合成して鳴らし、そうでなければ鳴らさない。
     どちらの文も同じ再生キューを通るので、送った順に鳴る。
     """
 
@@ -348,7 +350,12 @@ class TtsPlayer:
                 if pcm is None:
                     if lang is not None and self._speak_remote(text, lang, should_stop):
                         continue
-                    pcm, sr = self._backend.synthesize(text)  # 読めるタブが無い。VOICEVOX で読む
+                    if lang not in self._backend.LANGUAGES:
+                        # 読めるタブが無い。VOICEVOX は自分の言語でない文を母語なまりで読み、お手本にならないので鳴らさない
+                        logger.info("talk: ブラウザで読めないので鳴らしません (%s): %r", lang, text)
+                        self._on_error(t("talk.browser_speech_unavailable"))
+                        continue
+                    pcm, sr = self._backend.synthesize(text)
                 if isinstance(pcm, _IterABC):
                     self._notify(text, estimate_speech_sec(text))
                     if self._stream_play is not None:
