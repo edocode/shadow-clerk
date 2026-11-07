@@ -118,6 +118,16 @@ class _DashboardHandlerTalkOps:
                 return
         self._send_json({"status": "ok", "talk": talk.snapshot()})
 
+    def _talk_voice(self) -> None:
+        """POST /api/talk-voice {standard} — 英文を標準的な声で読むか（発音の練習）、なまりのある声で読むか（talk の skill 用）"""
+        data = read_local_json_body(self, "talk")
+        if data is None:
+            return
+        if not isinstance(standard := data.get("standard"), bool):
+            self._send_json({"status": "error", "message": "standard must be a boolean"})
+            return
+        self._send_json({"status": "ok", "piper": self.recorder.talk.set_standard_voice(standard)})
+
     def _end_talk(self) -> None:
         """POST /api/talk-end — 読み上げ中の文を言い終えてから talk mode を終える（talk の skill 用）"""
         if read_local_json_body(self, "talk") is None:
@@ -165,7 +175,7 @@ class _DashboardHandlerTalkOps:
         self._send_json({"status": "ok"})
 
     def _talk_speech_done(self) -> None:
-        """POST /api/talk-speech/done {id} — タブが talk_speak の文を読み終えた（onend / onerror）"""
+        """POST /api/talk-speech/done {id, voice?, error?} — タブが talk_speak の文を読み終えた（onend / onerror）"""
         data = read_local_json_body(self, "talk")
         if data is None:
             return
@@ -173,6 +183,8 @@ class _DashboardHandlerTalkOps:
         if not isinstance(uid, str) or not uid or len(uid) > _MAX_SPEECH_ID_CHARS:
             self._send_json({"status": "error", "message": "id must be a short string"})
             return
+        logger.info("talk: タブが読み終えた (%s, 声 %r%s)", uid, str(data.get("voice") or "既定")[:80],
+                    f", エラー {str(data.get('error'))[:40]}" if data.get("error") else "")
         self._send_json({"status": "ok", "known": self.recorder.talk.speech_done(uid)})
 
     def _serve_pronounce(self) -> None:

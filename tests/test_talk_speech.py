@@ -168,7 +168,7 @@ class _RecSink(_Sink):
         self.events.append("vv:" + self.backend.texts[int(pcm[0])])
 
 
-def _talk(ack: float | None = 0.05, route: bool = False):
+def _talk(ack: float | None = 0.05, route: bool = False, muted: list[bool] | None = None):
     backend, events, made = _TextBackend(), [], {}
     speech = BrowserSpeech()
     bus = _Bus(speech, ack, events)
@@ -186,8 +186,9 @@ def _talk(ack: float | None = 0.05, route: bool = False):
 
     sink = _RecSink(events, backend)
     d = TalkDriver(lambda _l: None, config_loader=lambda: dict(_CONFIG), backend_factory=lambda cfg, v=None: backend,
-                   player_factory=player_factory, engine_factory=engine_factory,
-                   route_factory=lambda: _Route(ok=route), sink_factory=lambda: sink, speech=speech)
+                   player_factory=player_factory, engine_factory=engine_factory, foreign_factory=lambda _c: None,
+                   route_factory=lambda: _Route(ok=route), sink_factory=lambda: sink, speech=speech,
+                   monitor_muted=lambda: bool(muted and muted[0]))
     d.set_broadcaster(bus)
     return d, events, made, bus
 
@@ -216,12 +217,14 @@ def test_driver_routes_by_lang() -> None:
     d.stop()
 
 
-def test_driver_falls_back_without_tab() -> None:
+def test_driver_skips_without_tab() -> None:
     d, events, made, bus = _talk()
     d.start("x", None)
     d.say("Hello.", Language.EN)
-    _wait(lambda: events)
-    check("名乗ったタブが無ければ VOICEVOX で読む", events == ["vv:Hello."] and bus.sent == [], repr(events))
+    d.say("日本語です。")
+    _wait(lambda: events and not made["player"].is_busy())
+    check("名乗ったタブが無ければ、練習言語の文は VOICEVOX で読まずに知らせる",
+          events == ["vv:日本語です。"] and bus.sent == [] and d.snapshot()["error"], repr(events))
     d.stop()
     d2, events2, _m, bus2 = _talk()
     d2.speech_ready(_tab("tabA", "en"))
@@ -239,6 +242,23 @@ def test_driver_route_ignores_lang() -> None:
     check("届け先ありでは lang を無視して VOICEVOX（話し出しの一声のあと）", len(events) == 2 and events[0] in [f"vv:{p}" for p in _PROBES[Language.JA]]
           and events[1] == "vv:Hello." and bus.sent == [],
           repr(events))
+    d.stop()
+
+
+def test_driver_route_with_muted_monitor_is_solo() -> None:
+    muted = [True]
+    d, events, made, bus = _talk(route=True, muted=muted)
+    d.speech_ready(_tab("tabA", "en"))
+    d.start("x", None, None, "Chromium")
+    d.say("Hello.", Language.EN)
+    _wait(lambda: events)
+    check("届け先ありでも monitor をミュート中（録画のため流すだけ）は一声なしで lang の文をブラウザで読む",
+          events == ["browser:Hello."], repr(events))
+    muted[0] = False
+    d.say("Hi.", Language.EN)
+    _wait(lambda: "vv:Hi." in events)
+    check("ミュートを解けばほかの参加者がいる扱いに戻る（一声のあと VOICEVOX）",
+          len(events) == 3 and events[-1] == "vv:Hi.", repr(events))
     d.stop()
 
 
@@ -267,7 +287,8 @@ if __name__ == "__main__":
     test_ready_expires_and_withdraws()
     test_two_tabs_last_one_wins()
     test_driver_routes_by_lang()
-    test_driver_falls_back_without_tab()
+    test_driver_skips_without_tab()
     test_driver_route_ignores_lang()
+    test_driver_route_with_muted_monitor_is_solo()
     test_driver_stop_word_cancels_browser_sentence()
     sys.exit(0 if all(results) else 1)

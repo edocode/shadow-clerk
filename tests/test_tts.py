@@ -162,11 +162,14 @@ def test_remote_busy_until_done_and_interrupt() -> None:
 
 def test_remote_fallback() -> None:
     played: list[int] = []
-    p = TtsPlayer(_FakeBackend(), lambda pcm, sr, stop: played.append(int(pcm[0])), lambda _m: None)
+    errors: list[str] = []
+    p = TtsPlayer(_FakeBackend(), lambda pcm, sr, stop: played.append(int(pcm[0])), errors.append)
     p.set_remote(_Remote(langs=()))
     p.speak("Bonjour.", Language.FR)
+    p.speak("こんにちは。", Language.JA)
     p.close(discard_pending=False)
-    check("読めるタブが無ければ VOICEVOX で読む", played == [8], repr(played))
+    check("読めるタブが無ければ、VOICEVOX の言語の文だけ VOICEVOX で読み、ほかは鳴らさず知らせる",
+          played == [6] and len(errors) == 1 and not p.is_busy(), repr((played, errors)))
     played2: list[int] = []
     p2 = TtsPlayer(_FakeBackend(), lambda pcm, sr, stop: played2.append(int(pcm[0])), lambda _m: None)
     p2.speak("Hello.", Language.EN)
@@ -184,6 +187,31 @@ def test_remote_on_played_uses_estimate() -> None:
     p.close(discard_pending=False)
     check("ブラウザの文も見積もりの区間で知らせる", len(spans) == 1 and spans[0][0] == "They are there."
           and abs(spans[0][2] - spans[0][1] - estimate_speech_sec("They are there.")) < 1e-6, repr(spans))
+
+
+class _FakeForeign(_FakeBackend):
+    """piper の代役。PCM の値は文字数 + 100、サンプルレートは 22050"""
+    LANGUAGES = (Language.EN,)
+
+    def synthesize(self, text: str) -> tuple[np.ndarray, int]:
+        if text == self.fail_on:
+            raise TtsError("boom")
+        return np.full(10, len(text) + 100, dtype=np.float32), 22050
+
+
+def test_foreign_backend() -> None:
+    events: list[str] = []
+    p = TtsPlayer(_FakeBackend(), lambda pcm, sr, stop: events.append(f"{int(pcm[0])}@{sr}"), lambda _m: None)
+    p.set_remote(_Remote(langs=(Language.EN, Language.FR), events=events))
+    p.set_foreign(_FakeForeign(fail_on="Broken."))
+    p.speak("あ。")
+    p.speak("Hi there.", Language.EN)
+    p.speak("Bonjour.", Language.FR)
+    p.speak("かか。", Language.JA)
+    p.speak("Broken.", Language.EN)
+    p.close(discard_pending=False)
+    check("英文は piper で合成して同じ経路で鳴らし、piper の言語でない文はブラウザ、ja は VOICEVOX",
+          events == ["2@24000", "109@22050", "remote:Bonjour.", "3@24000", "remote:Broken."], repr(events))
 
 
 def _wav_bytes(samples: np.ndarray, sr: int) -> bytes:
@@ -411,4 +439,5 @@ if __name__ == "__main__":
     test_remote_busy_until_done_and_interrupt()
     test_remote_fallback()
     test_remote_on_played_uses_estimate()
+    test_foreign_backend()
     sys.exit(0 if all(results) else 1)

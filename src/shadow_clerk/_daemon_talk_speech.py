@@ -69,6 +69,7 @@ class BrowserSpeech:
         try:
             send("talk_speak", json.dumps({"id": uid, "tab": tab.tab, "text": text, "lang": lang.value},
                                           ensure_ascii=False))
+            logger.info("talk: ブラウザに読み上げを送る (%s, タブ %s, %s): %r", uid, tab.tab, lang.value, text)
             sent, estimate = self._clock(), estimate_speech_sec(text)
             deadline = sent + estimate + self._grace
             while not ev.wait(_POLL_SEC):

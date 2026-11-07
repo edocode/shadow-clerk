@@ -24,6 +24,7 @@ OUT_OF_UI: dict[str, str] = {
     "/api/speaker-roster": "スキルが参照する話者一覧",
     "/api/pronounce": "clerk-practice スキル（発音の判定）",
     "/api/talk-end": "clerk-talk スキル（会議を終える）",
+    "/api/talk-voice": "clerk-practice スキル（発音の練習で英語を標準の声にする）",
     "/api/language": "clerk-talk / clerk-practice スキル（認識言語の切り替え）",
     "/api/mute": "clerk-practice スキル（相手側の音を止める）",
     "/api/summary/notify": "要約を書いた側（スキル / clerk-util）からの通知",

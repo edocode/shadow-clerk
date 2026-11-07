@@ -255,6 +255,7 @@ DEFAULT_CONFIG = {
     "talk_route_app": "",            # 最後に選んだ「Claude の声を届ける先」のアプリ名（開始モーダルの初期値）
     "talk_echo_tail_sec": 0.3,       # 読み上げ終了後この秒数までに始まった monitor の行を Claude の声とみなす（再生・録音の遅れ分）
     "talk_workdir": "",              # 会話役の作業ディレクトリ。空なら ai_assistant_workdir → ホーム
+    "talk_piper_voice": "random",    # ja 以外の文を読む piper の声。random / random:<なまり>（VCTK から会話ごとに選ぶ）/ recommended:american|british / p239 などで固定
     "talk_filler_sec": 8,           # [自分] 行のあと応答がこの秒数来なければ「えーっと」などを挟む。0 で無効
     "talk_floor_wait_sec": 10,       # 届け先ありで相手が話している（中間文字起こしに文字がある）間、話し出すのを最長この秒数待つ。0 で待たない
     # 読み上げ中・生成中にこれを含む発言があれば止める。部分一致なので「まとめて」に当たる

@@ -98,8 +98,8 @@ console.log(JSON.stringify(out));
 """)
     check("ほかのタブ宛ての文は読まない", out["other"] == 0, repr(out))
     check("自分宛ての文をその言語の声で読む", out["utt"] == {"text": "Yes.", "lang": "en", "voice": "E"}, repr(out))
-    check("読み終えたら done を返す", out["onEnd"] == [["/api/talk-speech/done", {"id": "s2"}]], repr(out))
-    check("読めなかったときも done を返す", out["onError"] == [["/api/talk-speech/done", {"id": "s3"}]], repr(out))
+    check("読み終えたら、使った声を添えて done を返す", out["onEnd"] == [["/api/talk-speech/done", {"id": "s2", "voice": "E", "error": ""}]], repr(out))
+    check("読めなかったときも、理由を添えて done を返す", out["onError"] == [["/api/talk-speech/done", {"id": "s3", "voice": "E", "error": "interrupted"}]], repr(out))
     check("ほかのタブ宛ての cancel では止めない", out["cancelOther"] == 0, repr(out))
     check("自分宛ての cancel で止める", out["cancelMine"] == 1, repr(out))
 

@@ -62,6 +62,9 @@ class _Player:
     def set_remote(self, remote) -> None:
         pass
 
+    def set_foreign(self, backend) -> None:
+        self.foreign = backend
+
     def speak(self, text: str, lang: Language | None = None) -> None:
         self.spoken.append(text)
 
@@ -162,7 +165,7 @@ def _driver(route_factory=None, sink_factory=None, **config):
         return made["engine"]
 
     d = TalkDriver(written.append, config_loader=lambda: {**_CONFIG, **config},
-                   backend_factory=backend_factory, player_factory=player_factory,
+                   backend_factory=backend_factory, player_factory=player_factory, foreign_factory=lambda _c: None,
                    engine_factory=engine_factory, clock=lambda: "2026-10-07 10:00:00",
                    route_factory=route_factory or (lambda: _Route(ok=False)),
                    sink_factory=sink_factory or (lambda: _Sink()))
