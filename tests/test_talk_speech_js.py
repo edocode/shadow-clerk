@@ -123,7 +123,56 @@ def test_no_speech_synthesis() -> None:
     check("speechSynthesis が無ければ名乗らず、イベントも聞かない", out == {"posted": 0, "handlers": []}, repr(out))
 
 
+def test_replay_note() -> None:
+    out = run(stubs(), r"""
+const out={
+  note:replayNote("Hello",2),
+  ctrl:replayNote("a\u001b[31mb\n",1),
+  blank:replayNote("   ",1),
+  long:replayNote("x".repeat(300),1),
+  keySame:replayKey("I see a cheap ship.")===replayKey("I see a cheap ship."),
+  keyDiff:replayKey("a")!==replayKey("b"),
+};
+console.log(JSON.stringify(out));
+""")
+    check("通知の文面", out["note"] == "[練習] 聞き直し: 「Hello」（この文は2回目）", repr(out))
+    check("制御文字は空白にする", out["ctrl"] == "[練習] 聞き直し: 「a [31mb」（この文は1回目）", repr(out))
+    check("空白だけは通知しない", out["blank"] is None, repr(out))
+    check("200 字で切る", out["long"] == "[練習] 聞き直し: 「" + "x" * 200 + "」（この文は1回目）", repr(out))
+    check("キーは同じ文で同じ・違う文で違う", out["keySame"] and out["keyDiff"], repr(out))
+
+
+def test_send_talk_console() -> None:
+    out = run(stubs(), r"""
+(async()=>{await sendTalkConsole("a");sendTalkConsole("b");await new Promise(r=>setTimeout(r,600));
+console.log(JSON.stringify({posted:posted.filter(p=>p[0]==='/api/console/input')}));})();
+""")
+    want = [["/api/console/input", {"role": "talk", "data": d}] for d in ("a", "\r", "b", "\r")]
+    check("本文と Enter を role talk で、順番どおりに送る", out["posted"] == want, repr(out))
+
+
+def test_note_replay() -> None:
+    out = run(stubs(), r"""
+(async()=>{talkActive=true;
+const a=noteReplay("Hi"),b=noteReplay("Hi");
+await new Promise(r=>setTimeout(r,1000));
+const sent=()=>posted.filter(p=>p[0]==='/api/console/input'&&String(p[1].data).includes('聞き直し')).map(p=>p[1].data);
+const before=sent();
+talkActive=false;const c=noteReplay("Hi"),e=noteReplay("  ");
+await new Promise(r=>setTimeout(r,500));
+console.log(JSON.stringify({a,b,c,e,before,after:sent().length}));})();
+""")
+    check("押すたびに数え、talk が動いていれば回数入りの通知を送る",
+          out["a"] == 1 and out["b"] == 2 and out["before"] == [
+              "[練習] 聞き直し: 「Hi」（この文は1回目）", "[練習] 聞き直し: 「Hi」（この文は2回目）"], repr(out))
+    check("talk が動いていなければ数えるだけ送らない・空の英文は数えない",
+          out["c"] == 3 and out["e"] is None and out["after"] == 2, repr(out))
+
+
 if __name__ == "__main__":
+    test_note_replay()
+    test_send_talk_console()
+    test_replay_note()
     test_ready()
     test_ready_waits_for_voices_and_activation()
     test_speak_only_own_tab()

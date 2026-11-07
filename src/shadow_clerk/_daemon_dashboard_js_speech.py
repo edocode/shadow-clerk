@@ -63,6 +63,32 @@ function initSpeech(src){
    無ければいま聞き取っている言語（練習の前後は ja / auto に戻っているので、かな・漢字の無い文は en とみなす）。
    🔊[en|I see a cheap ship.] 問題1 は「問題1」とだけ見せて | の後ろを読む（聞き取りの出題。綴りを見せない） --- */
 const SAY_TAG=/^🔊\s*(?:\[([a-z]{2,3})(?:\|([^\]]+))?\]\s*)?/u;
+/* 聞き直しの通知: 英文のキー（cyrb53）と、talk の PTY に送る一行。制御文字は空白にし、200 字で切る */
+function cyrb53(str){let h1=0xdeadbeef,h2=0x41c6ce57;
+  for(let i=0;i<str.length;i++){const c=str.charCodeAt(i);h1=Math.imul(h1^c,2654435761);h2=Math.imul(h2^c,1597334677);}
+  h1=Math.imul(h1^(h1>>>16),2246822507);h1^=Math.imul(h2^(h2>>>13),3266489909);
+  h2=Math.imul(h2^(h2>>>16),2246822507);h2^=Math.imul(h1^(h1>>>13),3266489909);
+  return (4294967296*(2097151&h2)+(h1>>>0)).toString(36);}
+function replayKey(text){return cyrb53(String(text));}
+function replayNote(text,count){
+  const t=Array.from(String(text).replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim()).slice(0,200).join('').trim();
+  return t?`[練習] 聞き直し: 「${t}」（この文は${count}回目）`:null;}
+/* talk の PTY へ本文・Enter の順に送る。Enter は本文と同時に届くと送信にならないので 200 ms 空ける。前の送信が終わってから次 */
+let _talkSendQ=Promise.resolve();
+function _postTalk(data){
+  return fetch('/api/console/input',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({role:'talk',data})}).catch(()=>{});}
+function sendTalkConsole(text){
+  const run=()=>_postTalk(text).then(()=>new Promise(r=>setTimeout(r,200))).then(()=>_postTalk('\r'));
+  _talkSendQ=_talkSendQ.then(run,run);return _talkSendQ;}
+/* 押した回数を英文ごとに数える（ページを読み直すと 0 に戻る）。talk が動いているときだけ送る */
+const replayCounts=new Map();
+function noteReplay(text){
+  if(!replayNote(text,1))return null;
+  const key=replayKey(text),n=(replayCounts.get(key)||0)+1;
+  replayCounts.set(key,n);
+  if(typeof talkActive!=='undefined'&&talkActive)sendTalkConsole(replayNote(text,n));
+  return n;}
 function sayLang(text,tag){
   if(tag)return tag;
   const s=document.getElementById('langSel');const v=s&&s.value!=='auto'?s.value:'';
@@ -83,7 +109,7 @@ function decorateSay(root){
   hits.forEach(({el,text,tag})=>{
     if(tag)_dropSayTag(el);
     el.classList.add('say');el.title=I18N['dash.say_title']||'';
-    el.onclick=e=>{e.stopPropagation();speakText(text,sayLang(text,tag));};
+    el.onclick=e=>{e.stopPropagation();speakText(text,sayLang(text,tag));noteReplay(text);};
   });
 }
 initSpeech(es);
