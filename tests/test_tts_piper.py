@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 
 from shadow_clerk._daemon_tts import TtsError
-from shadow_clerk._daemon_tts_piper import ACCENTS, PIPER_MODEL, STANDARD_MODELS, PiperBackend
+from shadow_clerk._daemon_tts_piper import ACCENTS, PIPER_MODEL, RECOMMENDED, PiperBackend
 
 results: list[bool] = []
 
@@ -80,7 +80,7 @@ def test_random_voice() -> None:
         check("無い話者ならランダムに選ぶ", b.speaker_name in _SPEAKERS, b.speaker_name)
         names = set()
         for _ in range(20):
-            b = PiperBackend("american", model_dir=d)
+            b = PiperBackend("random:american", model_dir=d)
             b.synthesize("Hi.")
             names.add(b.speaker_name)
         check("なまりの名前ならその話者から選ぶ", names <= set(ACCENTS["american"]) and len(names) > 1, repr(names))
@@ -94,10 +94,22 @@ def test_standard_voice() -> None:
         b.standard = True
         b.synthesize("Hello.")
         check("標準の声は話者を指定せず、そのモデルを初回にダウンロードする",
-              synth[-1] is None and downloads == [Path(d)] and b.standard_model in STANDARD_MODELS and Path(d, b.standard_model + ".onnx").exists(), repr(synth[-1:]))
+              synth[-1] is None and downloads == [Path(d)] and b.standard_model in RECOMMENDED["american"] and Path(d, b.standard_model + ".onnx").exists(), repr(synth[-1:]))
         b.standard = False
         b.synthesize("Hello.")
         check("戻せば会話の話者で読む", synth[-1] == 2, repr(synth[-1:]))
+        b = PiperBackend("random:british", model_dir=d)
+        check("なまりを絞ったら発音のお手本もそのなまりのおすすめ", b.standard_model in RECOMMENDED["british"], b.standard_model)
+
+
+def test_recommended_voice() -> None:
+    with tempfile.TemporaryDirectory() as d:
+        downloads.clear()
+        b = PiperBackend("recommended:british", model_dir=d)
+        b.synthesize("Hello.")
+        check("おすすめは VCTK を読まず、そのなまりの 1 話者モデルで読む",
+              synth[-1] is None and b.speaker_name in RECOMMENDED["british"] and not Path(d, PIPER_MODEL + ".onnx").exists(),
+              repr((synth[-1:], b.speaker_name)))
 
 
 def test_unavailable() -> None:
@@ -116,5 +128,6 @@ if __name__ == "__main__":
     test_fixed_voice_and_download()
     test_random_voice()
     test_standard_voice()
+    test_recommended_voice()
     test_unavailable()
     sys.exit(0 if all(results) else 1)

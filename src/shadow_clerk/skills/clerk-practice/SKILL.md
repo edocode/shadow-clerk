@@ -3,7 +3,7 @@ name: clerk-practice
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、発音・会話・ヒアリング・実践会話・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」「中国語で会話を練習したい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.22.0"
+  version: "1.23.0"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -176,17 +176,17 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
   答えの綴りを見せたくないとき（発音の練習）に使う
 - 送った順に読まれる（VOICEVOX の文と piper・ブラウザの文が交互でも順番は保たれる）
 - **英語の声は練習の種類で切り替える。** 発音の練習ではお手本を癖の少ない標準の声で読み（`"standard":true`）、
-  会話・ヒアリング・実践会話などほかの練習ではなまりのある声に戻す（`"standard":false`）。練習を始めるとき・
+  会話・ヒアリング・実践会話などほかの練習では設定の声に戻す（`"standard":false`）。練習を始めるとき・
   練習の種類を変えるときに呼ぶ（黙って呼んでよい）。応答の `piper` が `false` なら piper が無いので気にしない
 
 ```
 curl -s -X POST "http://localhost:8765/api/talk-voice" -H 'Content-Type: application/json' -d '{"standard":true}'
 ```
 
-- なまりのある声のなまりは会話ごとに変わる。いろいろな英語を聞き取る練習になるので、なまりのせいで聞き取れなかったときは
-  ゆっくり言い直すか綴りを見せて助け、なまりを直そうとしない。なまりを絞りたいと言われたら、設定画面の
-  `talk_piper_voice` で `british`・`scottish`・`irish`・`american`・`other`（インド・南アフリカ・豪州・NZ）を選べば
-  そのなまりの中から会話ごとに選ぶと伝える。決まった声にしたいなら config.json に話者番号（`p239` など）を書けば固定できる
+- 設定がランダムなら、なまりは会話ごとに変わる。いろいろな英語を聞き取る練習になるので、なまりのせいで聞き取れなかったときは
+  ゆっくり言い直すか綴りを見せて助け、なまりを直そうとしない。声を変えたいと言われたら、設定画面の
+  「英語の読み上げの声」で、癖の少ない「おすすめ（アメリカ英語／イギリス英語）」か、なまりを絞った「ランダム（…）」を
+  選べると伝える。決まった話者にしたいなら config.json の `talk_piper_voice` に話者番号（`p239` など）を書けば固定できる
 - piper が入っていない・英語以外で、ダッシュボードが開いていない・ブラウザにその言語の声が無いときは読み上げられない
   （talk の状態欄に警告が出る）。お手本が聞こえないと言われたら、ダッシュボードを開いて一度クリックしておくよう伝える
 

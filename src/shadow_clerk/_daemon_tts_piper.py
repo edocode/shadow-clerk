@@ -2,8 +2,9 @@
 
 VOICEVOX は英文を日本語なまりで読む。piper の VCTK モデルは、イングランド・スコットランド・アイルランド・
 アメリカ・インドなど、なまりの違う 109 人の話者を持つ。いろいろな英語を聞き取る練習になるので、
-既定では会話ごとに話者をランダムに選ぶ（ACCENTS の名前でなまりを絞れる）。発音の練習では、お手本は癖の少ない標準的な声（STANDARD_MODELS から会話ごとに
-1 つ選ぶ）で読む（standard を真にする。初回にダウンロードする）。
+既定では会話ごとに話者をランダムに選ぶ（random:<なまり> で絞れる）。recommended:<なまり> なら癖の少ない別モデル
+（RECOMMENDED）で読む。発音の練習でも、お手本はそのなまりの RECOMMENDED（無ければアメリカ英語）で読む
+（standard を真にする）。モデルは初回にダウンロードする。
 """
 from __future__ import annotations
 
@@ -23,10 +24,15 @@ from shadow_clerk.domain import Language
 logger = logging.getLogger("shadow-clerk")
 
 PIPER_MODEL = "en_GB-vctk-medium"
-STANDARD_MODELS = ("en_US-hfc_female-medium", "en_US-hfc_male-medium")  # 癖の少ないアメリカ英語。発音のお手本用
 PIPER_DIR = os.path.join(DATA_DIR, "piper")
 RANDOM_VOICE = "random"
-# VCTK の話者を大まかななまりで分ける（コーパスの speaker-info の ACCENTS 欄から）。talk_piper_voice に名前を書くとその中から選ぶ
+RANDOM_PREFIX, RECOMMENDED_PREFIX = "random:", "recommended:"
+# 癖の少ない声（1 話者のモデル）。会話ごとに 1 つ選ぶ
+RECOMMENDED: dict[str, tuple[str, ...]] = {
+    "american": ("en_US-hfc_female-medium", "en_US-hfc_male-medium"),
+    "british": ("en_GB-alba-medium", "en_GB-cori-medium", "en_GB-jenny_dioco-medium"),
+}
+# VCTK の話者を大まかななまりで分ける（コーパスの speaker-info の ACCENTS 欄から）。random:<名前> でその中から選ぶ
 ACCENTS: dict[str, tuple[str, ...]] = {
     "british": tuple(f"p{n}" for n in (225, 226, 227, 228, 229, 230, 231, 232, 233, 236, 239, 240, 243, 244, 250, 253, 254,
                                        256, 257, 258, 259, 267, 268, 269, 270, 273, 274, 276, 277, 278, 279, 282, 286, 287)),
@@ -46,14 +52,17 @@ class PiperBackend:
     DEFAULT_LANGUAGE = Language.EN
 
     def __init__(self, voice: str = RANDOM_VOICE, model_dir: str = PIPER_DIR) -> None:
-        self._wanted = voice.strip() or RANDOM_VOICE
+        wanted = voice.strip() or RANDOM_VOICE
+        self._wanted = wanted.removeprefix(RANDOM_PREFIX)  # 前の形式の素の "british" も受ける
+        accent = self._wanted.removeprefix(RECOMMENDED_PREFIX)
+        self._recommended = self._wanted.startswith(RECOMMENDED_PREFIX) and accent in RECOMMENDED
         self._dir = model_dir
         self._voice: Any = None
         self._speaker: int | None = None
         self.speaker_name = ""
         self._error = ""
         self._standard: Any = None
-        self.standard_model = random.choice(STANDARD_MODELS)
+        self.standard_model = random.choice(RECOMMENDED.get(accent, RECOMMENDED["american"]))
         self._standard_lock = threading.Lock()
         self.standard = False  # 真なら標準的な声で読む（発音の練習）
         self._ready = threading.Thread(target=self._prepare, name="piper-load", daemon=True)
@@ -61,6 +70,10 @@ class PiperBackend:
 
     def _prepare(self) -> None:
         try:
+            if self._recommended:
+                self._voice, self.speaker_name = self._standard_voice(), self.standard_model
+                logger.info("talk: 英語は piper の %s で読みます", self.standard_model)
+                return
             voice = self._load(PIPER_MODEL)
             speakers: dict[str, int] = voice.config.speaker_id_map
             group = [n for n in ACCENTS.get(self._wanted, ()) if n in speakers]

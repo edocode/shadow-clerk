@@ -96,7 +96,7 @@ const CFG_FIELDS=[
     warn:{when:'',msgKey:'cfg.ai_reference_dirs_warn'}},
   {type:'section',tab:'talk',label:I18N['cfg.section.talk']},
   {key:'talk_filler_sec',label:I18N['cfg.talk_filler_sec'],type:'select',num:true,opts:['0','5','8','10','15','20']},
-  {key:'talk_piper_voice',label:I18N['cfg.talk_piper_voice'],type:'select',opts:['random','british','scottish','irish','american','other']},
+  {key:'talk_piper_voice',label:I18N['cfg.talk_piper_voice'],type:'select',opts:['recommended:american','recommended:british','random:american','random:british','random:scottish','random:irish','random:other','random'],label_of:o=>I18N['cfg.talk_piper_voice.'+o]},
   {type:'section',tab:'talk',label:I18N['cfg.section.pronounce']},
   {key:'pronounce_enabled',label:I18N['cfg.pronounce_enabled'],type:'bool'},
   {key:'pronounce_model',when:{k:'pronounce_enabled'},label:I18N['cfg.pronounce_model'],type:'text',ph:'facebook/wav2vec2-xlsr-53-espeak-cv-ft'},
@@ -188,7 +188,7 @@ async function openCfg(){
       // config に一覧外の値があれば選択肢に足す（保存で消さないため）。JSON の 1.0 は 1 で届くので数値でも突き合わせる
       const hit=(v===null||v===undefined)?undefined:f.opts.find(o=>String(o)===String(v)||(v!==''&&o!==''&&!isNaN(o)&&Number(o)===Number(v)));
       const opts=(v===null||v===undefined||hit!==undefined)?f.opts:[...f.opts,String(v)];
-      opts.forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=o;el.appendChild(op);});
+      opts.forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=(f.label_of&&f.label_of(o))||o;el.appendChild(op);});
       if(v!==null&&v!==undefined)el.value=String(hit!==undefined?hit:v);
     }else if(f.type==='device_select'){
       // 実際の選択肢は非同期の loadAudioDevices() が /api/audio-devices 取得後に差し替える。
