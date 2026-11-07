@@ -817,7 +817,7 @@ Claude は自分の判断で聞き取りをやめません。会話が終わり�
 | `talk_personas` | `{}` | 名前 → 性格・応答の仕方。開始モーダルから編集する |
 | `talk_default_persona` | `""` | 最初から選ばれている persona |
 | `talk_floor_wait_sec` | `10` | 会議アプリを選んでいるとき、相手が話している（中間文字起こしに文字がある）間、発言をこの秒数まで待たせる。過ぎたら話す。`0` で待たない |
-| `talk_piper_voice` | `random` | 英文を読む piper の話者（`piper` extra）。`random` なら会話ごとにランダム、`british`・`scottish`・`irish`・`american`・`other`（インド・南アフリカ・豪州・NZ）ならそのなまりの中からランダム、`p239` などの VCTK の話者番号で固定。設定画面でも変えられる |
+| `talk_piper_voice` | `random` | 英文を読む piper の話者（`piper` extra）。`random` なら会話ごとにランダム、`british`・`scottish`・`irish`・`american`・`other`（インド・南アフリカ・豪州・NZ）ならそのなまりの中からランダム、`p239` などの VCTK の話者番号で固定（config.json にだけ書ける）。設定画面ではなまりの系統を選べる |
 | `talk_filler_sec` | `8` | 返事待ちのあいだ、無音（誰も話さず Claude の読み上げも鳴っていない）がこの秒数続いたら「えーっと」などと挟む（transcript には書かない。いま聞き取っている言語で話す）。1回の返事待ちに1回まで、前の相槌から30秒は空ける。`0` で無効。設定画面でも変えられる |
 | `talk_stop_words` | `["待って", "ストップ", "止めて", "やめて", "stop", "wait", "hold on"]` | これを含む発言で、話している途中でも止める。部分一致なので、ほかの語に含まれる短いかなは入れない。英数字の語は単語単位で照合 |
 

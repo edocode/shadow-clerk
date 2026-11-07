@@ -289,7 +289,7 @@ STRINGS_JA: dict[str, str] = {
     "cfg.section.gcal": "Google Calendar 連携",
     "cfg.section.talk": "Claude と会話",
     "cfg.talk_filler_sec": "相槌までの秒数（0 で無効。次の会話から反映）",
-    "cfg.talk_piper_voice": "英語の読み上げの声（piper の話者。random で会話ごとにランダム、british・scottish・irish・american・other でそのなまりの中からランダム、p239 などで固定。次の会話から反映）",
+    "cfg.talk_piper_voice": "英語の読み上げの声（piper の話者。random で会話ごとにランダム、ほかはそのなまりの中からランダム。other はインド・南アフリカ・豪州・NZ。config.json に p239 などを書けば固定。次の会話から反映）",
     "cfg.section.pronounce": "発音フィードバック",
     "cfg.pronounce_enabled": "音素レベルの発音フィードバックを使う (モデル 1.2GB)",
     "cfg.pronounce_model": "音素認識モデル (英語)",
