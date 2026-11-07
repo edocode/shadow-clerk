@@ -166,12 +166,15 @@ const out={refErrors:[]};
 const EV=Object.assign(mkEl(),{data:'{}',key:'a',target:mkEl(),preventDefault(){},stopPropagation(){},
   clipboardData:{getData:()=>'x'}});
 /* 関数ごとに 1 回呼ぶだけなので、途中で TypeError になった関数はその先の名前を確かめていない。
-   呼び出し先の名前は test_reused_calls_defined が静的にも見る */
+   呼び出し先の名前は test_reused_calls_defined が静的にも見る。
+   shim の setTimeout は発火しないので、タイマーを待つ関数（sendTalkConsole など）は数 tick で打ち切る */
+const settle=async()=>{for(let i=0;i<20;i++)await tick();};
 for(const n of REUSED_NAMES){
   let f;
   try{f=eval(n);}catch(e){out.refErrors.push(n+': '+e.message);continue;}
   if(typeof f!=='function')continue;
-  try{await f(EV,EV,EV);}catch(e){if(e instanceof ReferenceError)out.refErrors.push(n+': '+e.message);}
+  try{const p=f(EV,EV,EV);if(p&&p.then){p.catch(()=>{});await Promise.race([p,settle()]);}}
+  catch(e){if(e instanceof ReferenceError)out.refErrors.push(n+': '+e.message);}
 }
 /* 端末は 1 つ。表示「AI アシスタントの画面」では中央、ドロワーでは選んだ役割の置き場所へ移す */
 const row=document.getElementById('consoleRow');
@@ -292,7 +295,7 @@ def test_reused_modules_resolve() -> None:
 _JS_GLOBALS = {"if", "for", "while", "switch", "catch", "function", "return", "typeof", "new", "fetch", "alert", "confirm",
                "setTimeout", "clearTimeout", "setInterval", "getComputedStyle", "parseInt", "parseFloat", "String", "Number",
                "Boolean", "Object", "JSON", "Math", "Promise", "Set", "RegExp", "Date", "Array", "ResizeObserver",
-               "SpeechSynthesisUtterance", "await", "of", "async", "isNaN"}
+               "SpeechSynthesisUtterance", "await", "of", "async", "isNaN", "Map"}
 
 
 def test_reused_calls_defined() -> None:
