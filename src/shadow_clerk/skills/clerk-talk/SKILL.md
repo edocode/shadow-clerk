@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」で、ユーザーと音声で議論する。ダッシュボードの「Claude と会議」から talk コンソールで自動的に起動される。ユーザーの発言は shadow-clerk の文字起こしとして届き、あなたの応答は shadow-clerk が音声で読み上げる。「/clerk-talk」と打たれたとき、声で議論したい・Claude と会議したいと言われたときに使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.11.0"
+  version: "1.11.1"
 ---
 
 # clerk-talk — 声で議論する
@@ -129,7 +129,10 @@ Monitor(
 - 発言は音声認識の結果なので、誤認識や言い淀みを含む。意味が通らなければ推測し、重要なところは聞き返す
 - 「ちょっと待って」などで遮られたときは、相手が話し終えるまで話さない
 - `&unanswered=10` で、ユーザーの発言に返事をしないまま 10 秒たつと `<notice>10 秒間 返事なし…</notice>` が届く（下の「返事なしの通知」）
-- Monitor が切れたら（timeout など）貼り直す
+- Monitor が切れたら（timeout など）、切れていた間の発言は届いていない。次の順に立て直す
+  1. `/api/say` で「少し途切れていました」と一言知らせる。端末に書くだけではユーザーに聞こえない
+  2. `curl -s "http://localhost:8765/api/transcript"` の `lines` の末尾を読み、最後の `[Claude]` 行より後の `[自分]` 行に答えていなければ答える
+  3. Monitor を貼り直す
 
 ### 聞き取る言語を切り替える
 
