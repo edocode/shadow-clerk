@@ -47,6 +47,7 @@ class _Backend:
 class _Player:
     def __init__(self, on_error: Callable[[str], None]) -> None:
         self.spoken: list[str] = []
+        self.langs: list[Language | None] = []
         self.closed = False
         self.on_error = on_error
         self.speaking = ""
@@ -63,8 +64,12 @@ class _Player:
     def set_remote(self, remote) -> None:
         self.remote = remote
 
+    def set_foreign(self, backend) -> None:
+        self.foreign = backend
+
     def speak(self, text: str, lang: Language | None = None) -> None:
         self.spoken.append(text)
+        self.langs.append(lang)
 
     def is_busy(self) -> bool:
         return bool(self.speaking)
@@ -118,7 +123,7 @@ _CONFIG = {"translate_language": "en", "talk_language": "", "talk_engine": "cons
 
 
 def _driver(reachable: bool = True, engine_fail: bool = False, factory_error: Exception | None = None,
-            route_factory=None, sink_factory=None, **config: object):
+            route_factory=None, sink_factory=None, heard: list[str] | None = None, **config: object):
     written: list[TranscriptLine] = []
     made: dict = {}
 
@@ -137,10 +142,11 @@ def _driver(reachable: bool = True, engine_fail: bool = False, factory_error: Ex
         return made["engine"]
 
     d = TalkDriver(written.append, config_loader=lambda: {**_CONFIG, **config},
-                   backend_factory=backend_factory, player_factory=player_factory,
+                   backend_factory=backend_factory, player_factory=player_factory, foreign_factory=lambda _c: made.get("foreign"),
                    engine_factory=engine_factory, clock=lambda: "2026-10-03 10:00:00",
                    route_factory=route_factory or (lambda: _Route(ok=False)),
-                   sink_factory=sink_factory or (lambda: _Sink()))
+                   sink_factory=sink_factory or (lambda: _Sink()),
+                   heard_language=lambda: (heard or [""])[0])
     return d, written, made
 
 
@@ -224,6 +230,12 @@ class _RoutePlayer:
 
     def set_on_span(self, fn: Callable[[float, float | None], None]) -> None:
         pass
+
+    def set_remote(self, remote) -> None:
+        pass
+
+    def set_foreign(self, backend) -> None:
+        self.foreign = backend
 
     def close(self, discard_pending: bool = True) -> None:
         if self.wait_for is not None:
@@ -614,6 +626,78 @@ def test_filler_suppressed_while_mic_speaks() -> None:
     d.stop()
 
 
+def test_filler_waits_after_speech_ends() -> None:
+    d, _w, made = _driver(talk_filler_sec=0.3)
+    d.start("x", None)
+    d.on_self_line(_self("ええと、"))
+    time.sleep(0.2)
+    d.on_self_line(_self("つまりこういうことです"))  # 一続きの発言の2行目
+    time.sleep(0.2)
+    check("最初の行から数えて挟まない（話し終えてから数える）", made["player"].spoken == [], repr(made["player"].spoken))
+    time.sleep(0.25)
+    check("最後の行から talk_filler_sec 待てば挟む", len(made["player"].spoken) == 1, repr(made["player"].spoken))
+    d.stop()
+    d, _w, made = _driver(talk_filler_sec=0.3)
+    d.start("x", None)
+    d.on_self_line(_self("質問です"))
+    for _ in range(4):
+        time.sleep(0.1)
+        d.on_voice("mic")
+        d.clear_interim("mic")  # 声は続いているが中間文字起こしの確定で speaking() から消えた
+    time.sleep(0.1)
+    check("mic に声がある間は数え直す", made["player"].spoken == [], repr(made["player"].spoken))
+    d.stop()
+    d, _w, made = _driver(talk_filler_sec=0.2)
+    d.start("x", None)
+    d.on_self_line(_self("質問です"))
+    made["player"].speaking = "前の返事の続き。"  # Claude の読み上げが鳴っている
+    time.sleep(0.35)
+    check("Claude の読み上げ中は挟まない", made["player"].spoken == [], repr(made["player"].spoken))
+    made["player"].speaking = ""
+    d._playback_span(time.time(), time.time())  # 鳴り終えた
+    time.sleep(0.1)
+    check("鳴り終えてからも無音が続くまで挟まない", made["player"].spoken == [], repr(made["player"].spoken))
+    time.sleep(0.3)
+    check("無音が talk_filler_sec 続けば挟む", len(made["player"].spoken) == 1, repr(made["player"].spoken))
+    d.stop()
+
+
+def test_filler_follows_heard_language() -> None:
+    from shadow_clerk._daemon_talk_prompt import _FILLERS
+    d, _w, made = _driver(talk_filler_sec=0.05, heard=["en"])
+    d.start("x", None)
+    d.on_self_line(_self("I went to the station"))
+    time.sleep(0.25)
+    p = made["player"]
+    check("英語を聞き取っている間のつなぎは英語で、ブラウザで読む",
+          len(p.spoken) == 1 and p.spoken[0] in _FILLERS[Language.EN] and p.langs == [Language.EN],
+          repr((p.spoken, p.langs)))
+    d.stop()
+    d, _w, made = _driver(talk_filler_sec=0.05, heard=["auto"])
+    d.start("x", None)
+    d.on_self_line(_self("質問です"))
+    time.sleep(0.25)
+    p = made["player"]
+    check("auto なら会話の言語", p.spoken[0] in _FILLERS[Language.JA] and p.langs == [None], repr((p.spoken, p.langs)))
+    d.stop()
+
+
+def test_say_follows_heard_language() -> None:
+    d, _w, made = _driver(heard=["en"])
+    d.start("x", None)
+    d.say("Nice. What did you eat?")
+    d.say("いいですね。")
+    d.say("Hello.", Language.EN)
+    check("英語を聞き取っている間、lang の無い英文はブラウザ、日本語は VOICEVOX",
+          made["player"].langs == [Language.EN, None, Language.EN], repr(made["player"].langs))
+    d.stop()
+    d, _w, made = _driver(heard=["ja"])
+    d.start("x", None)
+    d.say("OK.")
+    check("日本語を聞き取っている間は lang の無い文を VOICEVOX", made["player"].langs == [None], repr(made["player"].langs))
+    d.stop()
+
+
 def test_mic_voice_gate() -> None:
     gap = MIC_VOICE_INTERVAL_SEC
     check("初回は知らせる", mic_voice_due(0.0, 100.0, False, False))
@@ -876,6 +960,21 @@ def test_preview_registers_playback_span() -> None:
         check("鳴り終われば素通し", d.clear_part(102.0, 103.0) == (102.0, 103.0))
 
 
+def test_standard_voice() -> None:
+    import types
+    d, _w, made = _driver()
+    made["foreign"] = types.SimpleNamespace(standard=False)
+    check("talk mode の外では切り替えない", d.set_standard_voice(True) is False and not made["foreign"].standard)
+    d.start("t", None)
+    check("piper の声を標準の声に切り替える", d.set_standard_voice(True) is True and made["foreign"].standard)
+    check("なまりのある声に戻す", d.set_standard_voice(False) is True and not made["foreign"].standard)
+    d.stop()
+    d2, _w2, _m2 = _driver()
+    d2.start("t", None)
+    check("piper が無ければ False", d2.set_standard_voice(True) is False)
+    d2.stop()
+
+
 def test_helpers() -> None:
     check("改行・連続空白を1つに", one_line(" a\n\n b\t c ") == "a b c")
     check("制止の言葉が無ければ None", stop_pattern([]) is None and stop_pattern("x") is None)
@@ -894,6 +993,7 @@ if __name__ == "__main__":
     test_engine_name_is_normalized()
     test_preview_and_voices()
     test_preview_registers_playback_span()
+    test_standard_voice()
     test_helpers()
     test_route()
     test_route_stop_unblocks_player()
@@ -916,6 +1016,9 @@ if __name__ == "__main__":
     test_mic_voice_floor()
     test_mic_voice_keeps_routed_behaviour()
     test_filler_suppressed_while_mic_speaks()
+    test_filler_waits_after_speech_ends()
+    test_filler_follows_heard_language()
+    test_say_follows_heard_language()
     test_mic_voice_gate()
     test_end_after_speech()
     sys.exit(0 if all(results) else 1)

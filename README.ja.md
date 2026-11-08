@@ -171,7 +171,8 @@ PyPI からインストール:
 | + 話者分離 | `uv tool install "shadow-clerk[diarization]"` |
 | + 発音フィードバック | `uv tool install "shadow-clerk[pronounce]"` |
 | + 聞き間違いの目印 | `uv tool install "shadow-clerk[kana-hint]"` |
-| すべて | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech,moonshine,diarization,pronounce,kana-hint]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
+| + talk mode の英語の声（piper） | `uv tool install "shadow-clerk[piper]"` |
+| すべて | `uv tool install "shadow-clerk[spell-check,gcal,reazonspeech,moonshine,diarization,pronounce,kana-hint,piper]" --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"` |
 
 > **注意:** `uv tool install` はツールごとに1つの環境を管理します。異なる extras で再インストールする場合は `--force` を付けてください。`--force` なしでは「already installed」と表示され、extra が追加されません。指定した extras のみが含まれ、以前の extras は削除されます。
 
@@ -779,9 +780,9 @@ Claude は自分の判断で聞き取りをやめません。会話が終わり�
 切り替えます。会議アシスタントなしで練習用の会議（英語なら `英語練習`）を始め、過去数回の練習の末尾を読んで今日の
 練習を提案し、発音・会話・ヒアリング・実践会話（練習する言語だけで話し、直しは 💡 AI のアドバイス に書く）の練習をします。最初に何分やるかを聞き、時間の1分前に終えるか続けるかを
 確かめます。直しは 💡 AI のアドバイス タブの **Advice** に、練習の記録と例文は **Analysis**
-に書かれます。🔊 で始まる行はクリックすると、🔊 の後ろに付けた言語（`🔊[en] …`）で読み上げられます（`🔊[en|文] 問題1` は「問題1」とだけ表示し、伏せた文を読みます。ヒアリングの出題用）。練習言語の文は VOICEVOX では
+に書かれます。🔊 で始まる行はクリックすると、🔊 の後ろに付けた言語（`🔊[en] …`）で読み上げられます（`🔊[en|文] 問題1` は「問題1」とだけ表示し、伏せた文を読みます。ヒアリングの出題用）。英文は VOICEVOX ではなく piper（`piper` extra。VCTK の話者から会話ごとにランダムに選ぶので、イングランド・スコットランド・アイルランド・アメリカ・インドなどいろいろななまりの英語になる。`talk_piper_voice` でなまりを絞ったり、癖の少ないおすすめの声にしたり、固定したりもできる。発音の練習ではお手本をそのなまりのおすすめの声（アメリカ英語 `en_US-hfc_female/male-medium`、イギリス英語 `en_GB-alba/cori/jenny_dioco-medium` か VCTK の話者 `p226`）で読む。`POST /api/talk-voice {"standard": true}` で切り替える）で話し、Claude の声の届け先（録画など）にも流れます。モデル（約 80 MB）は初回にデータフォルダへダウンロードします。piper が無いときと英語以外の練習言語は、VOICEVOX では
 なくブラウザの声（Web Speech API）で話すので、ダッシュボードを開いて一度クリックしておいてください（ブラウザは
-利用者の操作があるまで読み上げを許しません）。そういうタブが無いときは VOICEVOX で読みます。練習中はスピーカー
+利用者の操作があるまで読み上げを許しません）。そういうタブが無いときは読み上げません（VOICEVOX だと日本語なまりになるため）。talk の状態欄に警告が出ます。聞き取りの言語が会話の言語と違う間（実践会話で `en` に切り替えたときなど）は、つなぎもその言語で話し、`lang` の無い英文もブラウザで読みます。練習中はスピーカー
 （monitor）をミュートし、最後に「今日の練習のまとめ: …」を話して、次の回の手がかりにします。
 
 スキルが使う API は次のとおりです（localhost のみ。手で呼んでもかまいません）:
@@ -807,7 +808,7 @@ Claude は自分の判断で聞き取りをやめません。会話が終わり�
 | `talk_speed` / `talk_pitch` / `talk_intonation` / `talk_volume` | `1.0` / `0.0` / `1.0` / `1.0` | 話速 (0.5〜2.0)・音高 (-0.15〜0.15)・抑揚 (0〜2)・音量 (0〜2) |
 | `talk_output_devices` | `[]` | 再生先のデバイス名（空ならデフォルト出力）。届ける先を選んだときは使われず、pw-cat がデフォルト出力に鳴らす |
 | `talk_engine` | `console` | `console`（AI コンソール + clerk-talk スキル）または `headless`（`claude -p`） |
-| `talk_route_app` | `""` | 最後に選んだ「Claude の声を届ける先」のアプリ（開始モーダルの初期値） |
+| `talk_route_app` | `""` | 最後に選んだ「Claude の声を届ける先」のアプリ（開始モーダルの初期値）。スピーカー（monitor）をミュートしている間（録画のために声を流すだけの1人の練習など）は1対1と同じに振る舞い、話す前の「あの、」を出さず、練習言語の文はブラウザの声で読む |
 | `talk_echo_tail_sec` | `0.3` | Claude が話し終えてからこの秒数までに始まった monitor の行を Claude 自身の声とみなす（出力と録音の遅れ分）。それより後に始まった行は残す。Claude の直後に無音を挟まず相手が話し始めると、VAD が1区間にまとめるためその区間は捨てられる |
 | `talk_workdir` | `""` | 会話役の作業ディレクトリ（空なら `ai_assistant_workdir`、それも空ならホーム）。開始モーダルで毎回上書きできる |
 | `talk_model` | `""` | 会話役のモデル（空なら claude の既定）。両エンジンに効き、開始ダイアログで選べる |
@@ -816,7 +817,8 @@ Claude は自分の判断で聞き取りをやめません。会話が終わり�
 | `talk_personas` | `{}` | 名前 → 性格・応答の仕方。開始モーダルから編集する |
 | `talk_default_persona` | `""` | 最初から選ばれている persona |
 | `talk_floor_wait_sec` | `10` | 会議アプリを選んでいるとき、相手が話している（中間文字起こしに文字がある）間、発言をこの秒数まで待たせる。過ぎたら話す。`0` で待たない |
-| `talk_filler_sec` | `8` | 発言のあと Claude がこの秒数なにも話さなければ「えーっと」などと挟む（transcript には書かない）。1回の返事待ちに1回まで、前の相槌から30秒は空ける。`0` で無効。設定画面でも変えられる |
+| `talk_piper_voice` | `random` | 英文を読む piper の話者（`piper` extra）。`recommended:american`・`recommended:british` は癖の少ない 1 話者の声。`random` なら VCTK から会話ごとにランダム、`random:british`・`random:scottish`・`random:irish`・`random:american`・`random:other`（インド・南アフリカ・豪州・NZ）ならそのなまりの中からランダム。発音の練習はそのなまりのおすすめ（無ければアメリカ英語）で読む。`p239` などの VCTK の話者番号で固定（config.json にだけ書ける）。設定画面でも変えられる |
+| `talk_filler_sec` | `8` | 返事待ちのあいだ、無音（誰も話さず Claude の読み上げも鳴っていない）がこの秒数続いたら「えーっと」などと挟む（transcript には書かない。いま聞き取っている言語で話す）。1回の返事待ちに1回まで、前の相槌から30秒は空ける。`0` で無効。設定画面でも変えられる |
 | `talk_stop_words` | `["待って", "ストップ", "止めて", "やめて", "stop", "wait", "hold on"]` | これを含む発言で、話している途中でも止める。部分一致なので、ほかの語に含まれる短いかなは入れない。英数字の語は単語単位で照合 |
 
 Claude は応答を書いた端から、短い文に区切って話します。文の切れ目で割って入れます。

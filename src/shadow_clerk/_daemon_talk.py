@@ -22,6 +22,7 @@ from shadow_clerk._daemon_talk_prompt import (filler_phrase, probe_phrase, reque
 from shadow_clerk._daemon_talk_speech import BrowserSpeech
 from shadow_clerk._daemon_tts import TtsBackend, TtsError, TtsPlayer, make_backend, make_player
 from shadow_clerk._daemon_tts_pipewire import PwCatSink
+from shadow_clerk._daemon_tts_piper import make_foreign_backend
 from shadow_clerk.domain import (EchoFilter, Language, SpeechTab, SpokenSpan, Speaker, TalkPersona, TalkVoice,
                                  TranscriptLine)
 from shadow_clerk.domain.ai_assistant import AiAssistantConfig
@@ -90,6 +91,8 @@ _YIELD_LINE_WAIT_SEC = 3.0  # 譲った後、相手が黙ってから発言の�
 # talk 終了後もこの秒数はモニターの文字起こしを捨てる。
 # stop() の後もキューに積まれた音声が ASR を通ってくるため
 STOP_MONITOR_GRACE_SEC = 5.0
+# かな・漢字を含む文は日本語。聞き取りの言語が英語でも、日本語の説明は VOICEVOX で読む
+_JA_SCRIPT_RE = re.compile(r"[\u3040-\u30ff\u3400-\u9fff]")
 
 # "Claude、〇〇して" のような Claude 宛ての依頼・質問を検出する
 # 先頭に Claude（日本語 ASR では「クロード」）があり、依頼（て形）または疑問（?）で終わる
@@ -170,15 +173,21 @@ class TalkDriver:
                  config_loader: Callable[[], dict] = load_config,
                  backend_factory: Callable[[dict, TalkVoice | None], TtsBackend] = make_backend,
                  player_factory: Callable[[TtsBackend, dict, Callable[[str], None]], TtsPlayer] = make_player,
+                 foreign_factory: Callable[[dict], TtsBackend | None] = make_foreign_backend,
                  engine_factory: Callable[[str], TalkEngine] = make_engine,
                  route_factory: Callable[[], TalkRoute] = make_route,
                  sink_factory: Callable[[], Any] = PwCatSink,
                  clock: Callable[[], str] = now_timestamp,
-                 speech: BrowserSpeech | None = None) -> None:
+                 speech: BrowserSpeech | None = None,
+                 heard_language: Callable[[], str | None] = lambda: None,
+                 monitor_muted: Callable[[], bool] = lambda: False) -> None:
         self._write_line = write_line
+        self._heard_language = heard_language  # いま聞き取っている言語（ユーザーが話している言語）
+        self._monitor_muted = monitor_muted
         self._config_loader = config_loader
         self._backend_factory = backend_factory
         self._player_factory = player_factory
+        self._foreign_factory = foreign_factory
         self._engine_factory = engine_factory
         self._route_factory = route_factory
         self._sink_factory = sink_factory
@@ -189,6 +198,7 @@ class TalkDriver:
         self._engine: Any = None
         self._engine_name = ""
         self._player: Any = None
+        self._foreign: Any = None
         self._route: Any = None
         self._sink: Any = None
         self._echo = EchoFilter()
@@ -209,6 +219,8 @@ class TalkDriver:
         self._filler_said = -1  # 最後につなぎを挟んだときの _said。1回の返事待ちに1回まで
         self._filler_at = float("-inf")  # 最後につなぎを挟んだ時刻（monotonic）
         self._filler_last = ""
+        self._filler_timer: threading.Timer | None = None
+        self._sound_at = float("-inf")  # 最後に誰かの声（mic・monitor・行・Claude の読み上げ）があった時刻（monotonic）
         self._probe_last = ""
         self._floor_wait_sec = 0.0
         self._heard: dict[str, float] = {}  # source → 中間文字起こしに文字が出た最後の時刻（monotonic）
@@ -247,7 +259,9 @@ class TalkDriver:
                 player = TtsPlayer(backend, sink.play, self._report_error)
             else:
                 player = self._player_factory(backend, config, self._report_error)
-                player.set_remote(self._speech)  # 練習言語の文はダッシュボードのブラウザで読む（届け先ありでは使わない）
+            foreign = self._foreign_factory(config)
+            player.set_foreign(foreign)  # ja 以外の文は piper で読み、届け先にも流す
+            player.set_remote(self._speech)  # piper が無ければ練習言語の文はダッシュボードのブラウザで読む（ほかの参加者がいる間は使わない）
             tail_sec = _float_setting(config, "talk_echo_tail_sec", 0.3, 0.0, 30.0)
             echo = EchoFilter(tail_sec=tail_sec)
             player.set_on_played(lambda text, s, e: echo.record(SpokenSpan(s, e, text)))
@@ -269,7 +283,7 @@ class TalkDriver:
                     sink.stop()  # play スレッドが pw-cat への書き込みで詰まっていても、先に止めれば close が待たされない
                 player.close()
                 raise
-            self._engine, self._engine_name, self._player = engine, name, player
+            self._engine, self._engine_name, self._player, self._foreign = engine, name, player, foreign
             self._route, self._sink, self._echo = route_obj, sink, echo
             self._playback = _PlaybackSpan(tail_sec=tail_sec)
             self._topic, self._persona, self._lang, self._glossary = topic, chosen, lang, glossary
@@ -324,10 +338,15 @@ class TalkDriver:
         """届け先ありの talk mode か。会議のほかの参加者に声が届く"""
         return self._active and self._route is not None
 
+    def _with_others(self) -> bool:
+        """ほかの参加者と話しているか。届け先があっても monitor をミュートしていれば相手の声を聞いていない
+        （録画のために声を流しているだけの1人の練習など）ので、1対1と同じに扱う"""
+        return self._route is not None and not self._monitor_muted()
+
     def on_voice(self, source: str) -> None:
         """source が話している。monitor は中間文字起こしに文字が出たとき、mic は VAD が声を検出している間。
         確定行の処理（clear_interim）か SPEAKING_STALE_SEC の無更新で消える"""
-        self._heard[source] = time.monotonic()
+        self._heard[source] = self._sound_at = time.monotonic()
 
     def on_interim(self, source: str, text: str = "") -> None:
         """source の中間文字起こしに文字が出た。最新の文字を、確定行が来るまで interim_texts() で渡す"""
@@ -378,6 +397,7 @@ class TalkDriver:
             self._playback.open(start)
         else:
             self._playback.close(end)
+            self._sound_at = time.monotonic()
 
     def clear_part(self, seg_start: float, seg_end: float) -> tuple[float, float]:
         """セグメントのうち読み上げ区間と重ならない最長の部分。発音フィードバックの gate（設計書 §8.1、§10）"""
@@ -402,6 +422,7 @@ class TalkDriver:
         engine.on_self_line(line.text)
 
     def _note_line_locked(self, line: TranscriptLine) -> None:
+        self._sound_at = time.monotonic()
         self._lines_seen += 1
         self._recent_lines.append(line)
 
@@ -419,11 +440,21 @@ class TalkDriver:
                     engine.on_interrupt(cut)
                 logger.info("talk: 制止 (busy=%s, cut=%r)", busy, cut)
             # routed（多人数会議）では Claude 宛ての発言だけ応答する。制止の言葉は常に渡す
-            elif self._route is not None and not _is_addressed_to_claude(line.text):
+            elif self._with_others() and not _is_addressed_to_claude(line.text):
                 return
             else:
                 self._arm_filler_locked()
         engine.on_self_line(line.text)
+
+    def set_standard_voice(self, standard: bool) -> bool:
+        """英文を標準的な声（発音のお手本）で読むか、会話ごとに選んだなまりの声で読むか。piper が無ければ False"""
+        with self._lock:
+            foreign = self._foreign if self._active else None
+        if foreign is None or not hasattr(foreign, "standard"):
+            return False
+        foreign.standard = standard
+        logger.info("talk: 英語の声を%sにします", "標準の声" if standard else "なまりのある声")
+        return True
 
     def api_say(self, text: str, lang: Language | None = None, display: str | None = None,
                 after: str | None = None) -> dict:
@@ -475,21 +506,44 @@ class TalkDriver:
         self._report_error(reason)
         self.stop()
 
-    def _arm_filler_locked(self) -> None:
+    def _arm_filler_locked(self, delay: float | None = None) -> None:
         if self._filler_sec <= 0:
             return
-        timer = threading.Timer(self._filler_sec, self._filler, args=(self._said,))
-        timer.daemon = True
-        timer.start()
+        if self._filler_timer is not None:
+            self._filler_timer.cancel()
+        self._filler_timer = threading.Timer(self._filler_sec if delay is None else delay, self._filler,
+                                             args=(self._said,))
+        self._filler_timer.daemon = True
+        self._filler_timer.start()
 
     def _filler(self, said: int) -> None:
+        """返事待ちのあいだ、無音（誰の声も Claude の読み上げも無い時間）が talk_filler_sec 続いたらつなぎを挟む。
+        行が届いた時刻から数えると、一続きの発言が複数の行に分かれたとき、言い終えた直後に挟んでしまう"""
         with self._lock:
             if (not self._active or self._said != said or self._filler_said == said
-                    or time.monotonic() - self._filler_at < FILLER_COOLDOWN_SEC or self.speaking()):
+                    or time.monotonic() - self._filler_at < FILLER_COOLDOWN_SEC):
                 return
-            player, phrase = self._player, filler_phrase(self._lang, self._filler_last)
+            busy = bool(self.speaking()) or self._player.is_busy()
+            rest = self._filler_sec if busy else self._sound_at + self._filler_sec - time.monotonic()
+            if rest > 0:
+                self._arm_filler_locked(rest)
+                return
+            lang = self._context_language_locked()
+            player, phrase = self._player, filler_phrase(lang, self._filler_last)
             self._filler_said, self._filler_at, self._filler_last = said, time.monotonic(), phrase
-        player.speak(phrase)
+            browser = self._browser_language_locked(lang)
+            silent = time.monotonic() - self._sound_at
+        logger.info("talk: つなぎ %r (lang=%s, 無音 %.1f秒)", phrase, lang.value, silent)
+        player.speak(phrase, browser)
+
+    def _context_language_locked(self) -> Language:
+        """ユーザーがいま話している言語（聞き取りの言語）。auto やほかの参加者がいる（ブラウザの声が届かない）なら会話の言語"""
+        heard = Language.coerce(self._heard_language() or "")
+        return heard if isinstance(heard, Language) and not self._with_others() else self._lang
+
+    def _browser_language_locked(self, lang: Language | None) -> Language | None:
+        """lang の文をブラウザで読むならその言語。読み上げの言語（VOICEVOX）と同じか、ほかの参加者がいるなら None"""
+        return lang if lang is not None and lang != self._lang and not self._with_others() else None
 
     # --- 出力 ---
 
@@ -498,7 +552,7 @@ class TalkDriver:
 
         display があれば transcript の行にはそれを書く（読むのは text。答えの綴りを見せない語学の練習用）
 
-        lang が読み上げの言語（VOICEVOX）と違えば、その文はダッシュボードのブラウザで読む。届け先ありの talk mode
+        lang が読み上げの言語（VOICEVOX）と違えば、その文はダッシュボードのブラウザで読む。ほかの参加者がいる talk mode
         （ブラウザの音は会議アプリに届かない）と talk mode の外（一時的な再生器）では lang を見ない
         話し終えるのを待つ間に発言が届いたら、話題が変わったかもしれないので話さずにその発言を返す。
         届け先ありで話し出しが誰かと重なったら、譲って話さずに、その人の発言を返す（届く前なら空）。
@@ -513,14 +567,16 @@ class TalkDriver:
             heard = self._wait_for_floor(seen)
             if heard is None:
                 return None
-            if not heard and self.routed and player is not None and self._collides(player):
+            if not heard and self._active and self._with_others() and player is not None and self._collides(player):
                 return self._yield_floor(player, seen)
             if heard or (heard := self._lines_since(seen)):
                 return heard
         self._write_line(TranscriptLine(self._clock(), Speaker.CLAUDE, one_line(display or "") or text))
         with self._lock:
             player = self._player
-            browser = lang if lang is not None and lang != self._lang and self._route is None else None
+            if lang is None and self._lang == Language.JA and not _JA_SCRIPT_RE.search(text):
+                lang = self._context_language_locked()  # 英語の会話で lang を付け忘れた文を VOICEVOX で読まない
+            browser = self._browser_language_locked(lang)
         if player is not None:
             player.speak(text, browser)
             return None
