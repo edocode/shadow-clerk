@@ -294,7 +294,7 @@ def test_watch_interim_streams_changes_only_when_asked() -> None:
     active = "transcript-20261030.txt"
     _touch(active, "")
     texts: dict[str, str] = {"mic": "来週の"}
-    talk = type("_Talk", (), {"interim_texts": lambda self: dict(texts)})()
+    talk = type("_Talk", (), {"interim_texts": lambda self: dict(texts), "speaking": lambda self: []})()
 
     def _run(query: str) -> tuple[_Stream, threading.Thread]:
         h = _Stream(query, active)
@@ -339,7 +339,7 @@ def test_watch_interim_min_and_exclude_claude() -> None:
     active = "transcript-20261031.txt"
     _touch(active, "")
     texts: dict[str, str] = {"mic": "うん"}
-    talk = type("_Talk", (), {"interim_texts": lambda self: dict(texts)})()
+    talk = type("_Talk", (), {"interim_texts": lambda self: dict(texts), "speaking": lambda self: []})()
     streams = [_Stream(q, active) for q in ("interval=1&interim=1&interim_min=5&exclude=claude",
                                             "interval=1&interim=1")]
     threads = [threading.Thread(target=x._serve_watch, daemon=True) for x in streams]
@@ -365,6 +365,41 @@ def test_watch_interim_min_and_exclude_claude() -> None:
         w in out for w in ("[自分] 質問です", "[画面] 画面キャプチャ", "--- 会議終了 ---")), repr(out))
     check("付けなければ短い interim も [Claude] 行も流す", ">うん</interim>" in plain
           and plain.count("<transcript ") == 2 and "自分の声" in plain and "続き" in plain, repr(plain))
+
+
+def test_watch_unanswered_notices_once() -> None:
+    """unanswered=N: [自分] の後に [Claude] が続かないまま N 秒で1回知らせる。返した・先に返した・話している最中は知らせない"""
+    import time
+    active = "transcript-20261105.txt"
+    _touch(active, "")
+    speaking: list[str] = []
+    talk = type("_Talk", (), {"interim_texts": lambda self: {}, "speaking": lambda self: list(speaking)})()
+    h = _Stream("interval=1&exclude=claude&unanswered=2", active)
+    h.recorder.talk = talk
+    th = threading.Thread(target=h._serve_watch, daemon=True)
+    th.start()
+    time.sleep(0.3)
+    _append(active, "[2026-11-05 10:00:00] [Claude] 質問です\n")
+    time.sleep(3.0)
+    check("Claude が話したあと黙っていても知らせない", b"<notice>" not in h.out.getvalue(), repr(h.out.getvalue()))
+    _append(active, "[2026-11-05 10:00:10] [自分] 答えです\n[2026-11-05 10:00:12] [Claude] なるほど\n")
+    time.sleep(3.0)
+    check("返していれば知らせない", b"<notice>" not in h.out.getvalue(), repr(h.out.getvalue()))
+    _append(active, "[2026-11-05 10:00:21] [Claude] 先に返事\n")
+    time.sleep(0.5)
+    _append(active, "[2026-11-05 10:00:20] [自分] 確定が後から\n")
+    time.sleep(3.0)
+    check("確定行より先に返していれば知らせない", b"<notice>" not in h.out.getvalue(), repr(h.out.getvalue()))
+    speaking.append("mic")
+    _append(active, "[2026-11-05 10:00:30] [自分] まだ話して\n")
+    time.sleep(3.0)
+    check("話している最中は知らせない", b"<notice>" not in h.out.getvalue(), repr(h.out.getvalue()))
+    speaking.clear()
+    time.sleep(4.5)
+    h.recorder.stop_event.set()
+    th.join(timeout=3)
+    out = h.out.getvalue().decode()
+    check("返事が無ければ1回だけ知らせる", out.count("<notice>2 秒間 返事なし") == 1, repr(out))
 
 
 def test_watch_pronounce_holds_line_until_analysed() -> None:
@@ -538,6 +573,7 @@ def main() -> int:
     test_watch_rejects_unknown_kind()
     test_watch_interim_streams_changes_only_when_asked()
     test_watch_interim_min_and_exclude_claude()
+    test_watch_unanswered_notices_once()
     test_watch_pronounce_holds_line_until_analysed()
     test_watch_follows_output_path()
     test_watch_meeting_end_back_to_existing_day_file()
