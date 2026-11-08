@@ -83,6 +83,7 @@ STRINGS_JA_NEXT: dict[str, str] = {
     "nx.chunk_title": "{from}〜{to} の会話",
     "nx.chunk_count": "{n} 発言",
     "nx.chunk_gap": "{n} 分 会話なし",
+    "nx.select_chunk": "☑ 全選択",
     "nx.extract_chunk": "✂ 会議として切り出す",
     "nx.sg_text": "このメモには {n} つの会話のまとまりがあります。会議だったものは「✂ 会議として切り出す」すると、議事録や AI のアドバイスを作れます。",
     "nx.sg_tip": "一部だけ選ぶときは、行をクリック → Shift+クリックで範囲選択",

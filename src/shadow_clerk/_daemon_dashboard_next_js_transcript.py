@@ -110,6 +110,7 @@ function nxChunkHead(c,ci){
   return '<div class="chunk"><span>💬</span><span class="ct">'
     +nxEsc(nxFmt('nx.chunk_title',{from:nxHm(nxLines[c.from]),to:nxHm(nxLines[c.to])}))+'</span>'
     +'<span class="muted">'+nxEsc(nxFmt('nx.chunk_count',{n:c.to-c.from+1}))+'</span><span class="spacer"></span>'
+    +'<button class="lbtn" data-chunksel="'+ci+'">'+nxEsc(I18N['nx.select_chunk'])+'</button>'
     +'<button class="lbtn" data-chunk="'+ci+'">'+nxEsc(I18N['nx.extract_chunk'])+'</button></div>';
 }
 /* 確定前の文字起こし（相手の声だけ）。選択できない薄い行として最後に出す */
@@ -233,8 +234,10 @@ function nxOnTranslationSse(d){
 function nxSelIdx(){return [...nxSel].sort((a,b)=>a-b);}
 function nxSelRange(){const s=nxSelIdx();return s.length?[s[0],s[s.length-1]]:null;}
 function nxRenderSelBar(){
-  const idx=nxSelIdx().filter(i=>nxLines[i]);
-  nxEl('nxSelBar').classList.toggle('show',idx.length>0);
+  const idx=nxSelIdx().filter(i=>nxLines[i]),bar=nxEl('nxSelBar');
+  bar.classList.toggle('show',idx.length>0);
+  /* バーは transcript に重なるので、その高さぶん下に余白を足して最後の行までスクロールで出せるようにする */
+  nxEl('nxTranscript').style.paddingBottom=idx.length?(bar.offsetHeight+28)+'px':'';
   if(!idx.length)return;
   const a=idx[0],b=idx[idx.length-1];
   nxEl('nxSelCount').textContent=nxFmt('nx.sel_count',{n:idx.length});
@@ -260,12 +263,13 @@ function nxOnTxClick(e){
   }
   const more=e.target.closest('[data-more]');
   if(more){const i=+more.dataset.more;nxMenu=nxMenu===i?null:i;nxRenderTx(false);return;}
-  const ch=e.target.closest('[data-chunk]');
+  const ch=e.target.closest('[data-chunk],[data-chunksel]');
   if(ch){
-    const c=nxChunks()[+ch.dataset.chunk];
+    const ext=ch.dataset.chunk!==undefined,c=nxChunks()[+(ext?ch.dataset.chunk:ch.dataset.chunksel)];
     if(!c)return;
     nxSel=new Set();for(let k=c.from;k<=c.to;k++)nxSel.add(k);
-    nxMenu=null;nxRenderTx(false);nxExtract('extractRange');
+    nxAnchor=c.from;nxMenu=null;nxRenderTx(false);
+    if(ext)nxExtract('extractRange');
     return;
   }
   const ln=e.target.closest('.ln[data-i]');

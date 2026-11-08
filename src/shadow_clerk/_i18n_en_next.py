@@ -83,6 +83,7 @@ STRINGS_EN_NEXT: dict[str, str] = {
     "nx.chunk_title": "Conversation {from}–{to}",
     "nx.chunk_count": "{n} lines",
     "nx.chunk_gap": "{n} min without conversation",
+    "nx.select_chunk": "☑ Select all",
     "nx.extract_chunk": "✂ Save as a meeting",
     "nx.sg_text": "This memo has {n} conversations. Use \"✂ Save as a meeting\" on the ones that were meetings to get minutes and AI advice.",
     "nx.sg_tip": "To pick part of it, click a line, then Shift+click to select a range",
