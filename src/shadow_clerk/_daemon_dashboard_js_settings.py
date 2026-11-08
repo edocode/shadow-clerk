@@ -95,8 +95,8 @@ const CFG_FIELDS=[
   {key:'ai_reference_dirs',label:I18N['cfg.ai_reference_dirs'],type:'lines',ph:I18N['cfg.ai_reference_dirs_ph'],
     warn:{when:'',msgKey:'cfg.ai_reference_dirs_warn'}},
   {type:'section',tab:'talk',label:I18N['cfg.section.talk']},
-  {key:'talk_filler_sec',label:I18N['cfg.talk_filler_sec'],type:'select',num:true,opts:['0','5','8','10','15','20']},
-  {key:'talk_piper_voice',label:I18N['cfg.talk_piper_voice'],type:'select',opts:['recommended:american','recommended:british','random:american','random:british','random:scottish','random:irish','random:other','random'],label_of:o=>I18N['cfg.talk_piper_voice.'+o]},
+  {key:'talk_filler_sec',simple:1,label:I18N['cfg.talk_filler_sec'],type:'select',num:true,opts:['0','5','8','10','15','20']},
+  {key:'talk_piper_voice',simple:1,note:'cfg.talk_piper_voice_note',label:I18N['cfg.talk_piper_voice'],type:'select',opts:['recommended:american','recommended:british','random:american','random:british','random:scottish','random:irish','random:other','random'],label_of:o=>I18N['cfg.talk_piper_voice.'+o]},
   {type:'section',tab:'talk',label:I18N['cfg.section.pronounce']},
   {key:'pronounce_enabled',label:I18N['cfg.pronounce_enabled'],type:'bool'},
   {key:'pronounce_model',when:{k:'pronounce_enabled'},label:I18N['cfg.pronounce_model'],type:'text',ph:'facebook/wav2vec2-xlsr-53-espeak-cv-ft'},
@@ -246,6 +246,7 @@ async function openCfg(){
       if(f.ph)el.placeholder=f.ph;
     }
     b.appendChild(el);
+    if(f.note){const n=document.createElement('div');n.className='cfg-hint';n.style.gridColumn='2';n.textContent=I18N[f.note];b.appendChild(n);}
     if(f.warn){
       const w=document.createElement('div');w.className='cfg-warn';
       w.id='cfg_warn_'+f.key;
