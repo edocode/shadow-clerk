@@ -264,13 +264,17 @@ def test_practice_skill() -> None:
               installed_reference.read_bytes() == (skill_install.bundled_skill_dir(practice) / reference).read_bytes())
     front, body = _skill_parts(practice)
     talk_front, talk_body = _skill_parts(skill_install.TALK_SKILL_NAME)
-    check("allowed-tools は clerk-talk と同じ", front.get("allowed-tools") == talk_front.get("allowed-tools"),
-          repr(front.get("allowed-tools")))
+    practice_tools = str(front.get("allowed-tools", ""))
+    talk_tools = str(talk_front.get("allowed-tools", ""))
+    check("allowed-tools は clerk-talk の許可を含み、評価表の場所だけ読み書きを足す",
+          practice_tools.startswith(talk_tools) and "Write(~/.local/share/shadow-clerk/practice/**)" in practice_tools,
+          repr(practice_tools))
     _check_curl_forms(practice)
     for needle in ('/api/meeting"', '"analyze":false', '/api/language"', '/api/mute"', '`previous`',
                    '/api/meeting-history?meeting=', "tail=15", '/api/generated"', '"kind":"advice","mode":"replace"',
                    '"kind":"analysis","mode":"append"', '"lang":"<lang>"', "🔊 ", "今日の練習のまとめ: ", '/api/talk-end"',
-                   '"display":"（問題1・<意味>）"'):
+                   '"display":"（問題1・<意味>）"', "practice/", "proficiency-<lang>.csv",
+                   "proficiency-history-<lang>.csv", "`recent_ok`", "要練習", "level の決め方"):
         check(f"clerk-practice が {needle} を使う", needle in body)
     check("clerk-talk が clerk-practice に切り替える", "/clerk-practice" in talk_body)
     check("clerk-talk が /api/say の lang を知っている", '"lang":"en"' in talk_body)

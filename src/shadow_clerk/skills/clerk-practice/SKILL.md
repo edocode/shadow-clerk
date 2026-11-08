@@ -1,9 +1,9 @@
 ---
 name: clerk-practice
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、発音・会話・ヒアリング・実践会話・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」「中国語で会話を練習したい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
-allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
+allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent Read(~/.local/share/shadow-clerk/practice/**) Write(~/.local/share/shadow-clerk/practice/**) Edit(~/.local/share/shadow-clerk/practice/**)
 metadata:
-  version: "1.23.0"
+  version: "1.24.0"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -62,6 +62,46 @@ curl -s "http://localhost:8765/api/talk-mode"
   共通の API 操作や開始・終了手順は重複させない。
 - 練習の難易度と地域・変種は希望と前回の記録に合わせ、必要な場合だけ確認する。
   API が指定言語を拒否したら理由を伝え、別の言語に勝手に置き換えない。
+
+## 評価表（習熟度）
+
+練習の項目ごとの今の評価を表で持つ。会議の記録（transcript）とは別に、会議名に依らない場所に置く。
+
+- 場所は `~/.local/share/shadow-clerk/practice/`。言語ごとに2つのファイルがある
+  - `proficiency-<lang>.csv`: 今の評価。1項目1行
+  - `proficiency-history-<lang>.csv`: 練習ごとの記録。追記のみ
+- 読み書きは Read / Write / Edit で行う（シェルでファイルに書かない）。ファイルが無ければ見出し行だけで作る
+- 値にカンマを含むときは二重引用符で囲む。日付は JST の `YYYY-MM-DD`
+
+`proficiency-<lang>.csv` の見出し行:
+
+```
+area,item,level,recent_ok,recent_tried,last_practiced,note
+```
+
+- `area`: 音声 / 文法 / 語彙 / 話題 / 場面
+- `item`: 練習の項目。階層は `>` で書く（例: `音声>th`、`音声>v`、`文法>時制>過去形`、`文法>仮定法`、`文法>冠詞`、`話題>日常会話>買い物`、`話題>仕事>会議`、`話題>接客>注文`）。同じ項目は同じ書き方にする
+- `level`: 未着手 / 要練習 / 一部できる / 使える
+- `recent_ok` / `recent_tried`: その項目の直近3回分の履歴の、○ の数と試した数の合計
+- `last_practiced`: 最後に練習した日
+- `note`: 短いメモ（例: 無声の [θ] が [s] になる）
+
+`proficiency-history-<lang>.csv` の見出し行:
+
+```
+date,recorded_at,item,ok,tried,level
+```
+
+- `date`: 練習した日（JST）。`recorded_at`: 書き込んだ時刻（`2026-11-05T22:40:00+09:00`）
+- `ok`: その練習で ○ だった数。`tried`: その練習で試した数（△ と × は tried だけに数える。判定できなかったものは数えない）
+- `level`: 書き込んだときの level
+
+**level の決め方**（その項目の履歴の直近3行で数える）
+- 履歴に無い → `未着手`
+- 試した合計が3未満 → `要練習`
+- ○ の割合が 80% 以上 → `使える`
+- 50% 以上 → `一部できる`
+- それ未満 → `要練習`
 
 ## 1. 始める
 
@@ -127,6 +167,7 @@ curl -s "http://localhost:8765/api/meeting-history?meeting=<言語名>練習&cou
 - `meetings` が空なら初回。5つを一言ずつ紹介してから選んでもらう
 - アルファベット（「アルファベット」節）は、頼まれたとき、または全くの初心者と分かったとき（「初めて」「文字から」など）に、
   4つとは別に「まずアルファベットからにしますか？」と1つだけ提案する
+- 評価表（`proficiency-<lang>.csv`）を読み、`要練習` か `一部できる` の項目で `last_practiced` が古いものから、今日の候補を1〜2個出す。`使える` の項目は復習として1つだけ出してよい。表がまだ無い（初回）なら、この手順は飛ばす
 - 何をやるかが決まったら、**何分やるか**を聞いて覚える（例:「今日は何分やりますか？」）。決めないと言われたら時間は区切らない
 
 ## 3. 練習する
@@ -456,23 +497,39 @@ curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: applicat
 curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n## HH:MM <練習の形>\n\n| 語・文 | 読み方 | 意味 | 結果 |\n|---|---|---|---|\n| <対象言語の表記> | <読み方> | <意味> |  |\n\n- 🔊[<lang>] <語・文>\n"}'
 ```
 
+### 評価表の更新
+
+- 判定が終わった項目は、Advice と Analysis を書くのと同じ節目で、評価表も更新する:
+  1. 履歴（`proficiency-history-<lang>.csv`）に行を追記する。同じ日・同じ項目の行が既にあれば、その行を書き換える（同じ日に二重に足さない）
+  2. 評価表（`proficiency-<lang>.csv`）の該当行の `recent_ok`、`recent_tried`、`level`、`last_practiced`、`note` を更新する。無ければ行を追加する
+- `level` は上の「level の決め方」で計算する
+- 書き込みに失敗したら練習は止めず、Analysis に「評価表に未反映: <項目>」と書き、終えるときにユーザーに伝える
+
 ## 5. 終える
 
-時間に達したときも、ユーザーが終了を希望したときも、次の順で完了する。
-**最後の課題の評価・記録と、終了対象の会議を閉じる処理が済むまで、終了したと案内しない。**
+時間に達したときも、ユーザーが終了を希望したときも、次の順で進める。記録（評価・Analysis・Advice・評価表）は時間がかかるので、
+**Agent に任せ、まとめは記録の完了を待たずに先に話す。**
+**最後の課題の記録と、終了対象の会議を閉じる処理が済むまで、終了したと案内しない。**
 
-### 1. 最後の課題の評価と記録を済ませる
+### 1. 終えると決まったら、記録を Agent に任せる
 
-- 最後に出した課題と届いた回答を確認する。評価がまだなら、まずその回答への具体的な評価と直しを返す。
-  実践会話では、声での直しを控える通常の進行どおり、最後の発言への直しも AI分析 に残す。
-- 最後の回答・結果・直しを Analysis に追記し、Advice も次回の課題を含めて更新する。
-  すでに評価・記録済みの回答は重ねて評価しない。
-- 音素解析待ちなら言語別ガイドの取得回数の範囲で確認し、まだ結果が無ければ結果欄は空のまま**未判定**と注記する。
-  成否を推測しない。回答がまだ無ければ未回答として残す。終了の意思があるときに再回答や新しい課題を求めない。
-- **この作業が終わる前に、音素課題を解除したり、会議や talk mode を終了したりしない。**
+- 時間到達で続けないと決まった時点、またはユーザーが終了を希望した時点で、記録を subagent（Agent ツール）に渡す。
+  メインは待たずに 2 を進める。
+- subagent に渡すもの（ブリーフは1つにまとめ、subagent は今の会話を見られない前提で書く）:
+  - 最後に出した課題と届いた回答（そのまま）、言語、練習内容、既に評価・記録済みの回答（あれば）
+  - この SKILL.md のパス。「4. 書く — Advice と Analysis」と「評価表の更新」と「level の決め方」を読ませる
+  - 書き込み先（`/api/generated`）と、評価表・履歴の場所（`~/.local/share/shadow-clerk/practice/`）
+  - 指示: 最後の課題の評価・記録だけを行う。最後の回答への具体的な評価と直しを返し、Analysis と Advice を書き、評価表を更新する。
+    音素解析の結果が無ければ結果欄を空のまま**未判定**と注記し、成否を推測しない。回答が無ければ未回答として残す。
+    **声（`/api/say`）・音素・ミュート・会議・talk mode には触らない。**
+  - 返すもの: 書いた節と、未反映の項目を1〜2行で
+- この作業が終わるまで、音素課題の解除や会議・talk mode の終了をしない。
 
-### 2. 終了を確かめ、まとめと状態の復元を済ませる
+### 2. 終了を確かめ、まとめを話す
 
+- 時間到達で終了するか未確認なら「そろそろ 15 分です。ここで終わりますか、続けますか？」と聞く。
+  ユーザーがすでに終了を指示していれば、聞き直さず続ける。
+- 続けるなら「時間」節のとおり延長する。すでに渡した記録は取り消さず、ここから先の終了処理は行わない。
 - 切り替えを一言知らせ、聞き取る言語を覚えておいた元の言語に戻す。
   終了の確認とまとめは母語で話す。元が `auto` なら `{"language":"auto"}` にする。
 
@@ -480,17 +537,18 @@ curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: applicat
 curl -s -X POST "http://localhost:8765/api/language" -H 'Content-Type: application/json' -d '{"language":"ja"}'
 ```
 
-- 時間到達で終了するか未確認なら「そろそろ 15 分です。ここで終わりますか、続けますか？」と聞く。
-  ユーザーがすでに終了を指示していれば、聞き直さず終了処理を続ける。
-- 続けるなら「時間」節のとおり延長し、ここから先の終了処理は行わない。
-- 終えるなら「今日の練習のまとめ: 」で始まる発話を `lang` なしの `/api/say` で話す。
+- 「今日の練習のまとめ: 」で始まる発話を `lang` なしの `/api/say` で話す。
   やったこと・できたこと・次の課題を1〜3文で入れる。この行が次回の提案の手がかりになる。
+  記録の結果はまだ分からなくてよい。判定が出ていない項目は「まとめ」に入れない。
 
 ```
 curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/json' -d '{"text":"今日の練習のまとめ: <言語名>の<練習内容>を練習しました。<できたこと>。次は<次回の課題>です。"}'
 ```
 
-- 音素課題や `free` をアームしていたら、評価・記録を終えてから解除する。
+### 3. Agent の完了を待ち、後始末をして会議を閉じる
+
+- Agent の結果を受け取る。未反映の項目があれば、「評価表の更新」のとおりメインで反映するか、Analysis に「評価表に未反映: <項目>」と書いてユーザーに伝える。
+- 音素課題や `free` をアームしていたら、記録を終えてから解除する。
 
 ```
 curl -s -X POST "http://localhost:8765/api/pronounce" -H 'Content-Type: application/json' -d '{"clear":true}'
@@ -502,8 +560,6 @@ curl -s -X POST "http://localhost:8765/api/pronounce" -H 'Content-Type: applicat
 ```
 curl -s -X POST "http://localhost:8765/api/mute" -H 'Content-Type: application/json' -d '{"source":"monitor","muted":false}'
 ```
-
-### 3. 練習用の会議を閉じ、結果を確認する
 
 - **開始時に覚えた終了対象の会議を、talk mode より先に閉じる。** 自分で作った会議だけでなく、
   今回の練習用として引き継いだ会議も対象。`/api/talk-end` だけでは会議は終了しない。
