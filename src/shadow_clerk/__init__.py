@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import sys
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 
 def is_microsoft_store_python() -> bool:
