@@ -279,6 +279,7 @@ def test_practice_skill() -> None:
     check("clerk-talk が clerk-practice に切り替える", "/clerk-practice" in talk_body)
     check("clerk-talk が /api/say の lang を知っている", '"lang":"en"' in talk_body)
     check("clerk-talk が /api/say の display を知っている", "`display`" in talk_body)
+    check("clerk-talk が Monitor の切れ目の発言を /api/transcript で拾い直す", '/api/transcript"' in talk_body)
     check("clerk-practice が display を説明している", "`display`" in body)
     check("聞き取る言語の切り替えは練習が始まってから（提案までは母語のまま）",
           0 <= body.index("## 3. 練習する") < body.index('/api/language"') and "では、始めましょう" in body)
@@ -301,8 +302,8 @@ def test_talk_skill_reads_glossary_and_misheard() -> None:
     text = (skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME) / "SKILL.md").read_text(encoding="utf-8")
     for needle in ('/api/glossary"', '/api/misheard"', "POST"):
         check(f"talk skill が {needle} を使う", needle in text)
-    check("talk skill の版が 1.10.0", skill_install.read_skill_version(
-        skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME)) == "1.11.0")
+    check("talk skill の版が 1.11.1", skill_install.read_skill_version(
+        skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME)) == "1.11.1")
     quirks = skill_install.bundled_skill_dir(skill_install.TALK_SKILL_NAME) / "../clerk-meeting-helper/references/transcript-quirks.md"
     check("参照している崩れ方の説明が同梱されている", "../clerk-meeting-helper/references/transcript-quirks.md" in text
           and quirks.resolve().is_file(), str(quirks))
