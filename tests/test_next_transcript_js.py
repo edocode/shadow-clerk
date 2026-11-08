@@ -121,6 +121,13 @@ const html=els.nxTranscript.innerHTML;
 out.chunkHeads=(html.match(/class="chunk"/g)||[]).length;
 out.gapText=html.includes(nxFmt('nx.chunk_gap',{n:56}));
 out.suggestShown=els.nxSuggest.style.display!=='none';
+out.chunkSelBtns=(html.match(/data-chunksel=/g)||[]).length;
+els.nxTranscript.handlers.click(tgt({chunksel:'1'}));
+const c1=nxChunks()[1];
+out.chunkSel=nxSel.size===c1.to-c1.from+1&&nxSel.has(c1.from)&&nxSel.has(c1.to)&&nxAnchor===c1.from;
+out.selPad=els.nxTranscript.style.paddingBottom!=='';
+nxClearSel();
+out.selPadCleared=els.nxTranscript.style.paddingBottom==='';
 
 // 2) 会議ファイル: SSE 追記で選択と行メニューが残る / 下端なら追従
 nxOpenFile(DATA.mtgName);
@@ -287,6 +294,10 @@ def main() -> None:
     check("日次ファイルを開くと全行を読み、まとまりごとの見出しと会話なしの間隔を出す",
           out["cur"] == "transcript-20261031.txt" and out["nLines"] == 35 and out["chunkHeads"] == 4 and out["gapText"],
           repr((out["cur"], out["nLines"], out["chunkHeads"], out["gapText"])))
+    check("chunk 全選択: 見出しごとにボタンがあり、そのまとまりの行だけを選ぶ（切り出しは開かない）",
+          out["chunkSelBtns"] == 4 and out["chunkSel"], repr((out["chunkSelBtns"], out["chunkSel"])))
+    check("選択バー表示中は transcript の下に余白を足し、解除で戻す",
+          out["selPad"] and out["selPadCleared"], repr((out["selPad"], out["selPadCleared"])))
     check("まとまりが 2 つ以上なら 💡 案内を出す", out["suggestShown"])
     check("会議ファイル: 行と --- 区切り行を分けて持つ", out["mtgLines"] == 4 and out["marks"] == 1,
           repr((out["mtgLines"], out["marks"])))
