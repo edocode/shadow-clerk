@@ -241,7 +241,9 @@ function nxListInit(){
   nxEl('nxRmSel').addEventListener('change',pick('existing'));
   /* 会議が始まったら会議のファイルへ、終わったら日次のファイルへ移る。デーモンは録音先を切り替えてから
      session ファイルを更新するので、ここで読み直した active は切り替え後のもの */
-  nxOn('session',async d=>{nxState.session=d.content||null;nxRenderLeft();await nxLoadFiles();nxOpenLive();});
+  nxOn('session',async d=>{const started=!nxState.session&&!!d.content;nxState.session=d.content||null;
+    if(started){nxState.rtab='ai';nxState.right=true;}  // 会議が始まったら AI のアドバイスを前に出す（ページを開き直しては切り替えない）
+    nxRenderLeft();await nxLoadFiles();nxOpenLive();});
   setInterval(nxLoadFiles,10000);
   nxLoadFiles();
 }
