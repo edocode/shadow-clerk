@@ -67,9 +67,21 @@ function nxConnect(){
     setTimeout(nxConnect,nxReconnectMs);
   };
 }
+/* 会議が始まったら AI のアドバイスを前に出す。session は /api/status と SSE（mtime を 1 秒ごとに見るので
+   最大 1 秒遅れる）の両方から届き、開始モーダルは POST の直後に status を取り直すため、どちらが先でも
+   1 度だけ効くようここで見る。最初に知った値は基準にするだけ（ページを開き直しても切り替えない） */
+let nxSessionKnown=false;
+function nxSetSession(next){
+  const started=nxSessionKnown&&!nxState.session&&!!next;
+  nxSessionKnown=true;
+  nxState.session=next||null;
+  if(started){nxState.rtab='ai';nxState.right=true;}
+  return started;
+}
 function nxApplyStatus(d){
   const s=nxState;
-  s.status=d;s.running=d.running!==false;s.session=d.session||null;s.translating=!!d.translating;
+  nxSetSession(d.session);
+  s.status=d;s.running=d.running!==false;s.translating=!!d.translating;
   s.muteMic=!!d.mute_mic;s.muteMonitor=!!d.mute_monitor;
   s.useMic=d.use_mic!==false;s.useMonitor=d.use_monitor!==false;
 }
@@ -194,7 +206,7 @@ function nxInit(){
   nxBindMenu('nxMoreBtn','nxMoreMenu');
   nxBindMenu('nxViewBtn','nxViewMenu');
   document.addEventListener('click',e=>{if(!e.target.closest('.menu-wrap'))nxCloseMenus(null);});
-  nxOn('session',d=>{nxState.session=d.content||null;nxRenderHeader();});
+  nxOn('session',d=>{nxSetSession(d.content);nxRenderHeader();});
   nxOn('level',d=>{nxSetLevel('mic',d.mic);nxSetLevel('monitor',d.monitor);});
   setInterval(()=>{if(nxState.session)nxRenderHeader();},1000);
   nxRenderAll();
