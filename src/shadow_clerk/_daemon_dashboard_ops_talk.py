@@ -8,7 +8,7 @@ from shadow_clerk._daemon_dashboard_base import is_localhost_client, read_local_
 from shadow_clerk._daemon_pronounce import ArmError
 from shadow_clerk._daemon_talk import TalkStartError
 from shadow_clerk._daemon_tts import TtsError
-from shadow_clerk.domain import Language, PronunciationTask, SpeechTab, TalkVoice
+from shadow_clerk.domain import Language, PronunciationTask, SayText, SpeechTab, TalkVoice
 from shadow_clerk.i18n import t
 from shadow_clerk.skill_install import TALK_SUB_SKILLS
 
@@ -138,6 +138,7 @@ class _DashboardHandlerTalkOps:
         """POST /api/say {text, lang?, display?, after?} — [Claude] 行を書いて読み上げる（talk mode でなくても使える）
 
         lang（例: "en"）が読み上げの言語と違えば、その文はダッシュボードのブラウザの声で読む（語学の練習用）。
+        text の中の <en>…</en> の区間はその言語で読む（日本語の説明に英語の例文を挟む。transcript にはタグを外して書く）
         文の言語は話す本人（skill）が知っているので、daemon は推測しない
         display があれば transcript の [Claude] 行にはそれを書き、声は text を読む（答えの綴りを見せない練習用）
         after（"YYYY-MM-DD HH:MM:SS"）は skill が最後に読んだ行の時刻。それより後の発言があれば話さずに held で返す
@@ -153,6 +154,11 @@ class _DashboardHandlerTalkOps:
                 return
         if lang is not None and (not isinstance(lang, str) or lang not in {v.value for v in Language}):
             self._send_json({"status": "error", "message": "lang must be a known language code"})
+            return
+        try:
+            SayText.parse(text)
+        except ValueError as e:
+            self._send_json({"status": "error", "message": str(e)})
             return
         after = data.get("after")
         if after is not None and (not isinstance(after, str) or not _TIMESTAMP_RE.fullmatch(after)):

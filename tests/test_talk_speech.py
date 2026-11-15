@@ -16,7 +16,7 @@ from shadow_clerk._daemon_talk import TalkDriver
 from shadow_clerk._daemon_talk_prompt import _PROBES
 from shadow_clerk._daemon_talk_speech import BrowserSpeech
 from shadow_clerk._daemon_tts import TtsPlayer
-from shadow_clerk.domain import Language, SpeechTab, Speaker, TranscriptLine, estimate_speech_sec
+from shadow_clerk.domain import Language, SayText, SpeechTab, Speaker, TranscriptLine, estimate_speech_sec
 
 # talk mode の偽物（engine・経路・pw-cat）は TalkDriver の検証と同じものを使う
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -185,7 +185,8 @@ def _talk(ack: float | None = 0.05, route: bool = False, muted: list[bool] | Non
         return made["engine"]
 
     sink = _RecSink(events, backend)
-    d = TalkDriver(lambda _l: None, config_loader=lambda: dict(_CONFIG), backend_factory=lambda cfg, v=None: backend,
+    made["lines"] = []
+    d = TalkDriver(made["lines"].append, config_loader=lambda: dict(_CONFIG), backend_factory=lambda cfg, v=None: backend,
                    player_factory=player_factory, engine_factory=engine_factory, foreign_factory=lambda _c: None,
                    route_factory=lambda: _Route(ok=route), sink_factory=lambda: sink, speech=speech,
                    monitor_muted=lambda: bool(muted and muted[0]))
@@ -214,6 +215,38 @@ def test_driver_routes_by_lang() -> None:
     check("lang 付きの文だけブラウザへ、送った順に鳴る",
           events == ["vv:説明です。", "browser:They are there.", "vv:次です。", "vv:日本語です。"], repr(events))
     check("待っていない文の done は False", not d.speech_done("s1"))
+    d.stop()
+
+
+def test_say_text_parse() -> None:
+    st = SayText.parse("正解です。もっと短く、<en>Go to bed early.</en>とも言えます。")
+    check("タグの区間だけその言語、外は lang なし",
+          st.segments == (("正解です。もっと短く、", None), ("Go to bed early.", Language.EN), ("とも言えます。", None)),
+          repr(st.segments))
+    check("plain はタグを外した文", st.plain == "正解です。もっと短く、Go to bed early.とも言えます。", st.plain)
+    st = SayText.parse("<en>Hi.</en>。", Language.JA)
+    check("タグの外は既定の lang、読むものの無い区間は読まない", st.segments == (("Hi.", Language.EN),), repr(st.segments))
+    check("読まない区間も transcript には残す", st.plain == "Hi.。", st.plain)
+    check("タグが無ければ1区間", SayText.parse("Hello.", Language.EN).segments == (("Hello.", Language.EN),))
+    for bad in ("<xx>a</xx>", "<en>a</fr>", "<en>a"):
+        try:
+            SayText.parse(bad)
+            check(f"不正なタグ {bad!r} は ValueError", False)
+        except ValueError:
+            check(f"不正なタグ {bad!r} は ValueError", True)
+
+
+def test_driver_reads_inline_lang() -> None:
+    d, events, made, bus = _talk()
+    d.speech_ready(_tab("tabA", "en"))
+    d.start("x", None)
+    d.api_say("正解です。もっと短く、<en>Go to bed early.</en>とも言えます。")
+    _wait(lambda: len(events) == 4 and not made["player"].is_busy())
+    check("1回の say の中で、区間ごとの声で話す順に鳴る",
+          events == ["vv:正解です。", "vv:もっと短く、", "browser:Go to bed early.", "vv:とも言えます。"], repr(events))
+    check("transcript はタグを外した1行",
+          [ln.text for ln in made["lines"] if ln.speaker == Speaker.CLAUDE]
+          == ["正解です。もっと短く、Go to bed early.とも言えます。"], repr(made["lines"]))
     d.stop()
 
 
@@ -286,7 +319,9 @@ if __name__ == "__main__":
     test_timeout_moves_on_and_forgets_tab()
     test_ready_expires_and_withdraws()
     test_two_tabs_last_one_wins()
+    test_say_text_parse()
     test_driver_routes_by_lang()
+    test_driver_reads_inline_lang()
     test_driver_skips_without_tab()
     test_driver_route_ignores_lang()
     test_driver_route_with_muted_monitor_is_solo()

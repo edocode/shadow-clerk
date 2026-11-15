@@ -23,7 +23,7 @@ from shadow_clerk._daemon_talk_speech import BrowserSpeech
 from shadow_clerk._daemon_tts import TtsBackend, TtsError, TtsPlayer, make_backend, make_player
 from shadow_clerk._daemon_tts_pipewire import PwCatSink
 from shadow_clerk._daemon_tts_piper import make_foreign_backend
-from shadow_clerk.domain import (EchoFilter, Language, SpeechTab, SpokenSpan, Speaker, TalkPersona, TalkVoice,
+from shadow_clerk.domain import (EchoFilter, Language, SayText, SpeechTab, SpokenSpan, Speaker, TalkPersona, TalkVoice,
                                  TranscriptLine)
 from shadow_clerk.domain.ai_assistant import AiAssistantConfig
 from shadow_clerk.i18n import t
@@ -536,6 +536,12 @@ class TalkDriver:
         logger.info("talk: つなぎ %r (lang=%s, 無音 %.1f秒)", phrase, lang.value, silent)
         player.speak(phrase, browser)
 
+    def _segment_language_locked(self, text: str, lang: Language | None) -> Language | None:
+        """英語の会話で lang を付け忘れた文を VOICEVOX で読まない"""
+        if lang is None and self._lang == Language.JA and not _JA_SCRIPT_RE.search(text):
+            return self._context_language_locked()
+        return lang
+
     def _context_language_locked(self) -> Language:
         """ユーザーがいま話している言語（聞き取りの言語）。auto やほかの参加者がいる（ブラウザの声が届かない）なら会話の言語"""
         heard = Language.coerce(self._heard_language() or "")
@@ -551,6 +557,7 @@ class TalkDriver:
         """[Claude] 行を書いて読み上げる。talk mode でなければ一時的な再生器を使う
 
         display があれば transcript の行にはそれを書く（読むのは text。答えの綴りを見せない語学の練習用）
+        text の中の <en>…</en> の区間はその言語で、外は lang で読む（区間ごとに下の lang の扱いに従う）
 
         lang が読み上げの言語（VOICEVOX）と違えば、その文はダッシュボードのブラウザで読む。ほかの参加者がいる talk mode
         （ブラウザの音は会議アプリに届かない）と talk mode の外（一時的な再生器）では lang を見ない
@@ -558,8 +565,11 @@ class TalkDriver:
         届け先ありで話し出しが誰かと重なったら、譲って話さずに、その人の発言を返す（届く前なら空）。
         話したとき（話すものが無いとき、待つ間に talk mode が終わったときも）は None
         """
-        text = one_line(text)
-        if not text:
+        try:
+            said = SayText.parse(one_line(text), lang)
+        except ValueError:  # /api/say は弾いている。engine の文にタグもどきがあればそのまま読む
+            said = SayText(((one_line(text), lang),), one_line(text))
+        if not said.plain or not said.segments:
             return None
         if self._active:
             with self._lock:
@@ -571,17 +581,17 @@ class TalkDriver:
                 return self._yield_floor(player, seen)
             if heard or (heard := self._lines_since(seen)):
                 return heard
-        self._write_line(TranscriptLine(self._clock(), Speaker.CLAUDE, one_line(display or "") or text))
+        self._write_line(TranscriptLine(self._clock(), Speaker.CLAUDE, one_line(display or "") or said.plain))
         with self._lock:
             player = self._player
-            if lang is None and self._lang == Language.JA and not _JA_SCRIPT_RE.search(text):
-                lang = self._context_language_locked()  # 英語の会話で lang を付け忘れた文を VOICEVOX で読まない
-            browser = self._browser_language_locked(lang)
+            parts = [(seg, self._browser_language_locked(self._segment_language_locked(seg, lg)))
+                     for seg, lg in said.segments]
         if player is not None:
-            player.speak(text, browser)
+            for seg, browser in parts:
+                player.speak(seg, browser)
             return None
         config = self._config_loader()
-        self._speak_once(self._backend_factory(config, None), config, text)
+        self._speak_once(self._backend_factory(config, None), config, said.plain)
         return None
 
     def _floor_taken(self) -> bool:
