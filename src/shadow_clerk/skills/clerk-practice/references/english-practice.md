@@ -5,7 +5,11 @@
 
 ## 教材と読み方
 
-- 発音記号は `/ /` で囲んだ米音の辞書式 IPA を使う。daemon の G2P も `en-us`。
+- 発音記号は `/ /` で囲んだ辞書式 IPA を、練習する英語に合わせて書く。練習の始めに `GET /api/pronounce` の
+  `accent` を読む（音素フィードバックを使わない練習でも読む。JSON が返らない古い daemon なら米音）。
+  daemon の G2P も同じ英語（`en-us` / `en-gb`）で期待列を作る。
+  - `american` — 米音（`car /kɑːr/`、`go /ɡoʊ/`、`water /ˈwɔːtər/`）
+  - `british` — 英音・RP（`car /kɑː/`、`go /ɡəʊ/`、`water /ˈwɔːtə/`）。r は母音の前でだけ書く
 - 単語単体や単語の羅列では出さず、一息で言える2〜6語の短い文にする。できる範囲で対象語を文頭に置かない。
 - 音声認識だけのときは、対立のどちらでも成り立つ文を使う（`It's light.` / `It's right.`）。
   文脈で片方に決まる文では、発音が崩れても補われることがある。
@@ -65,7 +69,9 @@ curl -s -X POST "http://localhost:8765/api/pronounce" -H 'Content-Type: applicat
 3. 返った `expected` が、その課題文の**正規化後の期待IPA**。`focus` の `phoneme` はここに
    出てくる記号で書く。辞書どおりの記号（`iː`、`ɪ`）で送っても daemon が同じ正規化をかけるので通る。
    正規化では長音記号 `ː` が落ち、`ɪ` `ə` `ʌ` は `@`、`ɚ` `ɜ` は `R`、`ɔ` `ɑ` は `O`、`æ` は `A` になる。
-   `<pronounce>` の行も `GET /api/pronounce` も、この記号で書かれる（`sit` は `s @ t`、`seat` は `s i t`）
+   `<pronounce>` の行も `GET /api/pronounce` も、この記号で書かれる（`sit` は `s @ t`、`seat` は `s i t`）。
+   `british` では英音の期待列に寄せが入り、`əʊ` は `oʊ`、`iə` は `i`、`eə` は `e`、`ɜː` は `@` になる。
+   `british` で判定した結果を Advice に書くときは、「イギリス英語の判定は試験的」と練習ごとに一度だけ添える
 
    **拒否は HTTP 200 で `{"status":"error","message":...}` として返る。** `message` を読んで、
    次のどれかで対処する。**送り直す前に必ず何かを変える。同じ body の再送は通らない**:
@@ -73,6 +79,9 @@ curl -s -X POST "http://localhost:8765/api/pronounce" -H 'Content-Type: applicat
    - **`expected` が付いている** — `focus` の音素がその語の期待IPAに無い。返ってきた記号を見て
      `focus` を書き直して送り直す（例: `right` の R は `r` ではなく `ɹ`）。書き直しは1回まで。
      それでも通らなければ、その音素の出題をやめる
+   - **`message` が `accent_unsupported`** — 練習する英語がイギリス英語で、その判定が off
+     （設定「イギリス英語の発音も判定する」）。共通手順の「音声認識だけで判定する」に切り替える。**送り直さない**。
+     発音記号とお手本の声はイギリス英語のまま
    - **`expected` が無く、`GET /api/pronounce` の `state` が `unavailable`** — 設定が off か
      未導入。共通手順の「音声認識だけで判定する」に切り替える。**送り直さない**
    - **`expected` が無く、`state` がそれ以外** — 課題文そのものに原因がある（数字が入っている、
@@ -208,7 +217,8 @@ Analysis の語・文に結果を追記し、Advice を書き直すのは従来�
 会話では言う文が先に決まらないので、課題文なしで預ける（`free`）。daemon は発話ごとに、その文字起こし（`asr_text`）を
 期待文にして音素を突き合わせる。**おまけの情報**として扱い、会話を止めてまで待たない。
 
-- 会話を始めるとき、`GET /api/pronounce` の `state` が `idle` / `armed` なら預ける（`unavailable` や JSON が返らないときは何もしない）
+- 会話を始めるとき、`GET /api/pronounce` の `state` が `idle` / `armed` なら預ける（`unavailable` や JSON が返らないときは何もしない）。
+  預けて `accent_unsupported` が返ったら、この会話では預けない
 
 ```
 curl -s -X POST "http://localhost:8765/api/pronounce" -H 'Content-Type: application/json' -d '{"free":true,"lang":"en"}'

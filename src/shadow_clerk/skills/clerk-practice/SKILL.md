@@ -3,7 +3,7 @@ name: clerk-practice
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、発音・会話・ヒアリング・実践会話・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」「中国語で会話を練習したい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent Read(~/.local/share/shadow-clerk/practice/**) Write(~/.local/share/shadow-clerk/practice/**) Edit(~/.local/share/shadow-clerk/practice/**)
 metadata:
-  version: "1.27.0"
+  version: "1.28.0"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -53,7 +53,7 @@ curl -s "http://localhost:8765/api/talk-mode"
 
 - ユーザーの希望から練習する言語を決める。未指定なら尋ねる。母語と練習する言語を区別する。
 - **英語（`en`）なら [references/english-practice.md](references/english-practice.md) を読む。**
-  英語の発音課題、米音 IPA、音素フィードバックの手順と制約、記録例がある。
+  英語の発音課題、米音・英音（設定で選ぶ）の IPA、音素フィードバックの手順と制約、記録例がある。
 - **日本語（`ja`）なら [references/japanese-practice.md](references/japanese-practice.md) を読む。**
   日本語の発音課題、かな（モーラ）単位の音素フィードバックの記号と制約、記録例がある。
 - ほかの言語は、対応する `references/<言語名の英語表記>-practice.md` があればそのファイルだけ読む。
