@@ -451,3 +451,23 @@ def test_speakers_html_shared() -> None:
     assert _HTML_SPEAKER_MODAL in _HTML_TEMPLATE and _HTML_SPEAKER_MODAL in _NEXT_HTML_TEMPLATE
     head = _NEXT_HTML_TEMPLATE[_NEXT_HTML_TEMPLATE.index('id="nxMainHead"'):]
     assert head.index('id="nxSpeakersBtn"') < head.index("</div>")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node が無い")
+def test_meeting_start_from_dashboard_opens_ai_tab() -> None:
+    """開始モーダルから始めたとき: POST のあとの /api/status が先に session を入れても AI のタブを開く"""
+    out = _run_next(r"""
+(async()=>{
+  await tick();
+  const f='/x/transcript-202611121000@acme.txt';
+  ROUTES['/api/meeting']=()=>{STATUS.session=f;return {status:'ok'};};
+  STATUS.session=null;nxState.session=null;nxState.rtab='sum';
+  nxEl('nxStLang').value='auto';nxEl('nxStAssist').checked=false;
+  await nxStStart();
+  const afterPost=nxState.rtab;
+  fire('session',{content:f});await tick();
+  console.log(JSON.stringify({afterPost,afterSse:nxState.rtab,session:nxState.session}));
+})().catch(e=>console.log(JSON.stringify({bodyErr:String(e&&e.stack||e)})));
+""")
+    assert out == {"afterPost": "ai", "afterSse": "ai",
+                   "session": "/x/transcript-202611121000@acme.txt"}

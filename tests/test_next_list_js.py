@@ -67,6 +67,8 @@ const fetch=async (url,opt)=>{
 const tick=()=>new Promise(r=>setImmediate(r));
 const nxRenderers=[];
 const nxState={session:null};
+/* 会議の開始・終了を覚えるのと AI のタブを出すのは core の nxSetSession。ここでは覚える分だけ */
+function nxSetSession(next){nxState.session=next||null;}
 function nxEl(id){return document.getElementById(id);}
 function nxStoreGet(k){return localStorage.getItem(k);}
 function nxStoreSet(k,v){localStorage.setItem(k,v);}
