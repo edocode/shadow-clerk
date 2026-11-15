@@ -17,8 +17,10 @@ os.environ.setdefault("SHADOW_CLERK_DATA_DIR",
                       os.path.join(tempfile.gettempdir(), "shadow-clerk-pronounce-api-test"))
 os.makedirs(os.environ["SHADOW_CLERK_DATA_DIR"], exist_ok=True)
 
-from shadow_clerk._daemon_pronounce import ArmError, PronounceDriver  # noqa: E402
-from shadow_clerk.domain import Language, PronunciationTask  # noqa: E402
+from shadow_clerk._daemon_pronounce import ArmError, PronounceDriver, accent_setting  # noqa: E402
+from shadow_clerk._daemon_pronounce_ipa import has_espeak  # noqa: E402
+from shadow_clerk._daemon_pronounce_kana import has_sudachi  # noqa: E402
+from shadow_clerk.domain import EnglishAccent, Language, PronunciationTask  # noqa: E402
 
 results: list[bool] = []
 
@@ -52,7 +54,7 @@ def _driver() -> PronounceDriver:
     drv = PronounceDriver(recogniser_factory=lambda _lang: rec)
     drv._recogniser = rec                            # type: ignore[assignment]
     # G2P を呼ばずに済むよう、語ごとの期待IPAを直接差し替える
-    drv._expected_of = lambda word, lang: {          # type: ignore[assignment]
+    drv._expected_of = lambda word, lang, *_: {          # type: ignore[assignment]
         "light": ("l", "aɪ", "t"), "right": ("ɹ", "aɪ", "t")}[word.lower()]
     # extra も設定も見ない（CI でも開発機でも同じ結果にする）
     drv._unavailable = lambda: None                  # type: ignore[assignment]
@@ -103,7 +105,7 @@ def test_first_post_reports_loading() -> None:
             self.loaded = True
 
     drv = PronounceDriver(recogniser_factory=lambda _lang: _SlowRecogniser())
-    drv._expected_of = lambda word, lang: ("l", "aɪ", "t")   # type: ignore[assignment]
+    drv._expected_of = lambda word, lang, *_: ("l", "aɪ", "t")   # type: ignore[assignment]
     drv._unavailable = lambda: None                          # type: ignore[assignment]
     out = drv.arm(_task("light", focus=()))
     started.wait(5.0)
@@ -145,7 +147,7 @@ def test_focus_validation() -> None:
     except ArmError:
         check("課題文に無い語を拒否する", True)
     seat = _driver()
-    seat._expected_of = lambda word, lang: {"sit": ("s", "@", "t"), "seat": ("s", "i", "t")}[word]  # type: ignore[assignment]
+    seat._expected_of = lambda word, lang, *_: {"sit": ("s", "@", "t"), "seat": ("s", "i", "t")}[word]  # type: ignore[assignment]
     seat.arm(_task("sit seat", focus=(("seat", "iː"), ("sit", "ɪ"))))
     check("focus の長音と ɪ を期待列の正規化に揃える",
           [f.phoneme for f in seat._task.focus] == ["i", "@"], repr(seat._task))
@@ -226,7 +228,7 @@ def test_pending_covers_the_append() -> None:
     rec = _Blocking()
     drv = PronounceDriver(recogniser_factory=lambda _lang: rec)
     drv._recogniser = rec                                    # type: ignore[assignment]
-    drv._expected_of = lambda word, lang: {                  # type: ignore[assignment]
+    drv._expected_of = lambda word, lang, *_: {                  # type: ignore[assignment]
         "light": ("l", "aɪ", "t"), "right": ("ɹ", "aɪ", "t")}[word.lower()]
     drv._unavailable = lambda: None                          # type: ignore[assignment]
     drv.arm(_task())
@@ -288,7 +290,7 @@ def test_stale_arm_discarded_mid_inference() -> None:
     rec = _Blocking()
     drv = PronounceDriver(recogniser_factory=lambda _lang: rec)
     drv._recogniser = rec                                    # type: ignore[assignment]
-    drv._expected_of = lambda word, lang: {                  # type: ignore[assignment]
+    drv._expected_of = lambda word, lang, *_: {                  # type: ignore[assignment]
         "light": ("l", "aɪ", "t"), "right": ("ɹ", "aɪ", "t")}[word.lower()]
     drv._unavailable = lambda: None                          # type: ignore[assignment]
     drv.arm(_task())
@@ -312,7 +314,7 @@ def test_not_armed_is_ignored() -> None:
 def test_ttl() -> None:
     now = [1000.0]
     drv = PronounceDriver(recogniser_factory=lambda _lang: _FakeRecogniser(), clock=lambda: now[0])
-    drv._expected_of = lambda word, lang: ("l", "aɪ", "t")   # type: ignore[assignment]
+    drv._expected_of = lambda word, lang, *_: ("l", "aɪ", "t")   # type: ignore[assignment]
     drv._unavailable = lambda: None                          # type: ignore[assignment]
     drv.arm(_task("light", focus=()))
     check("期限内は armed", drv.snapshot()["state"] == "armed")
@@ -370,7 +372,7 @@ def test_worker_error_is_contained() -> None:
             raise RuntimeError("boom")
 
     drv = PronounceDriver(recogniser_factory=lambda _lang: _Boom())
-    drv._expected_of = lambda word, lang: ("l", "aɪ", "t")   # type: ignore[assignment]
+    drv._expected_of = lambda word, lang, *_: ("l", "aɪ", "t")   # type: ignore[assignment]
     drv._unavailable = lambda: None                          # type: ignore[assignment]
     drv.arm(_task("light", focus=()))
     drv.offer(("l",), "2026-10-18 10:05:00", "light")
@@ -420,7 +422,7 @@ def test_load_failure_is_visible() -> None:
             raise RuntimeError("network is unreachable")
 
     drv = PronounceDriver(recogniser_factory=lambda _lang: _Broken())
-    drv._expected_of = lambda word, lang: ("l", "aɪ", "t")   # type: ignore[assignment]
+    drv._expected_of = lambda word, lang, *_: ("l", "aɪ", "t")   # type: ignore[assignment]
     drv._unavailable = lambda: None                          # type: ignore[assignment]
     drv.arm(_task("light", focus=()))
     deadline = time.monotonic() + 5.0
@@ -433,7 +435,7 @@ def test_load_failure_is_visible() -> None:
 
 def _broken_driver(recogniser_factory) -> PronounceDriver:
     drv = PronounceDriver(recogniser_factory=lambda _lang: recogniser_factory())
-    drv._expected_of = lambda word, lang: ("l", "aɪ", "t")   # type: ignore[assignment]
+    drv._expected_of = lambda word, lang, *_: ("l", "aɪ", "t")   # type: ignore[assignment]
     drv._unavailable = lambda: None                          # type: ignore[assignment]
     return drv
 
@@ -514,7 +516,7 @@ def test_recovers_after_transient_failures() -> None:
     rec = _Flaky()
     drv = PronounceDriver(recogniser_factory=lambda _lang: rec)
     drv._recogniser = rec                                    # type: ignore[assignment]
-    drv._expected_of = lambda word, lang: {                  # type: ignore[assignment]
+    drv._expected_of = lambda word, lang, *_: {                  # type: ignore[assignment]
         "light": ("l", "aɪ", "t"), "right": ("ɹ", "aɪ", "t")}[word.lower()]
     drv._unavailable = lambda: None                          # type: ignore[assignment]
     drv.arm(_task())
@@ -694,10 +696,69 @@ def test_routes_are_wired() -> None:
     check("POST のルートがある", "_set_pronounce()" in src)
 
 
+def test_accent_setting() -> None:
+    check("設定が無ければ米音で判定する", accent_setting({}) == (EnglishAccent.AMERICAN, True))
+    check("英音は pronounce_british を有効にしたときだけ判定する",
+          accent_setting({"english_accent": "british"}) == (EnglishAccent.BRITISH, False)
+          and accent_setting({"english_accent": "british", "pronounce_british": True}) == (EnglishAccent.BRITISH, True))
+
+
+def _accent_driver(setting: list[tuple[EnglishAccent, bool]]) -> PronounceDriver:
+    rec = _FakeRecogniser()
+    drv = PronounceDriver(recogniser_factory=lambda _lang: rec, accent_loader=lambda: setting[0])
+    drv._recogniser = rec                            # type: ignore[assignment]
+    drv._unavailable = lambda: None                  # type: ignore[assignment]
+    return drv
+
+
+def _car() -> PronunciationTask:
+    return PronunciationTask.parse({"text": "car", "lang": "en", "focus": []})
+
+
+def test_arm_uses_accent_at_arm_time() -> None:
+    if not has_espeak():
+        print("[SKIP] espeak が無い")
+        return
+    setting = [(EnglishAccent.BRITISH, True)]
+    drv = _accent_driver(setting)
+    check("アームしていなければ設定の英語を返す", drv.snapshot()["accent"] == "british", repr(drv.snapshot()))
+    out = drv.arm(_car())
+    check("英音でアームすると英音の期待列", out["accent"] == "british" and out["expected"][0]["ipa"] == ["k", "O"], repr(out))
+    setting[0] = (EnglishAccent.AMERICAN, True)
+    check("アーム済みの課題の英語は設定を変えても変わらない", drv.snapshot()["accent"] == "british", repr(drv.snapshot()))
+    out = drv.arm(_car())
+    check("アームし直せば新しい設定", out["accent"] == "american" and out["expected"][0]["ipa"] == ["k", "O", "ɹ"], repr(out))
+
+
+def test_british_without_opt_in_is_unsupported() -> None:
+    drv = _accent_driver([(EnglishAccent.BRITISH, False)])
+    for task, label in ((_car(), "課題"), (PronunciationTask.parse({"free": True, "lang": "en"}), "自由発話")):
+        try:
+            drv.arm(task)
+            check(f"英音の判定を有効にしていなければ英語の{label}は accent_unsupported", False)
+        except ArmError as e:
+            check(f"英音の判定を有効にしていなければ英語の{label}は accent_unsupported", e.message == "accent_unsupported", e.message)
+    check("アームしていなければ state は変えない（日本語は使える）", drv.snapshot()["state"] == "idle", repr(drv.snapshot()))
+
+
+def test_japanese_task_has_no_accent() -> None:
+    if not has_sudachi():
+        print("[SKIP] sudachi が無い")
+        return
+    drv = _accent_driver([(EnglishAccent.BRITISH, False)])
+    out = drv.arm(PronunciationTask.parse({"text": "こんにちは", "lang": "ja", "focus": []}))
+    check("日本語の課題は英音の判定の設定に関係なくアームでき、accent を載せない",
+          "accent" not in out and "accent" not in drv.snapshot(), repr((out, drv.snapshot())))
+
+
 if __name__ == "__main__":
     test_arm_and_clear()
     test_first_post_reports_loading()
     test_unavailable_reports_reason()
+    test_accent_setting()
+    test_arm_uses_accent_at_arm_time()
+    test_british_without_opt_in_is_unsupported()
+    test_japanese_task_has_no_accent()
     test_focus_validation()
     test_attempts_accumulate()
     test_attempts_after_returns_only_new()

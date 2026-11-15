@@ -12,12 +12,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_pronounce_api import _FakeRecogniser, _settle, check, results  # noqa: E402
 from shadow_clerk._daemon_pronounce import PronounceDriver  # noqa: E402
 from shadow_clerk._daemon_pronounce_ipa import G2PError  # noqa: E402
-from shadow_clerk.domain import PronunciationTask  # noqa: E402
+from shadow_clerk._daemon_pronounce_ipa import has_espeak  # noqa: E402
+from shadow_clerk.domain import EnglishAccent, PronunciationTask  # noqa: E402
 
 _IPA = {"thick": ("θ", "@", "k"), "soup": ("s", "u", "p"), "is": ("@", "z")}
 
 
-def _expected_of(word: str, lang: object) -> tuple[str, ...]:
+def _expected_of(word: str, lang: object, *_: object) -> tuple[str, ...]:
     if word.lower() not in _IPA:
         raise G2PError(f"no ipa for {word}")
     return _IPA[word.lower()]
@@ -104,11 +105,29 @@ def test_ttl_extends_on_speech() -> None:
     check("最後の発話から TTL で切れる", drv.snapshot()["state"] == "idle")
 
 
+
+def test_free_mode_uses_accent() -> None:
+    if not has_espeak():
+        print("[SKIP] espeak が無い")
+        return
+    rec = _FakeRecogniser()
+    drv = PronounceDriver(recogniser_factory=lambda _lang: rec, accent_loader=lambda: (EnglishAccent.BRITISH, True))
+    drv._recogniser = rec                            # type: ignore[assignment]
+    drv._unavailable = lambda: None                  # type: ignore[assignment]
+    out = drv.arm(_free())
+    drv.offer(("k", "O"), "2026-10-24 15:00:00", "Car.")
+    _settle(drv)
+    car = drv.snapshot()["attempts"][0]["words"][0]
+    check("自由発話も英音の期待列で解析する（r の無い car は同じ）",
+          out["accent"] == "british" and all(op["kind"] == "same" for op in car["ops"]), repr((out, car)))
+
+
 if __name__ == "__main__":
     test_parse()
     test_analyses_against_asr_text()
     test_trimmed_reaches_attempt()
     test_skips_unreadable()
     test_ttl_extends_on_speech()
+    test_free_mode_uses_accent()
     print(f"\n=== {sum(results)}/{len(results)} PASS ===")
     sys.exit(0 if all(results) else 1)
