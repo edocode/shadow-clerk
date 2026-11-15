@@ -14,7 +14,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from shadow_clerk.domain import Language
+from shadow_clerk.domain import EnglishAccent, Language
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -28,6 +28,10 @@ _SPLIT: dict[str, tuple[str, ...]] = {
 #    強勢は音素に前置されるので、分割表を引く前に落とす（`ˈɔːɹ` がキー `ɔːɹ` と一致しない）
 _PRE_STRIP = str.maketrans("", "", "ˈˌ")
 _STRIP = str.maketrans("", "", "ː")
+# 英音の期待側だけの寄せ。VCTK の RP の話者（調整用）でモデルが出す記号に合わせた。
+# trap / bath の a はモデルも英音の話者で a を出すので寄せない。ɜː は英音では r 性母音でないので曖昧母音へ
+_GB_EXPECTED: dict[str, str] = {"əʊ": "oʊ", "iə": "i", "eə": "e", "ɜː": "ə"}
+_YOD_DROP_AFTER = frozenset({"t", "d", "n"})
 _TONE = re.compile(r"\d+$")
 # 3 寄せ: モデルが出す ASCII 異体を IPA に揃える
 _ASCII_VARIANT: dict[str, str] = {"ai": "aɪ", "au": "aʊ", "ei": "eɪ", "oi": "ɔɪ", "ou": "oʊ"}
@@ -93,7 +97,7 @@ def word_key(word: str) -> str:
     return unicodedata.normalize("NFKC", word).translate(_QUOTE_FOLD).lower()
 
 
-def _phonemizer_backend(language: Language) -> Any:
+def _phonemizer_backend(language: Language, accent: EnglishAccent) -> Any:
     """espeak バックエンドを作る。ホイールで入る espeak-ng を使うのでシステム依存は無い。
 
     キャッシュしないのは、呼ばれるのがアームのときだけ（1課題あたり語数回）で、頻度が低いから。
@@ -108,7 +112,7 @@ def _phonemizer_backend(language: Language) -> Any:
     EspeakWrapper.set_data_path(espeakng_loader.get_data_path())
     # スパイクの測定は with_stress=False で行った。強勢記号は音素トークンに前置されるので、
     # True にすると `ˈɔːɹ` が `_SPLIT` のキー `ɔːɹ` と一致せず、分割表が丸ごと死ぬ
-    return EspeakBackend(_ESPEAK_LANG[language], with_stress=False)
+    return EspeakBackend(accent.espeak if language is Language.EN else _ESPEAK_LANG[language], with_stress=False)
 
 
 # espeak で測るのは英語のみ。日本語は IPA モデルの限界で測れない（正規化後 PER 48.79%。英語は 9.10%）ので、
@@ -117,22 +121,31 @@ def _phonemizer_backend(language: Language) -> Any:
 _ESPEAK_LANG: dict[Language, str] = {Language.EN: "en-us"}
 
 
-def expected_ipa(word: str, language: Language) -> tuple[str, ...]:
-    """1語だけを音素化して正規化する。文で呼ぶと the の弱形のように文脈で変わるので語ごとに呼ぶ"""
+def expected_ipa(word: str, language: Language, accent: EnglishAccent = EnglishAccent.AMERICAN) -> tuple[str, ...]:
+    """1語だけを音素化して正規化する。文で呼ぶと the の弱形のように文脈で変わるので語ごとに呼ぶ。
+    英語は accent の espeak（en-us / en-gb）で読む"""
     if not has_espeak():
         raise G2PError("pronounce extra is not installed")
     if language not in _ESPEAK_LANG:
         raise G2PError(f"language {language.value} is not supported")
     from phonemizer.separator import Separator
 
-    backend = _phonemizer_backend(language)
+    backend = _phonemizer_backend(language, accent)
     # phone / word / syllable は互いに違う文字でなければならない
     raw = backend.phonemize([word], separator=Separator(phone=" ", word=_WORD_SEPARATOR, syllable=""))[0]
     if "(" in raw or ")" in raw:
         raise G2PError(f"espeak switched language while reading {word!r}: {raw!r}")
     if _WORD_SEPARATOR in raw.strip().strip(_WORD_SEPARATOR):
         raise G2PError(f"espeak split {word!r} into more than one word: {raw!r}")
-    return normalise([p for p in raw.replace(_WORD_SEPARATOR, " ").split(" ") if p])
+    phones = [p for p in raw.replace(_WORD_SEPARATOR, " ").split(" ") if p]
+    if accent is EnglishAccent.BRITISH:
+        # t / d / n の後の j（new・tune の y）はモデルが拾わない。落とすのは米音に j が無い語だけ（menu は米音も j）
+        yod_drop = "j" not in expected_ipa(word, language)
+        phones = [_GB_EXPECTED.get(p, p) for i, p in enumerate(phones)
+                  if not (yod_drop and p == "j" and 0 < i and phones[i - 1] in _YOD_DROP_AFTER)]
+        if phones and phones[-1] == "ɪ":  # 語末の -y（really の ɪ）は米音と同じ i で出る
+            phones[-1] = "i"
+    return normalise(phones)
 
 
 # モデルが期待するサンプリングレート。録音は 16kHz なので変換は要らない

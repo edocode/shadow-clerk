@@ -13,7 +13,8 @@ from pathlib import Path
 import numpy as np
 
 from shadow_clerk._daemon_tts import TtsError
-from shadow_clerk._daemon_tts_piper import ACCENTS, PIPER_MODEL, RECOMMENDED, PiperBackend
+from shadow_clerk._daemon_tts_piper import ACCENTS, PIPER_MODEL, RECOMMENDED, TEACHER, PiperBackend, make_foreign_backend
+from shadow_clerk.domain import EnglishAccent
 
 results: list[bool] = []
 
@@ -99,7 +100,24 @@ def test_standard_voice() -> None:
         b.synthesize("Hello.")
         check("戻せば会話の話者で読む", synth[-1] == 2, repr(synth[-1:]))
         b = PiperBackend("random:british", model_dir=d)
-        check("なまりを絞ったら発音のお手本もそのなまりのおすすめ", b.standard_model in RECOMMENDED["british"], b.standard_model)
+        check("お手本は会話の声のなまりに従わない（既定は米音。移行しない）", b.standard_model in TEACHER[EnglishAccent.AMERICAN], b.standard_model)
+
+
+def test_teacher_follows_english_accent() -> None:
+    with tempfile.TemporaryDirectory() as d:
+        picked = {PiperBackend("random:scottish", model_dir=d, teacher=EnglishAccent.BRITISH).standard_model for _ in range(40)}
+        check("練習する英語が british ならお手本は RP の声（alba を含まない）",
+              picked <= set(TEACHER[EnglishAccent.BRITISH]) and not any("alba" in m for m in picked), repr(picked))
+        check("会話の声の選択肢（RECOMMENDED）は変えない", "en_GB-alba-medium" in RECOMMENDED["british"])
+        check("米音のお手本は今までの米音のおすすめ", TEACHER[EnglishAccent.AMERICAN] == RECOMMENDED["american"])
+        b = PiperBackend("recommended:british", model_dir=d, teacher=EnglishAccent.AMERICAN)
+        b.synthesize("Hello.")
+        check("おすすめの会話の声とお手本は別々に選ぶ",
+              b.speaker_name in RECOMMENDED["british"] and b.standard_model in TEACHER[EnglishAccent.AMERICAN],
+              repr((b.speaker_name, b.standard_model)))
+        fb = make_foreign_backend({"talk_piper_voice": "random:irish", "english_accent": "british"})
+        check("設定の english_accent でお手本を選ぶ", fb is not None and fb.standard_model in TEACHER[EnglishAccent.BRITISH],
+              repr(fb and fb.standard_model))
 
 
 def test_recommended_voice() -> None:
@@ -132,5 +150,6 @@ if __name__ == "__main__":
     test_random_voice()
     test_standard_voice()
     test_recommended_voice()
+    test_teacher_follows_english_accent()
     test_unavailable()
     sys.exit(0 if all(results) else 1)

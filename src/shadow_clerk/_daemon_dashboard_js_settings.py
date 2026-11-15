@@ -96,6 +96,8 @@ const CFG_FIELDS=[
     warn:{when:'',msgKey:'cfg.ai_reference_dirs_warn'}},
   {type:'section',tab:'talk',label:I18N['cfg.section.talk']},
   {key:'talk_filler_sec',simple:1,label:I18N['cfg.talk_filler_sec'],type:'select',num:true,opts:['0','5','8','10','15','20']},
+  {key:'english_accent',simple:1,note:'cfg.english_accent_note',label:I18N['cfg.english_accent'],type:'select',opts:['american','british'],label_of:o=>I18N['cfg.english_accent.'+o]},
+  {key:'pronounce_british',simple:1,when:{k:'english_accent',v:'british'},note:'cfg.pronounce_british_note',label:I18N['cfg.pronounce_british'],type:'bool'},
   {key:'talk_piper_voice',simple:1,note:'cfg.talk_piper_voice_note',label:I18N['cfg.talk_piper_voice'],type:'select',opts:['recommended:american','recommended:british','random:american','random:british','random:scottish','random:irish','random:other','random'],label_of:o=>I18N['cfg.talk_piper_voice.'+o]},
   {type:'section',tab:'talk',label:I18N['cfg.section.pronounce']},
   {key:'pronounce_enabled',label:I18N['cfg.pronounce_enabled'],type:'bool'},

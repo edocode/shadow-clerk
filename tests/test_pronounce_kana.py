@@ -118,7 +118,7 @@ def test_driver_switches_model() -> None:
         print("[SKIP] sudachi が無い")
         return
     drv, made = _driver()
-    drv._expected_of = lambda word, lang: ("l", "aɪ", "t")   # type: ignore[assignment]
+    drv._expected_of = lambda word, lang, *_: ("l", "aɪ", "t")   # type: ignore[assignment]
     drv.arm(PronunciationTask.parse({"text": "light", "lang": "en"}))
     _settle(drv)
     first = drv._recogniser

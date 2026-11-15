@@ -25,7 +25,7 @@ from shadow_clerk._daemon_pronounce_ipa import (
     split_words, word_key,
 )
 from shadow_clerk.domain import (
-    Attempt, FocusPhoneme, Language, OpKind, PhonemeOp, PronounceState, PronunciationTask,
+    Attempt, EnglishAccent, FocusPhoneme, Language, OpKind, PhonemeOp, PronounceState, PronunciationTask,
     WordComparison,
 )
 
@@ -197,6 +197,13 @@ _MAX_SEGMENT_SEC = 15.0
 _MAX_ANALYSE_FAILURES = 3
 
 
+def accent_setting(config: dict) -> tuple[EnglishAccent, bool]:
+    """練習する英語と、その英語で判定するか。英音の判定はゲート（PER 15%）を通っていないので、
+    pronounce_british で有効にしたときだけ試験的に判定する（improvement/pronunciation-feedback.md）"""
+    accent = EnglishAccent.from_config(config)
+    return accent, accent is EnglishAccent.AMERICAN or bool(config.get("pronounce_british"))
+
+
 class ArmError(Exception):
     """課題を受け付けられない。expected を添えると、正しい記号で再 POST させられる"""
 
@@ -213,8 +220,12 @@ class PronounceDriver:
     """
 
     def __init__(self, recogniser_factory: Callable[[Language], Any] | None = None,
-                 clock: Callable[[], float] = time.time) -> None:
+                 clock: Callable[[], float] = time.time,
+                 accent_loader: Callable[[], tuple[EnglishAccent, bool]] | None = None) -> None:
         self._clock = clock
+        # アームのたびに設定を読む（キャッシュしない）。アーム済みの課題は、そのときの英語で判定し続ける
+        self._accent_loader = accent_loader or (lambda: accent_setting(load_config()))
+        self._accent = EnglishAccent.AMERICAN
         self._factory = recogniser_factory or self._default_recogniser
         self._recogniser: Any = None
         self._recogniser_lang: Language | None = None   # 載せるモデルは1つ。言語が変われば差し替える
@@ -249,17 +260,17 @@ class PronounceDriver:
     def _enabled() -> bool:
         return bool(load_config().get("pronounce_enabled"))
 
-    def _expected_of(self, word: str, language: Language) -> tuple[str, ...]:
+    def _expected_of(self, word: str, language: Language, accent: EnglishAccent) -> tuple[str, ...]:
         """1語の正規化後の期待IPA。テストで差し替えられるようメソッドにしてある"""
-        return expected_ipa(word, language)
+        return expected_ipa(word, language, accent)
 
-    def _expected_words(self, text: str, language: Language
+    def _expected_words(self, text: str, language: Language, accent: EnglishAccent
                         ) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
         """課題文の語と語ごとの期待列。日本語は空白で割れないので、分かち書きと読みを sudachi に任せる"""
         if language is Language.JA:
             return kana.expected_words(text)
         words = split_words(text)
-        return words, tuple(self._expected_of(w, language) for w in words)
+        return words, tuple(self._expected_of(w, language, accent) for w in words)
 
     @staticmethod
     def _actual_of(recogniser: Any, pcm: Any, language: Language) -> tuple[str, ...]:
@@ -277,12 +288,17 @@ class PronounceDriver:
         """課題を受け付ける。拒否は ArmError（呼び手が status: error にする）"""
         if (reason := self._unavailable()) is not None:
             raise ArmError(reason)
+        accent = EnglishAccent.AMERICAN
+        if task.language is not Language.JA:
+            accent, judged = self._accent_loader()
+            if not judged:
+                raise ArmError("accent_unsupported")
         if task.free:
-            return self._commit(task, (), (), [])
+            return self._commit(task, (), (), [], accent)
         if any(ch.isdigit() for ch in task.text):
             raise ArmError("text must not contain digits; spell numbers out")
         try:
-            words, per_word = self._expected_words(task.text, task.language)
+            words, per_word = self._expected_words(task.text, task.language, accent)
         except G2PError as e:
             raise ArmError(str(e)) from e
         if not words:
@@ -291,13 +307,13 @@ class PronounceDriver:
             task = self._normalise_focus(task)
         self._check_focus(task, words, per_word)
         return self._commit(task, words, per_word,
-                            [{"word": w, "ipa": list(ipa)} for w, ipa in zip(words, per_word)])
+                            [{"word": w, "ipa": list(ipa)} for w, ipa in zip(words, per_word)], accent)
 
     def _commit(self, task: PronunciationTask, words: tuple[str, ...],
-                per_word: tuple[tuple[str, ...], ...], expected: list[dict]) -> dict:
+                per_word: tuple[tuple[str, ...], ...], expected: list[dict], accent: EnglishAccent) -> dict:
         with self._lock:
             self._arm_id = uuid.uuid4().hex
-            self._task, self._words, self._per_word = task, words, per_word
+            self._task, self._words, self._per_word, self._accent = task, words, per_word, accent
             self._expires = self._clock() + _ARM_TTL_SEC
             self._attempts = []
             self._fail_streak = 0     # 課題が変われば、前の課題で数えた連続失敗は切れたとみなす
@@ -306,8 +322,11 @@ class PronounceDriver:
         logger.info("pronounce: アームしました (%s)", "自由発話" if task.free else f"{len(words)} 語")
         with self._lock:
             state = self._state_locked(None)
-        return {"status": "ok", "id": arm_id, "state": state.value,
-                "expires_at": _format_time(expires), "expected": expected}
+        out = {"status": "ok", "id": arm_id, "state": state.value,
+               "expires_at": _format_time(expires), "expected": expected}
+        if task.language is not Language.JA:
+            out["accent"] = accent.value
+        return out
 
     def _start_loading(self, language: Language) -> None:
         """最初の POST でモデルの取得を始める。初回は 1.2GB のダウンロードがある（設計書 §9）。
@@ -386,6 +405,7 @@ class PronounceDriver:
 
     def snapshot(self) -> dict:
         unavailable = self._unavailable()    # 設定と find_spec を読むので lock の外で1回だけ評価する
+        configured = self._accent_loader()[0]
         with self._lock:
             expired = self._task is not None and self._clock() >= self._expires
             if expired:
@@ -396,6 +416,9 @@ class PronounceDriver:
                    "expires_at": _format_time(self._expires) if self._task else "",
                    "task": None if self._task is None else dict(self._task.to_json(), id=self._arm_id),
                    "attempts": [a.to_json() for a in self._attempts]}
+            # Advice の発音記号をこの英語で書くために載せる。アーム済みならその課題の英語、日本語の課題には載せない
+            if self._task is None or self._task.language is not Language.JA:
+                out["accent"] = (self._accent if self._task else configured).value
             if state is PronounceState.UNAVAILABLE:
                 # not_installed なら導入コマンドを、disabled なら設定を案内できるようにする
                 out["reason"] = unavailable or "load_failed"
@@ -502,8 +525,9 @@ class PronounceDriver:
             focus = self._task.focus if self._task else ()
             language = self._task.language if self._task else Language.EN
             free = bool(self._task and self._task.free)
+            accent = self._accent
         if free:
-            if (expected := self._free_expected(asr_text, language)) is None:
+            if (expected := self._free_expected(asr_text, language, accent)) is None:
                 return
             words, per_word = expected
         started = time.monotonic()
@@ -542,14 +566,14 @@ class PronounceDriver:
             self._seq += 1
 
 
-    def _free_expected(self, asr_text: str, language: Language
+    def _free_expected(self, asr_text: str, language: Language, accent: EnglishAccent
                        ) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]] | None:
         """自由発話の期待列。文字起こしをそのまま期待文にする。
         数字（読みが決まらない）を含む・G2P が通らない発話は解析しない"""
         if any(ch.isdigit() for ch in asr_text):
             return None
         try:
-            words, per_word = self._expected_words(asr_text, language)
+            words, per_word = self._expected_words(asr_text, language, accent)
         except G2PError as e:
             logger.debug("pronounce: 自由発話を音素化できないので飛ばします: %s", e)
             return None
