@@ -419,6 +419,12 @@ the original `phonemizer` package.
 
 Enable it in Settings → Pronunciation feedback.
 
+For English, Settings → English to practise (`english_accent`) chooses American or British (RP) English.
+Pronunciation judgement, the phonetic symbols in Advice and the model voice all follow it. British judgement is
+less accurate than American (20.6% vs 13.8% phoneme error rate measured on synthetic voices), so it runs only when
+"Judge British pronunciation too" (`pronounce_british`) is on, as an experiment. When off, only the phonetic
+symbols and the model voice switch to British English.
+
 ### 3. (Optional) LibreTranslate setup
 
 Local translation without LLM. Install via Docker or pip:
@@ -866,7 +872,7 @@ the meeting assistant, reads the end of the last few practice sessions to sugges
 practice (and, a minute before time is up, whether to stop or keep going), and runs
 pronunciation, conversation, listening or immersion practice (practice language only; corrections are written to the 💡 AI advice tab instead of spoken). Corrections go to **Advice** and the practice log with example
 sentences to **Analysis** in the 💡 AI advice tab; lines starting with 🔊 are read aloud when you click them, in the
-language tagged after it (`🔊[en] …`); `🔊[en|sentence] Question 1` shows only "Question 1" and reads the hidden sentence (listening practice). Claude speaks English sentences with piper (the `piper` extra; a VCTK speaker — English, Scottish, Irish, American, Indian… accents — picked at random for each talk, narrowed to an accent, replaced by a plain recommended voice, or fixed with `talk_piper_voice`; pronunciation drills switch to the plain recommended voice of that accent (American `en_US-hfc_female/male-medium` or British `en_GB-alba/cori/jenny_dioco-medium` or VCTK speaker `p226`) via `POST /api/talk-voice {"standard": true}`) instead of VOICEVOX, so they also reach the app Claude's voice is sent to (e.g. a recording). The model (~80 MB) is downloaded to the data folder on first use. Without piper, and for other practice languages, Claude uses the browser's voice (Web Speech API)
+language tagged after it (`🔊[en] …`); `🔊[en|sentence] Question 1` shows only "Question 1" and reads the hidden sentence (listening practice). Claude speaks English sentences with piper (the `piper` extra; a VCTK speaker — English, Scottish, Irish, American, Indian… accents — picked at random for each talk, narrowed to an accent, replaced by a plain recommended voice, or fixed with `talk_piper_voice`; pronunciation drills switch to a plain voice of the English to practise, `english_accent` (American `en_US-hfc_female/male-medium`, or British `en_GB-cori/jenny_dioco-medium` or VCTK speaker `p226`) via `POST /api/talk-voice {"standard": true}`) instead of VOICEVOX, so they also reach the app Claude's voice is sent to (e.g. a recording). The model (~80 MB) is downloaded to the data folder on first use. Without piper, and for other practice languages, Claude uses the browser's voice (Web Speech API)
 instead of VOICEVOX, so keep the dashboard open and click it once (browsers only allow speech after a user action);
 without such a tab those sentences are not spoken (VOICEVOX would read them with a Japanese accent) and the talk status shows a warning. While the recognition language is not the conversation language (e.g. `en` in immersion practice), fillers are in that language and English sentences sent without `lang` also go to the browser. The speaker (monitor) is muted while practising, and
 Claude ends with a "今日の練習のまとめ: …" line that the next session builds on.
@@ -904,7 +910,9 @@ and `exclude=claude` drops Claude's own `[Claude]` lines, sending nothing when a
 | `talk_language` | `""` | Conversation language (empty = `translate_language`). Falls back to the TTS default when unsupported (VOICEVOX: Japanese only) |
 | `talk_personas` | `{}` | Name → personality / how to respond. Edit from the start dialog |
 | `talk_default_persona` | `""` | Persona selected by default |
-| `talk_piper_voice` | `random` | piper speaker for English sentences (`piper` extra): `recommended:american` / `recommended:british` use a plain single-speaker voice; `random` picks a VCTK speaker per talk, `random:british`, `random:scottish`, `random:irish`, `random:american` or `random:other` (Indian, South African, Australian, NZ) one with that accent; pronunciation drills use the recommended voice of that accent (American otherwise); a VCTK speaker id such as `p239` fixes it (config.json only). Also in Settings |
+| `talk_piper_voice` | `random` | piper speaker for English sentences (`piper` extra): `recommended:american` / `recommended:british` use a plain single-speaker voice; `random` picks a VCTK speaker per talk, `random:british`, `random:scottish`, `random:irish`, `random:american` or `random:other` (Indian, South African, Australian, NZ) one with that accent; the pronunciation drill voice follows `english_accent`; a VCTK speaker id such as `p239` fixes it (config.json only). Also in Settings |
+| `english_accent` | `american` | English to practise (`american` / `british`): pronunciation judgement, the phonetic symbols in Advice and the drill voice follow it. If you used a British `talk_piper_voice` to get a British drill voice, choose `british` here |
+| `pronounce_british` | `false` | With `english_accent: british`, judge pronunciation too (experimental). When off, English tasks are rejected with `accent_unsupported` |
 | `talk_filler_sec` | `8` | While waiting for a reply, if there has been silence (no one speaking and Claude not playing) for this many seconds, say a short "hmm" (not written to the transcript; in the language currently being recognised). At most once while waiting for a reply, and at least 30 s apart. `0` disables it. Also in Settings |
 | `talk_floor_wait_sec` | `10` | With a meeting app chosen, how long a reply waits for the others to stop talking (interim text present) before it is spoken anyway. `0` disables waiting |
 | `talk_stop_words` | `["待って", "ストップ", "止めて", "やめて", "stop", "wait", "hold on"]` | Saying one of these stops Claude mid-sentence. Substring match, so avoid short kana that appear inside other words; ASCII words match whole words |
