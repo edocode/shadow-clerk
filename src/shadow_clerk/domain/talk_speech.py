@@ -37,3 +37,35 @@ class SpeechTab:
 
     def speaks(self, lang: Language) -> bool:
         return lang in self.langs
+
+
+# /api/say の text の中で、別の言語で読む区間。<en>…</en> のように言語コードで囲む
+_LANG_TAG = re.compile(r"<(/?)([a-z]{2})>")
+_SPEAKABLE = re.compile(r"\w")
+
+
+@dataclass(frozen=True)
+class SayText:
+    """/api/say の text を、読む言語ごとの区間に分けたもの。lang が None の区間は読み上げの言語（VOICEVOX）で読む。
+    plain はタグを外した文（transcript に書く。読むものの無い区間の句読点も残る）"""
+    segments: tuple[tuple[str, Language | None], ...]
+    plain: str
+
+    @classmethod
+    def parse(cls, text: str, lang: Language | None = None) -> SayText:
+        """タグの外は lang で読む。知らない言語・閉じていない・入れ子のタグは ValueError。読むもの（文字）の無い区間は捨てる"""
+        known = {x.value for x in Language}
+        segments: list[tuple[str, Language | None]] = []
+        pos, inner = 0, None
+        for m in _LANG_TAG.finditer(text):
+            closing, code = m.group(1) == "/", m.group(2)
+            if code not in known:
+                raise ValueError(f"unknown language tag <{m.group(1)}{code}>")
+            if closing != (inner is not None) or (closing and code != inner):
+                raise ValueError(f"unbalanced language tag <{m.group(1)}{code}>")
+            segments.append((text[pos:m.start()], Language(inner) if inner else lang))
+            pos, inner = m.end(), None if closing else code
+        if inner is not None:
+            raise ValueError(f"unclosed language tag <{inner}>")
+        segments.append((text[pos:], lang))
+        return cls(tuple((s, lg) for s, lg in segments if _SPEAKABLE.search(s)), "".join(s for s, _ in segments))

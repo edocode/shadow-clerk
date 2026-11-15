@@ -14,7 +14,7 @@ from shadow_clerk.domain.talk_voice import TalkVoice
 from shadow_clerk.domain.console_role import ConsoleRole
 from shadow_clerk.domain.talk_route import RouteTarget
 from shadow_clerk.domain.talk_echo import EchoFilter, SpokenSpan
-from shadow_clerk.domain.talk_speech import SpeechTab, estimate_speech_sec
+from shadow_clerk.domain.talk_speech import SayText, SpeechTab, estimate_speech_sec
 from shadow_clerk.domain.voiceprint import PersonName, SampleStatus, VoiceEntry, VoiceSample
 from shadow_clerk.domain.naming_history import NamingRecord
 from shadow_clerk.domain.transcript_rewrite import TranscriptRewrite, TranscriptRewriteJournal
@@ -39,6 +39,7 @@ __all__ = [
     "RouteTarget",
     "EchoFilter",
     "SpokenSpan",
+    "SayText",
     "SpeechTab",
     "estimate_speech_sec",
     "PersonName",

@@ -2,7 +2,7 @@
 description: shadow-clerk の「Claude と会議」で、ユーザーと音声で議論する。ダッシュボードの「Claude と会議」から talk コンソールで自動的に起動される。ユーザーの発言は shadow-clerk の文字起こしとして届き、あなたの応答は shadow-clerk が音声で読み上げる。「/clerk-talk」と打たれたとき、声で議論したい・Claude と会議したいと言われたときに使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent
 metadata:
-  version: "1.11.1"
+  version: "1.12.0"
 ---
 
 # clerk-talk — 声で議論する
@@ -89,10 +89,16 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 - 前置き（「えーっと、少し見てみますね」など）は、数秒より長くかかる作業（ファイルを何本も読む、Web 検索、じっくり考える）の**前だけ**。軽く短い一言にし、1ターンに1回まで、言い回しは毎回変える。すぐ済む確認の前には言わない
 - **返事を催促しない。** 質問したあとは、返事が届くまで黙って Monitor で待つ。「お返事を待っています」「どうですか？」のような声かけはしない。ユーザーは考えている・言葉を探している途中で、急かすと話しにくくなる。返事が遅いときのつなぎは shadow-clerk が無音の長さを見て出す
 - 日本語以外の文（英語の例文など）は `lang` を付けて送ると、その言語の発音で読まれる（英語は piper、ほかはダッシュボードのブラウザの声）。
-  1回の `/api/say` には1つの言語の文だけを入れる（混ざるときは分けて、話す順に送る）
 
 ```
 curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/json' -d '{"text":"They are there.","lang":"en"}'
+```
+
+- 日本語の文の中に別の言語の語句を挟むときは、その区間を言語コードのタグで囲む（`<en>…</en>`）。タグの区間はその言語の声で、外は日本語の声で、続けて読まれる。transcript にはタグを外した文が書かれる。
+  別の言語の語句をカタカナに書き換えない（日本語の声がカタカナ英語で読んでしまう）
+
+```
+curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/json' -d '{"text":"英語では <en>See you later.</en> と言います。"}'
 ```
 
 - `display`（空でない文字列）を付けると、声は `text` を読み、transcript の `[Claude]` 行には `display` を書く（綴りを見せたくない語学の練習用）

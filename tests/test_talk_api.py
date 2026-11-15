@@ -256,6 +256,14 @@ def test_say_lang() -> None:
         h = _FakeHandler({"text": "x", "lang": lang})
         h._say()
         check(f"既知でない lang {lang!r} は拒否", h.sent.get("status") == "error" and h.talk.calls == [], repr(h.sent))
+    h = _FakeHandler({"text": "もっと短く、<en>Go to bed.</en>とも言えます。"})
+    h._say()
+    check("言語タグ入りの text はそのまま渡す", h.talk.calls == [("say", "もっと短く、<en>Go to bed.</en>とも言えます。")]
+          and h.sent["status"] == "ok", repr(h.talk.calls))
+    for text in ("<xx>a</xx>", "<en>a", "<en>a</fr>"):
+        h = _FakeHandler({"text": text})
+        h._say()
+        check(f"不正な言語タグ {text!r} は拒否", h.sent.get("status") == "error" and h.talk.calls == [], repr(h.sent))
 
 
 def test_say_display() -> None:

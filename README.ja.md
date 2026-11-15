@@ -793,7 +793,7 @@ Claude は自分の判断で聞き取りをやめません。会話が終わり�
 | `POST /api/mute` | `{"source": "mic" または "monitor", "muted": true}` | ミュートボタンと同じ。`previous` を返す |
 | `POST /api/generated` | `{"kind": "advice" または "analysis", "mode": "replace" または "append", "text": "…"}` | いまの transcript の advice / analysis を書く（20,000 字まで） |
 | `GET /api/meeting-history` | `?meeting=…&count=3&tail=15` | `tail`（0〜50）で各回の transcript の末尾を足す |
-| `POST /api/say` | `{"text": "…", "lang": "en", "display": "…"}` | VOICEVOX の言語と違う `lang` はダッシュボードのブラウザの声で読む（声を会議アプリに届けているときは無視）。`display` を付けると、transcript には `text`（読む文）の代わりに `display` を書く（発音の練習で綴りを見せないため） |
+| `POST /api/say` | `{"text": "…", "lang": "en", "display": "…"}` | VOICEVOX の言語と違う `lang` はダッシュボードのブラウザの声で読む（声を会議アプリに届けているときは無視）。`display` を付けると、transcript には `text`（読む文）の代わりに `display` を書く（発音の練習で綴りを見せないため）。`text` の中の語句を言語タグで囲むと（`"英語では <en>See you.</en> と言います。"`）、その区間だけその言語で読む。transcript にはタグを外して書く |
 
 `file` を付けない `GET /api/watch` は、いまの書き込み先を追います。日付が変わったり会議が始まる・終わったりすると
 `<notice>…</notice>` を流して新しいファイルに移るので、0 時をまたいでも Claude に発言が届き続けます。
