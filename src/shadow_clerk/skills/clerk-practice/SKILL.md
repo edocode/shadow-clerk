@@ -3,7 +3,7 @@ name: clerk-practice
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、発音・会話・ヒアリング・実践会話・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」「中国語で会話を練習したい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent Read(~/.local/share/shadow-clerk/practice/**) Write(~/.local/share/shadow-clerk/practice/**) Edit(~/.local/share/shadow-clerk/practice/**)
 metadata:
-  version: "1.25.1"
+  version: "1.26.0"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -448,6 +448,10 @@ curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: applicat
     **直した内容は同じものを Analysis にも時刻つきで追記して、履歴に残す**
   - **どちらか一方だけにしない。** 出題の前に Analysis へ語・文を載せ、1組を判定し終えるたびに、Analysis に結果を追記して
     Advice を書き直す。終える前にも Advice を最後に書き直し、次回の課題を入れる
+- **記録している間、黙り込まない。** 1組を判定し終えて Analysis・Advice・評価表を書くときは、書き始める前に
+  「記録しているので少し待ってください」という意味の一言を `/api/say` で話す。定型文にせず、毎回言い回しを変える
+  （「いまの結果を書き留めますね」「少しメモを取ります、お待ちください」など）。ユーザーは無言の間を、
+  聞き取られなかった・止まったと受け取る。書き終えたら、次の課題や結果の説明にそのまま移る（「書けました」とは言わない）
 - **頼まれなくても書く。** ユーザーはあとで AI分析 タブを読み返して復習する。声で伝えた直しや綴りは transcript には
   残らないので、書かなければ消えてしまう
 - **書くのは話の切れ目**（発音とアルファベットは1組を判定し終えたとき、会話・実践会話は2〜3往復ごと、ヒアリングと作文は1問ごと）。
@@ -562,6 +566,8 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 
 ### 3. Agent の完了を待ち、後始末をして会議を閉じる
 
+- まとめを話し終えても Agent がまだ終わっていなければ、待つ前に「練習を記録しているので、しばらくお待ちください」
+  という意味の一言を話す。定型文にせず、その日の練習に合わせて言い回しを変える。待つ間に何度も言わない
 - Agent の結果を受け取る。未反映の項目があれば、「評価表の更新」のとおりメインで反映するか、Analysis に「評価表に未反映: <項目>」と書いてユーザーに伝える。
 - 音素課題や `free` をアームしていたら、記録を終えてから解除する。
 
