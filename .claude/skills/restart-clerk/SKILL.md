@@ -20,12 +20,14 @@ description: shadow-clerk を uv tool にインストールし直して、デー
 
 ```bash
 uv tool install --force --refresh-package shadow-clerk --reinstall-package shadow-clerk \
-  ".[spell-check,gcal,reazonspeech,moonshine,pronounce]" \
+  ".[spell-check,gcal,reazonspeech,moonshine,pronounce,piper]" \
   --with "reazonspeech-k2-asr @ git+https://github.com/reazon-research/ReazonSpeech.git#subdirectory=pkg/k2-asr"
 ```
 
 - 出力に `Built shadow-clerk @ file:///<インストール元>` があることを確かめる。無ければキャッシュから戻っただけで、コードは入れ替わっていない。
 - extras を省かない。省くと、デーモンは起動するのに gcal 連携や ReazonSpeech が無言で止まる。
+  `piper` が欠けると、talk mode の英語が piper でなくブラウザの声で読まれ、届け先（録画など）にも流れない。
+- 入れたあと、`grep extras ~/.local/share/uv/tools/shadow-clerk/uv-receipt.toml` に上の6つが全部あることを確かめる。
 - `--refresh-package` と `--reinstall-package` も省かない。省くと古いコードのまま残る。
 
 ## 3. 使用中でないことを確かめる
