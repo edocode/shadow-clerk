@@ -29,14 +29,26 @@ function nxFileRefLink(m){
   });
   return a;
 }
-function nxLinkifyFiles(root){
+/* 発音記号（/θ/・/θɪŋk/）を口のかたち図鑑（/mouth）へのリンクにする。英字だけの記号は2文字まで（/r/・/tʃ/ は拾い、
+   /api/ のようなパスは拾わない）。開いた図鑑のタブは使い回す */
+const nxIpaCh='a-zɑɒɔəɚɝɛɜɪʊʌæθðʃʒŋɹɾɫɡʤʧˈˌːʳ.‿';
+const nxIpaRe=new RegExp('(?<![\\w/])/(['+nxIpaCh+']+(?: ['+nxIpaCh+']+)*)/(?![\\w/])','gu');
+function nxIpaLink(m){
+  if(!/[^a-z ]/.test(m[1])&&m[1].length>2)return null;
+  const a=document.createElement('a');a.textContent=m[0];
+  a.href='/mouth?ipa='+encodeURIComponent(m[1]);a.target='shadow-clerk-mouth';a.title=I18N['nx.mouth_link'];
+  a.addEventListener('click',e=>e.stopPropagation());  // 🔊 の行の読み上げを起こさない
+  return a;
+}
+function nxLinkifyFiles(root){nxLinkifyText(root,nxFileRefRe,nxFileRefLink,'a');}
+function nxLinkifyText(root,re,mk,skip){
   if(!root)return;
   const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),nodes=[];
-  for(let n=w.nextNode();n;n=w.nextNode())if(!n.parentElement.closest('a')&&n.data.search(nxFileRefRe)>=0)nodes.push(n);
+  for(let n=w.nextNode();n;n=w.nextNode())if(!n.parentElement.closest(skip)&&n.data.search(re)>=0)nodes.push(n);
   nodes.forEach(n=>{
     const frag=document.createDocumentFragment();let last=0;
-    for(const m of n.data.matchAll(nxFileRefRe)){
-      const a=nxFileRefLink(m);if(!a)continue;
+    for(const m of n.data.matchAll(re)){
+      const a=mk(m);if(!a)continue;
       frag.append(n.data.slice(last,m.index),a);last=m.index+m[0].length;
     }
     if(!last)return;
@@ -193,7 +205,7 @@ function nxRenderRight(){
   rb.classList.toggle('aisplit',!!rb.querySelector('.aigrid'));
   rb.querySelectorAll('.aiscroll').forEach((c,i)=>{c.scrollTop=colTops[i]||0;});
   // AI分析 の 🔊 の例文をクリックで読む（流用する _JS_TEMPLATE_SPEECH の decorateSay。現行も生成物にだけ付ける）
-  if(nxState.rtab==='ai')decorateSay(rb);
+  if(nxState.rtab==='ai'){decorateSay(rb);nxLinkifyText(rb,nxIpaRe,nxIpaLink,'a,code,pre');}
   nxLinkifyFiles(rb);
   rb.scrollTop=top;
 }

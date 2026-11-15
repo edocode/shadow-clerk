@@ -7,6 +7,7 @@ import os
 import queue
 import re
 from http.server import BaseHTTPRequestHandler
+from importlib import resources
 from urllib.parse import urlparse, parse_qs
 from shadow_clerk import DATA_DIR
 from shadow_clerk.i18n import t, t_all
@@ -174,6 +175,8 @@ class _DashboardHandlerBase(BaseHTTPRequestHandler):
             self._serve_html(_NEXT_HTML_TEMPLATE)
         elif path == "/legacy":
             self._serve_html(_HTML_TEMPLATE)
+        elif path == "/mouth":  # 英語の発音の口のかたち図鑑（AI分析 の発音記号のリンク先）
+            self._serve_html(resources.files("shadow_clerk").joinpath("mouth_chart.html").read_text(encoding="utf-8"))
         elif path == "/next":
             self.send_response(302)  # 刷新中に /next を覚えたブックマーク用
             self.send_header("Location", "/")

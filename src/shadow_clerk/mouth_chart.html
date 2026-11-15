@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>英語発音 口のかたち図鑑</title>
+<style>
+/* Layout: phonetics-chart reference — sound picker on top, mouth drawing left, articulation notes right */
+:root{
+  --bg:#F5F6F8; --panel:#FFFFFF; --fg:#1D2230; --muted:#5D6475; --line:#D9DCE3;
+  --accent:#2E4A7D; --accent-soft:#E3E9F4;
+  --tooth:#FFFFFF; --lip:#E9AEB8; --lip-line:#A0485C; --air:#2F7FD0;
+  --c-bg:#FBE3DC; --c-fg:#8A2E14; --n-bg:#FBEBCF; --n-fg:#7A4708; --f-bg:#ECEDF0; --f-fg:#4A4E59;
+  --sans:"Noto Sans JP","Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+  --ipa:"Noto Serif","Charis SIL","Doulos SIL","Times New Roman",serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#14171E; --panel:#1C2029; --fg:#E7E9EE; --muted:#9AA1B2; --line:#323846;
+  --accent:#9DB6E6; --accent-soft:#25304A;
+  --tooth:#E9EAEE; --lip:#C98A96; --lip-line:#F0B8C4; --air:#6AAEF2;
+  --c-bg:#4A2419; --c-fg:#F6C3B3; --n-bg:#47320F; --n-fg:#F5D59A; --f-bg:#2C303A; --f-fg:#C4C8D2;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#14171E; --panel:#1C2029; --fg:#E7E9EE; --muted:#9AA1B2; --line:#323846;
+  --accent:#9DB6E6; --accent-soft:#25304A;
+  --tooth:#E9EAEE; --lip:#C98A96; --lip-line:#F0B8C4; --air:#6AAEF2;
+  --c-bg:#4A2419; --c-fg:#F6C3B3; --n-bg:#47320F; --n-fg:#F5D59A; --f-bg:#2C303A; --f-fg:#C4C8D2;
+  color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);line-height:1.6}
+.wrap{max-width:1080px;margin:0 auto;padding-block:24px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1{font-size:1.5rem;margin:0 0 4px;text-wrap:balance}
+.lead{color:var(--muted);margin:0 0 20px;font-size:.92rem}
+.picker{display:grid;gap:10px;margin-bottom:20px}
+.grp{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.grp-name{font-size:.75rem;letter-spacing:.06em;color:var(--muted);width:4.5em;flex-shrink:0}
+.snd{font-family:var(--ipa);font-size:1.05rem;min-width:2.6em;padding:4px 10px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
+.snd:hover{border-color:var(--accent)}
+.snd:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.snd[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--panel)}
+.main{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:20px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px}
+@media (max-width:760px){.main{grid-template-columns:minmax(0,1fr);padding:14px}}
+svg text{font-family:var(--sans);font-size:12px;fill:var(--muted)}
+.ink{fill:none;stroke:var(--fg);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.faint{fill:none;stroke:var(--muted);stroke-width:.8;opacity:.6}
+.tooth{fill:var(--tooth);stroke:var(--fg);stroke-width:.8}
+.lip{fill:var(--lip);stroke:var(--lip-line);stroke-width:1}
+.word{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:16px;display:grid;gap:8px}
+.wrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px}
+.wrow.small{font-size:.85rem}
+.wlabel{font-size:.78rem;letter-spacing:.04em;color:var(--muted)}
+#ipa{font-family:var(--ipa);font-size:1.3rem;padding:5px 10px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg);flex:1;min-width:0;width:10em}
+#ipa:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+select,.mini{font-family:inherit;font-size:.82rem;padding:3px 8px;border-radius:5px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
+.exw{display:flex;flex-wrap:wrap;gap:6px}
+.exw button{font-family:inherit;font-size:.82rem;padding:2px 9px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
+.exw button span{font-family:var(--ipa);color:var(--muted);margin-left:4px}
+.seq{display:flex;flex-wrap:wrap;gap:6px;min-height:34px}
+.seq button{font-family:var(--ipa);font-size:1.1rem;min-width:2.2em;padding:3px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer;transition:background .1s}
+.seq button.on{background:var(--accent);border-color:var(--accent);color:var(--panel)}
+.werr{margin:0;font-size:.82rem;color:var(--c-fg);min-height:1em}
+.ctrl{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:6px 0 10px}
+.playbtn{font-family:inherit;font-size:.88rem;padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:var(--panel);cursor:pointer}
+.playbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.loop{font-size:.85rem;color:var(--muted);display:inline-flex;align-items:center;gap:4px;cursor:pointer}
+.phase{font-size:.8rem;color:var(--accent);min-height:1.2em}
+.views{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.views figure{margin:0;border:1px solid var(--line);border-radius:8px;padding:8px}
+.views svg{width:100%;display:block}
+.views figcaption{font-size:.75rem;color:var(--muted);text-align:center;margin-top:2px}
+.crossnote{font-size:.85rem;color:var(--muted);margin:8px 0 0}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:.78rem;color:var(--muted);margin-top:10px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.dot{width:12px;height:12px;border-radius:50%;display:inline-block;border:1px solid currentColor}
+.hd{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.sym{font-family:var(--ipa);font-size:3rem;font-weight:600;line-height:1;color:var(--accent)}
+.cat{font-size:.85rem;color:var(--muted)}
+.ex{margin:8px 0 10px;font-size:1rem}
+.ex em{font-style:normal;color:var(--muted);font-size:.8rem;margin-right:6px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.chip{font-size:.75rem;padding:2px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+.chip.link{cursor:pointer;border:none;font-family:inherit}
+.chip.link:hover{text-decoration:underline}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+td{padding:7px 6px;border-top:1px solid var(--line);vertical-align:top}
+td.part{white-space:nowrap;font-weight:500}
+td.tag{white-space:nowrap;width:1%}
+td.txt{color:var(--muted)}
+.num{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;font-size:.7rem;margin-right:6px;border:1px solid var(--line)}
+.t{display:inline-block;font-size:.72rem;padding:1px 8px;border-radius:5px}
+.t-c{background:var(--c-bg);color:var(--c-fg)} .t-n{background:var(--n-bg);color:var(--n-fg)} .t-f{background:var(--f-bg);color:var(--f-fg)}
+.tip{margin-top:14px;padding:10px 12px;border-radius:8px;background:var(--accent-soft);font-size:.88rem}
+.tip b{color:var(--accent);font-weight:700;margin-right:6px}
+.foot{color:var(--muted);font-size:.78rem;margin-top:16px;max-width:65ch}
+</style>
+</head><body>
+
+<div class="wrap">
+  <h1>英語発音 口のかたち図鑑</h1>
+  <p class="lead">記号を押すと、横から見た口の中・正面からの舌の断面・部位ごとのポイントが切り替わります。</p>
+  <section class="word" aria-label="単語の動き">
+    <div class="wrow">
+      <label for="ipa" class="wlabel">単語の発音記号</label>
+      <input id="ipa" value="θɪŋk" autocomplete="off" spellcheck="false">
+      <button class="playbtn" onclick="playWord()">▶ 単語を再生</button>
+    </div>
+    <div class="wrow small">
+      <span class="wlabel">例</span>
+      <span id="exw" class="exw"></span>
+    </div>
+    <div class="wrow small">
+      <label class="loop"><input type="checkbox" id="tapmode"> 下の記号ボタンで入力する</label>
+      <button class="mini" onclick="bs()">1字消す</button>
+      <button class="mini" onclick="clr()">全部消す</button>
+      <label class="loop" for="speed">速さ</label>
+      <select id="speed"><option value="0.25">とてもゆっくり</option><option value="0.5" selected>ゆっくり</option><option value="1">ふつう</option></select>
+      <label class="loop" for="rtype">r の型</label>
+      <select id="rtype"><option value="rb" selected>もり上げ型</option><option value="r">反り舌型</option></select>
+    </div>
+    <div id="seq" class="seq" aria-live="polite"></div>
+    <p id="werr" class="werr"></p>
+  </section>
+  <div class="picker" id="picker"></div>
+  <div class="main">
+    <div>
+      <svg id="side" viewBox="0 18 590 292" width="100%" role="img" aria-labelledby="sideT">
+        <title id="sideT">横から見た口の中</title>
+        <defs><marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+        <path id="ulip" class="lip"/>
+        <path id="llip" class="lip"/>
+        <path id="floor" class="faint"/>
+        <path id="tongue" fill="#F0997B" stroke="#993C1D" stroke-width="1" opacity=".9"/>
+        <rect x="50" y="88" width="18" height="52" rx="4" class="tooth"/>
+        <rect id="ltooth" x="50" y="150" width="18" height="44" rx="4" class="tooth"/>
+        <path class="ink" d="M68 90 Q84 70 112 76 Q200 40 320 44 Q420 50 470 80"/>
+        <path id="velum" class="ink" stroke-width="3"/>
+        <path class="ink" d="M545 70 L545 305"/>
+        <g id="extra"></g>
+        <g id="marks"></g>
+        <text x="96" y="58" text-anchor="middle">歯茎</text>
+        <text x="260" y="32" text-anchor="middle">硬口蓋</text>
+        <text x="468" y="60" text-anchor="middle">軟口蓋</text>
+        <text x="552" y="200">喉の奥</text>
+        <text x="16" y="60">唇</text>
+      </svg>
+      <div class="ctrl">
+        <button id="play" class="playbtn" onclick="play()">▶ 動きを再生</button>
+        <label class="loop"><input type="checkbox" id="loop"> くり返す</label>
+        <span class="phase" id="phase"></span>
+      </div>
+      <div class="views">
+        <figure>
+          <svg id="front" viewBox="0 0 220 205" role="img" aria-labelledby="frontT">
+            <title id="frontT">正面から見た口元</title>
+            <defs><clipPath id="opclip"><path id="opp"/></clipPath></defs>
+            <path class="ink" d="M22 14 Q16 140 66 180 Q110 204 154 180 Q204 140 198 14"/>
+            <path class="ink" d="M98 30 Q100 52 92 62 Q100 70 110 66 Q120 70 128 62 Q120 52 122 30" stroke-width="1.2"/>
+            <ellipse cx="101" cy="63" rx="4" ry="2.4" style="fill:var(--muted)" opacity=".5"/>
+            <ellipse cx="119" cy="63" rx="4" ry="2.4" style="fill:var(--muted)" opacity=".5"/>
+            <path id="flip" class="lip"/>
+            <g clip-path="url(#opclip)">
+              <rect x="40" y="80" width="140" height="90" style="fill:#2A2024"/>
+              <ellipse id="ftongue" cx="110" cy="150" rx="26" ry="12" fill="#F0997B" stroke="#993C1D" stroke-width=".8"/>
+              <rect id="utooth" x="78" y="100" width="64" height="20" rx="3" class="tooth"/>
+              <rect id="btooth" x="80" y="122" width="60" height="18" rx="3" class="tooth"/>
+              <ellipse id="fth" cx="110" cy="121" rx="17" ry="4.5" fill="#F0997B" stroke="#993C1D" stroke-width=".8"/>
+              <path id="tlines" stroke="var(--muted)" stroke-width=".7" fill="none"/>
+            </g>
+            <path id="fline" fill="none" stroke="var(--lip-line)" stroke-width="1.1" stroke-linecap="round"/>
+            <path id="fwrink" fill="none" stroke="var(--lip-line)" stroke-width=".8" stroke-linecap="round"/>
+          </svg>
+          <figcaption>正面から見た口元</figcaption>
+        </figure>
+        <figure>
+          <svg viewBox="52 296 216 140" role="img" aria-labelledby="crossT">
+          <title id="crossT">正面から見た舌の断面</title>
+          <rect x="62" y="338" width="20" height="34" rx="4" class="tooth"/>
+          <rect x="238" y="338" width="20" height="34" rx="4" class="tooth"/>
+          <path class="ink" d="M82 345 Q160 300 238 345"/>
+          <path id="cross" fill="#F0997B" stroke="#993C1D" stroke-width="1" opacity=".9"/>
+          <g id="air"></g>
+          </svg>
+          <figcaption>舌の断面（狭めの位置）</figcaption>
+        </figure>
+      </div>
+      <p class="crossnote" id="cnote"></p>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--c-bg);color:var(--c-fg)"></i>触れる</span>
+        <span><i class="dot" style="background:var(--n-bg);color:var(--n-fg)"></i>近づける</span>
+        <span><i class="dot" style="background:var(--f-bg);color:var(--f-fg)"></i>離す</span>
+        <span><i class="dot" style="background:var(--air);color:var(--air)"></i>息の通り道</span>
+      </div>
+    </div>
+    <div>
+      <div class="hd"><span class="sym" id="sym"></span><span class="cat" id="cat"></span></div>
+      <div class="ex" id="ex"></div>
+      <div class="chips" id="chips"></div>
+      <table><tbody id="rows"></tbody></table>
+      <div class="tip" id="tip"></div>
+    </div>
+  </div>
+  <p class="foot">図は発音練習のための模式図です。実際の舌の形には個人差があり、前後の音によっても変わります。r は反り舌型ともり上げ型のどちらでも同じように聞こえます。</p>
+</div>
+
+<script>
+// ---------- tongue presets: tip, blade, front, back, dorsum, root x ----------
+const T={
+ neut:{t:[76,158],b:[135,136],f:[250,118],k:[390,112],d:[470,140],r:492},
+ alv:{t:[92,79],b:[140,96],f:[250,104],k:[390,108],d:[470,138],r:492},
+ lat:{t:[92,79],b:[140,114],f:[250,124],k:[390,118],d:[468,145],r:492},
+ s:{t:[86,96],b:[130,80],f:[250,98],k:[390,102],d:[470,136],r:492},
+ sh:{t:[84,100],b:[130,82],f:[250,62],k:[400,92],d:[470,130],r:492},
+ ch:{t:[100,77],b:[145,70],f:[250,72],k:[400,96],d:[470,132],r:492},
+ th:{t:[46,143],b:[110,132],f:[250,112],k:[390,112],d:[470,140],r:492},
+ vel:{t:[76,160],b:[140,140],f:[260,108],k:[405,58],d:[468,84],r:494},
+ ng:{t:[76,160],b:[140,140],f:[260,108],k:[405,62],d:[480,110],r:496},
+ rr:{t:[140,84],b:[195,112],f:[310,108],k:[440,112],d:[500,150],r:523},
+ rb:{t:[86,148],b:[140,108],f:[300,64],k:[430,86],d:[495,140],r:523},
+ w:{t:[76,160],b:[140,142],f:[250,124],k:[400,70],d:[468,96],r:495},
+ j:{t:[76,156],b:[135,108],f:[250,58],k:[390,100],d:[470,138],r:490},
+ iy:{t:[76,156],b:[135,110],f:[250,62],k:[390,102],d:[470,138],r:490},
+ ih:{t:[76,158],b:[135,120],f:[250,80],k:[390,108],d:[470,140],r:488},
+ eh:{t:[76,162],b:[135,130],f:[250,96],k:[390,118],d:[470,144],r:490},
+ ae:{t:[76,172],b:[135,146],f:[250,124],k:[390,138],d:[470,160],r:492},
+ ah:{t:[76,166],b:[135,142],f:[250,124],k:[390,112],d:[470,140],r:488},
+ aa:{t:[78,174],b:[135,156],f:[250,142],k:[390,128],d:[465,152],r:520},
+ ao:{t:[78,168],b:[135,150],f:[250,134],k:[400,100],d:[470,124],r:512},
+ uh:{t:[76,162],b:[140,142],f:[250,118],k:[400,82],d:[470,108],r:500},
+ uw:{t:[76,162],b:[140,144],f:[250,114],k:[402,66],d:[470,94],r:498},
+ er:{t:[86,150],b:[140,112],f:[300,74],k:[430,90],d:[495,140],r:520}
+};
+// lips: upper front x, upper-lip bottom y, lower front x, lower-lip top y
+const LP={N:{fu:28,ub:140,fl:28,lt:154},C:{fu:30,ub:147,fl:30,lt:147},F:{fu:30,ub:128,fl:42,lt:136},
+ R:{fu:12,ub:141,fl:12,lt:149},r:{fu:20,ub:140,fl:20,lt:153},S:{fu:32,ub:138,fl:32,lt:152},O:{fu:28,ub:136,fl:28,lt:158}};
+const X={
+ seal:{p:'M70 432 L70 352 Q76 347 82 345 Q160 300 238 345 Q244 347 250 352 L250 432 Z',a:[],n:'舌の周りが口蓋にぴったり付き、息が完全に止まる。'},
+ lateral:{p:'M70 430 L70 398 Q90 384 112 374 Q140 330 160 323 Q180 330 208 374 Q230 384 250 398 L250 430 Z',a:[[96,362],[224,362]],n:'中央は歯茎に付き、両脇が下がって横から息が抜ける。'},
+ groove:{p:'M70 430 L70 360 Q76 350 82 348 Q120 326 150 332 Q160 336 170 332 Q200 326 238 348 Q244 350 250 360 L250 430 Z',a:[[160,326]],n:'両脇は奥歯に付き、中央の浅く広めの溝を息が通る。'},
+ sgroove:{p:'M70 430 L70 358 Q76 350 82 347 Q120 324 152 328 Q160 340 168 328 Q200 324 238 347 Q244 350 250 358 L250 430 Z',a:[[160,331]],n:'両脇は奥歯に付き、中央の細く深い溝に息を集める。'},
+ rgroove:{p:'M70 430 L70 360 Q76 350 82 348 Q110 340 130 352 Q160 364 190 352 Q210 340 238 348 Q244 350 250 360 L250 430 Z',a:[[160,344]],n:'両脇は奥歯に付き、中央はくぼんで広めのすき間。'},
+ bunch:{p:'M70 430 L70 360 Q76 350 82 348 Q120 334 150 340 Q160 343 170 340 Q200 334 238 348 Q244 350 250 360 L250 430 Z',a:[[160,333]],n:'両脇は奥歯に付き、中央は盛り上がって口蓋に近づく。'},
+ flat:{p:'M70 430 L70 360 Q76 352 82 350 Q120 353 160 353 Q200 353 238 350 Q244 352 250 360 L250 430 Z',a:[[128,343],[160,340],[192,343]],n:'舌は平らで横に広く、薄く広いすき間を息が通る。'},
+ high:{p:'M70 430 L70 358 Q76 350 82 348 Q120 336 160 334 Q200 336 238 348 Q244 350 250 358 L250 430 Z',a:[[160,327]],n:'両脇は奥歯に付き、中央に少しすき間を残す。'},
+ open:{p:'M70 430 L70 386 Q160 364 250 386 L250 430 Z',a:[[118,354],[160,346],[202,354]],n:'舌は口蓋から離れ、息は口の中を自由に通る。'}
+};
+const PART={tip:'舌先',blade:'舌端',front:'前舌',back:'後舌',root:'舌根',sides:'両脇',lips:'唇',jaw:'あご',velum:'軟口蓋',throat:'声帯',move:'動き'};
+const NUM={tip:1,blade:2,front:3,back:4,root:5};
+const TAG={c:'触れる',n:'近づける',f:'離す'};
+
+// ---------- sounds ----------
+const S=[
+ {g:'破裂音',id:'p',s:'p',ex:'pen, happy, cup',v:0,T:'neut',L:'C',x:'open',pair:'b',
+  r:[['lips','c','上下の唇をしっかり閉じて息をため、ぱっと開く'],['tip','f','下の歯の裏あたりで休ませる']],
+  tip:'語頭の p は息を強く出す（手のひらに息が当たるくらい）。弱いと b に聞こえる。'},
+ {g:'破裂音',id:'b',s:'b',ex:'bed, rubber, job',v:1,T:'neut',L:'C',x:'open',pair:'p',
+  r:[['lips','c','上下の唇をしっかり閉じ、声を出しながら開く'],['tip','f','下の歯の裏あたりで休ませる']],
+  tip:'日本語のバ行とほぼ同じ。語末の job は「ジョブ」と母音を付けず、唇を閉じて止める。'},
+ {g:'破裂音',id:'t',s:'t',ex:'ten, water, cat',v:0,T:'alv',L:'N',x:'seal',pair:'d',
+  r:[['tip','c','上の歯茎の盛り上がりに付けて息を止める（歯の裏ではない）'],['sides','c','奥歯の内側に付けて息をふさぐ'],['move','','付けた舌先を一気に離す']],
+  tip:'日本語のタ行より少し後ろ、歯茎に当てる。語頭は息を強く。'},
+ {g:'破裂音',id:'d',s:'d',ex:'day, ladder, bad',v:1,T:'alv',L:'N',x:'seal',pair:'t',
+  r:[['tip','c','上の歯茎に付けて息を止める'],['sides','c','奥歯の内側に付けて息をふさぐ'],['move','','声を出しながら舌先を離す']],
+  tip:'ダ行より少し後ろに当てる。bad は「バッドゥ」にせず、舌を付けて止めるだけ。'},
+ {g:'破裂音',id:'k',s:'k',ex:'key, back, school',v:0,T:'vel',L:'N',x:'seal',pair:'g',
+  r:[['back','c','後舌を軟口蓋に付けて息を止める'],['tip','f','下の歯の裏に置いたまま'],['move','','後舌を一気に離す']],
+  tip:'日本語のカ行とほぼ同じ。語頭は息を強く出す。'},
+ {g:'破裂音',id:'g',s:'g',ex:'go, bigger, dog',v:1,T:'vel',L:'N',x:'seal',pair:'k',
+  r:[['back','c','後舌を軟口蓋に付けて息を止める'],['tip','f','下の歯の裏に置いたまま'],['move','','声を出しながら後舌を離す']],
+  tip:'語中の g を鼻にかかった「ンガ」（鼻濁音）にしない。しっかり破裂させる。'},
+
+ {g:'摩擦音',id:'f',s:'f',ex:'fish, coffee, laugh',v:0,T:'neut',L:'F',x:'open',pair:'v',
+  r:[['lips','c','下唇の内側を上の前歯の先に軽く当てる'],['move','','すき間から息を「フー」と押し出す']],
+  tip:'日本語の「フ」は両唇で作るので別の音。下唇を強く噛まず、軽く触れる程度に。'},
+ {g:'摩擦音',id:'v',s:'v',ex:'very, seven, love',v:1,T:'neut',L:'F',x:'open',pair:'f',
+  r:[['lips','c','下唇の内側を上の前歯の先に軽く当てる'],['move','','f の形のまま声を出し、唇を震わせる']],
+  tip:'バ行にならないよう、唇どうしは閉じない。下唇がビリビリ震えれば合っている。'},
+ {g:'摩擦音',id:'th',s:'θ',ex:'think, nothing, bath',v:0,T:'th',L:'O',x:'flat',pair:'dh',
+  r:[['tip','c','上の前歯の先（または裏）に軽く当てる。噛まない'],['blade','f','平らにして口蓋から離す'],['sides','c','上の奥歯に軽く付け、息を前歯へ送る']],
+  tip:'「ス」にならないよう、舌先を前歯から離さない。強く噛むと t に近くなる。'},
+ {g:'摩擦音',id:'dh',s:'ð',ex:'this, mother, with',v:1,T:'th',L:'O',x:'flat',pair:'th',
+  r:[['tip','c','上の前歯の先（または裏）に軽く当てる'],['blade','f','平らにして口蓋から離す'],['sides','c','上の奥歯に軽く付ける']],
+  tip:'θ と同じ形で声を出す。「ザ」「ダ」にならないよう、舌先を歯に当てたまま擦る。'},
+ {g:'摩擦音',id:'s',s:'s',ex:'see, kiss, city',v:0,T:'s',L:'N',x:'sgroove',pair:'z',
+  r:[['tip','f','歯茎の近くに浮かせる（触れない）'],['blade','n','歯茎に近づけて細いすき間を作る'],['sides','c','上の奥歯の内側に付ける'],['lips','','丸めない']],
+  tip:'日本語の「ス」とほぼ同じ。see が she にならないよう、「シ」の位置まで舌を引かない。'},
+ {g:'摩擦音',id:'z',s:'z',ex:'zoo, easy, his',v:1,T:'s',L:'N',x:'sgroove',pair:'s',
+  r:[['tip','f','歯茎の近くに浮かせる（触れない）'],['blade','n','歯茎に近づけて細いすき間を作る'],['sides','c','上の奥歯の内側に付ける']],
+  tip:'日本語の「ズ」は語頭で「ヅ」のように舌が付きやすい。付けずに擦る音だけで。'},
+ {g:'摩擦音',id:'sh',s:'ʃ',ex:'she, fashion, wish',v:0,T:'sh',L:'R',x:'groove',pair:'zh',
+  r:[['tip','f','どこにも触れず、歯茎の裏あたりに浮かせる'],['blade','n','歯茎のすぐ後ろに近づける'],['front','n','硬口蓋に向かって盛り上げる'],['sides','c','上の奥歯の内側に付ける'],['lips','','丸めて前に突き出す']],
+  tip:'日本語の「シ」との一番の違いは唇。しっかり丸めて突き出す。'},
+ {g:'摩擦音',id:'zh',s:'ʒ',ex:'vision, measure, beige',v:1,T:'sh',L:'R',x:'groove',pair:'sh',
+  r:[['tip','f','どこにも触れず浮かせる'],['blade','n','歯茎のすぐ後ろに近づける'],['front','n','硬口蓋に向かって盛り上げる'],['sides','c','上の奥歯の内側に付ける'],['lips','','丸めて前に突き出す']],
+  tip:'ʃ の形で声を出す。「ジ」のように舌を口蓋に付けない。'},
+ {g:'摩擦音',id:'h',s:'h',ex:'hat, behind, who',v:0,T:'neut',L:'O',x:'open',
+  r:[['throat','','声帯の間を息が通るだけ（震わせない）'],['move','','舌と唇は次の母音の形を先に作っておく']],
+  tip:'who を「フー」と唇で摩擦させない。he を「ヒ」の強い摩擦にしない。'},
+
+ {g:'破擦音',id:'ch',s:'tʃ',ex:'cheese, teacher, much',v:0,T:'ch',L:'R',x:'seal',pair:'dj',
+  r:[['tip','c','歯茎の少し後ろに付けて息を止める'],['blade','c','舌端も一緒に付ける'],['sides','c','上の奥歯の内側に付ける'],['move','','そこから ʃ の形へゆっくり離す'],['lips','','丸めて突き出す']],
+  tip:'「チ」に近いが、唇を丸める。t と ʃ を続けて一つの音として出す。'},
+ {g:'破擦音',id:'dj',s:'dʒ',ex:'jam, magic, page',v:1,T:'ch',L:'R',x:'seal',pair:'ch',
+  r:[['tip','c','歯茎の少し後ろに付けて息を止める'],['blade','c','舌端も一緒に付ける'],['sides','c','上の奥歯の内側に付ける'],['move','','声を出しながら ʒ の形へ離す'],['lips','','丸めて突き出す']],
+  tip:'語頭でも必ず舌を付けてから離す（付けないと ʒ になる）。'},
+
+ {g:'鼻音',id:'m',s:'m',ex:'man, summer, time',v:1,nas:1,T:'neut',L:'C',x:'open',
+  r:[['lips','c','唇を閉じたまま'],['velum','','下げて、息と声を鼻へ通す']],
+  tip:'語末の m は唇を閉じたまま終える。time を「タイム」と母音を付けない。'},
+ {g:'鼻音',id:'n',s:'n',ex:'no, dinner, ten',v:1,nas:1,T:'alv',L:'N',x:'seal',
+  r:[['tip','c','上の歯茎に付けたまま'],['sides','c','奥歯の内側に付けて口をふさぐ'],['velum','','下げて、息と声を鼻へ通す']],
+  tip:'語末の n は舌先を歯茎に付けて終える。日本語の「ン」は舌が付かないことが多い。'},
+ {g:'鼻音',id:'ng',s:'ŋ',ex:'sing, finger, long',v:1,nas:1,T:'ng',L:'N',x:'seal',
+  r:[['back','c','後舌を下げた軟口蓋に付ける'],['tip','f','下の歯の裏に置いたまま'],['velum','','下げて、息と声を鼻へ通す']],
+  tip:'sing は「シング」ではなく、最後に g を破裂させない。「マンガ」の「ン」の位置。'},
+
+ {g:'接近音',id:'l',s:'l',ex:'light, hello, feel',v:1,T:'lat',L:'N',x:'lateral',
+  r:[['tip','c','上の歯茎にしっかり付ける'],['blade','f','付いた点のすぐ後ろから下がる'],['front','f','口蓋から離す'],['back','f','低め（語末の暗い L では軟口蓋側へ上がる）'],['sides','f','下げて、横に息の通り道を作る']],
+  tip:'舌先を付けたまま「ウー」と声を伸ばせれば合格。ラ行のように弾かない。'},
+ {g:'接近音',id:'r',s:'r',ex:'red, sorry, car',v:1,T:'rr',L:'r',x:'rgroove',ret:1,lab:'反り舌型',
+  r:[['tip','n','歯茎の後ろへ持ち上げ、少し反らせる（触れない）'],['blade','f','舌先のすぐ後ろはくぼませる'],['root','n','喉の奥の壁に向かって引く'],['sides','c','上の奥歯の内側に付ける'],['lips','','軽く丸める']],
+  tip:'どこにも触れない。舌先が歯茎に当たるとラ行になる。'},
+ {g:'接近音',id:'rb',s:'r',ex:'red, sorry, car',v:1,T:'rb',L:'r',x:'bunch',ret:1,lab:'もり上げ型',
+  r:[['tip','f','下げたまま、下の歯の裏あたりに置く'],['front','n','硬口蓋の奥に向かって盛り上げる'],['back','f','舌全体を後ろへ寄せる'],['root','n','喉の奥の壁に向かって引く'],['sides','c','上の奥歯の内側に付ける'],['lips','','軽く丸める']],
+  tip:'「舌を奥に引く」イメージの r。舌先を使わないので、ラ行の癖が出にくい。'},
+ {g:'接近音',id:'w',s:'w',ex:'we, away, quick',v:1,T:'w',L:'R',x:'open',
+  r:[['lips','','強く丸めて突き出す'],['back','n','後舌を軟口蓋に近づける（「ウ」の形）'],['tip','f','下の歯の裏に置く']],
+  tip:'wood, woman は唇を丸めた「ウ」から始める。日本語のワより唇の丸めを強く。'},
+ {g:'接近音',id:'y',s:'j',ex:'yes, beyond, year',v:1,T:'j',L:'S',x:'high',
+  r:[['front','n','前舌を硬口蓋に近づける（「イ」の形）'],['sides','c','上の奥歯の内側に付ける'],['tip','f','下の歯の裏に置く']],
+  tip:'year と ear の違いは、前舌を一度しっかり上げてから母音へ移ること。'},
+
+ {g:'母音',id:'iy',s:'iː',ex:'see, eat, machine',v:1,T:'iy',L:'S',x:'high',jd:2,
+  r:[['front','n','硬口蓋のすぐ近くまで高く上げる'],['tip','f','下の歯の裏'],['lips','','横に引く'],['jaw','','ほぼ閉じる']],
+  tip:'日本語の「イー」より唇を横に引き、舌に少し力を入れる。'},
+ {g:'母音',id:'ih',s:'ɪ',ex:'sit, busy, women',v:1,T:'ih',L:'N',x:'high',jd:8,
+  r:[['front','n','iː より少し低く、力を抜く'],['tip','f','下の歯の裏'],['lips','','自然体'],['jaw','','少し開く']],
+  tip:'「イ」と「エ」の中間。iː を短くした音ではない（sit と seat は形が違う）。'},
+ {g:'母音',id:'eh',s:'e',ex:'bed, said, head',v:1,T:'eh',L:'N',x:'open',jd:14,
+  r:[['front','f','中くらいの高さ'],['tip','f','下の歯の裏'],['jaw','','やや開く']],
+  tip:'日本語の「エ」とほぼ同じ。'},
+ {g:'母音',id:'ae',s:'æ',ex:'cat, apple, laugh',v:1,T:'ae',L:'S',x:'open',jd:28,
+  r:[['front','f','舌全体を低く、前寄りに'],['tip','f','下の歯の裏に押し当てる'],['lips','','少し横に引く'],['jaw','','大きく下げる']],
+  tip:'「エ」の口のまま「ア」と言うイメージ。あごをしっかり下げる。'},
+ {g:'母音',id:'ah',s:'ʌ',ex:'cup, love, money',v:1,T:'ah',L:'N',x:'open',jd:18,
+  r:[['front','f','やや低め、口の中央'],['back','f','中くらい'],['jaw','','中くらいに開く']],
+  tip:'日本語の「ア」を、口をあまり開けずに短く強く。'},
+ {g:'母音',id:'aa',s:'ɑː',ex:'father, hot (米), car',v:1,T:'aa',L:'O',x:'open',jd:32,ret:1,
+  r:[['back','f','舌を低く、後ろ寄りに'],['root','n','喉の方へ少し引く'],['jaw','','大きく開く']],
+  tip:'あくびをするように口の奥を広げて「アー」。'},
+ {g:'母音',id:'ao',s:'ɔː',ex:'thought, law, walk',v:1,T:'ao',L:'r',x:'open',jd:22,
+  r:[['back','f','後舌をやや上げる'],['root','n','少し後ろへ'],['lips','','軽く丸める'],['jaw','','縦に開く']],
+  tip:'「オ」より口を縦に開け、唇は軽く丸める。'},
+ {g:'母音',id:'uh',s:'ʊ',ex:'book, put, could',v:1,T:'uh',L:'r',x:'open',jd:10,
+  r:[['back','n','後舌をやや高く、力を抜く'],['lips','','軽く丸める'],['jaw','','少し開く']],
+  tip:'「ウ」と「オ」の中間で短く。uː を短くした音ではない。'},
+ {g:'母音',id:'uw',s:'uː',ex:'food, blue, two',v:1,T:'uw',L:'R',x:'open',jd:6,
+  r:[['back','n','後舌を軟口蓋の近くまで高く上げる'],['lips','','強く丸めて突き出す'],['jaw','','ほぼ閉じる']],
+  tip:'日本語の「ウ」は唇を丸めない。口笛を吹くように突き出す。'},
+ {g:'母音',id:'ax',s:'ə',ex:'about, sofa, the',v:1,T:'neut',L:'N',x:'open',jd:10,
+  r:[['front','f','力を抜いた、口の真ん中の位置'],['lips','','自然体'],['jaw','','少し開く']],
+  tip:'弱く短く、あいまいに。つづりに引きずられて「ア」「オ」とはっきり言わない。'},
+ {g:'母音',id:'er',s:'ɜːr',ex:'bird, work, learn',v:1,T:'er',L:'r',x:'bunch',jd:10,ret:1,
+  r:[['front','n','中ほどを盛り上げる（もり上げ型の r の形）'],['root','n','喉の奥へ引く'],['sides','c','上の奥歯に付ける'],['lips','','軽く丸める']],
+  tip:'r を母音として伸ばす音。「アー」にならないよう、舌の構えを保つ。'},
+
+ {g:'二重母音',id:'ey',s:'eɪ',ex:'day, rain, eight',v:1,from:'eh',to:'ih',
+  r:[['move','','e から始め、前舌を ɪ の高さへ持ち上げる'],['jaw','','少し閉じていく'],['front','n','終わりは硬口蓋に近づく']],
+  tip:'「エー」と伸ばさない。後半の ɪ は弱く短く。'},
+ {g:'二重母音',id:'ay',s:'aɪ',ex:'my, time, high',v:1,from:'ae',to:'ih',
+  r:[['move','','口を大きく開けた a から ɪ へ'],['jaw','','大きく開いた状態から閉じていく'],['front','n','終わりは前舌が上がる']],
+  tip:'「アイ」と2音にせず、ア→イをなめらかに一続きで。前半を長めに。'},
+ {g:'二重母音',id:'oy',s:'ɔɪ',ex:'boy, coin, enjoy',v:1,from:'ao',to:'ih',
+  r:[['move','','唇を丸めた ɔ から ɪ へ'],['lips','','丸めから自然体へほどく'],['front','n','終わりは前舌が上がる']],
+  tip:'前半の「オ」は口を縦に開けて唇を丸める。'},
+ {g:'二重母音',id:'aw',s:'aʊ',ex:'now, house, out',v:1,from:'ae',to:'uh',
+  r:[['move','','口を大きく開けた a から ʊ へ'],['lips','','後半で丸める'],['back','n','終わりは後舌が上がる']],
+  tip:'「アウ」の「ウ」で唇をしっかり丸める。'},
+ {g:'二重母音',id:'ow',s:'oʊ',ex:'go, home, know',v:1,from:'ao',to:'uh',
+  r:[['move','','o から ʊ へ、唇の丸めを強めていく'],['lips','','後半でさらにすぼめる'],['back','n','終わりは後舌が上がる']],
+  tip:'「オー」と伸ばすと別の音になる。最後に唇をすぼめて「オウ」。'}
+];
+S.filter(s=>s.from).forEach(s=>{const f=S.find(x=>x.id===s.from);s.T=f.T;s.L=f.L;s.x=f.x;s.jd=f.jd});
+const byId=Object.fromEntries(S.map(s=>[s.id,s]));
+
+// ---------- drawing ----------
+const $=id=>document.getElementById(id);
+const FP={N:{mw:70,ow:44,oh:6,oy:0},C:{mw:66,ow:44,oh:0,oy:0},F:{mw:68,ow:46,oh:9,oy:-4},R:{mw:40,ow:20,oh:15,oy:2},
+ r:{mw:52,ow:30,oh:11,oy:1},S:{mw:84,ow:62,oh:6,oy:0},O:{mw:68,ow:46,oh:12,oy:1}};
+const TAGVAR={c:['--c-bg','--c-fg'],n:['--n-bg','--n-fg'],f:['--f-bg','--f-fg']};
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function stateOf(s,jdOverride){const t=T[s.T],jd=jdOverride??(s.jd||0),L=LP[s.L],F=FP[s.L],fixed=(s.L==='C'||s.L==='F');
+ return {tp:[...t.t,...t.b,...t.f,...t.k,...t.d],r:t.r,fu:L.fu,ub:L.ub,fl:L.fl,lt:L.lt+(fixed?0:jd),jd,
+  nas:s.nas?1:0,ret:s.ret?1:0,th:s.T==='th'?1:0,
+  mw:F.mw,ow:F.ow,oh:F.oh+(fixed?0:jd*.9),oy:F.oy+(fixed?0:jd*.45)}}
+const REST=stateOf({T:'neut',L:'N'},4);
+function lerp(a,b,k){const o={};for(const key in a){o[key]=Array.isArray(a[key])?a[key].map((v,i)=>v+(b[key][i]-v)*k):a[key]+(b[key]-a[key])*k}return o}
+const ease=k=>k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
+
+function cr(p){let d='';for(let i=0;i<p.length-1;i++){const a=p[i-1]||p[i],b=p[i],c=p[i+1],e=p[i+2]||c;
+ d+=`C${(b[0]+(c[0]-a[0])/6).toFixed(1)} ${(b[1]+(c[1]-a[1])/6).toFixed(1)} ${(c[0]-(e[0]-b[0])/6).toFixed(1)} ${(c[1]-(e[1]-b[1])/6).toFixed(1)} ${c[0].toFixed(1)} ${c[1].toFixed(1)} `}return d}
+const f1=n=>n.toFixed(1);
+
+function draw(q){
+ // side view
+ const P=[];for(let i=0;i<10;i+=2)P.push([q.tp[i],q.tp[i+1]]);P.push([q.r,222]);const tip=P[0];
+ $('tongue').setAttribute('d',`M${f1(tip[0])} ${f1(tip[1])} ${cr(P)}L${f1(q.r-2)} 286 L470 292 Q330 286 220 262 C130 248 ${f1(tip[0]-10)} ${f1(tip[1]+40)} ${f1(tip[0])} ${f1(tip[1])} Z`);
+ const {fu,ub,fl,lt,jd}=q;
+ $('ulip').setAttribute('d',`M50 66 C${f1(fu+16)} 70 ${f1(fu)} ${f1(ub-34)} ${f1(fu)} ${f1(ub-12)} Q${f1(fu)} ${f1(ub)} ${f1(fu+12)} ${f1(ub)} L50 ${f1(ub)} Z`);
+ $('llip').setAttribute('d',`M50 ${f1(222+jd)} C${f1(fl+16)} ${f1(218+jd)} ${f1(fl)} ${f1(lt+34)} ${f1(fl)} ${f1(lt+12)} Q${f1(fl)} ${f1(lt)} ${f1(fl+12)} ${f1(lt)} L50 ${f1(lt)} Z`);
+ $('ltooth').setAttribute('y',f1(150+jd));
+ $('floor').setAttribute('d',`M68 ${f1(194+jd)} Q80 ${f1(262+jd*.5)} 160 ${f1(280+jd*.3)} L470 292`);
+ const n=q.nas;$('velum').setAttribute('d',`M470 80 Q${f1(512-12*n)} ${f1(84+26*n)} ${f1(543-53*n)} ${f1(96+44*n)}`);
+ $('extra').innerHTML=(n>.05?`<g opacity="${f1(n)}"><path d="M522 150 L522 40" fill="none" stroke="var(--air)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ar)"/><text x="506" y="34" style="fill:var(--air)">鼻へ</text></g>`:'')+
+  (q.ret>.05?`<path opacity="${f1(q.ret)}" d="M${f1(q.r-58)} 252 L${f1(q.r-10)} 252" fill="none" stroke="#993C1D" stroke-width="2" marker-end="url(#ar)"/>`:'');
+ // front view
+ const cx=110,cy=120,yc=cy+q.oy,mw=q.mw,oh=Math.max(q.oh,0),ow=q.ow;
+ const ry=oh/2+11+Math.max(0,70-mw)*.13,x0=cx-mw/2,x1=cx+mw/2;
+ $('flip').setAttribute('d',`M${f1(x0)} ${f1(yc)} C${f1(x0+mw*.15)} ${f1(yc-ry*1.15)} ${f1(cx-mw*.14)} ${f1(yc-ry)} ${cx} ${f1(yc-ry+3)} C${f1(cx+mw*.14)} ${f1(yc-ry)} ${f1(x1-mw*.15)} ${f1(yc-ry*1.15)} ${f1(x1)} ${f1(yc)} C${f1(x1-mw*.12)} ${f1(yc+ry*1.25)} ${f1(x0+mw*.12)} ${f1(yc+ry*1.25)} ${f1(x0)} ${f1(yc)} Z`);
+ const ox0=cx-ow/2,ox1=cx+ow/2,h=oh/2;
+ $('opp').setAttribute('d',`M${f1(ox0)} ${f1(yc)} C${f1(ox0+ow*.1)} ${f1(yc-h*1.3)} ${f1(ox1-ow*.1)} ${f1(yc-h*1.3)} ${f1(ox1)} ${f1(yc)} C${f1(ox1-ow*.1)} ${f1(yc+h*1.3)} ${f1(ox0+ow*.1)} ${f1(yc+h*1.3)} ${f1(ox0)} ${f1(yc)} Z`);
+ $('fline').setAttribute('d',`M${f1(x0+2)} ${f1(yc)} Q${cx} ${f1(yc+1)} ${f1(x1-2)} ${f1(yc)}`);
+ $('fline').setAttribute('opacity',oh<2?1:0);
+ const lowTop=cy+2+jd*.9;
+ $('utooth').setAttribute('y',cy-20);
+ $('btooth').setAttribute('y',f1(lowTop));
+ $('ftongue').setAttribute('cy',f1(lowTop+16));
+ $('fth').setAttribute('opacity',f1(q.th));
+ $('tlines').setAttribute('d',`M110 ${cy-20} L110 ${cy} M96 ${cy-20} L96 ${cy} M124 ${cy-20} L124 ${cy} M110 ${f1(lowTop)} L110 ${f1(lowTop+18)}`);
+ const w=Math.max(0,(56-mw)/14);
+ $('fwrink').setAttribute('opacity',f1(Math.min(1,w)*.7));
+ $('fwrink').setAttribute('d',[[-.3,-1],[0,-1.1],[.3,-1],[-.3,1],[0,1.15],[.3,1]].map(([a,b])=>{const xx=cx+a*mw*.8,yy=yc+b*ry;return `M${f1(xx)} ${f1(yy-b*1)} L${f1(xx+a*4)} ${f1(yy+b*5)}`}).join(' '));
+}
+
+let cur=REST,token=0,curSound=null;
+function animate(to,dur){return new Promise(res=>{const from=cur,my=token,t0=performance.now();
+ if(reduce||dur<=0){cur=to;draw(cur);return res(true)}
+ const step=now=>{if(my!==token)return res(false);const k=Math.min(1,(now-t0)/dur);cur=lerp(from,to,ease(k));draw(cur);k<1?requestAnimationFrame(step):res(true)};
+ requestAnimationFrame(step)})}
+const wait=ms=>new Promise(r=>setTimeout(r,reduce?0:ms));
+
+function setCross(key){const x=X[key];$('cross').setAttribute('d',x.p);
+ $('air').innerHTML=x.a.map(p=>`<circle cx="${p[0]}" cy="${p[1]}" r="5" style="fill:var(--air)"/>`).join('');$('cnote').textContent=x.n}
+function setMarks(s){if(!s||s.from){$('marks').innerHTML='';return}const t=T[s.T];
+ const pos={tip:t.t,blade:t.b,front:t.f,back:t.k,root:[t.r,232]};
+ $('marks').innerHTML=s.r.filter(r=>NUM[r[0]]&&r[1]).map(r=>{const p=pos[r[0]],v=TAGVAR[r[1]];
+  return `<circle cx="${p[0]}" cy="${p[1]}" r="10" style="fill:var(${v[0]});stroke:var(${v[1]})" stroke-width="1"/><text x="${p[0]}" y="${p[1]}" text-anchor="middle" dominant-baseline="central" style="fill:var(${v[1]});font-size:11px">${NUM[r[0]]}</text>`}).join('')}
+const phase=t=>$('phase').textContent=t;
+
+function info(s){
+ $('sym').textContent='/'+s.s+'/';
+ $('cat').textContent=s.g+(s.lab?'・'+s.lab:'');
+ $('ex').innerHTML='<em>例</em>'+s.ex;
+ let chips=`<span class="chip">${s.v?'有声（声帯が震える）':'無声（声帯は震えない）'}</span>`;
+ if(s.nas)chips+='<span class="chip">鼻から息が出る</span>';
+ if(s.from)chips+=`<button class="chip link" onclick="pick('${s.from}')">始まり /${byId[s.from].s}/</button><button class="chip link" onclick="pick('${s.to}')">終わり /${byId[s.to].s}/</button>`;
+ if(s.pair){const p=byId[s.pair];chips+=`<button class="chip link" onclick="pick('${p.id}')">同じ形で${p.v?'声あり':'声なし'}：/${p.s}/</button>`}
+ if(s.id==='r')chips+=`<button class="chip link" onclick="pick('rb')">もり上げ型を見る</button>`;
+ if(s.id==='rb')chips+=`<button class="chip link" onclick="pick('r')">反り舌型を見る</button>`;
+ $('chips').innerHTML=chips;
+ $('rows').innerHTML=s.r.map(r=>`<tr><td class="part">${NUM[r[0]]&&r[1]&&!s.from?`<span class="num">${NUM[r[0]]}</span>`:''}${PART[r[0]]}</td><td class="tag">${r[1]?`<span class="t t-${r[1]}">${TAG[r[1]]}</span>`:''}</td><td class="txt">${r[2]}</td></tr>`).join('');
+ $('tip').innerHTML='<b>コツ</b>'+s.tip;
+ document.querySelectorAll('.snd').forEach(b=>b.setAttribute('aria-pressed',b.dataset.id===s.id?'true':'false'));
+}
+
+async function show(id){const s=byId[id]||byId.l;curSound=s;token++;phase('');$('marks').innerHTML='';info(s);
+ const ok=await animate(stateOf(s),380);if(!ok)return;setCross(s.x);setMarks(s);
+ if(s.from)play()}
+
+async function play(){const s=curSound;if(!s)return;const my=++token;$('marks').innerHTML='';
+ do{
+  if(s.from){const a=byId[s.from],b=byId[s.to];
+   phase('準備');if(!await animate(REST,300))return;setCross('open');
+   phase('始まり /'+a.s+'/');if(!await animate(stateOf(a),350))return;setCross(a.x);await wait(300);if(my!==token)return;
+   phase('/'+a.s+'/ → /'+b.s+'/');if(!await animate(stateOf(b),750))return;setCross(b.x);await wait(500);if(my!==token)return;
+  }else{
+   phase('準備');if(!await animate(REST,300))return;setCross('open');await wait(150);if(my!==token)return;
+   phase('/'+s.s+'/ の形へ');if(!await animate(stateOf(s),450))return;setCross(s.x);
+   phase('/'+s.s+'/');await wait(700);if(my!==token)return;
+   phase('ほどく');if(!await animate(REST,450))return;setCross('open');await wait(250);if(my!==token)return;
+  }
+ }while($('loop').checked&&my===token);
+ if(my!==token)return;
+ phase('');const ok=await animate(stateOf(s),350);if(!ok)return;setCross(s.x);setMarks(s);
+}
+function pick(id){
+ if($('tapmode').checked){const s=byId[id];$('ipa').value+=(s.id==='rb'?'r':s.s);preview();return}
+ if(location.hash!=='#'+id)location.hash=id;else show(id)}
+
+// ---------- word playback ----------
+const MAP={'ɜːr':'er','tʃ':'ch','ʧ':'ch','dʒ':'dj','ʤ':'dj','eɪ':'ey','aɪ':'ay','ɔɪ':'oy','aʊ':'aw','oʊ':'ow','əʊ':'ow','ɜː':'er','iː':'iy','uː':'uw','ɑː':'aa','ɔː':'ao',
+ 'ɝ':'er','ɚ':'er','ɜ':'er','i':'iy','u':'uw','ɑ':'aa','ɒ':'aa','ɔ':'ao','o':'ao','a':'ae','æ':'ae','ʌ':'ah','ɐ':'ah','ə':'ax','ɪ':'ih','ʊ':'uh','e':'eh','ɛ':'eh',
+ 'p':'p','b':'b','t':'t','d':'d','k':'k','c':'k','g':'g','ɡ':'g','f':'f','v':'v','θ':'th','ð':'dh','s':'s','z':'z','ʃ':'sh','ʒ':'zh','h':'h',
+ 'm':'m','n':'n','ŋ':'ng','l':'l','ɫ':'l','r':'R','ɹ':'R','ɾ':'d','w':'w','j':'y','y':'y'};
+const KEYS=Object.keys(MAP).sort((a,b)=>b.length-a.length);
+const SKIP=/[\s\/\[\]ˈˌ.'‿ːʳ,-]/;
+function parse(str){const out=[],bad=[];let i=0;str=str.normalize('NFC');
+ while(i<str.length){if(SKIP.test(str[i])){i++;continue}
+  const k=KEYS.find(k=>str.startsWith(k,i));
+  if(k){let id=MAP[k];if(id==='R')id=$('rtype').value;out.push(id);i+=k.length}else{bad.push(str[i]);i++}}
+ return {ids:out,bad:[...new Set(bad)]}}
+function preview(){const {ids,bad}=parse($('ipa').value);
+ $('seq').innerHTML=ids.map((id,i)=>`<button data-i="${i}" onclick="pick('${id}')" title="${byId[id].ex}">${byId[id].s}</button>`).join('');
+ $('werr').textContent=bad.length?`読み取れない文字：${bad.join(' ')}（無視して再生します）`:'';
+ return ids}
+const LONG=new Set(['iy','uw','aa','ao','er']);
+const STOP=new Set(['p','b','t','d','k','g','ch','dj']);
+function dur(s){if(STOP.has(s.id))return [90,70];if(s.g==='母音')return [150,LONG.has(s.id)?260:160];return [110,100]}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function lit(i){document.querySelectorAll('#seq button').forEach(b=>b.classList.toggle('on',+b.dataset.i===i))}
+
+async function playWord(){const ids=preview();if(!ids.length)return;const my=++token;$('marks').innerHTML='';
+ const sp=+$('speed').value;
+ do{
+  phase('準備');lit(-1);if(!await animate(REST,250/sp))return;setCross('open');await sleep(120/sp);if(my!==token)return;
+  for(let i=0;i<ids.length;i++){const s=byId[ids[i]];lit(i);info(s);phase('/'+s.s+'/');
+   if(s.from){const a=byId[s.from],b=byId[s.to];
+    if(!await animate(stateOf(a),150/sp))return;setCross(a.x);await sleep(80/sp);if(my!==token)return;
+    if(!await animate(stateOf(b),230/sp))return;setCross(b.x);await sleep(120/sp);if(my!==token)return;
+   }else{const [m,h]=dur(s);
+    if(!await animate(stateOf(s),m/sp))return;setCross(s.x);await sleep(h/sp);if(my!==token)return;}
+  }
+  lit(-1);phase('ほどく');if(!await animate(REST,300/sp))return;setCross('open');await sleep(300/sp);if(my!==token)return;
+ }while($('loop').checked&&my===token);
+ phase('');}
+function bs(){const v=[...$('ipa').value];v.pop();$('ipa').value=v.join('');preview()}
+function clr(){$('ipa').value='';preview()}
+const EXW=[['think','θɪŋk'],['three','θriː'],['world','wɜːrld'],['girl','ɡɜːrl'],['light','laɪt'],['right','raɪt'],['really','rɪli'],['thank you','θæŋk juː'],['vision','vɪʒən'],['judge','dʒʌdʒ'],['about','əbaʊt'],['strength','streŋθ']];
+$('exw').innerHTML=EXW.map(([w,p])=>`<button onclick="$('ipa').value='${p}';preview();playWord()">${w}<span>${p}</span></button>`).join('');
+$('ipa').addEventListener('input',preview);
+$('ipa').addEventListener('keydown',e=>{if(e.key==='Enter')playWord()});
+$('rtype').addEventListener('change',preview);
+preview();
+
+const groups=[...new Set(S.map(s=>s.g))];
+$('picker').innerHTML=groups.map(g=>`<div class="grp"><span class="grp-name">${g}</span>${S.filter(s=>s.g===g).map(s=>`<button class="snd" data-id="${s.id}" title="${s.ex}" onclick="pick('${s.id}')">${s.s}${s.lab?`<small style="font-family:var(--sans);font-size:.65rem;margin-left:3px">${s.lab.replace('型','')}</small>`:''}</button>`).join('')}</div>`).join('');
+draw(REST);
+const route=()=>show((location.hash||'').slice(1)||'l');
+addEventListener('hashchange',route);
+// ダッシュボードの発音記号のリンク（/mouth?ipa=θ・/mouth?ipa=θɪŋk）。1音ならその音を、2音以上なら単語として再生する
+const qIpa=new URLSearchParams(location.search).get('ipa');
+const qIds=qIpa?parse(qIpa).ids:[];
+if(qIds.length===1)show(qIds[0]);
+else if(qIds.length){$('ipa').value=qIpa;preview();show(qIds[0]).then(playWord);}
+else route();
+</script>
+</body></html>

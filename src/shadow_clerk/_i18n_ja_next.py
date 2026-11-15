@@ -209,6 +209,7 @@ STRINGS_JA_NEXT: dict[str, str] = {
     "nx.ai_adv_title": "いま気をつけること・決まったこと",
     "nx.ai_adv_tag": "Advice",
     "nx.ai_ana_title": "会議全体の分析",
+    "nx.mouth_link": "口のかたちを見る",
     "nx.ai_ana_tag": "Analysis",
     "nx.vm_center": "真ん中に出すもの",
     "nx.v_T": "文字起こし",

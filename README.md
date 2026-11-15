@@ -871,6 +871,8 @@ instead of VOICEVOX, so keep the dashboard open and click it once (browsers only
 without such a tab those sentences are not spoken (VOICEVOX would read them with a Japanese accent) and the talk status shows a warning. While the recognition language is not the conversation language (e.g. `en` in immersion practice), fillers are in that language and English sentences sent without `lang` also go to the browser. The speaker (monitor) is muted while practising, and
 Claude ends with a "今日の練習のまとめ: …" line that the next session builds on.
 
+In the AI advice tab, IPA symbols such as `/θ/` or `/θɪŋk/` link to a bundled mouth-shape chart for English sounds (`/mouth`, Japanese only): a single sound opens its mouth and tongue diagrams with tips, and a word plays the mouth movement sound by sound.
+
 The skill uses these localhost-only endpoints, which you can also call yourself:
 
 | Endpoint | Body / query | Effect |
