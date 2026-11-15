@@ -139,9 +139,10 @@ def expected_ipa(word: str, language: Language, accent: EnglishAccent = EnglishA
         raise G2PError(f"espeak split {word!r} into more than one word: {raw!r}")
     phones = [p for p in raw.replace(_WORD_SEPARATOR, " ").split(" ") if p]
     if accent is EnglishAccent.BRITISH:
-        # t / d / n の後の j（new・tune の y）はモデルが拾わない（米音は元から j が無い）
+        # t / d / n の後の j（new・tune の y）はモデルが拾わない。落とすのは米音に j が無い語だけ（menu は米音も j）
+        yod_drop = "j" not in expected_ipa(word, language)
         phones = [_GB_EXPECTED.get(p, p) for i, p in enumerate(phones)
-                  if not (p == "j" and 0 < i and phones[i - 1] in _YOD_DROP_AFTER)]
+                  if not (yod_drop and p == "j" and 0 < i and phones[i - 1] in _YOD_DROP_AFTER)]
         if phones and phones[-1] == "ɪ":  # 語末の -y（really の ɪ）は米音と同じ i で出る
             phones[-1] = "i"
     return normalise(phones)

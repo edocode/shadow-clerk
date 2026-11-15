@@ -20,7 +20,7 @@ def check(label: str, ok: bool, detail: str = "") -> None:
 def test_from_config() -> None:
     check("キーが無ければ米音", EnglishAccent.from_config({}) is EnglishAccent.AMERICAN)
     check("british を読む", EnglishAccent.from_config({"english_accent": "british"}) is EnglishAccent.BRITISH)
-    for bad in ("British", "", None, 1, "scottish"):
+    for bad in ("British", "", None, 1, "scottish", [], {}):
         check(f"不正な値 {bad!r} は米音", EnglishAccent.from_config({"english_accent": bad}) is EnglishAccent.AMERICAN)
     check("espeak と BCP 47 の言語コード",
           (EnglishAccent.BRITISH.espeak, EnglishAccent.BRITISH.bcp47, EnglishAccent.AMERICAN.espeak,
@@ -48,6 +48,8 @@ def test_gb_expected() -> None:
           repr((ipa("really", gb), ipa("city", gb))))
     check("t / d / n の後の j（new の y）は落とす。pure の j は残す",
           ipa("new", gb) == ("n", "u") and ipa("pure", gb)[:2] == ("p", "j"), repr((ipa("new", gb), ipa("pure", gb))))
+    check("米音にも j がある語（menu・annual）の j は落とさない",
+          "j" in ipa("menu", gb) and "j" in ipa("annual", gb), repr((ipa("menu", gb), ipa("annual", gb))))
     check("英音の water は曖昧母音で終わる", ipa("water", gb)[-1] == "@", repr(ipa("water", gb)))
     check("違わない語は同じ", ipa("think", gb) == ipa("think", us))
     check("accent を省けば米音", expected_ipa("car", Language.EN) == ipa("car", us))

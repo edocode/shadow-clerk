@@ -939,7 +939,7 @@ uv run --no-project --with pyopenjtalk-plus --with transformers --with "torch>=2
 
 調整は英音の期待側だけで行った（モデルが RP の声から聞き取る記号に合わせた）:
 trap / bath の母音は `a` のまま（モデルも英音の話者で `a` を出す）、`əʊ→oʊ`、`iə→i`、`eə→e`、`ɜː→ə`（英音では r 性母音でない）、
-語末の -y の `ɪ→i`、t / d / n の後の `j` は落とす（モデルが拾わない）。
+語末の -y の `ɪ→i`、t / d / n の後の `j` は、米音に j が無い語（new, tune）でだけ落とす（モデルが拾わない。menu は残す）。
 
 入れ替え試験（調整後）: 米音の声を英音の基準で判定すると、違う語 22/31 で違いを指摘。英音の声を米音の基準で判定すると 28/31。
 ただし同じ声を自分の基準で判定しても 15〜18 語が誤りになる。違いを見抜く力よりも、誤りを出しやすさが効いている。
@@ -949,7 +949,8 @@ trap / bath の母音は `a` のまま（モデルも英音の話者で `a` を�
 ### 判断
 
 ゲート（15%）は通らない。piper では米音も人の録音（9.10%）より 4.7 ポイント高く出るので、英音を人の録音に換算すると 16% 前後と推定できる。
-英音の判定は既定では使わず、設定（`pronounce_british`）で試験的に有効にできるようにする。無効のときは `/api/pronounce` が
-`unavailable`（理由 `accent_unsupported`）を返し、声・発音記号・図鑑だけが英音に切り替わる。
+英音の判定は既定では使わず、設定（`pronounce_british`）で試験的に有効にできるようにする。無効のときは英語の課題のアームを
+`{"status":"error","message":"accent_unsupported"}` で断る（`GET /api/pronounce` の state は変えない。日本語の判定は使えるため）。
+発音記号とお手本の声は英音に切り替わる。
 
 再現: `cd <worktree> && uv run python ~/.local/share/shadow-clerk/eval/english-accent/gate.py`（調整用の集計は同じ場所の `diagnose.py`）

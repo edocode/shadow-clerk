@@ -22,4 +22,4 @@ class EnglishAccent(str, Enum):
     def from_config(cls, config: dict) -> EnglishAccent:
         """設定の english_accent。キーが無い・知らない値なら米音"""
         value = config.get("english_accent")
-        return cls(value) if value in {a.value for a in cls} else cls.AMERICAN
+        return cls(value) if isinstance(value, str) and value in {a.value for a in cls} else cls.AMERICAN
