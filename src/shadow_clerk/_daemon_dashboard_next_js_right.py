@@ -30,13 +30,22 @@ function nxFileRefLink(m){
   return a;
 }
 /* 発音記号（/θ/・/θɪŋk/）を口のかたち図鑑（/mouth）へのリンクにする。英字だけの記号は2文字まで（/r/・/tʃ/ は拾い、
-   /api/ のようなパスは拾わない）。開いた図鑑のタブは使い回す */
+   /api/ のようなパスは拾わない）。開いた図鑑のタブは使い回す。
+   図鑑はブラウザの声で読むので綴りも渡す: 記号の直前の英単語（think /θɪŋk/）か、表なら同じ行の1列目（| right | /ɹaɪt/ |） */
 const nxIpaCh='a-zɑɒɔəɚɝɛɜɪʊʌæθðʃʒŋɹɾɫɡʤʧˈˌːʳ.‿';
 const nxIpaRe=new RegExp('(?<![\\w/])/(['+nxIpaCh+']+(?: ['+nxIpaCh+']+)*)/(?![\\w/])','gu');
-function nxIpaLink(m){
+const nxIpaWordRe=/([A-Za-z][A-Za-z'’-]*(?: [A-Za-z][A-Za-z'’-]*)*)\s*$/;
+function nxIpaWord(m,n){
+  const before=m.input.slice(0,m.index).match(nxIpaWordRe);
+  if(before)return before[1];
+  const td=n&&n.parentElement&&n.parentElement.closest('td'),first=td&&td.parentElement.querySelector('td');
+  const w=first&&first!==td?first.textContent.trim():'';
+  return /^[A-Za-z][A-Za-z'’ -]*$/.test(w)?w:'';
+}
+function nxIpaLink(m,n){
   if(!/[^a-z ]/.test(m[1])&&m[1].length>2)return null;
-  const a=document.createElement('a');a.textContent=m[0];
-  a.href='/mouth?ipa='+encodeURIComponent(m[1]);a.target='shadow-clerk-mouth';a.title=I18N['nx.mouth_link'];
+  const a=document.createElement('a'),w=nxIpaWord(m,n);a.textContent=m[0];
+  a.href='/mouth?ipa='+encodeURIComponent(m[1])+(w?'&word='+encodeURIComponent(w):'');a.target='shadow-clerk-mouth';a.title=I18N['nx.mouth_link'];
   a.addEventListener('click',e=>e.stopPropagation());  // 🔊 の行の読み上げを起こさない
   return a;
 }
@@ -48,7 +57,7 @@ function nxLinkifyText(root,re,mk,skip){
   nodes.forEach(n=>{
     const frag=document.createDocumentFragment();let last=0;
     for(const m of n.data.matchAll(re)){
-      const a=mk(m);if(!a)continue;
+      const a=mk(m,n);if(!a)continue;
       frag.append(n.data.slice(last,m.index),a);last=m.index+m[0].length;
     }
     if(!last)return;

@@ -47,7 +47,8 @@ svg text{font-family:var(--sans);font-size:12px;fill:var(--muted)}
 .wrow.small{font-size:.85rem}
 .wlabel{font-size:.78rem;letter-spacing:.04em;color:var(--muted)}
 #ipa{font-family:var(--ipa);font-size:1.3rem;padding:5px 10px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg);flex:1;min-width:0;width:10em}
-#ipa:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+#ipa:focus-visible,#word:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+#word{font-size:1rem;padding:5px 10px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg);width:8em;min-width:0}
 select,.mini{font-family:inherit;font-size:.82rem;padding:3px 8px;border-radius:5px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
 .exw{display:flex;flex-wrap:wrap;gap:6px}
 .exw button{font-family:inherit;font-size:.82rem;padding:2px 9px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
@@ -99,6 +100,8 @@ td.txt{color:var(--muted)}
     <div class="wrow">
       <label for="ipa" class="wlabel">単語の発音記号</label>
       <input id="ipa" value="θɪŋk" autocomplete="off" spellcheck="false">
+      <label for="word" class="wlabel">つづり</label>
+      <input id="word" value="think" autocomplete="off" spellcheck="false" placeholder="読み上げ用（空なら音なし）">
       <button class="playbtn" onclick="playWord()">▶ 単語を再生</button>
     </div>
     <div class="wrow small">
@@ -447,7 +450,7 @@ const phase=t=>$('phase').textContent=t;
 function info(s){
  $('sym').textContent='/'+s.s+'/';
  $('cat').textContent=s.g+(s.lab?'・'+s.lab:'');
- $('ex').innerHTML='<em>例</em>'+s.ex;
+ $('ex').innerHTML='<em>例</em>'+s.ex+' <button class="mini" onclick="say(curSound.ex)">🔊 聞く</button>';
  let chips=`<span class="chip">${s.v?'有声（声帯が震える）':'無声（声帯は震えない）'}</span>`;
  if(s.nas)chips+='<span class="chip">鼻から息が出る</span>';
  if(s.from)chips+=`<button class="chip link" onclick="pick('${s.from}')">始まり /${byId[s.from].s}/</button><button class="chip link" onclick="pick('${s.to}')">終わり /${byId[s.to].s}/</button>`;
@@ -510,6 +513,7 @@ async function playWord(){const ids=preview();if(!ids.length)return;const my=++t
  const sp=+$('speed').value;
  do{
   phase('準備');lit(-1);if(!await animate(REST,250/sp))return;setCross('open');await sleep(120/sp);if(my!==token)return;
+  say($('word').value);
   for(let i=0;i<ids.length;i++){const s=byId[ids[i]];lit(i);info(s);phase('/'+s.s+'/');
    if(s.from){const a=byId[s.from],b=byId[s.to];
     if(!await animate(stateOf(a),150/sp))return;setCross(a.x);await sleep(80/sp);if(my!==token)return;
@@ -520,11 +524,19 @@ async function playWord(){const ids=preview();if(!ids.length)return;const my=++t
   lit(-1);phase('ほどく');if(!await animate(REST,300/sp))return;setCross('open');await sleep(300/sp);if(my!==token)return;
  }while($('loop').checked&&my===token);
  phase('');}
-function bs(){const v=[...$('ipa').value];v.pop();$('ipa').value=v.join('');preview()}
-function clr(){$('ipa').value='';preview()}
+function bs(){const v=[...$('ipa').value];v.pop();$('ipa').value=v.join('');$('word').value='';preview()}
+function clr(){$('ipa').value='';$('word').value='';preview()}
+// ブラウザの声で英語を読む。速さは動きの速さに合わせる（声は時刻を返さないので、口の動きとは同時に始めるだけ）
+const RATE={'0.25':.5,'0.5':.7,'1':1};
+function say(text){
+ if(!text||!('speechSynthesis' in window))return;
+ speechSynthesis.cancel();
+ const u=new SpeechSynthesisUtterance(text),vs=speechSynthesis.getVoices();
+ u.lang='en-US';u.voice=vs.find(v=>/^en[-_]US/i.test(v.lang))||vs.find(v=>/^en/i.test(v.lang))||null;
+ u.rate=RATE[$('speed').value]||.7;speechSynthesis.speak(u)}
 const EXW=[['think','θɪŋk'],['three','θriː'],['world','wɜːrld'],['girl','ɡɜːrl'],['light','laɪt'],['right','raɪt'],['really','rɪli'],['thank you','θæŋk juː'],['vision','vɪʒən'],['judge','dʒʌdʒ'],['about','əbaʊt'],['strength','streŋθ']];
-$('exw').innerHTML=EXW.map(([w,p])=>`<button onclick="$('ipa').value='${p}';preview();playWord()">${w}<span>${p}</span></button>`).join('');
-$('ipa').addEventListener('input',preview);
+$('exw').innerHTML=EXW.map(([w,p])=>`<button onclick="$('ipa').value='${p}';$('word').value='${w}';preview();playWord()">${w}<span>${p}</span></button>`).join('');
+$('ipa').addEventListener('input',()=>{$('word').value='';preview()});
 $('ipa').addEventListener('keydown',e=>{if(e.key==='Enter')playWord()});
 $('rtype').addEventListener('change',preview);
 preview();
@@ -534,11 +546,12 @@ $('picker').innerHTML=groups.map(g=>`<div class="grp"><span class="grp-name">${g
 draw(REST);
 const route=()=>show((location.hash||'').slice(1)||'l');
 addEventListener('hashchange',route);
-// ダッシュボードの発音記号のリンク（/mouth?ipa=θ・/mouth?ipa=θɪŋk）。1音ならその音を、2音以上なら単語として再生する
+// ダッシュボードの発音記号のリンク（/mouth?ipa=θ・/mouth?ipa=θɪŋk&word=think）。1音ならその音を、2音以上なら単語として再生する
+// （開いた直後はブラウザが読み上げを許さないので、音は再生ボタンを押したときから出る）
 const qIpa=new URLSearchParams(location.search).get('ipa');
 const qIds=qIpa?parse(qIpa).ids:[];
 if(qIds.length===1)show(qIds[0]);
-else if(qIds.length){$('ipa').value=qIpa;preview();show(qIds[0]).then(playWord);}
+else if(qIds.length){$('ipa').value=qIpa;$('word').value=new URLSearchParams(location.search).get('word')||'';preview();show(qIds[0]).then(playWord);}
 else route();
 </script>
 </body></html>

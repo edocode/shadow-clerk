@@ -25,14 +25,20 @@ _SRC = _NEXT_JS_RIGHT[_NEXT_JS_RIGHT.index("const nxIpaCh"):_NEXT_JS_RIGHT.index
 _BODY = r"""
 const I18N={'nx.mouth_link':'口のかたちを見る'};
 const document={createElement:()=>({addEventListener(){}})};
+// 表のセルのテキストノードの偽物（1列目に綴り）
+const cell=t=>{const row={querySelector:()=>({textContent:' right '})};const td={parentElement:row};
+  return {parentElement:{closest:()=>td}};};
 const texts=[
  '/θ/ が /s/ に聞こえました。',
  'お手本 /θɪŋk/ と /ðə ˈkæt/。',
  '舌先 /r/ と /tʃ/、/l/。',
  '`/api/say` と /api/ と A/B と and/or と 1/2/3。',
 ];
-console.log(JSON.stringify(texts.map(t=>[...t.matchAll(nxIpaRe)].map(m=>{const a=nxIpaLink(m);
-  return a?[a.textContent,a.href,a.target,a.title]:[m[0],null];}))));
+const links=texts.map(t=>[...t.matchAll(nxIpaRe)].map(m=>{const a=nxIpaLink(m,null);
+  return a?[a.textContent,a.href,a.target,a.title]:[m[0],null];}));
+const words=['think /θɪŋk/ と went /wɛnt/。','お手本 /θɪŋk/'].map(t=>[...t.matchAll(nxIpaRe)].map(m=>nxIpaLink(m,null).href));
+const inCell=nxIpaLink([...'/ɹaɪt/'.matchAll(nxIpaRe)][0],cell()).href;
+console.log(JSON.stringify({links,words,inCell}));
 """
 
 
@@ -44,7 +50,12 @@ def test_ipa_links() -> None:
     if r.returncode != 0:
         check("node で実行できる", False, r.stderr[-500:])
         return
-    out = json.loads(r.stdout.strip().splitlines()[-1])
+    res = json.loads(r.stdout.strip().splitlines()[-1])
+    out = res["links"]
+    check("直前の英単語を綴りとして渡す", res["words"][0] == [
+        "/mouth?ipa=%CE%B8%C9%AA%C5%8Bk&word=think", "/mouth?ipa=w%C9%9Bnt&word=went"], repr(res["words"]))
+    check("英単語が無ければ綴りを付けない", res["words"][1] == ["/mouth?ipa=%CE%B8%C9%AA%C5%8Bk"], repr(res["words"]))
+    check("表では同じ行の1列目を綴りにする", res["inCell"] == "/mouth?ipa=%C9%B9a%C9%AAt&word=right", res["inCell"])
     th = "%CE%B8"
     check("1音の記号は図鑑のその音を開く", out[0] == [
         ["/θ/", f"/mouth?ipa={th}", "shadow-clerk-mouth", "口のかたちを見る"],
@@ -60,6 +71,7 @@ def test_page() -> None:
     check("図鑑を同梱する", html.startswith("<!doctype html>") and "<title>" in html)
     check("外部のフォントを読まない（ローカルで完結する）", "fonts.googleapis" not in html and "https://" not in html)
     check("?ipa= で音・単語を開く", "URLSearchParams(location.search).get('ipa')" in html)
+    check("ブラウザの声で綴りを読む", "speechSynthesis.speak" in html and "get('word')" in html)
 
 
 def test_route() -> None:
