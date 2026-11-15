@@ -38,8 +38,16 @@ def test_gb_expected() -> None:
 
     check("英音の car に r が無い", ipa("car", gb) == ("k", "O"), repr(ipa("car", gb)))
     check("米音の car は今どおり", ipa("car", us) == ("k", "O", "ɹ"), repr(ipa("car", us)))
-    check("英音の a は æ の類に寄せる", ipa("that", gb) == ipa("that", us), repr((ipa("that", gb), ipa("that", us))))
-    check("əʊ を oʊ に潰さない", ipa("go", gb) != ipa("go", us), repr((ipa("go", gb), ipa("go", us))))
+    # 寄せの表は VCTK の調整用の話者（gate.py の TUNE_SPEAKERS）でモデルの出力を見て決めた
+    check("英音の trap / bath は a のまま（モデルが英音の話者で a を出す）", ipa("that", gb) == ("ð", "a", "t"), repr(ipa("that", gb)))
+    check("əʊ は oʊ に寄せる（モデルが英音の話者でも oʊ を出す）", ipa("go", gb) == ("ɡ", "oʊ"), repr(ipa("go", gb)))
+    check("iə は i、eə は e に寄せる", (ipa("here", gb), ipa("there", gb)) == (("h", "i"), ("ð", "e")),
+          repr((ipa("here", gb), ipa("there", gb))))
+    check("英音の ɜː は r 性母音にしない", ipa("world", gb) == ("w", "@", "l", "d"), repr(ipa("world", gb)))
+    check("語末の -y の ɪ は i に寄せる", ipa("really", gb)[-1] == "i" and ipa("city", gb) == ipa("city", us),
+          repr((ipa("really", gb), ipa("city", gb))))
+    check("t / d / n の後の j（new の y）は落とす。pure の j は残す",
+          ipa("new", gb) == ("n", "u") and ipa("pure", gb)[:2] == ("p", "j"), repr((ipa("new", gb), ipa("pure", gb))))
     check("英音の water は曖昧母音で終わる", ipa("water", gb)[-1] == "@", repr(ipa("water", gb)))
     check("違わない語は同じ", ipa("think", gb) == ipa("think", us))
     check("accent を省けば米音", expected_ipa("car", Language.EN) == ipa("car", us))

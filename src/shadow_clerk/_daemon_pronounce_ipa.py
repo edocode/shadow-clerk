@@ -28,9 +28,10 @@ _SPLIT: dict[str, tuple[str, ...]] = {
 #    強勢は音素に前置されるので、分割表を引く前に落とす（`ˈɔːɹ` がキー `ɔːɹ` と一致しない）
 _PRE_STRIP = str.maketrans("", "", "ˈˌ")
 _STRIP = str.maketrans("", "", "ː")
-# 英音の期待側だけの寄せ。espeak の en-gb は trap / bath の短母音を a で書くが、モデルは英音でも æ を出す。
-# モデル側の a は制約3のとおり寄せない（期待列にだけ当てる）。əʊ・iə・eə・ʊə はモデルの語彙にあるので残す
-_GB_EXPECTED: dict[str, str] = {"a": "æ"}
+# 英音の期待側だけの寄せ。VCTK の RP の話者（調整用）でモデルが出す記号に合わせた。
+# trap / bath の a はモデルも英音の話者で a を出すので寄せない。ɜː は英音では r 性母音でないので曖昧母音へ
+_GB_EXPECTED: dict[str, str] = {"əʊ": "oʊ", "iə": "i", "eə": "e", "ɜː": "ə"}
+_YOD_DROP_AFTER = frozenset({"t", "d", "n"})
 _TONE = re.compile(r"\d+$")
 # 3 寄せ: モデルが出す ASCII 異体を IPA に揃える
 _ASCII_VARIANT: dict[str, str] = {"ai": "aɪ", "au": "aʊ", "ei": "eɪ", "oi": "ɔɪ", "ou": "oʊ"}
@@ -138,7 +139,11 @@ def expected_ipa(word: str, language: Language, accent: EnglishAccent = EnglishA
         raise G2PError(f"espeak split {word!r} into more than one word: {raw!r}")
     phones = [p for p in raw.replace(_WORD_SEPARATOR, " ").split(" ") if p]
     if accent is EnglishAccent.BRITISH:
-        phones = [_GB_EXPECTED.get(p, p) for p in phones]
+        # t / d / n の後の j（new・tune の y）はモデルが拾わない（米音は元から j が無い）
+        phones = [_GB_EXPECTED.get(p, p) for i, p in enumerate(phones)
+                  if not (p == "j" and 0 < i and phones[i - 1] in _YOD_DROP_AFTER)]
+        if phones and phones[-1] == "ɪ":  # 語末の -y（really の ɪ）は米音と同じ i で出る
+            phones[-1] = "i"
     return normalise(phones)
 
 
