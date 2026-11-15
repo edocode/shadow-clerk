@@ -237,6 +237,25 @@ def _run_next(body: str) -> dict:
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node が無い")
+def test_meeting_start_opens_ai_tab() -> None:
+    out = _run_next(r"""
+(async()=>{
+  await tick();
+  const es=sources[sources.length-1];
+  const fire=c=>(es.h['session']||[]).forEach(f=>f({data:JSON.stringify({content:c})}));
+  nxState.session=null;nxState.rtab='sum';
+  fire('');await tick();
+  const idle=nxState.rtab;
+  fire('/x/transcript-202611091000@英語練習.txt');await tick();
+  const started=nxState.rtab;
+  nxState.rtab='sum';fire('/x/transcript-202611091000@英語練習.txt');await tick();
+  console.log(JSON.stringify({idle,started,again:nxState.rtab}));
+})().catch(e=>console.log(JSON.stringify({bodyErr:String(e)})));
+""")
+    assert out == {"idle": "sum", "started": "ai", "again": "sum"}
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node が無い")
 def test_welcome_takes_priority_over_skill_updates() -> None:
     out = _run_next(r"""
 (async()=>{
