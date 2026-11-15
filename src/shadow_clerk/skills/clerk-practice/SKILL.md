@@ -3,7 +3,7 @@ name: clerk-practice
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、発音・会話・ヒアリング・実践会話・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」「中国語で会話を練習したい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent Read(~/.local/share/shadow-clerk/practice/**) Write(~/.local/share/shadow-clerk/practice/**) Edit(~/.local/share/shadow-clerk/practice/**)
 metadata:
-  version: "1.25.0"
+  version: "1.25.1"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -231,7 +231,13 @@ curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/js
 
 - 出題のお手本は、説明と分けて `lang` 付きで送る。「次の文を言ってみましょう。」を母語で送り（母語が `ja` なら `lang` なし）、
   続けてお手本を `lang` 付きで送る。お手本の `text` は対象言語の表記のままにし、母語の文字による読み方へ置き換えない
-- 綴りを transcript に見せたくない文（出題・答えを言う前の直し）では、タグを使っても `display` を付けて綴りを伏せる
+- **綴りを伏せるのは `display` の役目。声の `text` ではカタカナにしない。** 綴りを transcript に見せたくない文
+  （出題・答えを言う前の直し・ヒント）でも、`text` は練習する言語の語句をタグで囲んだまま送り、`display` に
+  綴りを伏せた文（母語の読み方や意味に置き換えたもの）を書く。`text` 側をカタカナにすると、説明の声がカタカナ英語で読む
+
+```
+curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/json' -d '{"text":"財布は <en>wallet</en> です。","display":"財布は、ウォレットです。"}'
+```
 - `display` を付けると、声は `text` を読み、transcript の `[Claude]` 行には `display` を書く（`text` と同じく空でない文字列）。
   答えの綴りを見せたくないとき（発音の練習）に使う
 - 送った順に読まれる（VOICEVOX の文と piper・ブラウザの文が交互でも順番は保たれる）
@@ -352,7 +358,8 @@ curl -s -X POST "http://localhost:8765/api/talk-voice" -H 'Content-Type: applica
   所見を言わずに、最初から一息で言い直すよう短く促す
 - お手本は `lang` 付きの `/api/say` で聞かせる。
 - **お題の表記を transcript に見せない。** `text` に対象言語の語・文、`lang` に言語コード、
-  `display` に意味や問題番号など、母語で分かる案内を入れる。説明中も答えの表記や発音記号を伏せる。
+  `display` に意味や問題番号など、母語で分かる案内を入れる。説明中も答えの表記や発音記号を伏せる
+  （伏せるのは `display` で。声の `text` では語句をタグで囲む）。
   読み方を添える場合は母語に合う表記を選び、カタカナを全言語の共通ルールにはしない。
 - **問題を声で紹介するなら、その言葉を `display` の `<意味>` と同じにする。** 和訳を先に1つ決めて、
   紹介（「〜という文です」）と `display` の両方に同じ語で使う。`Her fan is in his hand.` を
