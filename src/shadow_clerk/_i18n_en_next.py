@@ -209,6 +209,7 @@ STRINGS_EN_NEXT: dict[str, str] = {
     "nx.ai_adv_title": "Watch out for / decided",
     "nx.ai_adv_tag": "Advice",
     "nx.ai_ana_title": "Whole-meeting analysis",
+    "nx.mouth_link": "Show the mouth shape",
     "nx.ai_ana_tag": "Analysis",
     "nx.vm_center": "Show in the middle",
     "nx.v_T": "Transcript",

@@ -29,14 +29,35 @@ function nxFileRefLink(m){
   });
   return a;
 }
-function nxLinkifyFiles(root){
+/* 発音記号（/θ/・/θɪŋk/）を口のかたち図鑑（/mouth）へのリンクにする。英字だけの記号は2文字まで（/r/・/tʃ/ は拾い、
+   /api/ のようなパスは拾わない）。開いた図鑑のタブは使い回す。
+   図鑑はブラウザの声で読むので綴りも渡す: 記号の直前の英単語（think /θɪŋk/）か、表なら同じ行の1列目（| right | /ɹaɪt/ |） */
+const nxIpaCh='a-zɑɒɔəɚɝɛɜɪʊʌæθðʃʒŋɹɾɫɡʤʧˈˌːʳ.‿';
+const nxIpaRe=new RegExp('(?<![\\w/])/(['+nxIpaCh+']+(?: ['+nxIpaCh+']+)*)/(?![\\w/])','gu');
+const nxIpaWordRe=/([A-Za-z][A-Za-z'’-]*(?: [A-Za-z][A-Za-z'’-]*)*)\s*$/;
+function nxIpaWord(m,n){
+  const before=m.input.slice(0,m.index).match(nxIpaWordRe);
+  if(before)return before[1];
+  const td=n&&n.parentElement&&n.parentElement.closest('td'),first=td&&td.parentElement.querySelector('td');
+  const w=first&&first!==td?first.textContent.trim():'';
+  return /^[A-Za-z][A-Za-z'’ -]*$/.test(w)?w:'';
+}
+function nxIpaLink(m,n){
+  if(!/[^a-z ]/.test(m[1])&&m[1].length>2)return null;
+  const a=document.createElement('a'),w=nxIpaWord(m,n);a.textContent=m[0];
+  a.href='/mouth?ipa='+encodeURIComponent(m[1])+(w?'&word='+encodeURIComponent(w):'');a.target='shadow-clerk-mouth';a.title=I18N['nx.mouth_link'];
+  a.addEventListener('click',e=>e.stopPropagation());  // 🔊 の行の読み上げを起こさない
+  return a;
+}
+function nxLinkifyFiles(root){nxLinkifyText(root,nxFileRefRe,nxFileRefLink,'a');}
+function nxLinkifyText(root,re,mk,skip){
   if(!root)return;
   const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),nodes=[];
-  for(let n=w.nextNode();n;n=w.nextNode())if(!n.parentElement.closest('a')&&n.data.search(nxFileRefRe)>=0)nodes.push(n);
+  for(let n=w.nextNode();n;n=w.nextNode())if(!n.parentElement.closest(skip)&&n.data.search(re)>=0)nodes.push(n);
   nodes.forEach(n=>{
     const frag=document.createDocumentFragment();let last=0;
-    for(const m of n.data.matchAll(nxFileRefRe)){
-      const a=nxFileRefLink(m);if(!a)continue;
+    for(const m of n.data.matchAll(re)){
+      const a=mk(m,n);if(!a)continue;
       frag.append(n.data.slice(last,m.index),a);last=m.index+m[0].length;
     }
     if(!last)return;
@@ -193,7 +214,7 @@ function nxRenderRight(){
   rb.classList.toggle('aisplit',!!rb.querySelector('.aigrid'));
   rb.querySelectorAll('.aiscroll').forEach((c,i)=>{c.scrollTop=colTops[i]||0;});
   // AI分析 の 🔊 の例文をクリックで読む（流用する _JS_TEMPLATE_SPEECH の decorateSay。現行も生成物にだけ付ける）
-  if(nxState.rtab==='ai')decorateSay(rb);
+  if(nxState.rtab==='ai'){decorateSay(rb);nxLinkifyText(rb,nxIpaRe,nxIpaLink,'a,code,pre');}
   nxLinkifyFiles(rb);
   rb.scrollTop=top;
 }
