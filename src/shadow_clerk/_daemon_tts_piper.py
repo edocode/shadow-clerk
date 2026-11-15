@@ -3,8 +3,8 @@
 VOICEVOX は英文を日本語なまりで読む。piper の VCTK モデルは、イングランド・スコットランド・アイルランド・
 アメリカ・インドなど、なまりの違う 109 人の話者を持つ。いろいろな英語を聞き取る練習になるので、
 既定では会話ごとに話者をランダムに選ぶ（random:<なまり> で絞れる）。recommended:<なまり> なら癖の少ない別モデル
-（RECOMMENDED）で読む。発音の練習でも、お手本はそのなまりの RECOMMENDED（無ければアメリカ英語）で読む
-（standard を真にする）。モデルは初回にダウンロードする。
+（RECOMMENDED）で読む。発音の練習のお手本は、会話の声とは別に、設定の「練習する英語」（english_accent）の
+TEACHER から選んで読む（standard を真にする）。モデルは初回にダウンロードする。
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ import numpy as np
 
 from shadow_clerk import DATA_DIR
 from shadow_clerk._daemon_tts import TtsError
-from shadow_clerk.domain import Language
+from shadow_clerk.domain import EnglishAccent, Language
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -31,6 +31,12 @@ RANDOM_PREFIX, RECOMMENDED_PREFIX = "random:", "recommended:"
 RECOMMENDED: dict[str, tuple[str, ...]] = {
     "american": ("en_US-hfc_female-medium", "en_US-hfc_male-medium"),
     "british": ("en_GB-alba-medium", "en_GB-cori-medium", "en_GB-jenny_dioco-medium", f"{PIPER_MODEL}#p226"),
+}
+# 発音の練習のお手本。練習する英語（EnglishAccent）ごとに 1 つ選ぶ。英音は RP（イングランド南部）の声だけにする
+# （alba はスコットランド英語の話者なので外す。会話の声の RECOMMENDED には残す）
+TEACHER: dict[EnglishAccent, tuple[str, ...]] = {
+    EnglishAccent.AMERICAN: RECOMMENDED["american"],
+    EnglishAccent.BRITISH: ("en_GB-cori-medium", "en_GB-jenny_dioco-medium", f"{PIPER_MODEL}#p226"),
 }
 # VCTK の話者を大まかななまりで分ける（コーパスの speaker-info の ACCENTS 欄から）。random:<名前> でその中から選ぶ
 ACCENTS: dict[str, tuple[str, ...]] = {
@@ -51,7 +57,8 @@ class PiperBackend:
     LANGUAGES: tuple[Language, ...] = (Language.EN,)
     DEFAULT_LANGUAGE = Language.EN
 
-    def __init__(self, voice: str = RANDOM_VOICE, model_dir: str = PIPER_DIR) -> None:
+    def __init__(self, voice: str = RANDOM_VOICE, model_dir: str = PIPER_DIR,
+                 teacher: EnglishAccent = EnglishAccent.AMERICAN) -> None:
         wanted = voice.strip() or RANDOM_VOICE
         self._wanted = wanted.removeprefix(RANDOM_PREFIX)  # 前の形式の素の "british" も受ける
         accent = self._wanted.removeprefix(RECOMMENDED_PREFIX)
@@ -63,7 +70,8 @@ class PiperBackend:
         self._error = ""
         self._models: dict[str, Any] = {}
         self._load_lock = threading.Lock()
-        self.standard_model = random.choice(RECOMMENDED.get(accent, RECOMMENDED["american"]))
+        self._recommended_model = random.choice(RECOMMENDED[accent]) if self._recommended else ""
+        self.standard_model = random.choice(TEACHER[teacher])
         self.standard = False  # 真なら標準的な声で読む（発音の練習）
         self._ready = threading.Thread(target=self._prepare, name="piper-load", daemon=True)
         self._ready.start()
@@ -71,8 +79,8 @@ class PiperBackend:
     def _prepare(self) -> None:
         try:
             if self._recommended:
-                (self._voice, self._speaker), self.speaker_name = self._standard_voice(), self.standard_model
-                logger.info("talk: 英語は piper の %s で読みます", self.standard_model)
+                (self._voice, self._speaker), self.speaker_name = self._model_voice(self._recommended_model), self._recommended_model
+                logger.info("talk: 英語は piper の %s で読みます", self._recommended_model)
                 return
             voice = self._load(PIPER_MODEL)
             speakers: dict[str, int] = voice.config.speaker_id_map
@@ -100,8 +108,9 @@ class PiperBackend:
                 self._models[model] = PiperVoice.load(path)
             return self._models[model]
 
-    def _standard_voice(self) -> tuple[Any, int | None]:
-        model, _, name = self.standard_model.partition("#")
+    def _model_voice(self, spec: str) -> tuple[Any, int | None]:
+        """"モデル#話者" の声を用意する"""
+        model, _, name = spec.partition("#")
         try:
             voice = self._load(model)
             return voice, voice.config.speaker_id_map[name] if name else None
@@ -114,7 +123,7 @@ class PiperBackend:
     def synthesize(self, text: str) -> tuple[np.ndarray, int]:
         from piper import SynthesisConfig
         if self.standard:
-            voice, speaker = self._standard_voice()
+            voice, speaker = self._model_voice(self.standard_model)
         else:
             self._ready.join()
             if self._voice is None:
@@ -138,4 +147,4 @@ def make_foreign_backend(config: dict) -> PiperBackend | None:
         import piper  # noqa: F401
     except ImportError:
         return None
-    return PiperBackend(str(config.get("talk_piper_voice") or RANDOM_VOICE))
+    return PiperBackend(str(config.get("talk_piper_voice") or RANDOM_VOICE), teacher=EnglishAccent.from_config(config))
