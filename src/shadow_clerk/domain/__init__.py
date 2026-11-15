@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from shadow_clerk.domain.speaker import Speaker
 from shadow_clerk.domain.language import Language
+from shadow_clerk.domain.english_accent import EnglishAccent
 from shadow_clerk.domain.audio_device import AudioDevice
 from shadow_clerk.domain.audio_level import AudioLevel
 from shadow_clerk.domain.transcript_line import TranscriptLine
@@ -25,6 +26,7 @@ from shadow_clerk.domain.pronunciation import (
 __all__ = [
     "Speaker",
     "Language",
+    "EnglishAccent",
     "AudioDevice",
     "AudioLevel",
     "TranscriptLine",
