@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -69,9 +70,31 @@ def test_ipa_links() -> None:
 def test_page() -> None:
     html = resources.files("shadow_clerk").joinpath("mouth_chart.html").read_text(encoding="utf-8")
     check("図鑑を同梱する", html.startswith("<!doctype html>") and "<title>" in html)
-    check("外部のフォントを読まない（ローカルで完結する）", "fonts.googleapis" not in html and "https://" not in html)
+    # 外へ飛ぶ <a href> の参考リンクはよいが、外のフォント・スクリプト・画像は読まない
+    check("外部のものを読み込まない（ローカルで完結する）",
+          not re.search(r"""(?:src=|<link[^>]*href=|@import|url\()\s*["']?https?://""", html, re.I), "")
+    check("練習する英語を設定から読み、英音なら en-GB で読む",
+          "fetch('/api/config')" in html and "english_accent==='british'" in html and "u.lang=LANG" in html)
     check("?ipa= で音・単語を開く", "URLSearchParams(location.search).get('ipa')" in html)
     check("ブラウザの声で綴りを読む", "speechSynthesis.speak" in html and "get('word')" in html)
+
+
+def test_pick_voice() -> None:
+    if shutil.which("node") is None:
+        print("[SKIP] node が無いため JS は実行しない")
+        return
+    html = resources.files("shadow_clerk").joinpath("mouth_chart.html").read_text(encoding="utf-8")
+    m = re.search(r"^function pickVoice\(.*$", html, re.M)
+    if not m:
+        check("pickVoice がある", False)
+        return
+    body = m.group(0) + """
+const us={lang:'en-US',name:'us'},gb={lang:'en_GB',name:'gb'},au={lang:'en-AU',name:'au'},ja={lang:'ja-JP',name:'ja'};
+const n=v=>v&&v.name;
+console.log(JSON.stringify([n(pickVoice([us,gb],'en-GB')),n(pickVoice([us,gb],'en-US')),n(pickVoice([ja,au],'en-GB')),n(pickVoice([ja],'en-GB'))]));"""
+    r = subprocess.run(["node", "-e", body], capture_output=True, text=True, timeout=30)
+    got = json.loads(r.stdout or "null")
+    check("言語の声を選び、無ければほかの英語の声で読む（黙らない）", got == ["gb", "us", "au", None], repr(got) + r.stderr[-300:])
 
 
 def test_route() -> None:
@@ -92,5 +115,6 @@ def test_route() -> None:
 if __name__ == "__main__":
     test_ipa_links()
     test_page()
+    test_pick_voice()
     test_route()
     sys.exit(0 if all(results) else 1)

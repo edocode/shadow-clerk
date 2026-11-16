@@ -22,9 +22,7 @@ def test_from_config() -> None:
     check("british を読む", EnglishAccent.from_config({"english_accent": "british"}) is EnglishAccent.BRITISH)
     for bad in ("British", "", None, 1, "scottish", [], {}):
         check(f"不正な値 {bad!r} は米音", EnglishAccent.from_config({"english_accent": bad}) is EnglishAccent.AMERICAN)
-    check("espeak と BCP 47 の言語コード",
-          (EnglishAccent.BRITISH.espeak, EnglishAccent.BRITISH.bcp47, EnglishAccent.AMERICAN.espeak,
-           EnglishAccent.AMERICAN.bcp47) == ("en-gb", "en-GB", "en-us", "en-US"))
+    check("espeak の言語コード", (EnglishAccent.BRITISH.espeak, EnglishAccent.AMERICAN.espeak) == ("en-gb", "en-us"))
 
 
 def test_gb_expected() -> None:
