@@ -529,11 +529,16 @@ function bs(){const v=[...$('ipa').value];v.pop();$('ipa').value=v.join('');$('w
 function clr(){$('ipa').value='';$('word').value='';preview()}
 // ブラウザの声で英語を読む。速さは動きの速さに合わせる（声は時刻を返さないので、口の動きとは同時に始めるだけ）
 const RATE={'0.25':.5,'0.5':.7,'1':1};
+// 練習する英語（設定の english_accent）で読む。設定を読めなければ（ファイルとして開いたときなど）米音
+let LANG='en-US';
+fetch('/api/config').then(r=>r.json()).then(c=>{if(c.english_accent==='british')LANG='en-GB'}).catch(()=>{});
+// その言語の声。無ければほかの英語の声で読む（黙らない）
+function pickVoice(vs,lang){const re=new RegExp('^'+lang.replace('-','[-_]'),'i');return vs.find(v=>re.test(v.lang))||vs.find(v=>/^en/i.test(v.lang))||null}
 function say(text){
  if(!text||!('speechSynthesis' in window))return;
  speechSynthesis.cancel();
- const u=new SpeechSynthesisUtterance(text),vs=speechSynthesis.getVoices();
- u.lang='en-US';u.voice=vs.find(v=>/^en[-_]US/i.test(v.lang))||vs.find(v=>/^en/i.test(v.lang))||null;
+ const u=new SpeechSynthesisUtterance(text);
+ u.lang=LANG;u.voice=pickVoice(speechSynthesis.getVoices(),LANG);
  u.rate=RATE[$('speed').value]||.7;speechSynthesis.speak(u)}
 const EXW=[['think','θɪŋk'],['three','θriː'],['world','wɜːrld'],['girl','ɡɜːrl'],['light','laɪt'],['right','raɪt'],['really','rɪli'],['thank you','θæŋk juː'],['vision','vɪʒən'],['judge','dʒʌdʒ'],['about','əbaʊt'],['strength','streŋθ']];
 $('exw').innerHTML=EXW.map(([w,p])=>`<button onclick="$('ipa').value='${p}';$('word').value='${w}';preview();playWord()">${w}<span>${p}</span></button>`).join('');

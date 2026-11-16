@@ -14,10 +14,6 @@ class EnglishAccent(str, Enum):
     def espeak(self) -> str:
         return "en-gb" if self is EnglishAccent.BRITISH else "en-us"
 
-    @property
-    def bcp47(self) -> str:
-        return "en-GB" if self is EnglishAccent.BRITISH else "en-US"
-
     @classmethod
     def from_config(cls, config: dict) -> EnglishAccent:
         """設定の english_accent。キーが無い・知らない値なら米音"""
