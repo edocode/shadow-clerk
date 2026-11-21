@@ -773,6 +773,10 @@ def test_start_and_context() -> None:
     first = made["engine"]
     d.start("二度目", None)
     check("二重開始しない", made["engine"] is first)
+    check("声を渡さなければ config の声（backend に None）", made["backend"].voice is None)
+    d, _w, made = _driver()
+    d.start("練習", None, voice=TalkVoice(speaker_id=8, speed=1.2))
+    check("モードの声を backend に渡す", made["backend"].voice == TalkVoice(speaker_id=8, speed=1.2), repr(made["backend"].voice))
 
 
 def test_start_failures() -> None:

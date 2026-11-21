@@ -83,11 +83,11 @@ const fetch=async (url,opt)=>{
       return ok({status:'ok',talk:TALK});
     }
     if(url==='/api/meeting')return ok(MOCK.meetingFail?{status:'error',message:'Meeting failed'}:{status:'ok'});
-    if(url==='/api/talk-presets')MOCK.presets.push({name:b.name,fields:b.fields});
+    if(url==='/api/talk-presets')MOCK.presets=MOCK.presets.filter(p=>p.name!==b.name).concat([{name:b.name,fields:b.fields}]);
     if(url==='/api/talk-presets/delete')MOCK.presets=MOCK.presets.filter(p=>p.name!==b.name);
     return ok({status:'ok'});
   }
-  if(url.startsWith('/api/talk-voices'))return ok(MOCK.voicevoxDown?{status:'error',message:'VOICEVOX に接続できません'}:{status:'ok',voices:[]});
+  if(url.startsWith('/api/talk-voices'))return ok(MOCK.voicevoxDown?{status:'error',message:'VOICEVOX に接続できません'}:{status:'ok',voices:MOCK.voices||[]});
   if(url.startsWith('/api/status'))return ok({running:true,session:MOCK.session,console_running:false,talk_console_running:TALK.active,talk:TALK});
   if(url.startsWith('/api/config'))return ok(MOCK.cfg);
   if(url.startsWith('/api/talk-route-targets'))return ok(MOCK.route);
@@ -224,6 +224,30 @@ posts.length=0;await nxStartTalk();out.voiceDown=[posts.filter(p=>p[0]==='/api/m
 MOCK.voicevoxDown=false;MOCK.talkFail=true;
 posts.length=0;await nxStartTalk();out.talkFailAfterMeeting=posts.map(p=>[p[0],p[1]&&p[1].action]).filter(p=>p[0]==='/api/meeting');
 MOCK.talkFail=false;
+/* 声の設定: モードを選んでいれば保存先（デフォルト / このモード）を選べる */
+const vview=()=>[els.voiceScopeRow.style.display,els.voiceScopeDefault.checked,els.voiceScopeMode.checked,
+  els.voiceModeClear.style.display,els.voiceSpeaker.value,els.voice_speed.value];
+[['speed','1'],['pitch','0'],['intonation','1'],['volume','1']].forEach(([k,v])=>{document.getElementById('voice_'+k).defaultValue=v;});
+MOCK.voices=[{id:3,name:'A'},{id:8,name:'B'}];Object.assign(MOCK.cfg,{talk_speaker_id:3,talk_speed:1.1});
+await nxOpenTalk();nxPickTalkMode('');await openVoice();out.voiceFree=vview();
+nxPickTalkMode('週次定例の準備');await openVoice();out.voiceMode0=[...vview(),els.voiceScopeModeLabel.textContent];
+els.voiceScopeMode.checked=true;els.voiceScopeDefault.checked=false;voiceScopeChanged();
+els.voiceSpeaker.value='8';els.voice_speed.value='1.4';
+posts.length=0;await saveVoice();
+out.voiceSaveMode=[posts.map(p=>[p[0],p[1]]),els.talkPresetSel.value,...vview()];
+await openVoice();out.voiceReopen=vview();
+posts.length=0;await nxStartTalk();out.voiceStart=posts.find(p=>p[0]==='/api/talk-mode')[1].voice;
+await nxEndTalk();await nxOpenTalk();nxPickTalkMode('週次定例の準備');
+click('nxTalkSave');els.talkPresetNameInput.value='週次定例の準備';posts.length=0;click('nxTpOk');await settle();
+out.voiceKept=posts.find(p=>p[0]==='/api/talk-presets')[1].fields.voice;
+await openVoice();els.voiceScopeMode.checked=false;els.voiceScopeDefault.checked=true;voiceScopeChanged();
+out.voiceDefaultShown=vview();
+els.voice_speed.value='0.9';posts.length=0;await saveVoice();
+out.voiceSaveDefault=posts.map(p=>[p[0],p[1].talk_speed]);
+posts.length=0;await clearModeVoice();
+out.voiceClear=[posts.map(p=>[p[0],'voice' in p[1].fields,p[1].fields.topic]),...vview()];
+posts.length=0;await nxStartTalk();out.voiceStartNone='voice' in posts.find(p=>p[0]==='/api/talk-mode')[1];
+await nxEndTalk();
 console.log(JSON.stringify(out));
 })().catch(e=>console.log(JSON.stringify({bodyErr:String(e&&e.stack||e)})));
 """
@@ -327,4 +351,22 @@ check("会議開始失敗時は会話を開始しない", out['meetingFail']==[0
 check("すでに会議中なら別の会議を作らない", out['meetingActive']==[0,ja['nx.talk_meeting_active']], repr(out['meetingActive']))
 check("VOICEVOX に届かなければ会議を作らず、理由をモーダルに出す", out['voiceDown'] == [0, 0, "VOICEVOX に接続できません"], repr(out['voiceDown']))
 check("会議を作ったあとで会話が始まらなければ、その会議を閉じる", out['talkFailAfterMeeting'] == [["/api/meeting", "start"], ["/api/meeting", "end"]], repr(out['talkFailAfterMeeting']))
+V8 = {"speaker_id": 8, "speed": 1.4, "pitch": 0, "intonation": 1, "volume": 1}
+check("自由に話すときは保存先を出さず、デフォルトの声を出す", out["voiceFree"] == ["none", True, False, "none", "3", "1.1"], repr(out["voiceFree"]))
+check("モードを選んでいれば保存先を出す。モードに声が無ければデフォルトが選ばれ、外すボタンは出さない",
+      out["voiceMode0"] == ["", True, False, "none", "3", "1.1", "このモード（週次定例の準備）"], repr(out["voiceMode0"]))
+posted, sel, *view = out["voiceSaveMode"]
+check("このモードに保存すると、モードの中身を保ったまま fields.voice を POST /api/talk-presets",
+      posted == [["/api/talk-presets", {"name": "週次定例の準備", "fields": {
+          "topic": "宿題の整理", "persona": "やさしい先生", "route": "Zoom", "model": "opus", "workdir": "/w/acme",
+          "glossary": False, "early_reply": False, "voice": V8}}]], repr(posted))
+check("保存後もモードを選んだまま、外すボタンが出る", sel == "週次定例の準備" and view == ["", False, True, "", "8", "1.4"], repr(view))
+check("モードに声があれば、開き直すとこのモードが選ばれ、その声を出す", out["voiceReopen"] == ["", False, True, "", "8", "1.4"], repr(out["voiceReopen"]))
+check("開始するとモードの声を POST /api/talk-mode に入れる", out["voiceStart"] == V8, repr(out["voiceStart"]))
+check("モードを保存し直しても声を落とさない", out["voiceKept"] == V8, repr(out["voiceKept"]))
+check("保存先をデフォルトに切り替えるとデフォルトの声を出す", out["voiceDefaultShown"] == ["", True, False, "", "3", "1.1"], repr(out["voiceDefaultShown"]))
+check("デフォルトに保存すると config だけを書き、モードは書かない", out["voiceSaveDefault"] == [["/api/config", 0.9]], repr(out["voiceSaveDefault"]))
+check("モードの声を外すと、中身を保ったまま voice を消し、デフォルトの声に戻る",
+      out["voiceClear"] == [[["/api/talk-presets", False, "宿題の整理"]], "", True, False, "none", "3", "0.9"], repr(out["voiceClear"]))
+check("モードの声が無ければ開始に voice を入れない（config の声）", out["voiceStartNone"] is False)
 sys.exit(0 if all(results) else 1)
