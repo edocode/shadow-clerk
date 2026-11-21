@@ -232,13 +232,15 @@ class TalkDriver:
         self._was_routed = False  # stop() した会話が届け先ありだったか。猶予中の monitor の扱いを決める
 
     def start(self, topic: str, persona: str | None, workdir: str | None = None,
-              route: str | None = None, glossary: bool = True, early_reply: bool = True, skill: str = "") -> None:
+              route: str | None = None, glossary: bool = True, early_reply: bool = True, skill: str = "",
+              voice: TalkVoice | None = None) -> None:
+        """voice を渡せば、この会話はその声で読む（モードの声）。None なら文ごとに config の声を読む"""
         with self._lock:
             if self._active:
                 return
             config = self._config_loader()
             resolved = resolve_talk_workdir(config, workdir)
-            backend = self._backend_factory(config, None)
+            backend = self._backend_factory(config, voice)
             try:
                 backend.check()
             except TtsError as e:

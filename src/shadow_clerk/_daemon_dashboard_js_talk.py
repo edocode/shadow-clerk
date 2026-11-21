@@ -98,6 +98,7 @@ async function doSaveTalkPreset(extraFields={}){
   if(!name)return;
   const rs=document.getElementById('talkRoute'),ms=document.getElementById('talkModel'),ps=document.getElementById('talkPersonaSel');
   const fields={
+    ...(talkModeVoice()?{voice:talkModeVoice()}:{}),
     ...extraFields,
     topic:document.getElementById('talkTopic').value.trim(),
     workdir:document.getElementById('talkWorkdir').value.trim(),
@@ -152,7 +153,8 @@ async function startTalk(){
                           route:(rs&&!rs.disabled&&rs.value)||null,
                           glossary:document.getElementById('talkGlossary').checked,
                           early_reply:document.getElementById('talkEarlyReply').checked,
-                          ...(talkSkillValue()?{skill:talkSkillValue()}:{})});
+                          ...(talkSkillValue()?{skill:talkSkillValue()}:{}),
+                          ...(talkModeVoice()?{voice:talkModeVoice()}:{})});
   if(r.status==='ok'){
     if(rs&&!rs.disabled)await saveTalkCfg('talk_route_app',rs.value||'');
     closeTalk();if(r.talk&&r.talk.engine==='console')selectConsoleRole('talk');}else document.getElementById('talkErr').textContent=r.message||'';
@@ -199,19 +201,51 @@ function voiceValues(){
   VOICE_KEYS.forEach(k=>v[k]=parseFloat(document.getElementById('voice_'+k).value));
   return v;
 }
+/* 選んでいるモード（talkPresetSel）。/next は nxPickTalkMode が入れる。'' は自由に話す */
+function talkModeName(){const s=document.getElementById('talkPresetSel');return s?s.value:'';}
+function talkModePreset(){const n=talkModeName();return n?_talkPresets.find(p=>p.name===n):null;}
+function talkModeVoice(){const p=talkModePreset();return (p&&p.fields&&p.fields.voice)||null;}
+let _voiceCfg={};
+function voiceFill(v){
+  document.getElementById('voiceSpeaker').value=String(v.speaker_id??_voiceCfgSpeaker);
+  VOICE_KEYS.forEach(k=>{const el=document.getElementById('voice_'+k);el.value=v[k]??el.defaultValue;voiceShow(k);});
+}
+function voiceToMode(){return document.getElementById('voiceScopeMode').checked;}
+function voiceDefaultValues(){const v={speaker_id:_voiceCfgSpeaker};VOICE_KEYS.forEach(k=>v[k]=_voiceCfg['talk_'+k]);return v;}
+/* 保存先を変えたら、その保存先のいまの声を出す（モードに声がまだ無ければデフォルトの声から始める） */
+function voiceScopeChanged(){voiceFill(voiceToMode()&&talkModeVoice()||voiceDefaultValues());}
+function voiceRenderScope(){
+  const name=talkModeName(),mv=talkModeVoice();
+  document.getElementById('voiceScopeRow').style.display=name?'':'none';
+  document.getElementById('voiceScopeModeLabel').textContent=I18N['dash.voice_scope_mode'].replace('{name}',name);
+  document.getElementById('voiceScopeMode').checked=!!(name&&mv);
+  document.getElementById('voiceScopeDefault').checked=!(name&&mv);
+  document.getElementById('voiceModeClear').style.display=mv?'':'none';
+}
 async function openVoice(){
   const err=document.getElementById('voiceErr');err.textContent='';
-  let cfg={};try{cfg=await(await fetch('/api/config')).json();}catch(e){}
-  _voiceCfgSpeaker=cfg.talk_speaker_id??3;
+  try{_voiceCfg=await(await fetch('/api/config')).json();}catch(e){_voiceCfg={};}
+  _voiceCfgSpeaker=_voiceCfg.talk_speaker_id??3;
   const sel=document.getElementById('voiceSpeaker');sel.innerHTML='';
   try{const r=await(await fetch('/api/talk-voices')).json();
     if(r.status!=='ok')err.textContent=r.message||'';
     (r.voices||[]).forEach(v=>{const o=document.createElement('option');o.value=v.id;o.textContent=v.name;sel.appendChild(o);});
   }catch(e){err.textContent=String(e);}
-  sel.value=String(_voiceCfgSpeaker);
-  VOICE_KEYS.forEach(k=>{const el=document.getElementById('voice_'+k);el.value=cfg['talk_'+k]??el.defaultValue;voiceShow(k);});
+  voiceRenderScope();voiceScopeChanged();
   document.getElementById('voiceSaved').style.display='none';
   document.getElementById('voiceModal').classList.add('open');
+}
+/* モードの声は talk-presets の fields.voice に置く。組み込みのモードは同じ名前で保存され、以後はそちらが出る */
+async function saveModeVoice(voice){
+  const p=talkModePreset(),name=talkModeName(),fields={...(p&&p.fields||{})};
+  if(voice)fields.voice=voice;else delete fields.voice;
+  await fetch('/api/talk-presets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,fields})});
+  await loadTalkPresets();
+  const sel=document.getElementById('talkPresetSel');if(sel)sel.value=name;
+}
+async function clearModeVoice(){
+  try{await saveModeVoice(null);voiceRenderScope();voiceScopeChanged();}
+  catch(e){document.getElementById('voiceErr').textContent=String(e);}
 }
 function closeVoice(){document.getElementById('voiceModal').classList.remove('open');}
 async function previewVoice(){
@@ -223,9 +257,13 @@ async function previewVoice(){
 async function saveVoice(){
   const v=voiceValues();
   try{
-    const cfg=await(await fetch('/api/config')).json();
-    cfg.talk_speaker_id=v.speaker_id;VOICE_KEYS.forEach(k=>cfg['talk_'+k]=v[k]);
-    await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
+    if(talkModeName()&&voiceToMode()){await saveModeVoice(v);voiceRenderScope();}
+    else{
+      const cfg=await(await fetch('/api/config')).json();
+      cfg.talk_speaker_id=v.speaker_id;VOICE_KEYS.forEach(k=>cfg['talk_'+k]=v[k]);
+      await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
+      _voiceCfg=cfg;_voiceCfgSpeaker=v.speaker_id;
+    }
     const s=document.getElementById('voiceSaved');s.style.display='inline';setTimeout(()=>s.style.display='none',2000);
   }catch(e){document.getElementById('voiceErr').textContent=String(e);}
 }

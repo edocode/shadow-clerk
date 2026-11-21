@@ -74,7 +74,9 @@ class _DashboardHandlerTalkOps:
         self._send_json({"status": "ok"})
 
     def _set_talk_mode(self) -> None:
-        """POST /api/talk-mode {on, topic?, persona?, workdir?, route?, glossary?, early_reply?, skill?} — persona は null で既定、"" で persona なし"""
+        """POST /api/talk-mode {on, topic?, persona?, workdir?, route?, glossary?, early_reply?, skill?, voice?}
+
+        persona は null で既定、"" で persona なし。voice（モードの声）を省けば config の声で読む"""
         data = read_local_json_body(self, "talk")
         if data is None:
             return
@@ -103,12 +105,19 @@ class _DashboardHandlerTalkOps:
             if not isinstance(value, bool):
                 self._send_json({"status": "error", "message": f"{key} must be a boolean"})
                 return
+        try:
+            if (raw := data.get("voice")) is not None and not isinstance(raw, dict):
+                raise ValueError("voice must be an object")
+            voice = None if raw is None else TalkVoice.parse(raw)
+        except ValueError as e:
+            self._send_json({"status": "error", "message": str(e)})
+            return
         talk = self.recorder.talk
         if not on:
             talk.stop()
         else:
             try:
-                talk.start(topic.strip(), persona, workdir, route or None, glossary, early_reply, skill)
+                talk.start(topic.strip(), persona, workdir, route or None, glossary, early_reply, skill, voice)
             except TalkStartError as e:
                 self._send_json({"status": "error", "message": str(e)})
                 return

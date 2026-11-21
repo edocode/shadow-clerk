@@ -1,7 +1,7 @@
 """Shadow-clerk daemon: /next ダッシュボード CSS（試作 dashboard-friendly-ui-interactive.css が元）"""
 from __future__ import annotations
 
-from shadow_clerk._daemon_dashboard_css import _CSS_CONSOLE, _CSS_WELCOME
+from shadow_clerk._daemon_dashboard_css import _CSS_CONSOLE, _CSS_VOICE, _CSS_WELCOME
 
 _DARK = """\
   --bg:#0b0f17; --panel:#111827; --panel2:#0f1520; --line:#1f2937; --border:var(--line); --text:#e5e7eb; --muted:#8b95a5;
@@ -504,9 +504,6 @@ details.more summary { cursor:pointer; color:var(--muted); font-size:12px; margi
 .wc-h { font-weight:bold; margin:10px 0 4px; font-size:12px; }
 .wc-li { color:var(--muted); font-size:11px; padding:2px 0 2px 10px; }
 .voice-row { display:flex; align-items:center; gap:8px; margin:6px 0; }
-.voice-row label { width:72px; flex-shrink:0; }
-.voice-row input[type=range], .voice-row select { flex:1; }
-.voice-row span { width:40px; text-align:right; font-variant-numeric:tabular-nums; }
 /* 話者の名前付け・覚えている声（現行のモーダル）。現行の見た目をトークンで写す */
 #nxCfModal { z-index:36; }  /* 現行のモーダル（.modal-overlay）から開く確認も、その上に出す */
 #speakerModal .modal { max-width:94vw; }
@@ -547,4 +544,4 @@ details.more summary { cursor:pointer; color:var(--muted); font-size:12px; margi
 #consoleInput.composing { background:var(--con-bg); color:var(--con-fg); }
 """
 
-_NEXT_CSS += _CSS_WELCOME
+_NEXT_CSS += _CSS_WELCOME + _CSS_VOICE

@@ -42,11 +42,11 @@ class _Talk:
         self.calls.append(("preview", voice, text))
 
     def start(self, topic: str, persona: str | None, workdir: str | None = None, route: str | None = None,
-              glossary: bool = True, early_reply: bool = True, skill: str = "") -> None:
+              glossary: bool = True, early_reply: bool = True, skill: str = "", voice: TalkVoice | None = None) -> None:
         if topic == "boom":
             raise TalkStartError("VOICEVOX down")
         self.calls.append(("start", topic, persona, workdir, route))
-        self.glossary, self.early_reply, self.skill = glossary, early_reply, skill
+        self.glossary, self.early_reply, self.skill, self.voice = glossary, early_reply, skill, voice
 
     def stop(self) -> None:
         self.calls.append(("stop",))
@@ -135,6 +135,16 @@ def test_start_stop() -> None:
     h = _FakeHandler({"on": True, "workdir": 3})
     h._set_talk_mode()
     check("文字列でない作業ディレクトリは拒否", h.sent.get("status") == "error" and h.talk.calls == [])
+    h = _FakeHandler({"on": True})
+    h._set_talk_mode()
+    check("声を省けば None（config の声）", h.talk.voice is None)
+    h = _FakeHandler({"on": True, "voice": {"speaker_id": 8, "speed": 1.2}})
+    h._set_talk_mode()
+    check("モードの声を渡す", h.talk.voice == TalkVoice(speaker_id=8, speed=1.2), repr(h.sent))
+    for bad in ({"speed": 9}, "fast", [1]):
+        h = _FakeHandler({"on": True, "voice": bad})
+        h._set_talk_mode()
+        check(f"不正な声 {bad!r} は拒否", h.sent.get("status") == "error" and h.talk.calls == [], repr(h.sent))
     h = _FakeHandler({"on": False})
     h._set_talk_mode()
     check("停止", h.talk.calls == [("stop",)])
