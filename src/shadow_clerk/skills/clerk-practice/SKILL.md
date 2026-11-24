@@ -3,7 +3,7 @@ name: clerk-practice
 description: shadow-clerk の「Claude と会議」（talk mode）で、語学の練習相手になる。練習用の会議を作り、前回までの練習を踏まえて今日の練習を提案し、発音・会話・ヒアリング・実践会話・作文を声で練習して、直しと例文をダッシュボードの AI分析 タブに書く。talk mode 中にユーザーが「英語の練習をしたい」「中国語で会話を練習したい」のように語学の練習を頼んだとき、clerk-talk から切り替えて使う。「/clerk-practice」と打たれたときにも使う。
 allowed-tools: Bash(curl -s "http://localhost:*) Bash(curl -s -X POST "http://localhost:*) Bash(curl -sN "http://localhost:*) Monitor Agent Read(~/.local/share/shadow-clerk/practice/**) Write(~/.local/share/shadow-clerk/practice/**) Edit(~/.local/share/shadow-clerk/practice/**)
 metadata:
-  version: "1.30.0"
+  version: "1.31.0"
 ---
 
 # clerk-practice — 声で語学を練習する
@@ -458,7 +458,7 @@ curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: applicat
 5. **苦手な音を集めた文で練習する。** 記事で出た語（calls, quality, users など）を使って、自分で短い文を作る。
    課題文は毎回その場で作り、AI分析 に先に載せてから、`focus` 付きで `POST /api/pronounce` に預け、お手本を読む。
    進め方は「発音」節と、英語なら言語別ガイドの「英語の音素フィードバック」に従う
-6. 練習の途中の記録・Advice・評価表は、他の練習と同じく Agent に任せる。記録するときは、判定できなかった試行
+6. 課題文と結果の1行はメインが書き、Advice・評価表は他の練習と同じく Agent に任せる。記録するときは、判定できなかった試行
    （聞き取り言語が戻っていたテイクなど）を数えず、その旨を書く
 
 ## 4. 書く — Advice と Analysis
@@ -473,11 +473,16 @@ curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: applicat
     **直した内容は同じものを Analysis にも時刻つきで追記して、履歴に残す**
   - **どちらか一方だけにしない。** 出題の前に Analysis へ語・文を載せ、1組を判定し終えるたびに、Analysis に結果を追記して
     Advice を書き直す。終える前にも Advice を最後に書き直し、次回の課題を入れる
-- **練習の途中の記録は、バックグラウンドの Agent に任せる。** 結果の追記・Advice の書き直し・評価表の更新・次の課題文の追記は
-  時間がかかるので、メインで書かずに Agent ツールを `run_in_background` で呼び、完了を待たずに練習を続ける。
+- **すぐ見たい短い追記は、メインが書く。** 出題する課題文（見出し・表記・読み方・意味・`🔊[<lang>] ` の行）と、
+  判定した結果の1行（どう聞こえたか、直しの要点）は、`/api/generated`（`append`）の1回で書く。この書き込みは1〜2秒で済む。
+  Agent に回すと、起動して書き終えるまで 20〜60 秒かかり、問題を声で出しても AI分析 に出てこない。
+  長くしない（ツールの呼び出しは書き終えてから走るので、長い文を書くとその分だけ声が遅れる）
+- **時間のかかる記録は、バックグラウンドの Agent に任せる。** Advice の書き直し・評価表の更新・会話のやりとりの追記・
+  詳しい説明や例文は、メインで書かずに Agent ツールを `run_in_background` で呼び、完了を待たずに練習を続ける。
   「記録します」のような前置きは言わない（ユーザーを待たせないので要らない）。ブリーフに入れるもの:
-  - 書く中身そのもの（判定した課題・届いた回答・判定と直し・次の課題文と読み方）。subagent は会話を見られないので、
+  - 書く中身そのもの（判定した課題・届いた回答・判定と直し）。subagent は会話を見られないので、
     評価は済ませて渡し、subagent には書くだけをさせる
+  - メインがすでに Analysis に書いた課題文と結果の行。subagent はそれを書き直したり繰り返したりしない
   - この SKILL.md のパスと、読ませる節（「4. 書く — Advice と Analysis」「評価表の更新」「level の決め方」）、言語
   - 指示: **声（`/api/say`）・音素・ミュート・会議・talk mode には触らない。** 返すのは、書いた節と未反映の項目を1行で
   - 記録の Agent は一度に1つだけ動かす（Advice の上書きや評価表の更新がぶつかる）。前の Agent がまだ動いていたら、
@@ -497,22 +502,23 @@ curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: applicat
      新しい課題で解析されてしまう）
   2. 1の結果が返ったら、続けて呼ぶ:
      - 判定が `held` で返っていたら、出題しない。`heard` の発言を読んでから考え直す
-     - **次の問題に進むなら、記録より先に出題する。** Analysis・Advice には書かない。
-       紹介の一言を `after`（最後に扱った行の時刻）付きで送り、`ok` のときだけ課題を `POST` してお手本を読む。
+     - **次の問題に進むなら、出題と Analysis への短い追記を同じコマンドで行う。** Advice には書かない。
+       紹介の一言を `after`（最後に扱った行の時刻）付きで送り、`ok` のときだけ、前の問題の結果の1行と新しい課題文を
+       Analysis に追記し、課題を `POST` してお手本を読む。
        紹介が `held` なら、ユーザーがまだ前の問題を話している。課題は切り替えずに、その発言を読む:
 
 ```
 r=$(curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/json' -d '{"text":"問題二です。<和訳>、という文です。","after":"<最後に扱った行の時刻>"}'); echo "$r"
 case "$r" in *held*) ;; *)
+  curl -s -X POST "http://localhost:8765/api/generated" -H 'Content-Type: application/json' -d '{"kind":"analysis","mode":"append","text":"\n- 問題1 結果: <どう聞こえたか・直しの要点>\n\n## HH:MM 発音（問題2）\n\n| 語・文 | 読み方 | 意味 | 結果 |\n|---|---|---|---|\n| <課題文> | <読み方> | <和訳> |  |\n\n- 🔊[<lang>] <課題文>\n"}' >/dev/null
   curl -s -X POST "http://localhost:8765/api/pronounce" -H 'Content-Type: application/json' -d '{"text":"<課題文>","lang":"<lang>","focus":[…]}'
   curl -s -X POST "http://localhost:8765/api/say" -H 'Content-Type: application/json' -d '{"text":"<課題文>","lang":"<lang>","display":"（問題2・<和訳>）"}' ;;
 esac
 ```
 
-     - **言い直してもらうなら**、Analysis への結果の追記と Advice の書き直しを記録の Agent に任せる
-  3. 次の問題に進んだときは、2の結果が返ったら続けて、前の問題の結果の追記・Advice の書き直し・新しい問題の課題文と
-     読み方の追記をまとめて記録の Agent に任せる。
-     「書かずに次へ進まない」「声に出す前に載せる」は、この流れではこの呼び出しで満たす
+     - **言い直してもらうなら**、結果の1行（`- 問題N 結果: …`）をメインが Analysis に追記する
+  3. 2の結果が返ったら続けて、Advice の書き直しと評価表の更新を記録の Agent に任せる（結果と課題文はもう書いてあるので渡さない）。
+     「書かずに次へ進まない」「声に出す前に載せる」は、この流れでは2の追記で満たす
 - **お手本・例文の行は `🔊[<lang>] ` で始める**。ダッシュボードでその行
   （段落・箇条書き・引用）をクリックすると、`<lang>` の発音で読み上げられる（`[<lang>]` は画面には出ない）。
   `[<lang>]` を省くと、そのとき聞き取っている言語で読まれるので、復習時に別の言語の声になる。必ず付ける。
