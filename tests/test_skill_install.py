@@ -211,6 +211,31 @@ def test_talk_skill_check_looks_at_claude_only() -> None:
             skill_install.BUILTIN_TARGETS.update(orig)
 
 
+def test_install_missing_on_first_start() -> None:
+    """起動時の自動配布: 入っていない配布先にだけ配り、CLI の無い配布先・古い版・素性不明は触らない"""
+    orig = dict(skill_install.BUILTIN_TARGETS)
+    with tempfile.TemporaryDirectory() as home:
+        claude = pathlib.Path(home, ".claude", "skills")
+        claude.parent.mkdir()
+        agents = pathlib.Path(home, ".agents", "skills")  # 親 (~/.agents) が無い = その CLI は入っていない
+        skill_install.BUILTIN_TARGETS.update(claude=str(claude), agents=str(agents))
+        try:
+            check("missing の配布先にだけ配る", skill_install.install_missing() == ["claude"])
+            check("同梱の skill がすべて入る", all(
+                skill_install.read_skill_version(claude / s) for s in skill_install.BUNDLED_SKILLS))
+            check("親の無い配布先は作らない", not agents.parent.exists())
+            _fake_installed(claude / skill_install.SKILL_NAME, "0.0.1")
+            check("古い版は更新モーダルに任せる", skill_install.install_missing() == []
+                  and skill_install.read_skill_version(claude / skill_install.SKILL_NAME) == "0.0.1")
+            shutil.rmtree(claude)
+            (claude / skill_install.SKILL_NAME).mkdir(parents=True)
+            check("素性不明の同名 skill があれば配らない", skill_install.install_missing() == []
+                  and not (claude / skill_install.TALK_SKILL_NAME).exists())
+        finally:
+            skill_install.BUILTIN_TARGETS.clear()
+            skill_install.BUILTIN_TARGETS.update(orig)
+
+
 _TALK_CURL_PREFIXES = ('curl -s "http://localhost:', 'curl -s -X POST "http://localhost:',
                        'curl -sN "http://localhost:')
 
@@ -348,6 +373,7 @@ def main() -> int:
     test_status_hides_vanished_target()
     test_skill_installed()
     test_talk_skill_check_looks_at_claude_only()
+    test_install_missing_on_first_start()
     test_talk_skill_pre_approves_its_curl_calls()
     test_talk_skill_reads_glossary_and_misheard()
     test_talk_skill_watches_advice()

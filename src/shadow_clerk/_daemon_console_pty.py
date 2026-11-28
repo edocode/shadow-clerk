@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 from abc import ABC, abstractmethod
+from shadow_clerk._process import all_pids
 
 logger = logging.getLogger("shadow-clerk")
 
@@ -157,12 +158,9 @@ class PosixConsolePty(ConsolePty):
         return not self.session_pids(sid)
 
     def session_pids(self, sid: int) -> list[int]:
-        """セッション ID が sid と一致する全 pid を /proc から集める"""
+        """セッション ID が sid と一致する全 pid を集める"""
         pids = []
-        for name in os.listdir("/proc"):
-            if not name.isdigit():
-                continue
-            pid = int(name)
+        for pid in all_pids():
             try:
                 if os.getsid(pid) == sid:
                     pids.append(pid)

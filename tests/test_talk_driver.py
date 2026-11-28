@@ -861,6 +861,15 @@ def test_api_say_display() -> None:
           written[-1].text == "ライト（光）" and made["player"].spoken[-1:] == ["light"], repr(made["player"].spoken))
     made["engine"].pending_cut = "途中の文。"
     check("制止の cut は読む文のまま", d.api_say("x", None, "表示") == {"status": "interrupted", "cut": "途中の文。"})
+    n = len(written)
+    d.api_say("次の文です。", None, "（問題1・光）")
+    d.api_say("light", None, "（問題1・光）")
+    check("紹介とお手本に同じ display を付けても行は1つ", [w.text for w in written[n:]] == ["（問題1・光）"],
+          repr([w.text for w in written[n:]]))
+    d.on_self_line(TranscriptLine("2026-01-01 00:00:00", Speaker.SELF, "light"))
+    d.api_say("light", None, "（問題1・光）")
+    check("間に発言があれば同じ display でも書く", [w.text for w in written[n:]] == ["（問題1・光）"] * 2,
+          repr([w.text for w in written[n:]]))
 
 
 def test_filler() -> None:
@@ -912,18 +921,19 @@ def test_filler_once_per_wait_and_cooldown() -> None:
 def test_workdir() -> None:
     import os
     import tempfile
-    home = os.path.expanduser("~")
+    from shadow_clerk.domain.ai_assistant import default_workdir
+    fallback = default_workdir()
     d, _w, made = _driver()
     d.start("x", None)
-    check("指定が無ければ設定、それも無ければホーム", made["engine"].ctx.workdir == home
-          and d.snapshot()["workdir"] == home, made["engine"].ctx.workdir)
+    check("指定が無ければ設定、それも無ければデータフォルダの workspace", made["engine"].ctx.workdir == fallback
+          and d.snapshot()["workdir"] == fallback, made["engine"].ctx.workdir)
     with tempfile.TemporaryDirectory() as tmp:
         d, _w, made = _driver(talk_workdir=tmp)
         d.start("x", None)
         check("talk_workdir を使う", made["engine"].ctx.workdir == tmp)
         d, _w, made = _driver(talk_workdir=tmp)
         d.start("x", None, "~")
-        check("開始時の指定を優先し ~ を展開する", made["engine"].ctx.workdir == home)
+        check("開始時の指定を優先し ~ を展開する", made["engine"].ctx.workdir == os.path.expanduser("~"))
     d, _w, made = _driver()
     try:
         d.start("x", None, "/no/such/dir-for-talk-test")

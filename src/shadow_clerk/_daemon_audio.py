@@ -23,7 +23,7 @@ from shadow_clerk.domain import AudioDevice
 # 追跡ロジック（Audio → Sinks/Sources サブリスト限定）を再利用するため
 from shadow_clerk._daemon_audio_devices import (  # noqa: F401
     snapshot_devices, wpctl_audio_section_lines, sink_serial,
-    invalidate_description_cache,
+    invalidate_description_cache, is_monitor_name,
 )
 # バックエンド実装 (pw-record/parec/WASAPI ループバック) は
 # _daemon_audio_backends.py に分離した。既存の import 元
@@ -178,7 +178,10 @@ def resolve_mic_device(index: int | None) -> AudioDevice | None:
     except (ValueError, sd.PortAudioError) as e:
         logger.warning("マイクデバイスを解決できません (index=%s): %s", index, e)
         return None
-    return AudioDevice(index=index, name=str(info["name"]))
+    if is_monitor_name(name := str(info["name"])):
+        logger.warning("マイクに monitor 用のデバイス %s が選ばれています。"
+                       "OS の入力デバイスを実マイクにしてください", name)
+    return AudioDevice(index=index, name=name)
 
 
 def resolve_monitor_device(index: int | None) -> AudioDevice | None:
@@ -279,21 +282,22 @@ def device_exists(name: str) -> bool | None:
 
 
 def find_monitor_device_sd() -> AudioDevice | None:
-    """sounddevice でモニターデバイスを検索 (Linux のみ)
+    """sounddevice でモニターデバイスを検索 (Linux / macOS)
 
     Windows は WasapiBackend を使うため None を返す。
     """
     if sys.platform == "win32":
         return None
-    return _find_monitor_device_linux()
+    return _find_monitor_device_portaudio()
 
 
-def _find_monitor_device_linux() -> AudioDevice | None:
-    """Linux (PipeWire/PulseAudio) でモニターデバイスを検索
+def _find_monitor_device_portaudio() -> AudioDevice | None:
+    """PortAudio の入力デバイスからモニターデバイスを検索
 
     PipeWire: `.monitor` サフィックスを持つ入力デバイス
     PulseAudio: "Monitor of " プレフィックスを持つ入力デバイス
-    デフォルト Sink に対応するモニターを優先する。
+    macOS: BlackHole など仮想オーディオドライバの入力デバイス
+    デフォルト Sink に対応するモニターを優先する（macOS には無いので最初の候補）。
     """
     import sounddevice as sd
     try:
@@ -306,11 +310,7 @@ def _find_monitor_device_linux() -> AudioDevice | None:
     candidates = []
     for i, dev in enumerate(devices):
         name = dev["name"]
-        is_monitor = (
-            name.endswith(".monitor")
-            or name.lower().startswith("monitor of ")
-        )
-        if is_monitor and dev["max_input_channels"] > 0:
+        if is_monitor_name(name) and dev["max_input_channels"] > 0:
             candidates.append(AudioDevice(index=i, name=name))
             logger.debug("monitor 候補: %s", candidates[-1])
 

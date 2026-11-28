@@ -316,7 +316,8 @@ def test_start_after_child_self_exit_no_leak() -> None:
         time.sleep(CONSOLE_TICK_SEC * 5)
         tick_counts.append(
             len([t for t in threading.enumerate() if t.name == "console-tick"]))
-        fd_counts.append(len(os.listdir("/proc/self/fd")))
+        # macOS には /proc が無い。/dev/fd が自プロセスの fd を並べる
+        fd_counts.append(len(os.listdir("/proc/self/fd" if os.path.isdir("/proc") else "/dev/fd")))
     check("console-tick スレッドは反復しても1本のまま", tick_counts == [1, 1, 1],
           str(tick_counts))
     check("open fd は反復しても増えない", fd_counts[-1] <= fd_counts[0],

@@ -10,7 +10,7 @@ Web会議の音声（自分のマイクとスピーカー出力）をリアル�
 - **Google カレンダー**の予定に合わせて会議セッションを開始・終了する
 - Chrome 拡張で**スクリーンショット**（ブラウザのタブか画面全体）を transcript の時系列に差し込む
 
-Linux と Windows で動く。文字起こしと LibreTranslate による翻訳は完全にローカルで完結し、それ以外はすべてオプション。
+Linux・Windows・macOS で動く。文字起こしと LibreTranslate による翻訳は完全にローカルで完結し、それ以外はすべてオプション。
 
 PyPI で公開中: <https://pypi.org/project/shadow-clerk/>
 
@@ -41,7 +41,7 @@ PyPI で公開中: <https://pypi.org/project/shadow-clerk/>
 |----|----------|------|
 | Linux (PipeWire/PulseAudio) | 対応 | 主開発ターゲット |
 | Windows 10/11 | 対応 | WASAPI ループバックでモニターキャプチャ（既定の再生デバイスに追従） |
-| macOS | 未対応 | 仮想オーディオドライバ（BlackHole 等）が必要 — 未実装 |
+| macOS | 対応 | 仮想オーディオドライバ（BlackHole）経由でモニターキャプチャ — [macOS 固有の注意点](#macos-固有の注意点) を参照 |
 
 ### Windows 固有の注意点
 
@@ -114,6 +114,51 @@ foreach ($s in @(@("Shadow Clerk", "start -d"), @("Shadow Clerk (stop)", "stop")
 手で作る場合は、デスクトップを右クリック →**新規作成**→**ショートカット** を選び、`%USERPROFILE%\.local\bin\clerk-util.exe start -d` と入力し（置き場所が違う場合は `uv tool dir --bin` で確認できます）、名前を付けます。
 
 サインイン時に自動起動したい場合は、**Shadow Clerk** のショートカットをスタートアップフォルダーにコピーします（Win+R で `shell:startup` と入力すると開きます）。
+
+### macOS 固有の注意点
+
+macOS は他のアプリが鳴らしている音を録れないため、モニター（相手の声）は仮想オーディオドライバ経由でキャプチャします。[BlackHole](https://github.com/ExistentialAudio/BlackHole) は自動で検出します。それ以外のドライバは `monitor_device` にデバイス名を書けば使えます。
+
+スクリーンショット付きの手順（イヤホンを使う場合・困ったときを含む）は [docs/macos-setup.ja.md](docs/macos-setup.ja.md) を参照してください。
+
+#### 事前準備
+
+```bash
+xcode-select --install                                # git
+curl -LsSf https://astral.sh/uv/install.sh | sh       # uv
+uv python install 3.13                                # OS 付属の Python 3.9 は古くて使えない
+brew install blackhole-2ch                            # または BlackHole 配布元のインストーラ
+```
+
+- **uv**: インストーラがシェルの設定ファイルで `~/.local/bin` を `PATH` に追加します。`uv` を使う前にターミナルのウィンドウを開き直してください（または `source ~/.zprofile`）
+- **Homebrew**（`brew install` に必要）: <https://brew.sh> の手順で入れます
+  ```bash
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  ```
+  途中で Mac のログインパスワードを聞かれます。終わったら **Next steps** に表示される 2 行のコマンドを実行して `brew` を `PATH` に追加します
+
+`clerk-daemon --list-devices` に BlackHole が出ない場合は、`sudo killall coreaudiod` で Core Audio を再起動します（または Mac を再起動）。
+
+#### システムの音を BlackHole に流す
+
+1. **Audio MIDI 設定** を開き（システム設定の項目ではなく、**アプリケーション → ユーティリティ** にある別のアプリ）、**＋** →**複数出力装置を作成**
+2. スピーカー（ヘッドホン）と **BlackHole 2ch** にチェックを入れる。**プライマリ装置**（主装置）はスピーカー（ヘッドホン）にし、BlackHole の **音ずれ補正**（ドリフト補正）をオンにする
+3. 作った装置を右クリック →**このサウンド出力装置を使用**
+4. **システム設定 → サウンド → 入力** は実マイクのままにする。マイクは OS の既定入力に従い、それが BlackHole だと警告をログに出します
+
+複数出力装置を出力にしている間は音量キーが効きません。音量は Audio MIDI 設定で装置ごとに調整します。
+
+#### インストール
+
+[セットアップ](#セットアップ) の手順 2 を Linux と同じように実行します（`sounddevice` のホイールに PortAudio が入っているのでシステムパッケージは不要）。Whisper は CPU で動きます。
+
+#### 注意点
+
+- **許可**（システム設定 → プライバシーとセキュリティ）: 起動するターミナルに **マイク**。Push-to-Talk を使うなら **アクセシビリティ** と **入力監視**。拡張機能の画面全体スクリーンショットを使うなら **画面収録**
+- **`voice_command_key`**: Mac のキーボードには `f23` も Menu キーもありません。`alt_r`（右 Option）などの修飾キー、`f13`〜`f20`、または `null` にします
+- **データディレクトリ**: Linux と同じ `~/.local/share/shadow-clerk`
+- **Claude と会議**: Claude の声を会議アプリに流す機能は PipeWire が必要なため、macOS では無効です
+- **Docker**: 非対応（イメージは Linux の PulseAudio ソケットを前提にしています）
 
 ## 機能と必要なもの
 
@@ -817,7 +862,7 @@ AI分析 タブの `/θ/`・`/θɪŋk/` のような発音記号は、同梱の�
 | `talk_engine` | `console` | `console`（AI コンソール + clerk-talk スキル）または `headless`（`claude -p`） |
 | `talk_route_app` | `""` | 最後に選んだ「Claude の声を届ける先」のアプリ（開始モーダルの初期値）。スピーカー（monitor）をミュートしている間（録画のために声を流すだけの1人の練習など）は1対1と同じに振る舞い、話す前の「あの、」を出さず、練習言語の文はブラウザの声で読む |
 | `talk_echo_tail_sec` | `0.3` | Claude が話し終えてからこの秒数までに始まった monitor の行を Claude 自身の声とみなす（出力と録音の遅れ分）。それより後に始まった行は残す。Claude の直後に無音を挟まず相手が話し始めると、VAD が1区間にまとめるためその区間は捨てられる |
-| `talk_workdir` | `""` | 会話役の作業ディレクトリ（空なら `ai_assistant_workdir`、それも空ならホーム）。開始モーダルで毎回上書きできる |
+| `talk_workdir` | `""` | 会話役の作業ディレクトリ（空なら `ai_assistant_workdir`、それも空なら `DATA_DIR/workspace`。空のフォルダで、無ければ作る。ホームでは起動しない）。開始モーダルで毎回上書きできる |
 | `talk_model` | `""` | 会話役のモデル（空なら claude の既定）。両エンジンに効き、開始ダイアログで選べる |
 | `talk_allowed_tools` | `WebSearch,WebFetch,Read,Grep,Glob` | 会話中に使えるツール（`""` でなし）（headless のみ） |
 | `talk_language` | `""` | 会話の言語（空なら `translate_language`）。TTS が非対応ならその既定言語（VOICEVOX は日本語のみ） |
@@ -862,7 +907,7 @@ clerk-util command translate_stop                  # 翻訳ループ停止
 
 ダッシュボードの **AI アシスタントの画面**（下部のドロワー、または **🪟 表示 ▾** で中央）で、AI アシスタント（`claude` または `codex`）を PTY 上で動かし、会議の文字起こしを監視させて生成物を書かせることができる。
 
-- **スキルの導入**: アシスタントは同梱スキル（`clerk-meeting-helper`。[Claude と会議](#claude-と会議)用の `clerk-talk`・`clerk-practice`・`voicevox-sing` も一緒に入る）を使う。エージェント側のスキルディレクトリへコピーする必要があり、初回起動時に ようこそ ダイアログが案内する。コマンドからでも同じことができる:
+- **スキルの導入**: アシスタントは同梱スキル（`clerk-meeting-helper`。[Claude と会議](#claude-と会議)用の `clerk-talk`・`clerk-practice`・`voicevox-sing` も一緒に入る）を使う。エージェント側のスキルディレクトリへコピーする必要がある。`clerk-daemon` は起動時に、`~/.claude/skills` と `~/.agents/skills` にまだスキルが無ければ自動で配る（`~/.claude` / `~/.agents` がある＝その CLI が入っている場合だけ。古い版は更新ダイアログに任せる）。コマンドからでも同じことができる:
 
   ```bash
   clerk-util install-skill                        # ~/.claude/skills/   (Claude Code)
@@ -913,7 +958,7 @@ auto_analyze: false           # 会議開始と同時に AI アシスタント�
 ai_assistant_command: claude  # AI コンソールで起動するコマンド (claude, codex, ...)
 ai_assistant_args: ''         # そのコマンドの引数 (shlex で分割)
 ai_assistant_init_prompt: /clerk-meeting-helper {transcript} {lang}  # TUI 準備完了後に PTY へ送るプロンプト。{transcript} {meeting} {lang} が置換される（{lang} は translate_language）
-ai_assistant_workdir: ''      # 既定の作業ディレクトリ（Git リポジトリなど）。参考フォルダとして足す。会議ごとの上書きは DATA_DIR/meeting.yaml の meetings[].workdir にある
+ai_assistant_workdir: ''      # 既定の作業ディレクトリ（Git リポジトリなど）。参考フォルダとして足す。空なら DATA_DIR/workspace（ホームではない）。会議ごとの上書きは DATA_DIR/meeting.yaml の meetings[].workdir にある
 ai_reference_dirs: []         # どの会議でも AI が読んでよいフォルダ（相対パスはデータディレクトリから）
 
 # --- 文字起こし ---

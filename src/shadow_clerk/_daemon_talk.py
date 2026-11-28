@@ -63,7 +63,7 @@ def _float_setting(config: dict, key: str, default: float, lo: float, hi: float)
 
 
 def resolve_talk_workdir(config: dict, requested: str | None) -> str:
-    """会話役の作業ディレクトリ。開始時の指定 → talk_workdir → ai_assistant_workdir → ホーム。
+    """会話役の作業ディレクトリ。開始時の指定 → talk_workdir → ai_assistant_workdir → DATA_DIR/workspace。
 
     開始時に明示された場所が無いときは黙ってホームに落とさない。違うリポジトリで作業を始めてしまうため
     """
@@ -227,6 +227,7 @@ class TalkDriver:
         self._interim: dict[str, str] = {}  # source → 確定前の最新の中間文字起こし
         self._monitor_voice: deque[float] = deque(maxlen=400)  # 届け先ありで monitor に声があったフレームの時刻（time.time()）
         self._lines_seen = 0  # talk mode 中に届いた [自分]・[相手] 行の数
+        self._last_display: tuple[str, int] | None = None  # 最後に書いた display と、そのときの _lines_seen
         self._recent_lines: deque[TranscriptLine] = deque(maxlen=_HEARD_LINES_MAX)
         self._stopped_at: float = float("-inf")  # stop() を呼んだ時刻（monotonic）
         self._was_routed = False  # stop() した会話が届け先ありだったか。猶予中の monitor の扱いを決める
@@ -583,7 +584,13 @@ class TalkDriver:
                 return self._yield_floor(player, seen)
             if heard or (heard := self._lines_since(seen)):
                 return heard
-        self._write_line(TranscriptLine(self._clock(), Speaker.CLAUDE, one_line(display or "") or said.plain))
+        shown = one_line(display or "") or said.plain
+        # 紹介の一言とお手本の両方に同じ display を付けると、間に発言が無いまま同じ行が2つ並ぶ。2つ目は書かない
+        with self._lock:
+            key = (shown, self._lines_seen) if display and self._active else None
+            repeated, self._last_display = key is not None and key == self._last_display, key
+        if not repeated:
+            self._write_line(TranscriptLine(self._clock(), Speaker.CLAUDE, shown))
         with self._lock:
             player = self._player
             parts = [(seg, self._browser_language_locked(self._segment_language_locked(seg, lg)))

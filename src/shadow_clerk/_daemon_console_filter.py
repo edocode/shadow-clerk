@@ -12,14 +12,24 @@ pyte は CSI のプライベートパラメータ接頭辞 `<` `=` `>` を解釈
   グリッドに描かれる。
 
 どちらも端末の入力プロトコル制御で画面表示には関係しないため、
-pyte に渡す前に落とす。`?` (DEC private mode) は pyte が正しく
-扱うのでそのまま通す。
+pyte に渡す前に落とす。
+
+`?` (DEC private) は終端によって扱いが分かれる。pyte が private を受け取れるのは
+`h` `l` (モード) と `c` `J` `K` だけで、それ以外は handler が `private=True` を受け付けず
+TypeError になり、読み出しスレッドごと止まる——画面が二度と更新されない。claude の TUI は
+`ESC[?6n` (カーソル位置の問い合わせ。応答は返していない) を送るので、これで AI Console が
+固まった。受け付けない終端の `?` 列は落とす。
 
 あわせて SGR 2 (faint) を書き換える。pyte の属性表に 2 は無く、そのまま
 渡すと黙って捨てられる。claude の TUI は入力欄の候補テキストを faint で
 描くので、落とすと自分が打った文字と見分けが付かなくなる。
 """
 from __future__ import annotations
+import logging
+
+import pyte
+
+logger = logging.getLogger("shadow-clerk")
 
 _ESC = "\x1b"
 # 2 (faint) の写し先。pyte が持っていて claude の TUI が使わない属性を選ぶ。
@@ -30,6 +40,8 @@ _FAINT_OFF_TO = "25"
 # 「24bit 色」の意味なので、faint と取り違えてはいけない
 _COLOR_KEYS = {"38", "48", "58"}
 _PRIVATE_PREFIXES = "<=>"
+# pyte が `?` 付きで受け付ける終端（Screen の handler が private 引数を持つもの）
+_DEC_PRIVATE_FINALS = "hlcJK"
 # CSI の終端バイトは 0x40-0x7E
 _FINAL_LO = "\x40"
 _FINAL_HI = "\x7e"
@@ -66,6 +78,32 @@ def rewrite_sgr(params: str) -> str:
             out.append(cur)
         i += 1
     return ";".join(out)
+
+
+# claude がまだ信頼していないフォルダで起動したときの確認画面（既定の選択は「No, exit」）
+_TRUST_PROMPT = "I trust this folder"
+
+
+def is_trust_prompt(screen: pyte.Screen) -> bool:
+    """カーソル付近にフォルダの信頼の確認が出ているか。grid は VIRTUAL_ROWS 行あるので近くだけ見る"""
+    y = screen.cursor.y
+    return any(_TRUST_PROMPT in "".join(screen.buffer[r][x].data for x in range(screen.columns))
+               for r in range(max(0, y - 12), min(screen.lines, y + 4)))
+
+
+def safe_feed(stream: pyte.Stream, screen: pyte.Screen, text: str) -> pyte.Stream:
+    """stream に text を流す。pyte が例外を出したら作り直した stream を返す
+
+    pyte の解析器は generator で、例外で一度閉じると以後の feed がすべて失敗する。
+    読み出しスレッドが止まると子の出力が溜まり、画面が二度と更新されない。
+    フィルタで防げない未知の列が来ても、その列だけ読み飛ばして続ける
+    """
+    try:
+        stream.feed(text)
+    except Exception as e:  # pylint: disable=broad-except
+        logger.warning("AI Console: 端末出力を解釈できず読み飛ばします: %r", e)
+        return pyte.Stream(screen)
+    return stream
 
 
 class PrivateCsiFilter:
@@ -113,6 +151,9 @@ class PrivateCsiFilter:
                 else:
                     self._pending = buf[j:]
                 break
+            if buf[j + 2] == "?" and buf[k] not in _DEC_PRIVATE_FINALS:
+                i = k + 1                  # pyte が受け付けない `?` 列は終端ごと捨てる
+                continue
             if not private:
                 if buf[k] == "m":
                     out.append(_ESC + "[" + rewrite_sgr(buf[j + 2:k]) + "m")

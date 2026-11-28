@@ -6,7 +6,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-from shadow_clerk.domain.ai_assistant import AiAssistantConfig
+from shadow_clerk.domain.ai_assistant import AiAssistantConfig, default_workdir
 
 results: list[bool] = []
 
@@ -56,6 +56,12 @@ def test_workdir_expanduser() -> None:
           c.resolve_workdir())
 
 
+def test_command_expanduser() -> None:
+    c = AiAssistantConfig.from_config({"ai_assistant_command": "~/.local/bin/claude"})
+    check("command の ~ を展開する",
+          c.command == os.path.expanduser("~/.local/bin/claude"), c.command)
+
+
 def test_workdir_override_wins() -> None:
     d = tempfile.mkdtemp()
     c = AiAssistantConfig.from_config({"ai_assistant_workdir": "~"})
@@ -64,11 +70,12 @@ def test_workdir_override_wins() -> None:
 
 def test_workdir_missing_falls_back() -> None:
     c = AiAssistantConfig.from_config({"ai_assistant_workdir": ""})
-    check("未設定ならホーム", c.resolve_workdir() == os.path.expanduser("~"),
-          c.resolve_workdir())
+    check("未設定ならデータフォルダの workspace（ホームではない）",
+          c.resolve_workdir() == default_workdir() != os.path.expanduser("~"), c.resolve_workdir())
+    check("workspace は作られる", os.path.isdir(default_workdir()), default_workdir())
     c2 = AiAssistantConfig.from_config({"ai_assistant_workdir": "/nonexistent/xyz"})
-    check("存在しないディレクトリはホームに落とす",
-          c2.resolve_workdir() == os.path.expanduser("~"), c2.resolve_workdir())
+    check("存在しないディレクトリは workspace に落とす",
+          c2.resolve_workdir() == default_workdir(), c2.resolve_workdir())
 
 
 def test_init_prompt_no_cross_contamination_meeting_in_transcript() -> None:
@@ -117,6 +124,7 @@ def main() -> int:
     test_init_prompt_placeholders()
     test_init_prompt_unknown_placeholder_is_literal()
     test_workdir_expanduser()
+    test_command_expanduser()
     test_workdir_override_wins()
     test_workdir_missing_falls_back()
     test_init_prompt_no_cross_contamination_meeting_in_transcript()

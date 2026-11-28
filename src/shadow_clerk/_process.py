@@ -4,6 +4,7 @@ clerk-daemon（多重起動ガード）と clerk-util（stop/status）で共用�
 """
 from __future__ import annotations
 import os
+import subprocess
 import sys
 
 
@@ -34,14 +35,39 @@ def is_clerk_daemon_process(pid: int) -> bool:
 
     PID の再利用（デーモンがクラッシュして stale な daemon.pid が残り、
     同じ PID を無関係のプロセスが使う）による誤判定・誤 kill を防ぐため、
-    Linux では /proc/<pid>/cmdline でコマンドラインを確認する。
+    コマンドラインを確認する（Linux は /proc/<pid>/cmdline、macOS は ps）。
     確認手段がないプラットフォームでは生存のみで判断する。
     """
     if not is_pid_alive(pid):
         return False
-    try:
-        with open(f"/proc/{pid}/cmdline", "rb") as f:
-            cmdline = f.read().decode("utf-8", errors="replace").replace("\x00", " ")
-    except OSError:
+    if (cmdline := _cmdline(pid)) is None:
         return True
     return "clerk-daemon" in cmdline or "clerk_daemon" in cmdline
+
+
+def _ps(args: list[str]) -> str | None:
+    """`ps` の出力。/proc の無い POSIX (macOS) 用。失敗したら None"""
+    try:
+        result = subprocess.run(["ps", *args], capture_output=True, text=True, encoding="utf-8", timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return result.stdout if result.returncode == 0 else None
+
+
+def _cmdline(pid: int) -> str | None:
+    """プロセスのコマンドライン。取れなければ None"""
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            return f.read().decode("utf-8", errors="replace").replace("\x00", " ")
+    except OSError:
+        pass
+    if sys.platform == "win32":
+        return None
+    return (_ps(["-o", "command=", "-p", str(pid)]) or "").strip() or None
+
+
+def all_pids() -> list[int]:
+    """生存している全プロセスの pid（POSIX）"""
+    if os.path.isdir("/proc"):
+        return [int(name) for name in os.listdir("/proc") if name.isdigit()]
+    return [int(tok) for tok in (_ps(["-A", "-o", "pid="]) or "").split()]

@@ -229,6 +229,28 @@ def skill_status(remembered: list[str]) -> dict:
     return {"bundled": bundled[SKILL_NAME], "targets": targets}
 
 
+def install_missing() -> list[str]:
+    """起動時に、同梱 skill がまだ入っていない組み込みの配布先へ配る。配った配布先の名前を返す。
+
+    ボタンで配る作りだと、初回は Welcome の折りたたみに埋もれて気づかれず、「Claude と会議」が
+    skill 無しで失敗する。入れるのは state が missing（主の skill が無い）の配布先だけで、
+    古い版は更新モーダルに任せる。親（~/.claude など）が無ければ CLI が入っていないので作らない。
+    素性の分からない同名 skill があれば install() が拒否するので、ログに残して飛ばす
+    """
+    done = []
+    for target in skill_status([])["targets"]:
+        name = target["name"]
+        if target["state"] != "missing" or not resolve_target(name)[1].parent.parent.is_dir():
+            continue
+        try:
+            install(name)
+        except (InstallRefused, OSError) as e:
+            logger.warning("スキルを自動で配れません (%s): %s", name, e)
+            continue
+        done.append(name)
+    return done
+
+
 def skill_installed(skill: str, remembered: list[str], targets: tuple[str, ...] | None = None) -> bool:
     """組み込み（targets で絞れる。省略はすべて）か記憶済みの配布先のどこかに、その skill が読める形で置かれているか"""
     builtin = list(BUILTIN_TARGETS) if targets is None else list(targets)

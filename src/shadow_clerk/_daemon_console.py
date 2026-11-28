@@ -12,7 +12,7 @@ from typing import Any, Callable
 import pyte
 
 from shadow_clerk._daemon_config import load_config
-from shadow_clerk._daemon_console_filter import PrivateCsiFilter
+from shadow_clerk._daemon_console_filter import PrivateCsiFilter, is_trust_prompt, safe_feed
 from shadow_clerk._daemon_console_pty import ConsolePty, open_console_pty
 from shadow_clerk._daemon_console_render import render_rows
 from shadow_clerk._daemon_constants import (
@@ -358,9 +358,10 @@ class ConsoleSession:
                 # 実体化させる副作用を持つため、broadcaster を差した本番
                 # 構成では tick 開始からほぼ即座に非空と誤判定してしまう。
                 # 子プロセスが実際に何か出力したかだけを表す _has_output を見る
-                seq, empty = self._seq, not self._has_output
-            if empty:
-                quiet_since = None
+                seq, empty, trust = self._seq, not self._has_output, is_trust_prompt(self.screen)
+            if empty or trust:
+                # フォルダの信頼の確認は既定が「No, exit」で、打った文字や Enter で claude が終わる。答えるまで待つ
+                quiet_since, deadline = None, time.monotonic() + CONSOLE_READY_TIMEOUT_SEC if trust else deadline
             elif seq != last_seq:
                 last_seq, quiet_since = seq, time.monotonic()
             elif quiet_since is not None and \
@@ -586,7 +587,7 @@ class ConsoleSession:
             if not text:
                 continue
             with self._lock:
-                self._stream.feed(text)
+                self._stream = safe_feed(self._stream, self.screen, text)
                 self.max_row = max(self.max_row, self.screen.cursor.y)
                 self._has_output = True
         logger.info("AI Console の子プロセスが終了しました")

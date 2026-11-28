@@ -5,6 +5,7 @@ import logging
 import re
 import shutil
 import subprocess
+import sys
 from collections.abc import Iterator
 from typing import Any
 from shadow_clerk.i18n import t
@@ -17,6 +18,16 @@ _WPCTL_LIST_HEADER_RE = re.compile(r'(Devices|Sinks|Sources|Filters|Streams):\s*
 _WPCTL_ID_TEXT_RE = re.compile(r'^\*?\s*(\d+)\.\s+(.*)$')
 _WPCTL_VOL_SUFFIX_RE = re.compile(r'\s*\[[^\]]*\]\s*$')
 _HIFI_PORT_RE = re.compile(r'HiFi__([A-Za-z0-9]+)__(?:source|sink)')
+# macOS にはシステム出力を録る口が無い。出力を入力として見せる仮想オーディオドライバを monitor に使う
+_MAC_LOOPBACK_PREFIXES = ("blackhole", "loopback audio", "soundflower")
+
+
+def is_monitor_name(name: str) -> bool:
+    """monitor（相手の声）として扱う入力デバイス名か"""
+    lower = name.lower()
+    if lower.endswith(".monitor") or lower.startswith("monitor of "):
+        return True
+    return sys.platform == "darwin" and lower.startswith(_MAC_LOOPBACK_PREFIXES)
 
 
 def _wpctl_status(args: list[str]) -> str:
@@ -183,7 +194,7 @@ def snapshot_devices() -> dict[str, Any]:
     desc_map = _wpctl_description_map()
     for name in (nodes or inputs):
         entry = {"name": name, "label": _device_label(name, desc_map)}
-        if name.endswith(".monitor") or name.lower().startswith("monitor of "):
+        if is_monitor_name(name):
             monitor.append(entry)
         else:
             mic.append(entry)

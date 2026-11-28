@@ -8,7 +8,8 @@ shadow-clerk は Linux 専用。主な依存: PipeWire/PulseAudio（音声キャ
 
 - 2026-04-25 Windows 対応 Phase A1 部分完了: データディレクトリ・`clerk-util stop/restart/start` の分岐・evdev Linux 限定化。Linux 動作はそのまま温存。
 - 2026-04-25 Windows 対応 Phase A2 完了: WASAPI ループバックモニターを `soundcard` パッケージベースで実装 (`WasapiSoundcardBackend`)。`clerk-util` の `pkill` フォールバック・`SIGHUP` 登録・`os.execv` パス解決も Windows 対応済み。
-- 残: macOS 対応、PipeWire/PulseAudio 直叩きの完全廃止(Phase B、未着手)。
+- 2026-11-28 macOS 対応: sounddevice（Core Audio）+ 仮想オーディオドライバ（BlackHole）を monitor に使う。設計は `docs/superpowers/specs/2026-11-28-macos-support-design.md`。
+- 残: PipeWire/PulseAudio 直叩きの完全廃止(Phase B、未着手)、macOS で Claude の声を会議に届ける経路、Core Audio Process Tap による仮想ドライバ不要のキャプチャ。
 
 ## プラットフォーム依存箇所
 
