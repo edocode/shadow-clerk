@@ -10,7 +10,7 @@ A tool that records web meeting audio (your microphone and the speaker output) i
 - start and end meeting sessions from **Google Calendar**;
 - put **screenshots** (a browser tab or the whole screen) on the transcript timeline with a Chrome extension.
 
-It runs on Linux and Windows. Transcription and LibreTranslate translation work fully offline; the rest is optional.
+It runs on Linux, Windows and macOS. Transcription and LibreTranslate translation work fully offline; the rest is optional.
 
 Available on PyPI: <https://pypi.org/project/shadow-clerk/>
 
@@ -42,7 +42,7 @@ Available on PyPI: <https://pypi.org/project/shadow-clerk/>
 |----|--------|-------|
 | Linux (PipeWire/PulseAudio) | Supported | Primary development target |
 | Windows 10/11 | Supported | Monitor capture via WASAPI loopback (default playback device) |
-| macOS | Not supported yet | Requires a virtual audio driver (e.g. BlackHole) — not implemented |
+| macOS | Supported | Monitor capture through a virtual audio driver (BlackHole) — see [macOS-specific notes](#macos-specific-notes) |
 
 ### Windows-specific notes
 
@@ -115,6 +115,51 @@ foreach ($s in @(@("Shadow Clerk", "start -d"), @("Shadow Clerk (stop)", "stop")
 To create one by hand instead: right-click the desktop → **New** → **Shortcut**, enter `%USERPROFILE%\.local\bin\clerk-util.exe start -d` (`uv tool dir --bin` prints the folder if it differs), and name it.
 
 To start the daemon when you sign in, copy the **Shadow Clerk** shortcut into the Startup folder (press Win+R and enter `shell:startup` to open it).
+
+### macOS-specific notes
+
+macOS cannot record what other apps play, so the monitor (the other participants' voices) is captured through a virtual audio driver. [BlackHole](https://github.com/ExistentialAudio/BlackHole) is detected automatically; any other driver works if you set `monitor_device` to its name.
+
+For a step-by-step walkthrough with screenshots, including earphones and troubleshooting, see [docs/macos-setup.md](docs/macos-setup.md).
+
+#### Prerequisites
+
+```bash
+xcode-select --install                                # git
+curl -LsSf https://astral.sh/uv/install.sh | sh       # uv
+uv python install 3.13                                # the bundled Python 3.9 is too old
+brew install blackhole-2ch                            # or the installer from the BlackHole site
+```
+
+- **uv**: the installer adds `~/.local/bin` to `PATH` in your shell profile. Open a new terminal window before running `uv` (or run `source ~/.zprofile`).
+- **Homebrew** (for `brew install`): install it from <https://brew.sh>:
+  ```bash
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  ```
+  It asks for your login password. Then run the two commands it prints under **Next steps** to add `brew` to `PATH`.
+
+If BlackHole does not show up in `clerk-daemon --list-devices`, restart Core Audio with `sudo killall coreaudiod` (or reboot).
+
+#### Route system audio into BlackHole
+
+1. Open **Audio MIDI Setup** (a separate app in **Applications → Utilities**, not a pane of System Settings), click **+** → **Create Multi-Output Device**
+2. Tick your speakers/headphones and **BlackHole 2ch**. Make the speakers/headphones the primary device and enable **Drift Correction** on BlackHole
+3. Right-click the new device → **Use This Device For Sound Output**
+4. Keep **System Settings → Sound → Input** on your real microphone. The microphone follows the OS default input; shadow-clerk logs a warning if that is BlackHole
+
+The volume keys do not work while a Multi-Output Device is the output; set the volume per device in Audio MIDI Setup.
+
+#### Install
+
+Use step 2 of [Setup](#setup) as on Linux (no system package is needed: the `sounddevice` wheel ships PortAudio). Whisper runs on the CPU.
+
+#### Notes
+
+- **Permissions** (System Settings → Privacy & Security): **Microphone** for the terminal you launch from; **Accessibility** and **Input Monitoring** for Push-to-Talk; **Screen Recording** for the extension's whole-screen screenshots.
+- **`voice_command_key`**: Mac keyboards have no `f23` or Menu key. Set it to `alt_r` (right Option), another modifier, `f13`–`f20`, or `null`.
+- **Data directory**: `~/.local/share/shadow-clerk`, the same as Linux.
+- **Talk with Claude**: sending Claude's voice into a meeting app needs PipeWire, so that option is disabled on macOS.
+- **Docker**: not supported (the image expects a Linux PulseAudio socket).
 
 ## Features and requirements
 
@@ -904,7 +949,7 @@ and `exclude=claude` drops Claude's own `[Claude]` lines, sending nothing when a
 | `talk_engine` | `console` | `console` (AI Console + clerk-talk skill) or `headless` (`claude -p`) |
 | `talk_route_app` | `""` | Last app chosen under "Send Claude's voice to" (start-dialog default). While the speaker (monitor) is muted — e.g. you only route the voice to record a solo practice — Claude behaves as in a one-to-one talk: no "um," before speaking, and practice-language sentences use the browser voice |
 | `talk_echo_tail_sec` | `0.3` | A monitor line that starts within this many seconds after Claude stops speaking is treated as Claude's own voice (covers output and capture latency). Lines that start later are kept. If the other side starts talking right after Claude with no silence gap, the VAD merges the two into one segment and it is dropped |
-| `talk_workdir` | `""` | Working directory for the talk session (empty = `ai_assistant_workdir`, then home). The start dialog can override it per session |
+| `talk_workdir` | `""` | Working directory for the talk session (empty = `ai_assistant_workdir`, then `DATA_DIR/workspace`, an empty folder created on demand; never your home folder). The start dialog can override it per session |
 | `talk_model` | `""` | Model for the talk session (empty = claude default); applies to both engines, picked in the start dialog |
 | `talk_allowed_tools` | `WebSearch,WebFetch,Read,Grep,Glob` | Tools Claude may use while talking (`""` = none) (headless only) |
 | `talk_language` | `""` | Conversation language (empty = `translate_language`). Falls back to the TTS default when unsupported (VOICEVOX: Japanese only) |
@@ -949,7 +994,7 @@ Generated meeting minutes are saved to `~/.local/share/shadow-clerk/summary-YYYY
 
 An AI assistant (`claude` or `codex`) can run inside a PTY on the dashboard's **AI assistant screen** (in the bottom drawer, or in the centre via **🪟 View ▾**), watching the meeting transcript and writing generated documents back for the dashboard to display.
 
-- **Installing the skill**: the assistant runs a bundled skill (`clerk-meeting-helper`; `clerk-talk`, `clerk-practice` and `voicevox-sing` for [talk mode](#talk-with-claude) are installed with it) that has to be copied into the agent's own skills directory. The Welcome dialog offers this on a first run, and the command does the same:
+- **Installing the skill**: the assistant runs a bundled skill (`clerk-meeting-helper`; `clerk-talk`, `clerk-practice` and `voicevox-sing` for [talk mode](#talk-with-claude) are installed with it) that has to be copied into the agent's own skills directory. `clerk-daemon` does this by itself at startup for `~/.claude/skills` and `~/.agents/skills` when the skills are not there yet (only if `~/.claude` / `~/.agents` exists, i.e. that CLI is installed; older versions are left to the update dialog). The command does the same by hand:
 
   ```bash
   clerk-util install-skill                        # ~/.claude/skills/   (Claude Code)
@@ -1000,7 +1045,7 @@ auto_analyze: false           # Launch the AI assistant and run the meeting skil
 ai_assistant_command: claude  # Command to run in the AI Console (claude, codex, ...)
 ai_assistant_args: ''         # Arguments for that command, split with shlex
 ai_assistant_init_prompt: /clerk-meeting-helper {transcript} {lang}  # Sent to the PTY once the TUI is ready. {transcript}, {meeting} and {lang} are substituted ({lang} = translate_language)
-ai_assistant_workdir: ''      # Default working directory (e.g. a Git repository), added as a reference folder. Per-meeting overrides live in meetings[].workdir of DATA_DIR/meeting.yaml
+ai_assistant_workdir: ''      # Default working directory (e.g. a Git repository), added as a reference folder. Empty = DATA_DIR/workspace (not home). Per-meeting overrides live in meetings[].workdir of DATA_DIR/meeting.yaml
 ai_reference_dirs: []         # Folders the assistant may read in every meeting (relative = from the data directory)
 
 # --- Transcription ---
