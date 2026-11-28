@@ -861,6 +861,15 @@ def test_api_say_display() -> None:
           written[-1].text == "ライト（光）" and made["player"].spoken[-1:] == ["light"], repr(made["player"].spoken))
     made["engine"].pending_cut = "途中の文。"
     check("制止の cut は読む文のまま", d.api_say("x", None, "表示") == {"status": "interrupted", "cut": "途中の文。"})
+    n = len(written)
+    d.api_say("次の文です。", None, "（問題1・光）")
+    d.api_say("light", None, "（問題1・光）")
+    check("紹介とお手本に同じ display を付けても行は1つ", [w.text for w in written[n:]] == ["（問題1・光）"],
+          repr([w.text for w in written[n:]]))
+    d.on_self_line(TranscriptLine("2026-01-01 00:00:00", Speaker.SELF, "light"))
+    d.api_say("light", None, "（問題1・光）")
+    check("間に発言があれば同じ display でも書く", [w.text for w in written[n:]] == ["（問題1・光）"] * 2,
+          repr([w.text for w in written[n:]]))
 
 
 def test_filler() -> None:
