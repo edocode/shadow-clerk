@@ -26,8 +26,11 @@ function speechReady(){
   _speechLast=Date.now();
   _speechPost('/api/talk-speech/ready',{tab:SPEECH_TAB,langs});
 }
+/* macOS の「おもしろ音声」。名前順で英語の先頭に来る Albert は怪物のような声になるので選ばない */
+const _SPEECH_NOVELTY=/^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Fred|Junior|Kathy|Ralph)$/i;
 function _speechVoice(lang){
-  return speechSynthesis.getVoices().find(v=>String(v.lang||'').toLowerCase().split(/[-_]/)[0]===lang)||null;
+  const vs=speechSynthesis.getVoices().filter(v=>String(v.lang||'').toLowerCase().split(/[-_]/)[0]===lang&&!_SPEECH_NOVELTY.test(v.name));
+  return vs.find(v=>v.default)||vs.find(v=>v.localService)||vs[0]||null;
 }
 /* Chrome は参照の切れた utterance を読み終える前に GC し、onend が来なくなる。読み終えるまでここに持っておく */
 const _speechLive=new Set();
