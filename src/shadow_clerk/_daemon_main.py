@@ -241,9 +241,10 @@ def main() -> None:
     # **ロギング設定より後に呼ぶこと。** 前に置くと移行した事実がどこにも
     # 残らず、設定が動いた理由を後から追えない
     from shadow_clerk.domain.meeting_config import migrate_legacy
-    from shadow_clerk.skill_install import migrate_init_prompt
+    from shadow_clerk.skill_install import install_missing, migrate_init_prompt
     migrate_legacy()
     migrate_init_prompt()
+    install_missing()
     from shadow_clerk._transcript_layout import migrate_flat_files
     from shadow_clerk._daemon_constants import SESSION_FILE
     migrate_flat_files(SESSION_FILE)
