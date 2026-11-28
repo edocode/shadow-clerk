@@ -300,17 +300,9 @@ class _RecorderCommandMixin:
         """config の voice_command_key 文字列を pynput のキーオブジェクトに変換"""
         if not _HAS_PYNPUT:
             return None
-        key_map = {
-            "menu": pynput_keyboard.Key.menu,
-            "ctrl_r": pynput_keyboard.Key.ctrl_r,
-            "ctrl_l": pynput_keyboard.Key.ctrl_l,
-            "alt_r": pynput_keyboard.Key.alt_r,
-            "alt_l": pynput_keyboard.Key.alt_l,
-            "shift_r": pynput_keyboard.Key.shift_r,
-            "shift_l": pynput_keyboard.Key.shift_l,
-        }
-        if key_name in key_map:
-            return key_map[key_name]
+        # macOS の pynput には menu が無い（Mac のキーボードにも無い）ので getattr で引く
+        if key_name in ("menu", "ctrl_r", "ctrl_l", "alt_r", "alt_l", "shift_r", "shift_l"):
+            return getattr(pynput_keyboard.Key, key_name, None)
         # ファンクションキー: f1〜f20 は pynput の Key enum に定義がある。
         # デフォルト設定の f23 など f21〜f24 は VK/keysym から直接生成する
         # (X11: XK_F1=0xffbe 起点、Windows: VK_F1=0x70 起点)
@@ -318,15 +310,17 @@ class _RecorderCommandMixin:
             n = int(m.group(1))
             if n <= 20 and hasattr(pynput_keyboard.Key, key_name):
                 return getattr(pynput_keyboard.Key, key_name)
+            # Mac には f21 以降のキーも仮想キーコードも無い
             base = 0x70 if sys.platform == "win32" else 0xFFBE
-            return pynput_keyboard.KeyCode.from_vk(base + n - 1)
+            return None if sys.platform == "darwin" else pynput_keyboard.KeyCode.from_vk(base + n - 1)
         return None
 
     def _key_listener_thread(self) -> None:
         """pynput でグローバルキー監視を行うスレッド"""
         target_key = self._resolve_pynput_key(self._voice_command_key)
         if target_key is None:
-            logger.warning("voice_command_key '%s' を解決できません", self._voice_command_key)
+            logger.warning("voice_command_key '%s' を解決できません%s", self._voice_command_key,
+                           "（macOS では alt_r などを指定してください）" if sys.platform == "darwin" else "")
             return
 
         logger.info("キーリスナー開始: %s", self._voice_command_key)
@@ -345,6 +339,8 @@ class _RecorderCommandMixin:
                 logger.info(t("rec.ptt_off", vkey=self._voice_command_key))
 
         with pynput_keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
+            if getattr(listener, "IS_TRUSTED", True) is False:
+                logger.warning("キー入力を監視できません。システム設定の「アクセシビリティ」と「入力監視」で許可してください")
             self.stop_event.wait()
             listener.stop()
 

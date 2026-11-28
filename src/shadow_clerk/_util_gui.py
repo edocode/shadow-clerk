@@ -380,7 +380,8 @@ class _GuiApp:
         if sys.platform == "win32":
             os.startfile(self._log_path)  # noqa: S606  # pylint: disable=no-member
         else:
-            subprocess.Popen(["xdg-open", self._log_path],
+            opener = "open" if sys.platform == "darwin" else "xdg-open"
+            subprocess.Popen([opener, self._log_path],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def _on_close(self) -> None:

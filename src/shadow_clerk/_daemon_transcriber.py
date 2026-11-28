@@ -176,7 +176,8 @@ class Transcriber:
                     _ld = os.environ.get("LD_LIBRARY_PATH", "")
                     if _so_lib not in _ld:
                         os.environ["LD_LIBRARY_PATH"] = f"{_so_lib}:{_ld}" if _ld else _so_lib
-                        ctypes.cdll.LoadLibrary(os.path.join(_so_lib, "libonnxruntime.so"))
+                        _ort = "libonnxruntime.dylib" if sys.platform == "darwin" else "libonnxruntime.so"
+                        ctypes.cdll.LoadLibrary(os.path.join(_so_lib, _ort))
                 from reazonspeech.k2.asr import load_model as k2_load_model
             except (ImportError, OSError) as e:
                 logger.warning("reazonspeech-k2 の読み込みに失敗: %s — "
