@@ -149,5 +149,31 @@ check("33. レンダラが dim を出す", "dim" in style_key(s_dim.buffer[0][0]
 from shadow_clerk._daemon_dashboard_css import _CSS_TEMPLATE as _CSS  # noqa: E402
 check("34. CSS に .cs-dim がある", ".cs-dim" in _CSS)
 
+# --- pyte が private を受け付けない `?` 列（macOS の claude で AI Console が固まった） ---
+
+check("35. ESC[?6n (カーソル位置の問い合わせ) で pyte が落ちない",
+      run([f"A{E}[?6nB"]).display[0].rstrip() == "AB")
+check("36. ESC[?u (Kitty の問い合わせ) も落とす",
+      run([f"A{E}[?uB"]).display[0].rstrip() == "AB")
+check("37. 2 チャンクに割れた ESC[?6n も落とす",
+      run([f"A{E}[?", "6nB"]).display[0].rstrip() == "AB")
+check("38. ESC[?1049h のようなモード切替は通す",
+      PrivateCsiFilter().feed(f"{E}[?1049h") == f"{E}[?1049h")
+
+from shadow_clerk._daemon_console_filter import safe_feed  # noqa: E402
+_scr = pyte.Screen(20, 2)
+_stm = pyte.Stream(_scr)
+_stm2 = safe_feed(_stm, _scr, f"{E}[?6n")  # フィルタを通さないと pyte が例外を出す
+_stm2 = safe_feed(_stm2, _scr, "OK")
+check("39. pyte が例外を出しても作り直して以後の出力を描く",
+      _stm2 is not _stm and _scr.display[0].rstrip() == "OK", repr(_scr.display[0]))
+
+from shadow_clerk._daemon_console_filter import is_trust_prompt  # noqa: E402
+_trust = pyte.Screen(60, 30)
+pyte.Stream(_trust).feed(" Quick safety check: Is this a project you trust?\r\n ❯ No, exit\r\n"
+                         "   Yes, I trust this folder\r\n Enter to confirm")
+check("40. フォルダの信頼の確認を見つける", is_trust_prompt(_trust))
+check("41. 普通の入力欄は信頼の確認ではない", not is_trust_prompt(run(["❯ /clerk-talk"])))
+
 print(f"\n{sum(results)}/{len(results)} passed")
 raise SystemExit(0 if all(results) else 1)
