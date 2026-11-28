@@ -63,7 +63,7 @@ def _float_setting(config: dict, key: str, default: float, lo: float, hi: float)
 
 
 def resolve_talk_workdir(config: dict, requested: str | None) -> str:
-    """会話役の作業ディレクトリ。開始時の指定 → talk_workdir → ai_assistant_workdir → ホーム。
+    """会話役の作業ディレクトリ。開始時の指定 → talk_workdir → ai_assistant_workdir → DATA_DIR/workspace。
 
     開始時に明示された場所が無いときは黙ってホームに落とさない。違うリポジトリで作業を始めてしまうため
     """

@@ -254,7 +254,7 @@ DEFAULT_CONFIG = {
     "talk_engine": "console",        # console = AI Console の talk 枠 + clerk-talk skill / headless = claude -p
     "talk_route_app": "",            # 最後に選んだ「Claude の声を届ける先」のアプリ名（開始モーダルの初期値）
     "talk_echo_tail_sec": 0.3,       # 読み上げ終了後この秒数までに始まった monitor の行を Claude の声とみなす（再生・録音の遅れ分）
-    "talk_workdir": "",              # 会話役の作業ディレクトリ。空なら ai_assistant_workdir → ホーム
+    "talk_workdir": "",              # 会話役の作業ディレクトリ。空なら ai_assistant_workdir → DATA_DIR/workspace
     "english_accent": "american",    # 練習する英語（american / british）。発音の判定・発音記号・図鑑の声・お手本の声を揃える
     "pronounce_british": False,      # イギリス英語の発音を判定するか。ゲート（PER 15%）を通っていないので既定 off（試験的）
     "talk_piper_voice": "recommended:american",    # ja 以外の文を読む piper の声。random / random:<なまり>（VCTK から会話ごとに選ぶ）/ recommended:american|british / p239 などで固定

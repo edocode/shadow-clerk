@@ -15,6 +15,18 @@ logger = logging.getLogger("shadow-clerk")
 _PLACEHOLDER = re.compile(r"\{(transcript|meeting|lang)\}")
 
 
+def default_workdir() -> str:
+    """作業ディレクトリの指定が無いときの起動先（データフォルダの workspace、無ければ作る）。
+
+    ホームで起動すると Claude が鍵や他のリポジトリまで読み書きできてしまう。会話役のスキルは
+    ダッシュボードの API だけで動くので、空のフォルダで足りる
+    """
+    from shadow_clerk import get_data_dir
+    path = os.path.join(get_data_dir(), "workspace")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
 def _split_args(raw: str) -> list[str]:
     """引数文字列をトークンに割る。
 
@@ -52,7 +64,8 @@ class AiAssistantConfig:
             logger.warning("ai_assistant_args を解釈できません (%s): %r", e, raw_args)
             args = ()
         return cls(
-            command=_get("ai_assistant_command") or "claude",
+            # 子プロセスはシェルを通さないので ~ は自分で展開する（設定画面で ~/.local/bin/claude と書ける）
+            command=os.path.expanduser(_get("ai_assistant_command") or "claude"),
             args=args,
             init_prompt=_get("ai_assistant_init_prompt"),
             workdir=_get("ai_assistant_workdir"),
@@ -82,14 +95,13 @@ class AiAssistantConfig:
         return _PLACEHOLDER.sub(lambda m: values[m.group(1)], self.init_prompt)
 
     def meeting_workdir(self, meeting: str) -> str:
-        """会議ごとの作業ディレクトリ設定 → 全体の設定 → ホーム。会議中のアシスタントは会議のフォルダで起動し、
+        """会議ごとの作業ディレクトリ設定 → 全体の設定 → default_workdir()。会議中のアシスタントは会議のフォルダで起動し、
         これは参考フォルダとして足す（Git リポジトリなど）"""
         from shadow_clerk.domain.meeting_config import MeetingConfig
         return self.resolve_workdir(MeetingConfig.load().resolve_workdir(meeting))
 
     def resolve_workdir(self, override: str = "") -> str:
-        """起動ディレクトリを決める。override → 設定 → ホーム の順"""
-        home = os.path.expanduser("~")
+        """起動ディレクトリを決める。override → 設定 → default_workdir() の順"""
         for candidate in (override, self.workdir):
             if not candidate:
                 continue
@@ -97,4 +109,4 @@ class AiAssistantConfig:
             if os.path.isdir(path):
                 return path
             logger.warning("workdir が存在しません: %s", path)
-        return home
+        return default_workdir()

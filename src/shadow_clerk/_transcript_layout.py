@@ -127,10 +127,11 @@ class TranscriptLayout:
         """会議中の AI が、その会議のフォルダのほかに参考にしてよいフォルダ（全体の設定 + 会議ごとの設定 + extra）。
 
         相対パスはデータフォルダから数える（`sharable` や `private/1on1` と書ける）。実在するものだけ返す。
-        会議のフォルダ自身とホーム（全部が読めてしまう）は入れない
+        会議のフォルダ自身、ホーム（全部が読めてしまう）、既定の作業ディレクトリ（空のフォルダ）は入れない
         """
+        from shadow_clerk.domain.ai_assistant import default_workdir
         from shadow_clerk.domain.meeting_config import MeetingConfig
-        skip = {self.meeting_dir(meeting) if meeting else None, os.path.expanduser("~")}
+        skip = {self.meeting_dir(meeting) if meeting else None, os.path.expanduser("~"), default_workdir()}
         out: list[str] = []
         for entry in (*self.references, *MeetingConfig.load().resolve(meeting)["reference_dirs"], *extra):
             path = os.path.normpath(os.path.join(self.root, os.path.expanduser(entry.strip())))
